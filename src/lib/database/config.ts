@@ -96,32 +96,37 @@ export function validateDatabaseConfig(config: DatabaseConfig): void {
 export function getConnectionString(config: DatabaseConfig): string {
   let connectionString = config.url;
 
-  // For Supabase, if the URL already contains pooler configuration, don't modify it
-  if (config.provider === 'supabase' && connectionString.includes('pooler.supabase.com')) {
-    // Session Pooler URLs should be used as-is to avoid IPv4/IPv6 issues
+  // Parse existing URL to avoid duplicating parameters
+  let url: URL;
+  try {
+    url = new URL(connectionString);
+  } catch (error) {
+    console.warn('Invalid database URL format, using as-is');
     return connectionString;
   }
 
-  // Add provider-specific connection parameters for other cases
-  const params = new URLSearchParams();
-
-  if (config.pooling && config.provider !== 'supabase') {
-    params.set('pgbouncer', 'true');
+  // CRITICAL: Ensure pgbouncer=true is set for pooled connections
+  // This prevents DEALLOCATE ALL overhead that causes 200-600ms per query
+  if (config.pooling || connectionString.includes('pooler.supabase.com')) {
+    url.searchParams.set('pgbouncer', 'true');
   }
 
-  if (config.ssl) {
-    params.set('sslmode', 'require');
+  // For Supabase pooler URLs, optimize connection settings
+  if (config.provider === 'supabase' && connectionString.includes('pooler.supabase.com')) {
+    url.searchParams.set('pgbouncer', 'true');
+    // Don't set connection_limit=1 as it may cause issues
+    // Let Supabase handle connection pooling optimally
   }
 
-  if (config.maxConnections && config.provider !== 'supabase') {
-    params.set('connection_limit', config.maxConnections.toString());
+  // Set SSL mode if required and not already set
+  if (config.ssl && !url.searchParams.has('sslmode')) {
+    url.searchParams.set('sslmode', 'require');
   }
 
-  // Append parameters if any
-  if (params.toString()) {
-    const separator = connectionString.includes('?') ? '&' : '?';
-    connectionString += separator + params.toString();
+  // Set connection limit for non-Supabase providers
+  if (config.maxConnections && config.provider !== 'supabase' && !url.searchParams.has('connection_limit')) {
+    url.searchParams.set('connection_limit', config.maxConnections.toString());
   }
 
-  return connectionString;
+  return url.toString();
 }

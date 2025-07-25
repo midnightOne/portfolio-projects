@@ -3,7 +3,7 @@
  * Handles Vercel-specific optimizations and features
  */
 
-import { PrismaClient } from '@/generated/prisma';
+import { PrismaClient } from '@prisma/client';
 import { 
   BaseDatabaseAdapter, 
   DatabaseConfiguration, 

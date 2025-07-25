@@ -3,7 +3,7 @@
  * Handles local development database optimizations
  */
 
-import { PrismaClient } from '@/generated/prisma';
+import { PrismaClient } from '@prisma/client';
 import { 
   BaseDatabaseAdapter, 
   DatabaseConfiguration, 

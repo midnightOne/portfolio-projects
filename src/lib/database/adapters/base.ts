@@ -3,7 +3,7 @@
  * Defines the contract for all database providers
  */
 
-import { PrismaClient } from '@/generated/prisma';
+import { PrismaClient } from '@prisma/client';
 
 export interface DatabaseAdapter {
   readonly name: string;

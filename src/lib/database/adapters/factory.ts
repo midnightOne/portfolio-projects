@@ -3,7 +3,7 @@
  * Creates appropriate adapter based on configuration
  */
 
-import { PrismaClient } from '@/generated/prisma';
+import { PrismaClient } from '@prisma/client';
 import { DatabaseProvider, DatabaseConfig } from '../config';
 import { DatabaseAdapter, DatabaseConfiguration } from './base';
 import { SupabaseAdapter } from './supabase';

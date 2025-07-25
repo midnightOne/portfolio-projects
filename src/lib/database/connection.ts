@@ -1,9 +1,15 @@
 /**
  * Database connection utilities with provider abstraction
  * OPTIMIZED VERSION with connection pooling and reduced transaction overhead
+ * 
+ * PERFORMANCE OPTIMIZATIONS:
+ * - Singleton pattern to prevent connection churn
+ * - pgbouncer=true to disable prepared statements with transaction pooling
+ * - Reduced logging and transaction timeouts
+ * - Custom optimized queries to prevent N+1 problems
  */
 
-import { PrismaClient } from '@/generated/prisma';
+import { PrismaClient } from '@prisma/client';
 import { getDatabaseConfig, validateDatabaseConfig, getConnectionString } from './config';
 import { profiler } from '@/lib/utils/performance';
 
@@ -36,14 +42,21 @@ function createPrismaClient(): PrismaClient {
     // OPTIMIZED: Minimal logging to reduce overhead
     log: process.env.NODE_ENV === 'development' 
       ? [{ emit: 'event', level: 'query' }]
-      : []
+      : [],
+    // SERVERLESS OPTIMIZATION: Reduce connection overhead
+    errorFormat: 'minimal',
+    transactionOptions: {
+      timeout: 10000, // 10 seconds
+      maxWait: 2000,  // 2 seconds max wait for transaction
+    },
   });
 
-  // OPTIMIZED: Only monitor truly slow queries (>200ms) to reduce noise
+  // OPTIMIZED: Monitor slow queries (>50ms after optimizations) to detect issues
   if (process.env.NODE_ENV === 'development') {
-    prisma.$on('query', (e) => {
-      if (e.duration > 200) { // Only log very slow queries
-        console.warn(`🐌 Very slow query (${e.duration}ms):`, e.query.substring(0, 80) + '...');
+    prisma.$on('query', (e: any) => {
+      if (e.duration > 50) { // With pgbouncer=true, queries should be much faster
+        const severity = e.duration > 200 ? '🐌 VERY SLOW' : '⚠️  Slow';
+        console.warn(`${severity} query (${e.duration}ms):`, e.query.substring(0, 80) + '...');
       }
     });
   }
@@ -53,13 +66,10 @@ function createPrismaClient(): PrismaClient {
 
 /**
  * Get or create Prisma client instance
- * Uses singleton pattern to prevent multiple connections in development
+ * Uses singleton pattern to prevent connection churn in serverless environments
  */
 export function getPrismaClient(): PrismaClient {
-  if (process.env.NODE_ENV === 'production') {
-    return createPrismaClient();
-  }
-
+  // ALWAYS use singleton pattern to prevent connection churn
   if (!global.__prisma) {
     global.__prisma = createPrismaClient();
   }
