@@ -1,6 +1,6 @@
 "use client";
 
-import React from 'react';
+import React, { Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ProjectsLayout } from '@/components/layout/projects-layout';
 import { ProjectGrid } from '@/components/projects/project-grid';
@@ -9,7 +9,7 @@ import { useProjects } from '@/hooks/use-projects';
 import type { ViewMode } from '@/components/layout/navigation-bar';
 import type { ProjectWithRelations } from '@/lib/types/project';
 
-export default function ProjectsPage() {
+function ProjectsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
@@ -48,14 +48,14 @@ export default function ProjectsPage() {
       
       if (!response.ok) {
         if (response.status === 404) {
-          console.error('Project not found:', projectSlug);
+          console.warn(`Project with slug "${projectSlug}" not found`);
           return null;
         }
         throw new Error(`Failed to fetch project: ${response.statusText}`);
       }
-
+      
       const data = await response.json();
-      return data.data?.project;
+      return data.data?.project || null;
     } catch (error) {
       console.error('Error fetching project details:', error);
       return null;
@@ -64,70 +64,50 @@ export default function ProjectsPage() {
     }
   };
 
-  const handleProjectClick = async (projectId: string, updateUrl: boolean = true) => {
-    // Try to find project in current list first (for basic info)
-    const existingProject = projects.find(p => p.id === projectId || p.slug === projectId);
+  const handleProjectClick = async (projectSlug: string, updateUrl: boolean = true) => {
+    setProjectLoading(true);
+    setProjectModalOpen(true);
     
-    if (existingProject) {
-      setSelectedProject(existingProject);
-      setProjectModalOpen(true);
-      
-      if (updateUrl) {
-        // Update URL to reflect selected project
-        const newSearchParams = new URLSearchParams(searchParams.toString());
-        newSearchParams.set('project', existingProject.slug);
-        router.push(`/projects?${newSearchParams.toString()}`, { scroll: false });
-      }
-      
-      // Fetch full project details (this will also track analytics via the API)
-      const fullProject = await fetchProjectDetails(existingProject.slug);
-      if (fullProject) {
-        setSelectedProject(fullProject);
-      }
+    if (updateUrl) {
+      // Update URL without causing a full navigation
+      const url = new URL(window.location.href);
+      url.searchParams.set('project', projectSlug);
+      window.history.pushState({}, '', url.toString());
+    }
+    
+    const projectDetails = await fetchProjectDetails(projectSlug);
+    if (projectDetails) {
+      setSelectedProject(projectDetails);
     } else {
-      // If project not in current list, fetch it directly
-      setProjectModalOpen(true);
-      const fullProject = await fetchProjectDetails(projectId);
-      if (fullProject) {
-        setSelectedProject(fullProject);
-        
-        if (updateUrl) {
-          const newSearchParams = new URLSearchParams(searchParams.toString());
-          newSearchParams.set('project', fullProject.slug);
-          router.push(`/projects?${newSearchParams.toString()}`, { scroll: false });
-        }
-      } else {
-        // Project not found, close modal
-        setProjectModalOpen(false);
-        if (updateUrl) {
-          const newSearchParams = new URLSearchParams(searchParams.toString());
-          newSearchParams.delete('project');
-          router.push(`/projects?${newSearchParams.toString()}`, { scroll: false });
-        }
+      // Project not found, close modal and remove from URL
+      setProjectModalOpen(false);
+      if (updateUrl) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('project');
+        window.history.pushState({}, '', url.toString());
       }
     }
   };
 
   const handleCloseModal = (updateUrl: boolean = true) => {
-    setProjectModalOpen(false);
     setSelectedProject(null);
+    setProjectModalOpen(false);
     setProjectLoading(false);
     
     if (updateUrl) {
-      // Remove project from URL
-      const newSearchParams = new URLSearchParams(searchParams.toString());
-      newSearchParams.delete('project');
-      const newUrl = newSearchParams.toString() 
-        ? `/projects?${newSearchParams.toString()}`
-        : '/projects';
-      router.push(newUrl, { scroll: false });
+      // Remove project from URL without causing a full navigation
+      const url = new URL(window.location.href);
+      url.searchParams.delete('project');
+      window.history.pushState({}, '', url.toString());
     }
   };
 
   // Handle browser back/forward
   React.useEffect(() => {
     const handlePopState = () => {
-      const projectSlug = new URLSearchParams(window.location.search).get('project');
+      const currentParams = new URLSearchParams(window.location.search);
+      const projectSlug = currentParams.get('project');
+      
       if (projectSlug && !projectModalOpen) {
         handleProjectClick(projectSlug, false);
       } else if (!projectSlug && projectModalOpen) {
@@ -137,68 +117,58 @@ export default function ProjectsPage() {
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [projectModalOpen]);
+  }, [handleCloseModal, handleProjectClick]);
 
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <h2 className="text-2xl font-bold text-destructive mb-2">Error Loading Projects</h2>
-          <p className="text-muted-foreground mb-4">{error}</p>
-          <button 
-            onClick={() => window.location.reload()} 
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
-          >
-            Try Again
-          </button>
+          <h1 className="text-2xl font-bold text-red-600 mb-4">Error Loading Projects</h1>
+          <p className="text-gray-600">{error}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <>
-      <ProjectsLayout
-        tags={tags}
-        selectedTags={selectedTags}
-        onTagSelect={setSelectedTags}
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        sortBy={sortBy}
-        onSortChange={setSortBy}
-        viewMode={viewMode}
-        onViewModeChange={setViewMode}
-        isLoading={loading}
-      >
-        {viewMode === 'grid' ? (
-          <ProjectGrid
-            projects={projects}
-            loading={loading}
-            onProjectClick={handleProjectClick}
-            showViewCount={true}
-          />
-        ) : (
-          // TODO: Implement timeline view in future iteration
-          <div className="text-center py-16">
-            <h3 className="text-lg font-semibold mb-2">Timeline View</h3>
-            <p className="text-muted-foreground">Timeline view will be implemented in a future iteration.</p>
-            <button 
-              onClick={() => setViewMode('grid')}
-              className="mt-4 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
-            >
-              Switch to Grid View
-            </button>
-          </div>
-        )}
-      </ProjectsLayout>
-
-      {/* Project Detail Modal */}
+    <ProjectsLayout
+      searchQuery={searchQuery}
+      onSearchChange={setSearchQuery}
+      selectedTags={selectedTags}
+      onTagSelect={setSelectedTags}
+      tags={tags}
+      sortBy={sortBy}
+      onSortChange={setSortBy}
+      viewMode={viewMode}
+      onViewModeChange={setViewMode}
+    >
+      <ProjectGrid
+        projects={projects}
+        loading={loading}
+        onProjectClick={(projectId) => handleProjectClick(projectId)}
+      />
+      
       <ProjectModal
         project={selectedProject}
         isOpen={projectModalOpen}
         onClose={() => handleCloseModal()}
         loading={projectLoading}
       />
-    </>
+    </ProjectsLayout>
+  );
+}
+
+export default function ProjectsPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading projects...</p>
+        </div>
+      </div>
+    }>
+      <ProjectsPageContent />
+    </Suspense>
   );
 }
