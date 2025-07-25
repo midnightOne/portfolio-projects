@@ -15,6 +15,7 @@
     "db:setup": "tsx scripts/setup-database.ts",
     "db:test": "tsx scripts/test-db-connection.ts",
     "db:test-adapters": "tsx scripts/test-adapters-only.ts",
+    "db:test-adapters-full": "tsx scripts/test-database-adapters.ts",
     "db:switch": "tsx scripts/switch-db-provider.ts",
     "type-check": "tsc --noEmit"
   },
