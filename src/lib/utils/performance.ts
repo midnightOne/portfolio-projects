@@ -218,15 +218,19 @@ export function profileQuery<T>(
   queryName: string,
   params?: any
 ): Promise<T> {
-  const { endQuery } = profiler.startQuery(queryName, params);
+  const queryTracker = profiler.startQuery(queryName, params);
   
   return query()
     .then(result => {
-      endQuery();
+      if (queryTracker?.endQuery) {
+        queryTracker.endQuery();
+      }
       return result;
     })
     .catch(error => {
-      endQuery();
+      if (queryTracker?.endQuery) {
+        queryTracker.endQuery();
+      }
       throw error;
     });
 }
