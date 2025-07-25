@@ -113,9 +113,8 @@ async function projectsHandler(request: NextRequest) {
       break;
   }
 
-  // OPTIMIZED: Break complex query into parallel simple queries using new indexes
+  // OPTIMIZED: Back to single efficient query with selective includes using our new indexes
   const [projects, totalCount] = await Promise.all([
-    // Main query: Just projects + tags (using new _ProjectTags indexes)
     profileQuery(
       () => prisma.project.findMany({
         where,
@@ -131,7 +130,7 @@ async function projectsHandler(request: NextRequest) {
           viewCount: true,
           createdAt: true,
           updatedAt: true,
-          // Include tags using optimized relationship
+          // Optimized tags relationship (uses our new _ProjectTags indexes)
           tags: {
             select: {
               id: true,
@@ -140,7 +139,7 @@ async function projectsHandler(request: NextRequest) {
             },
             take: 5
           },
-          // Include thumbnail image only - lightweight  
+          // Essential thumbnail image
           thumbnailImage: {
             select: {
               id: true,
@@ -149,6 +148,44 @@ async function projectsHandler(request: NextRequest) {
               altText: true,
               width: true,
               height: true
+            }
+          },
+          // MINIMAL related data - just what's needed for cards
+          mediaItems: {
+            select: {
+              id: true,
+              url: true,
+              thumbnailUrl: true,
+              altText: true
+            },
+            take: 1,
+            orderBy: { displayOrder: 'asc' },
+            where: { type: 'IMAGE' }
+          },
+          externalLinks: {
+            select: {
+              id: true,
+              url: true,
+              label: true
+            },
+            take: 2,
+            orderBy: { order: 'asc' }
+          },
+          downloadableFiles: {
+            select: {
+              id: true,
+              filename: true,
+              fileSize: true
+            },
+            take: 2,
+            orderBy: { uploadDate: 'desc' }
+          },
+          // Efficient counts using Prisma's optimized _count
+          _count: {
+            select: {
+              mediaItems: true,
+              downloadableFiles: true,
+              externalLinks: true
             }
           }
         },
@@ -159,7 +196,6 @@ async function projectsHandler(request: NextRequest) {
       'projects.findManyOptimized',
       { where, skip, take: params.limit }
     ),
-    // Count query: Use optimized index
     profileQuery(
       () => prisma.project.count({ where }),
       'projects.count',
@@ -167,142 +203,23 @@ async function projectsHandler(request: NextRequest) {
     ),
   ]);
 
-  // Get project IDs for efficient batch queries
-  const projectIds = (projects as any[]).map((p: any) => p.id);
-
-  // PARALLEL batch queries for related data using new indexes
-  const [mediaItems, externalLinks, downloadableFiles, itemCounts] = await Promise.all([
-    // Media items for thumbnails (using new index)
-    profileQuery(
-      () => prisma.mediaItem.findMany({
-        where: { 
-          projectId: { in: projectIds },
-          type: 'IMAGE'
-        },
-        select: {
-          id: true,
-          projectId: true,
-          url: true,
-          thumbnailUrl: true,
-          altText: true
-        },
-        orderBy: { displayOrder: 'asc' }
-      }),
-      'mediaItems.batchFallback',
-      { projectIds }
-    ),
-    // External links (using new index)  
-    profileQuery(
-      () => prisma.externalLink.findMany({
-        where: { projectId: { in: projectIds } },
-        select: {
-          id: true,
-          projectId: true,
-          url: true,
-          label: true,
-          order: true
-        },
-        orderBy: { order: 'asc' }
-      }),
-      'externalLinks.batch',
-      { projectIds }
-    ),
-    // Downloadable files (using new index)
-    profileQuery(
-      () => prisma.downloadableFile.findMany({
-        where: { projectId: { in: projectIds } },
-        select: {
-          id: true,
-          projectId: true,
-          filename: true,
-          fileSize: true,
-          uploadDate: true
-        },
-        orderBy: { uploadDate: 'desc' }
-      }),
-      'downloadableFiles.batch',
-      { projectIds }
-    ),
-    // Counts in a single aggregation query
-    profileQuery(
-      () => prisma.$queryRaw`
-        SELECT 
-          p.id as "projectId",
-          COUNT(DISTINCT m.id) as "mediaCount",
-          COUNT(DISTINCT e.id) as "externalLinksCount", 
-          COUNT(DISTINCT d.id) as "downloadableFilesCount"
-        FROM projects p
-        LEFT JOIN media_items m ON p.id = m."projectId"
-        LEFT JOIN external_links e ON p.id = e."projectId"
-        LEFT JOIN downloadable_files d ON p.id = d."projectId"
-        WHERE p.id = ANY(${projectIds})
-        GROUP BY p.id
-      `,
-      'projects.batchCounts',
-      { projectIds }
-    )
-  ]);
-
-  // Group parallel query results by projectId for efficient lookup
-  const mediaByProject = new Map();
-  const linksByProject = new Map();
-  const filesByProject = new Map();
-  const countsByProject = new Map();
-
-  (mediaItems as any[]).forEach((item: any) => {
-    if (!mediaByProject.has(item.projectId)) {
-      mediaByProject.set(item.projectId, []);
-    }
-    mediaByProject.get(item.projectId).push(item);
-  });
-
-  (externalLinks as any[]).forEach((link: any) => {
-    if (!linksByProject.has(link.projectId)) {
-      linksByProject.set(link.projectId, []);
-    }
-    linksByProject.get(link.projectId).push(link);
-  });
-
-  (downloadableFiles as any[]).forEach((file: any) => {
-    if (!filesByProject.has(file.projectId)) {
-      filesByProject.set(file.projectId, []);
-    }
-    filesByProject.get(file.projectId).push(file);
-  });
-
-  (itemCounts as any[]).forEach((count: any) => {
-    countsByProject.set(count.projectId, {
-      mediaItems: parseInt(count.mediaCount) || 0,
-      externalLinks: parseInt(count.externalLinksCount) || 0,  
-      downloadableFiles: parseInt(count.downloadableFilesCount) || 0
-    });
-  });
-
-  // Transform data for response - combine parallel query results
-  const enrichedProjects = (projects as any[]).map((project: any) => {
-    const projectMedia = mediaByProject.get(project.id) || [];
-    const projectLinks = linksByProject.get(project.id) || [];
-    const projectFiles = filesByProject.get(project.id) || [];
-    const projectCounts = countsByProject.get(project.id) || { mediaItems: 0, externalLinks: 0, downloadableFiles: 0 };
-
-    return {
-      ...project,
-      // Use thumbnail or fallback to first media item
-      thumbnailImage: project.thumbnailImage || (projectMedia[0] ? {
-        id: projectMedia[0].id,
-        url: projectMedia[0].url,
-        thumbnailUrl: projectMedia[0].thumbnailUrl,
-        altText: projectMedia[0].altText,
-        width: null,
-        height: null
-      } : null),
-      // Add related data from parallel queries
-      mediaItems: projectMedia.slice(0, 1), // Just first item for fallback
-      externalLinks: projectLinks.slice(0, 2), // Limit for card display
-      downloadableFiles: projectFiles.slice(0, 2), // Limit for card display
-      _count: projectCounts
-    };
-  });
+  // Simple data transformation for response
+  const enrichedProjects = (projects as any[]).map((project: any) => ({
+    ...project,
+    // Use thumbnail or fallback to first media item
+    thumbnailImage: project.thumbnailImage || (project.mediaItems?.[0] ? {
+      id: project.mediaItems[0].id,
+      url: project.mediaItems[0].url,
+      thumbnailUrl: project.mediaItems[0].thumbnailUrl,
+      altText: project.mediaItems[0].altText,
+      width: null,
+      height: null
+    } : null),
+    // Ensure arrays are never undefined
+    mediaItems: project.mediaItems || [],
+    externalLinks: project.externalLinks || [],
+    downloadableFiles: project.downloadableFiles || []
+  }));
 
   // Create paginated response
   const paginatedResponse = createPaginatedResponse(
