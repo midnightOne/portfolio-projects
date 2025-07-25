@@ -57,13 +57,13 @@ export const AnalyticsEventSchema = z.enum(['VIEW', 'DOWNLOAD', 'EXTERNAL_LINK_C
 export const TagSchema = z.object({
   id: z.string().cuid(),
   name: z.string().min(1).max(100),
-  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).nullable().optional(),
   createdAt: z.date(),
 });
 
 export const CreateTagSchema = z.object({
   name: z.string().min(1).max(100),
-  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).nullable().optional(),
 });
 
 // Media Item validation
@@ -239,7 +239,7 @@ export interface ProjectWithRelations extends Project {
   externalLinks: ExternalLink[];
   downloadableFiles: DownloadableFile[];
   carousels: MediaCarousel[];
-  analytics: ProjectAnalytics[];
+  analytics?: ProjectAnalytics[];
   _count?: {
     mediaItems: number;
     downloadableFiles: number;
