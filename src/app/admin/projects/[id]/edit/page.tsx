@@ -4,9 +4,9 @@ import { ProjectEditor } from "@/components/admin/project-editor";
 import { prisma } from "@/lib/database";
 
 interface EditProjectPageProps {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 }
 
 export default async function EditProjectPage({ params }: EditProjectPageProps) {
@@ -16,9 +16,12 @@ export default async function EditProjectPage({ params }: EditProjectPageProps) 
     redirect("/admin/login");
   }
 
+  // Await the params as they are now a Promise in Next.js 15
+  const { id } = await params;
+
   // Fetch the project data
   const project = await prisma.project.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
       tags: true,
       _count: {
@@ -61,7 +64,7 @@ export default async function EditProjectPage({ params }: EditProjectPageProps) 
 
       <main className="max-w-4xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
         <ProjectEditor 
-          projectId={params.id}
+          projectId={id}
           initialData={projectData}
         />
       </main>

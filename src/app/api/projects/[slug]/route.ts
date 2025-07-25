@@ -143,7 +143,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       },
     });
 
-    const relatedProjects = getRelatedProjects(project, allProjects, 5);
+    const relatedProjects = getRelatedProjects(project as any, allProjects as any, 5);
 
     const response = {
       project,

@@ -6,11 +6,14 @@ import { getMediaProvider } from '@/lib/media';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Await params in Next.js 15
+    const { id } = await params;
+
     const mediaItem = await prisma.mediaItem.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         project: true
       }
@@ -32,7 +35,7 @@ export async function GET(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Check authentication for admin-only operations
@@ -41,9 +44,12 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Await params in Next.js 15
+    const { id } = await params;
+
     // Find the media item
     const mediaItem = await prisma.mediaItem.findUnique({
-      where: { id: params.id }
+      where: { id }
     });
 
     if (!mediaItem) {
@@ -66,12 +72,12 @@ export async function DELETE(
 
     // Delete from database
     await prisma.mediaItem.delete({
-      where: { id: params.id }
+      where: { id }
     });
 
     return NextResponse.json({ 
       message: 'Media item deleted successfully',
-      deletedId: params.id 
+      deletedId: id 
     });
   } catch (error) {
     console.error('Delete media item error:', error);
@@ -84,7 +90,7 @@ export async function DELETE(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Check authentication for admin-only operations
@@ -93,12 +99,15 @@ export async function PUT(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Await params in Next.js 15
+    const { id } = await params;
+
     const body = await request.json();
     const { altText, description } = body;
 
     // Find the media item
     const existingMedia = await prisma.mediaItem.findUnique({
-      where: { id: params.id }
+      where: { id }
     });
 
     if (!existingMedia) {
@@ -107,7 +116,7 @@ export async function PUT(
 
     // Update the media item
     const updatedMedia = await prisma.mediaItem.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         altText: altText || existingMedia.altText,
         description: description !== undefined ? description : existingMedia.description

@@ -5,7 +5,7 @@ import { prisma } from '@/lib/database';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Check authentication
@@ -14,8 +14,11 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Await params in Next.js 15
+    const { id } = await params;
+
     const project = await prisma.project.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         tags: true,
         mediaItems: true,
@@ -60,7 +63,7 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Check authentication
@@ -68,6 +71,9 @@ export async function PUT(
     if (!session?.user || (session.user as any)?.role !== 'admin') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    // Await params in Next.js 15
+    const { id } = await params;
 
     const body = await request.json();
     const {
@@ -90,7 +96,7 @@ export async function PUT(
 
     // Check if project exists
     const existingProject = await prisma.project.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: { tags: true }
     });
 
@@ -110,7 +116,7 @@ export async function PUT(
       const slugConflict = await prisma.project.findFirst({
         where: { 
           slug: newSlug,
-          id: { not: params.id }
+          id: { not: id }
         }
       });
 
@@ -128,7 +134,7 @@ export async function PUT(
     const updatedProject = await prisma.$transaction(async (tx) => {
       // Update the project
       const project = await tx.project.update({
-        where: { id: params.id },
+        where: { id },
         data: {
           title,
           slug,
@@ -142,7 +148,7 @@ export async function PUT(
 
       // Handle tags - disconnect old ones and connect new ones
       await tx.project.update({
-        where: { id: params.id },
+        where: { id },
         data: {
           tags: {
             disconnect: existingProject.tags.map(tag => ({ id: tag.id }))
@@ -151,7 +157,7 @@ export async function PUT(
       });
 
       await tx.project.update({
-        where: { id: params.id },
+        where: { id },
         data: {
           tags: {
             connectOrCreate: tags?.map((tagName: string) => ({
@@ -167,7 +173,7 @@ export async function PUT(
 
     // Fetch updated project with relations
     const finalProject = await prisma.project.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         tags: true,
         _count: {
@@ -203,7 +209,7 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     // Check authentication
@@ -212,9 +218,12 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Await params in Next.js 15
+    const { id } = await params;
+
     // Check if project exists
     const existingProject = await prisma.project.findUnique({
-      where: { id: params.id }
+      where: { id }
     });
 
     if (!existingProject) {
@@ -223,7 +232,7 @@ export async function DELETE(
 
     // Delete project (this will cascade delete related records)
     await prisma.project.delete({
-      where: { id: params.id }
+      where: { id }
     });
 
     return NextResponse.json({ message: 'Project deleted successfully' });

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { MediaItem } from "@/lib/types/project";
 import { 
   Upload, 
   X, 
@@ -24,19 +25,7 @@ import {
   List
 } from "lucide-react";
 
-interface MediaItem {
-  id: string;
-  type: 'IMAGE' | 'VIDEO' | 'DOCUMENT';
-  url: string;
-  altText: string | null;
-  description?: string | null;
-  fileSize: bigint | null;
-  mimeType?: string;
-  createdAt: string;
-}
-
-interface UploadFile {
-  id: string;
+interface UploadProgress {
   file: File;
   progress: number;
   status: 'pending' | 'uploading' | 'success' | 'error';
@@ -54,7 +43,7 @@ interface ProjectMediaManagerProps {
 export function ProjectMediaManager({ projectId, projectTitle, existingMedia }: ProjectMediaManagerProps) {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [files, setFiles] = useState<UploadFile[]>([]);
+  const [files, setFiles] = useState<UploadProgress[]>([]);
   const [media, setMedia] = useState<MediaItem[]>(existingMedia);
   const [isUploading, setIsUploading] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -63,8 +52,7 @@ export function ProjectMediaManager({ projectId, projectTitle, existingMedia }: 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.target.files || []);
     
-    const newFiles: UploadFile[] = selectedFiles.map(file => ({
-      id: Math.random().toString(36).substring(2, 15),
+    const newFiles: UploadProgress[] = selectedFiles.map(file => ({
       file,
       progress: 0,
       status: 'pending',
@@ -76,15 +64,15 @@ export function ProjectMediaManager({ projectId, projectTitle, existingMedia }: 
 
   const removeFile = (fileId: string) => {
     setFiles(prev => {
-      const fileToRemove = prev.find(f => f.id === fileId);
+      const fileToRemove = prev.find(f => f.file.name === fileId);
       if (fileToRemove?.preview) {
         URL.revokeObjectURL(fileToRemove.preview);
       }
-      return prev.filter(f => f.id !== fileId);
+      return prev.filter(f => f.file.name !== fileId);
     });
   };
 
-  const uploadFile = async (fileItem: UploadFile) => {
+  const uploadFile = async (fileItem: UploadProgress) => {
     const formData = new FormData();
     formData.append('file', fileItem.file);
     formData.append('metadata', JSON.stringify({ 
@@ -94,7 +82,7 @@ export function ProjectMediaManager({ projectId, projectTitle, existingMedia }: 
 
     try {
       setFiles(prev => prev.map(f => 
-        f.id === fileItem.id 
+        f.file.name === fileItem.file.name 
           ? { ...f, status: 'uploading', progress: 0 }
           : f
       ));
@@ -112,7 +100,7 @@ export function ProjectMediaManager({ projectId, projectTitle, existingMedia }: 
       const result = await response.json();
 
       setFiles(prev => prev.map(f => 
-        f.id === fileItem.id 
+        f.file.name === fileItem.file.name 
           ? { ...f, status: 'success', progress: 100, result }
           : f
       ));
@@ -123,7 +111,7 @@ export function ProjectMediaManager({ projectId, projectTitle, existingMedia }: 
       }
     } catch (error) {
       setFiles(prev => prev.map(f => 
-        f.id === fileItem.id 
+        f.file.name === fileItem.file.name 
           ? { ...f, status: 'error', error: error instanceof Error ? error.message : 'Upload failed' }
           : f
       ));
@@ -274,7 +262,7 @@ export function ProjectMediaManager({ projectId, projectTitle, existingMedia }: 
                   {files.map((fileItem) => {
                     const FileIcon = getFileIcon(fileItem.file);
                     return (
-                      <div key={fileItem.id} className="flex items-center gap-3 p-3 border rounded-lg">
+                      <div key={fileItem.file.name} className="flex items-center gap-3 p-3 border rounded-lg">
                         {fileItem.preview ? (
                           <img 
                             src={fileItem.preview} 
@@ -305,7 +293,7 @@ export function ProjectMediaManager({ projectId, projectTitle, existingMedia }: 
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => removeFile(fileItem.id)}
+                            onClick={() => removeFile(fileItem.file.name)}
                             disabled={fileItem.status === 'uploading'}
                           >
                             <X size={14} />

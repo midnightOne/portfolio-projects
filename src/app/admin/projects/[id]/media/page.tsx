@@ -4,9 +4,9 @@ import { ProjectMediaManager } from "@/components/admin/project-media-manager";
 import { prisma } from "@/lib/database";
 
 interface ProjectMediaPageProps {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 }
 
 export default async function ProjectMediaPage({ params }: ProjectMediaPageProps) {
@@ -16,9 +16,12 @@ export default async function ProjectMediaPage({ params }: ProjectMediaPageProps
     redirect("/admin/login");
   }
 
+  // Await the params as they are now a Promise in Next.js 15
+  const { id } = await params;
+
   // Fetch the project data
   const project = await prisma.project.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
       mediaItems: {
         orderBy: { createdAt: 'desc' }
@@ -52,7 +55,7 @@ export default async function ProjectMediaPage({ params }: ProjectMediaPageProps
 
       <main className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8">
         <ProjectMediaManager 
-          projectId={params.id}
+          projectId={id}
           projectTitle={project.title}
           existingMedia={project.mediaItems}
         />
