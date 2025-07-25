@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { checkDatabaseConnection, runDatabasePerformanceTest } from "@/lib/database/connection";
 import { getMemoryUsage } from "@/lib/utils/performance";
 
+// Cache for performance test results to avoid repeated expensive queries
+const performanceTestCache = new Map<string, { data: any; timestamp: number }>();
+
 export async function GET(request: NextRequest) {
   const startTime = performance.now();
   
@@ -17,9 +20,21 @@ export async function GET(request: NextRequest) {
     const includePerformanceTest = url.searchParams.get('perf') === 'true';
     
     let performanceTest = null;
+    // Optional performance test for detailed health check - CACHED to avoid repeated slow queries
     if (includePerformanceTest) {
       try {
-        performanceTest = await runDatabasePerformanceTest();
+        // Cache performance test results for 60 seconds to avoid repeated expensive queries
+        const cacheKey = 'health-perf-test';
+        const cached = performanceTestCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < 60000) {
+          performanceTest = cached.data;
+        } else {
+          performanceTest = await runDatabasePerformanceTest();
+          performanceTestCache.set(cacheKey, {
+            data: performanceTest,
+            timestamp: Date.now()
+          });
+        }
       } catch (error) {
         performanceTest = { error: 'Performance test failed' };
       }

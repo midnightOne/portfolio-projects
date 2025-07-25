@@ -122,41 +122,52 @@ export async function runDatabasePerformanceTest(): Promise<{
 }> {
   const prisma = getPrismaClient();
   
-  // Test simple query
-  const simpleStart = performance.now();
-  await prisma.project.count();
-  const simpleTime = performance.now() - simpleStart;
+  // OPTIMIZED: Run all tests in parallel instead of sequential
+  const startTime = performance.now();
   
-  // Test optimized query (what our new projects API does)
-  const complexStart = performance.now();
-  await prisma.project.findMany({
-    where: { status: 'PUBLISHED', visibility: 'PUBLIC' },
-    select: {
-      id: true,
-      title: true,
-      tags: { select: { name: true }, take: 3 },
-      _count: { select: { mediaItems: true } }
-    },
-    take: 5
-  });
-  const complexTime = performance.now() - complexStart;
-  
-  // Test indexed query
-  const indexedStart = performance.now();
-  await prisma.project.findMany({
-    where: { 
-      status: 'PUBLISHED',
-      visibility: 'PUBLIC'
-    },
-    orderBy: { viewCount: 'desc' },
-    take: 5
-  });
-  const indexedTime = performance.now() - indexedStart;
+  const [simpleResult, complexResult, indexedResult] = await Promise.all([
+    // Test simple query
+    (async () => {
+      const start = performance.now();
+      await prisma.project.count();
+      return performance.now() - start;
+    })(),
+    
+    // Test optimized query (what our new projects API does)
+    (async () => {
+      const start = performance.now();
+      await prisma.project.findMany({
+        where: { status: 'PUBLISHED', visibility: 'PUBLIC' },
+        select: {
+          id: true,
+          title: true,
+          tags: { select: { name: true }, take: 3 },
+          _count: { select: { mediaItems: true } }
+        },
+        take: 5
+      });
+      return performance.now() - start;
+    })(),
+    
+    // Test indexed query
+    (async () => {
+      const start = performance.now();
+      await prisma.project.findMany({
+        where: { 
+          status: 'PUBLISHED',
+          visibility: 'PUBLIC'
+        },
+        orderBy: { viewCount: 'desc' },
+        take: 5
+      });
+      return performance.now() - start;
+    })()
+  ]);
   
   return {
-    simpleQuery: Number(simpleTime.toFixed(2)),
-    complexQuery: Number(complexTime.toFixed(2)),
-    indexedQuery: Number(indexedTime.toFixed(2)),
+    simpleQuery: Number(simpleResult.toFixed(2)),
+    complexQuery: Number(complexResult.toFixed(2)),
+    indexedQuery: Number(indexedResult.toFixed(2)),
   };
 }
 
