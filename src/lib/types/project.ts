@@ -69,29 +69,29 @@ export const CreateTagSchema = z.object({
 // Media Item validation
 export const MediaItemSchema = z.object({
   id: z.string().cuid(),
-  projectId: z.string().cuid().optional(),
+  projectId: z.string().cuid().nullable().optional(),
   type: MediaTypeSchema,
   url: z.string().url().max(500),
-  thumbnailUrl: z.string().url().max(500).optional(),
-  altText: z.string().max(255).optional(),
-  description: z.string().optional(),
-  width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional(),
-  fileSize: z.bigint().positive().optional(),
+  thumbnailUrl: z.string().url().max(500).nullable().optional(),
+  altText: z.string().max(255).nullable().optional(),
+  description: z.string().nullable().optional(),
+  width: z.number().int().positive().nullable().optional(),
+  height: z.number().int().positive().nullable().optional(),
+  fileSize: z.bigint().positive().nullable().optional(),
   displayOrder: z.number().int().default(0),
   createdAt: z.date(),
 });
 
 export const CreateMediaItemSchema = z.object({
-  projectId: z.string().cuid().optional(),
+  projectId: z.string().cuid().nullable().optional(),
   type: MediaTypeSchema,
   url: z.string().url().max(500),
-  thumbnailUrl: z.string().url().max(500).optional(),
-  altText: z.string().max(255).optional(),
-  description: z.string().optional(),
-  width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional(),
-  fileSize: z.bigint().positive().optional(),
+  thumbnailUrl: z.string().url().max(500).nullable().optional(),
+  altText: z.string().max(255).nullable().optional(),
+  description: z.string().nullable().optional(),
+  width: z.number().int().positive().nullable().optional(),
+  height: z.number().int().positive().nullable().optional(),
+  fileSize: z.bigint().positive().nullable().optional(),
   displayOrder: z.number().int().default(0),
 });
 
@@ -101,8 +101,8 @@ export const ExternalLinkSchema = z.object({
   projectId: z.string().cuid(),
   label: z.string().min(1).max(255),
   url: z.string().url().max(500),
-  icon: z.string().max(50).optional(),
-  description: z.string().optional(),
+  icon: z.string().max(50).nullable().optional(),
+  description: z.string().nullable().optional(),
   order: z.number().int().default(0),
   createdAt: z.date(),
 });
@@ -110,8 +110,8 @@ export const ExternalLinkSchema = z.object({
 export const CreateExternalLinkSchema = z.object({
   label: z.string().min(1).max(255),
   url: z.string().url().max(500),
-  icon: z.string().max(50).optional(),
-  description: z.string().optional(),
+  icon: z.string().max(50).nullable().optional(),
+  description: z.string().nullable().optional(),
   order: z.number().int().default(0),
 });
 
@@ -124,7 +124,7 @@ export const DownloadableFileSchema = z.object({
   fileType: z.string().min(1).max(100),
   fileSize: z.bigint().positive(),
   downloadUrl: z.string().url().max(500),
-  description: z.string().optional(),
+  description: z.string().nullable().optional(),
   uploadDate: z.date(),
 });
 
@@ -134,7 +134,7 @@ export const CreateDownloadableFileSchema = z.object({
   fileType: z.string().min(1).max(100),
   fileSize: z.bigint().positive(),
   downloadUrl: z.string().url().max(500),
-  description: z.string().optional(),
+  description: z.string().nullable().optional(),
 });
 
 // Interactive Example validation
@@ -143,11 +143,11 @@ export const InteractiveExampleSchema = z.object({
   projectId: z.string().cuid(),
   type: InteractiveTypeSchema,
   title: z.string().min(1).max(255),
-  description: z.string().optional(),
-  url: z.string().url().max(500).optional(),
-  embedCode: z.string().optional(),
-  fallbackContent: z.string().optional(),
-  securitySettings: z.record(z.string(), z.any()).optional(),
+  description: z.string().nullable().optional(),
+  url: z.string().url().max(500).nullable().optional(),
+  embedCode: z.string().nullable().optional(),
+  fallbackContent: z.string().nullable().optional(),
+  securitySettings: z.any().nullable().optional(),
   displayOrder: z.number().int().default(0),
   createdAt: z.date(),
 });
@@ -155,11 +155,11 @@ export const InteractiveExampleSchema = z.object({
 export const CreateInteractiveExampleSchema = z.object({
   type: InteractiveTypeSchema,
   title: z.string().min(1).max(255),
-  description: z.string().optional(),
-  url: z.string().url().max(500).optional(),
-  embedCode: z.string().optional(),
-  fallbackContent: z.string().optional(),
-  securitySettings: z.record(z.string(), z.any()).optional(),
+  description: z.string().nullable().optional(),
+  url: z.string().url().max(500).nullable().optional(),
+  embedCode: z.string().nullable().optional(),
+  fallbackContent: z.string().nullable().optional(),
+  securitySettings: z.any().nullable().optional(),
   displayOrder: z.number().int().default(0),
 });
 
@@ -231,10 +231,10 @@ export type UpdateProject = z.infer<typeof UpdateProjectSchema>;
 
 export interface ProjectWithRelations extends Project {
   tags: Tag[];
-  thumbnailImage?: MediaItem;
-  metadataImage?: MediaItem;
+  thumbnailImage?: MediaItem | null;
+  metadataImage?: MediaItem | null;
   mediaItems: MediaItem[];
-  articleContent?: ArticleContent;
+  articleContent?: ArticleContent | null;
   interactiveExamples: InteractiveExample[];
   externalLinks: ExternalLink[];
   downloadableFiles: DownloadableFile[];
@@ -262,15 +262,15 @@ export interface EmbeddedMedia {
   articleContentId: string;
   mediaItemId: string;
   position: number;
-  caption?: string;
+  caption?: string | null;
   mediaItem: MediaItem;
 }
 
 export interface MediaCarousel {
   id: string;
   projectId: string;
-  title?: string;
-  description?: string;
+  title?: string | null;
+  description?: string | null;
   displayOrder: number;
   createdAt: Date;
   images: CarouselImage[];

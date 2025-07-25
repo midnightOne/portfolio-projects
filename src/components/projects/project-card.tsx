@@ -1,6 +1,7 @@
 "use client";
 
 import React from 'react';
+import { motion, useReducedMotion, type Variants } from 'framer-motion';
 import { Calendar, Eye, Download, ExternalLink } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -21,9 +22,18 @@ export function ProjectCard({
   showViewCount = true,
   className 
 }: ProjectCardProps) {
+  const shouldReduceMotion = useReducedMotion();
+
   const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
     onClick();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick();
+    }
   };
 
   const handleExternalLinkClick = (e: React.MouseEvent, url: string) => {
@@ -41,49 +51,149 @@ export function ProjectCard({
 
   const thumbnailUrl = project.thumbnailImage?.url || project.mediaItems[0]?.url;
 
+  // Animation variants
+  const cardVariants: Variants = {
+    initial: { 
+      opacity: 0, 
+      y: 20,
+      scale: 0.95 
+    },
+    animate: { 
+      opacity: 1, 
+      y: 0,
+      scale: 1,
+      transition: {
+        duration: shouldReduceMotion ? 0.1 : 0.4,
+        ease: [0.21, 1.11, 0.81, 0.99]
+      }
+    },
+    hover: {
+      y: shouldReduceMotion ? 0 : -8,
+      scale: shouldReduceMotion ? 1 : 1.02,
+      transition: {
+        duration: 0.2,
+        type: "spring",
+        stiffness: 300,
+        damping: 20
+      }
+    }
+  };
+
+  const imageVariants: Variants = {
+    initial: { scale: 1 },
+    hover: { 
+      scale: shouldReduceMotion ? 1 : 1.05,
+      transition: { 
+        duration: 0.3, 
+        type: "spring",
+        stiffness: 200,
+        damping: 15
+      }
+    }
+  };
+
+  const overlayVariants: Variants = {
+    initial: { opacity: 0 },
+    hover: { 
+      opacity: 1,
+      transition: { duration: 0.2 }
+    }
+  };
+
+  const tagVariants: Variants = {
+    initial: { opacity: 0, scale: 0.8 },
+    animate: (i: number) => ({
+      opacity: 1,
+      scale: 1,
+      transition: {
+        delay: shouldReduceMotion ? 0 : i * 0.05,
+        duration: 0.3,
+        type: "spring",
+        stiffness: 300,
+        damping: 20
+      }
+    })
+  };
+
   return (
-    <Card 
+    <motion.div
+      variants={cardVariants}
+      initial="initial"
+      animate="animate"
+      whileHover="hover"
+      whileTap={{ scale: shouldReduceMotion ? 1 : 0.98 }}
       className={cn(
-        "group cursor-pointer transition-all duration-200 hover:shadow-lg hover:-translate-y-1",
-        "border-border/50 hover:border-border",
+        "group cursor-pointer border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm",
+        "hover:shadow-xl hover:border-border overflow-hidden",
+        "active:shadow-lg transition-shadow touch-manipulation",
         className
       )}
       onClick={handleClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      aria-label={`View details for ${project.title}`}
+      style={{
+        willChange: "transform, opacity"
+      }}
     >
       {/* Thumbnail Image */}
       {thumbnailUrl && (
         <div className="relative aspect-video overflow-hidden rounded-t-xl">
-          <img
+          <motion.img
             src={thumbnailUrl}
             alt={project.thumbnailImage?.altText || project.title}
-            className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+            className="w-full h-full object-cover"
             loading="lazy"
+            variants={imageVariants}
+            initial="initial"
+            whileHover="hover"
           />
           
           {/* Overlay with quick actions */}
-          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors duration-200 flex items-center justify-center opacity-0 group-hover:opacity-100">
-            <div className="flex gap-2">
+          <motion.div 
+            className="absolute inset-0 bg-black/20 flex items-center justify-center"
+            variants={overlayVariants}
+            initial="initial"
+            whileHover="hover"
+          >
+            <motion.div 
+              className="flex gap-2"
+              initial={{ scale: 0.8, opacity: 0 }}
+              whileHover={{ scale: 1, opacity: 1 }}
+              transition={{ delay: 0.1 }}
+            >
               {project.externalLinks.length > 0 && (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={(e) => handleExternalLinkClick(e, project.externalLinks[0].url)}
-                  className="bg-white/90 hover:bg-white text-black"
+                <motion.div
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.95 }}
                 >
-                  <ExternalLink className="h-4 w-4" />
-                </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={(e) => handleExternalLinkClick(e, project.externalLinks[0].url)}
+                    className="bg-white/90 hover:bg-white text-black"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </Button>
+                </motion.div>
               )}
               {project.downloadableFiles.length > 0 && (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="bg-white/90 hover:bg-white text-black"
+                <motion.div
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.95 }}
                 >
-                  <Download className="h-4 w-4" />
-                </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="bg-white/90 hover:bg-white text-black"
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
+                </motion.div>
               )}
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         </div>
       )}
 
@@ -103,23 +213,41 @@ export function ProjectCard({
 
         {/* Tags */}
         {project.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-2">
-            {project.tags.slice(0, 3).map((tag) => (
-              <Badge
+          <motion.div 
+            className="flex flex-wrap gap-1 mt-2"
+            initial="initial"
+            animate="animate"
+          >
+            {project.tags.slice(0, 3).map((tag, index) => (
+              <motion.div
                 key={tag.id}
-                variant="secondary"
-                className="text-xs"
-                style={tag.color ? { backgroundColor: `${tag.color}20`, borderColor: tag.color } : undefined}
+                custom={index}
+                variants={tagVariants}
+                initial="initial"
+                animate="animate"
               >
-                {tag.name}
-              </Badge>
+                <Badge
+                  variant="secondary"
+                  className="text-xs"
+                  style={tag.color ? { backgroundColor: `${tag.color}20`, borderColor: tag.color } : undefined}
+                >
+                  {tag.name}
+                </Badge>
+              </motion.div>
             ))}
             {project.tags.length > 3 && (
-              <Badge variant="outline" className="text-xs">
-                +{project.tags.length - 3}
-              </Badge>
+              <motion.div
+                custom={3}
+                variants={tagVariants}
+                initial="initial"
+                animate="animate"
+              >
+                <Badge variant="outline" className="text-xs">
+                  +{project.tags.length - 3}
+                </Badge>
+              </motion.div>
             )}
-          </div>
+          </motion.div>
         )}
       </CardHeader>
 
@@ -161,6 +289,6 @@ export function ProjectCard({
           )}
         </div>
       </CardContent>
-    </Card>
+    </motion.div>
   );
 }

@@ -26,12 +26,12 @@ async function testDatabaseAdapters() {
 
     if (currentStatus.validation.errors.length > 0) {
       console.log('   Validation Errors:');
-      currentStatus.validation.errors.forEach(error => console.log(`     ❌ ${error}`));
+      currentStatus.validation.errors.forEach((error: any) => console.log(`     ❌ ${error}`));
     }
 
     if (currentStatus.validation.warnings.length > 0) {
       console.log('   Validation Warnings:');
-      currentStatus.validation.warnings.forEach(warning => console.log(`     ⚠️  ${warning}`));
+      currentStatus.validation.warnings.forEach((warning: any) => console.log(`     ⚠️  ${warning}`));
     }
 
     // Test initialization

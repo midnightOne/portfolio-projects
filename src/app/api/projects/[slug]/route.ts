@@ -9,15 +9,15 @@ import { createApiError, createApiSuccess } from '@/lib/types/api';
 import { getRelatedProjects } from '@/lib/utils/project-utils';
 import { handleApiError, addCorsHeaders } from '@/lib/utils/api-utils';
 
-interface RouteParams {
-  params: {
+interface RouteContext {
+  params: Promise<{
     slug: string;
-  };
+  }>;
 }
 
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, context: RouteContext) {
   try {
-    const { slug } = params;
+    const { slug } = await context.params;
 
     if (!slug || typeof slug !== 'string') {
       return NextResponse.json(
@@ -114,8 +114,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         event: 'VIEW',
         timestamp: new Date(),
         userAgent: request.headers.get('user-agent') || undefined,
-        ipAddress: request.headers.get('x-forwarded-for') || 
-                   request.headers.get('x-real-ip') || 
+        ipAddress: request.headers.get('x-forwarded-for') ||
+                   request.headers.get('x-real-ip') ||
                    undefined,
       },
     }).catch(error => {
