@@ -2,7 +2,7 @@
  * Database seeding script for portfolio projects
  */
 
-import { PrismaClient } from '../src/generated/prisma';
+import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 

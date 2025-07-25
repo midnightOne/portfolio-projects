@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ZodError } from 'zod';
-import { Prisma } from '@/generated/prisma';
+import { Prisma } from '@prisma/client';
 import { createApiError } from '@/lib/types/api';
 
 /**
@@ -29,15 +29,16 @@ export function handleApiError(error: unknown, request: NextRequest): NextRespon
     );
   }
 
-  // Prisma errors
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    switch (error.code) {
+  // Prisma errors - check by error properties since types changed
+  if (error && typeof error === 'object' && 'code' in error) {
+    const prismaError = error as any;
+    switch (prismaError.code) {
       case 'P2002':
         return NextResponse.json(
           createApiError(
             'CONFLICT',
             'A record with this data already exists',
-            { field: error.meta?.target },
+            { field: prismaError.meta?.target },
             request.url
           ),
           { status: 409 }
@@ -59,7 +60,7 @@ export function handleApiError(error: unknown, request: NextRequest): NextRespon
           createApiError(
             'BAD_REQUEST',
             'Foreign key constraint failed',
-            { field: error.meta?.field_name },
+            { field: prismaError.meta?.field_name },
             request.url
           ),
           { status: 400 }
@@ -70,7 +71,7 @@ export function handleApiError(error: unknown, request: NextRequest): NextRespon
           createApiError(
             'DATABASE_ERROR',
             'Database operation failed',
-            process.env.NODE_ENV === 'development' ? error.message : undefined,
+            process.env.NODE_ENV === 'development' ? prismaError.message : undefined,
             request.url
           ),
           { status: 500 }
@@ -78,17 +79,20 @@ export function handleApiError(error: unknown, request: NextRequest): NextRespon
     }
   }
 
-  // Database connection errors
-  if (error instanceof Prisma.PrismaClientInitializationError) {
-    return NextResponse.json(
-      createApiError(
-        'DATABASE_CONNECTION_ERROR',
-        'Failed to connect to database',
-        process.env.NODE_ENV === 'development' ? error.message : undefined,
-        request.url
-      ),
-      { status: 503 }
-    );
+  // Database connection errors - check by error message pattern
+  if (error && typeof error === 'object' && 'message' in error) {
+    const errorMsg = (error as any).message;
+    if (errorMsg?.includes('connect') || errorMsg?.includes('database')) {
+      return NextResponse.json(
+        createApiError(
+          'DATABASE_CONNECTION_ERROR',
+          'Failed to connect to database',
+          process.env.NODE_ENV === 'development' ? errorMsg : undefined,
+          request.url
+        ),
+        { status: 503 }
+      );
+    }
   }
 
   // Generic errors

@@ -3,7 +3,7 @@
  */
 
 import { prisma } from './connection';
-import { Prisma } from '@/generated/prisma';
+import { Prisma } from '@prisma/client';
 
 export interface SearchOptions {
   query?: string;

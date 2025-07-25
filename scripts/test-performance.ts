@@ -5,7 +5,7 @@
 
 import { checkDatabaseConnection, runDatabasePerformanceTest } from '../src/lib/database/connection';
 import { profiler } from '../src/lib/utils/performance';
-import { PrismaClient } from '../src/generated/prisma';
+import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
