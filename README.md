@@ -98,6 +98,14 @@ src/
 - `npm run db:studio` - Open Prisma Studio
 - `npm run type-check` - Run TypeScript type checking
 
+## 📋 Technical Documentation
+
+- 📚 **Project Architecture**: See `Architecture.md` for detailed system overview
+- 🖼️ **Media System**: See `MEDIA_SYSTEM_DOCUMENTATION.md` for comprehensive media management reference
+- 🎨 **Media Configuration**: Read `MEDIA_CONFIGURATION.md` for upload setup
+- 🔗 **Provider Setup**: See `MEDIA_PROVIDER_SETUP.md` for storage configuration
+- 🔧 **Database Setup**: Check `docs/database-providers.md` for provider configuration
+
 ## Environment Variables
 
 See `.env.example` for all required environment variables.
