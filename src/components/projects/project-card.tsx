@@ -49,7 +49,7 @@ export function ProjectCard({
     }).format(new Date(date));
   };
 
-  const thumbnailUrl = project.thumbnailImage?.url || project.mediaItems[0]?.url;
+  const thumbnailUrl = project.thumbnailImage?.url || project.mediaItems?.[0]?.url;
 
   // Animation variants
   const cardVariants: Variants = {
@@ -163,7 +163,7 @@ export function ProjectCard({
               whileHover={{ scale: 1, opacity: 1 }}
               transition={{ delay: 0.1 }}
             >
-              {project.externalLinks.length > 0 && (
+              {project.externalLinks?.length > 0 && (
                 <motion.div
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
@@ -178,7 +178,7 @@ export function ProjectCard({
                   </Button>
                 </motion.div>
               )}
-              {project.downloadableFiles.length > 0 && (
+              {project.downloadableFiles?.length > 0 && (
                 <motion.div
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.95 }}
@@ -281,7 +281,7 @@ export function ProjectCard({
             )}
           </div>
 
-          {project.externalLinks.length > 0 && (
+          {project.externalLinks?.length > 0 && (
             <div className="flex items-center gap-1">
               <ExternalLink className="h-3 w-3" />
               <span>{project.externalLinks.length} link{project.externalLinks.length !== 1 ? 's' : ''}</span>

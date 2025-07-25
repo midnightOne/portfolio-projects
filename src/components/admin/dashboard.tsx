@@ -198,6 +198,14 @@ export function AdminDashboard() {
                   <BarChart3 size={16} />
                   View Analytics
                 </Button>
+                <Button 
+                  onClick={() => router.push('/admin/performance')} 
+                  variant="outline" 
+                  className="flex items-center gap-2"
+                >
+                  <BarChart3 size={16} />
+                  Performance Dashboard
+                </Button>
               </CardContent>
             </Card>
           </div>

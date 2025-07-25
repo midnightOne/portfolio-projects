@@ -9,7 +9,7 @@ import type { ProjectWithRelations } from '@/lib/types/project';
 interface ProjectGridProps {
   projects: ProjectWithRelations[];
   loading: boolean;
-  onProjectClick: (projectId: string) => void;
+  onProjectClick: (projectSlug: string) => void;
   showViewCount?: boolean;
   className?: string;
 }
@@ -150,7 +150,7 @@ export function ProjectGrid({
           >
             <ProjectCard
               project={project}
-              onClick={() => onProjectClick(project.id)}
+              onClick={() => onProjectClick(project.slug)}
               showViewCount={showViewCount}
             />
           </motion.div>

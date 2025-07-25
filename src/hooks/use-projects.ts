@@ -82,9 +82,8 @@ export function useProjects(options: UseProjectsOptions = {}): UseProjectsReturn
 
   const fetchTags = useCallback(async () => {
     try {
-      // For now, we'll extract tags from projects
-      // In the future, we might want a dedicated tags endpoint
-      const response = await fetch('/api/projects?limit=100');
+      // Use dedicated tags endpoint - much faster!
+      const response = await fetch('/api/tags');
       
       if (!response.ok) {
         throw new Error('Failed to fetch tags');
@@ -92,17 +91,8 @@ export function useProjects(options: UseProjectsOptions = {}): UseProjectsReturn
 
       const data = await response.json();
       
-      if (data.success && data.data.items) {
-        // Extract unique tags from all projects
-        const allTags = new Map<string, Tag>();
-        
-        data.data.items.forEach((project: ProjectWithRelations) => {
-          project.tags.forEach((tag: Tag) => {
-            allTags.set(tag.id, tag);
-          });
-        });
-
-        setTags(Array.from(allTags.values()).sort((a, b) => a.name.localeCompare(b.name)));
+      if (data.success && data.data) {
+        setTags(data.data);
       }
     } catch (err) {
       console.error('Error fetching tags:', err);

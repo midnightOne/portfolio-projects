@@ -8,6 +8,9 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Portfolio Projects",
   description: "A showcase of creative and technical projects",
+  icons: {
+    icon: '/favicon.ico',
+  },
 };
 
 export default function RootLayout({

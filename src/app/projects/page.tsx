@@ -145,7 +145,7 @@ function ProjectsPageContent() {
       <ProjectGrid
         projects={projects}
         loading={loading}
-        onProjectClick={(projectId) => handleProjectClick(projectId)}
+        onProjectClick={(projectSlug) => handleProjectClick(projectSlug)}
       />
       
       <ProjectModal
