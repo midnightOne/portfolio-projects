@@ -21,6 +21,7 @@ function ProjectsPageContent() {
     searchQuery,
     selectedTags,
     sortBy,
+    progressiveLoading,
     setSearchQuery,
     setSelectedTags,
     setSortBy,
@@ -130,6 +131,21 @@ function ProjectsPageContent() {
     );
   }
 
+  // Get progressive loading state
+  const { loadingState, progressiveState, isReady, getLoadingMessage } = progressiveLoading;
+  
+  // Determine loading message
+  const loadingMessage = React.useMemo(() => {
+    if (loadingState.projects === 'loading' && loadingState.tags === 'loading') {
+      return 'Loading projects and filters...';
+    } else if (loadingState.projects === 'loading') {
+      return 'Loading projects...';
+    } else if (loadingState.tags === 'loading') {
+      return 'Loading filters...';
+    }
+    return undefined;
+  }, [loadingState.projects, loadingState.tags]);
+
   return (
     <ProjectsLayout
       searchQuery={searchQuery}
@@ -141,10 +157,15 @@ function ProjectsPageContent() {
       onSortChange={setSortBy}
       viewMode={viewMode}
       onViewModeChange={setViewMode}
+      // Progressive loading props
+      canSearch={isReady('search')}
+      canFilter={isReady('filter')}
+      tagsLoading={loadingState.tags === 'loading'}
+      loadingMessage={loadingMessage}
     >
       <ProjectGrid
         projects={projects}
-        loading={loading}
+        loading={progressiveState.showSkeletons}
         onProjectClick={(projectSlug) => handleProjectClick(projectSlug)}
       />
       

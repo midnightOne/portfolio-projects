@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
     
     if (!dbHealth.connected) {
       status = 'unhealthy';
-    } else if (dbHealth.responseTime > 1000) {
+    } else if (dbHealth.responseTime && dbHealth.responseTime > 1000) {
       status = 'degraded';
     } else if (memory && memory.heapUsed / memory.heapTotal > 0.9) {
       status = 'degraded';
@@ -64,7 +64,10 @@ export async function GET(request: NextRequest) {
       status,
       timestamp: new Date().toISOString(),
       uptime,
-      database: dbHealth,
+      database: {
+        ...dbHealth,
+        responseTime: dbHealth.responseTime || 0,
+      },
       memory,
       version: process.env.npm_package_version || '1.0.0',
     };

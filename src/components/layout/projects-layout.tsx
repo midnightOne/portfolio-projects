@@ -17,6 +17,11 @@ interface ProjectsLayoutProps {
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
   isLoading?: boolean;
+  // Progressive loading props
+  canSearch?: boolean;
+  canFilter?: boolean;
+  tagsLoading?: boolean;
+  loadingMessage?: string;
 }
 
 export function ProjectsLayout({
@@ -32,6 +37,10 @@ export function ProjectsLayout({
   viewMode,
   onViewModeChange,
   isLoading = false,
+  canSearch = true,
+  canFilter = true,
+  tagsLoading = false,
+  loadingMessage,
 }: ProjectsLayoutProps) {
   return (
     <div className="min-h-screen bg-background">
@@ -64,6 +73,10 @@ export function ProjectsLayout({
           viewMode={viewMode}
           onViewModeChange={onViewModeChange}
           isLoading={isLoading}
+          canSearch={canSearch}
+          canFilter={canFilter}
+          tagsLoading={tagsLoading}
+          loadingMessage={loadingMessage}
         />
       )}
 

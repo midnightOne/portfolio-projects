@@ -22,6 +22,11 @@ interface NavigationBarProps {
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
   isLoading?: boolean;
+  // Progressive loading props
+  canSearch?: boolean;
+  canFilter?: boolean;
+  tagsLoading?: boolean;
+  loadingMessage?: string;
 }
 
 const sortOptions: { value: SortOption; label: string }[] = [
@@ -42,6 +47,10 @@ export function NavigationBar({
   viewMode,
   onViewModeChange,
   isLoading = false,
+  canSearch = true,
+  canFilter = true,
+  tagsLoading = false,
+  loadingMessage,
 }: NavigationBarProps) {
   const [showAllTags, setShowAllTags] = useState(false);
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
@@ -71,11 +80,11 @@ export function NavigationBar({
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
             <Input
-              placeholder="Search projects..."
+              placeholder={canSearch ? "Search projects..." : "Loading projects..."}
               value={searchQuery}
-              onChange={(e) => onSearchChange(e.target.value)}
+              onChange={(e) => canSearch && onSearchChange(e.target.value)}
               className="pl-10"
-              disabled={isLoading}
+              disabled={isLoading || !canSearch}
             />
           </div>
 
@@ -85,11 +94,11 @@ export function NavigationBar({
             <div className="relative">
               <Button
                 variant="outline"
-                onClick={() => setSortDropdownOpen(!sortDropdownOpen)}
-                disabled={isLoading}
+                onClick={() => canSearch && setSortDropdownOpen(!sortDropdownOpen)}
+                disabled={isLoading || !canSearch}
                 className="min-w-[120px] justify-between"
               >
-                Sort: {sortOptions.find(opt => opt.value === sortBy)?.label}
+                {canSearch ? `Sort: ${sortOptions.find(opt => opt.value === sortBy)?.label}` : 'Loading...'}
                 <ChevronDown className="h-4 w-4" />
               </Button>
               
@@ -119,8 +128,8 @@ export function NavigationBar({
               <Button
                 variant={viewMode === 'grid' ? 'default' : 'ghost'}
                 size="sm"
-                onClick={() => onViewModeChange('grid')}
-                disabled={isLoading}
+                onClick={() => canSearch && onViewModeChange('grid')}
+                disabled={isLoading || !canSearch}
                 className="rounded-r-none"
               >
                 <Grid className="h-4 w-4" />
@@ -128,8 +137,8 @@ export function NavigationBar({
               <Button
                 variant={viewMode === 'timeline' ? 'default' : 'ghost'}
                 size="sm"
-                onClick={() => onViewModeChange('timeline')}
-                disabled={isLoading}
+                onClick={() => canSearch && onViewModeChange('timeline')}
+                disabled={isLoading || !canSearch}
                 className="rounded-l-none border-l"
               >
                 <List className="h-4 w-4" />
@@ -142,7 +151,7 @@ export function NavigationBar({
                 variant="outline"
                 size="sm"
                 onClick={clearFilters}
-                disabled={isLoading}
+                disabled={isLoading || (!canSearch && !canFilter)}
               >
                 Clear
               </Button>
@@ -157,38 +166,63 @@ export function NavigationBar({
             <span>Filter:</span>
           </div>
           
-          {visibleTags.map((tag) => (
-            <Badge
-              key={tag.id}
-              variant={selectedTags.includes(tag.name) ? 'default' : 'outline'}
-              className={cn(
-                "cursor-pointer transition-colors",
-                !isLoading && "hover:bg-primary hover:text-primary-foreground",
-                isLoading && "opacity-50 cursor-not-allowed"
-              )}
-              style={
-                selectedTags.includes(tag.name) && tag.color
-                  ? { backgroundColor: tag.color, borderColor: tag.color }
-                  : undefined
-              }
-              onClick={() => !isLoading && handleTagClick(tag.name)}
-            >
-              {tag.name}
-            </Badge>
-          ))}
+          {/* Show loading skeletons when tags are loading */}
+          {tagsLoading ? (
+            <div className="flex gap-2">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <div
+                  key={index}
+                  className="h-6 bg-muted rounded-full animate-pulse"
+                  style={{ width: `${Math.random() * 40 + 40}px` }}
+                />
+              ))}
+            </div>
+          ) : (
+            <>
+              {visibleTags.map((tag) => (
+                <Badge
+                  key={tag.id}
+                  variant={selectedTags.includes(tag.name) ? 'default' : 'outline'}
+                  className={cn(
+                    "cursor-pointer transition-colors",
+                    canFilter && !isLoading && "hover:bg-primary hover:text-primary-foreground",
+                    (!canFilter || isLoading) && "opacity-50 cursor-not-allowed"
+                  )}
+                  style={
+                    selectedTags.includes(tag.name) && tag.color
+                      ? { backgroundColor: tag.color, borderColor: tag.color }
+                      : undefined
+                  }
+                  onClick={() => canFilter && !isLoading && handleTagClick(tag.name)}
+                >
+                  {tag.name}
+                </Badge>
+              ))}
 
-          {hasMoreTags && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowAllTags(!showAllTags)}
-              disabled={isLoading}
-              className="text-xs"
-            >
-              {showAllTags ? 'Show Less' : `+${tags.length - 8} More`}
-            </Button>
+              {hasMoreTags && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowAllTags(!showAllTags)}
+                  disabled={isLoading || !canFilter}
+                  className="text-xs"
+                >
+                  {showAllTags ? 'Show Less' : `+${tags.length - 8} More`}
+                </Button>
+              )}
+            </>
           )}
         </div>
+
+        {/* Loading Status Message */}
+        {loadingMessage && (
+          <div className="mt-3 pt-3 border-t">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <span>{loadingMessage}</span>
+            </div>
+          </div>
+        )}
 
         {/* Active Filters Summary */}
         {selectedTags.length > 0 && (
