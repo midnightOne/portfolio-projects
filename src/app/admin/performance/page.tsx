@@ -1,29 +1,27 @@
-import { redirect } from "next/navigation";
-import { getSession } from "@/lib/auth-utils";
-import { PerformanceDashboard } from "@/components/admin/performance-dashboard";
+/**
+ * Admin Performance Dashboard Page
+ * Displays comprehensive performance metrics and monitoring
+ */
 
-export const metadata = {
-  title: "Performance Dashboard - Admin",
-  description: "Monitor and analyze system performance metrics",
+import { Metadata } from 'next';
+import { PerformanceDashboard } from '@/components/admin/performance-dashboard';
+
+export const metadata: Metadata = {
+  title: 'Performance Dashboard - Portfolio Admin',
+  description: 'Monitor and analyze application performance metrics',
 };
 
-export default async function AdminPerformancePage() {
-  const session = await getSession();
-  
-  if (!session?.user || (session.user as any)?.role !== "admin") {
-    redirect("/admin/login");
-  }
-
+export default function PerformancePage() {
   return (
-    <div className="container mx-auto p-6">
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold">Performance Dashboard</h1>
-        <p className="text-muted-foreground">
-          Monitor system performance, database queries, and API response times
+    <div className="container mx-auto py-8 px-4">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold tracking-tight">Performance Dashboard</h1>
+        <p className="text-muted-foreground mt-2">
+          Monitor application performance, database queries, and system health
         </p>
       </div>
       
       <PerformanceDashboard />
     </div>
   );
-} 
+}

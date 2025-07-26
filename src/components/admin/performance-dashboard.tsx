@@ -91,13 +91,26 @@ export function PerformanceDashboard() {
       // Fetch performance metrics (need to get from a public endpoint or handle auth)
       const healthResponse = await fetch('/api/health?perf=true');
       if (healthResponse.ok) {
-        const healthData = await healthResponse.json();
+        const healthResponseData = await healthResponse.json();
+        // Extract the actual health data from the API response wrapper
+        const healthData = healthResponseData.success ? healthResponseData.data : healthResponseData;
         setHealth(healthData);
       }
 
-      // For demo purposes, create sample performance data
-      // In a real implementation, you'd fetch from /api/admin/performance
-      const sampleMetrics: PerformanceMetrics = {
+      // Try to fetch real performance data from admin API
+      let performanceMetrics = null;
+      try {
+        const perfResponse = await fetch('/api/admin/performance');
+        if (perfResponse.ok) {
+          const perfData = await perfResponse.json();
+          performanceMetrics = perfData.success ? perfData.data : null;
+        }
+      } catch (error) {
+        console.log('Admin performance API not accessible, using sample data');
+      }
+
+      // Use real data if available, otherwise fall back to sample data
+      const sampleMetrics: PerformanceMetrics = performanceMetrics || {
         summary: {
           totalRequests: 25,
           avgDuration: 93.2,
@@ -238,7 +251,7 @@ export function PerformanceDashboard() {
           </Button>
         </div>
 
-        {health && (
+        {health && health.status && (
           <Badge variant={health.status === 'healthy' ? 'default' : 'destructive'}>
             {health.status.toUpperCase()}
           </Badge>
@@ -276,10 +289,10 @@ export function PerformanceDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {health?.database.responseTime ? `${health.database.responseTime.toFixed(1)}ms` : 'N/A'}
+              {health?.database?.responseTime ? `${health.database.responseTime.toFixed(1)}ms` : 'N/A'}
             </div>
             <p className="text-xs text-muted-foreground">
-              {health?.database.provider || 'Unknown'} • {health?.database.connected ? 'Connected' : 'Disconnected'}
+              {health?.database?.provider || 'Unknown'} • {health?.database?.connected ? 'Connected' : 'Disconnected'}
             </p>
           </CardContent>
         </Card>

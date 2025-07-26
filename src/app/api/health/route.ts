@@ -1,84 +1,119 @@
-import { NextRequest, NextResponse } from "next/server";
-import { checkDatabaseConnection, runDatabasePerformanceTest } from "@/lib/database/connection";
-import { getMemoryUsage } from "@/lib/utils/performance";
+/**
+ * Health Check API - GET /api/health
+ * Provides system health status and performance metrics
+ */
 
-// Cache for performance test results to avoid repeated expensive queries
-const performanceTestCache = new Map<string, { data: any; timestamp: number }>();
+import { NextRequest, NextResponse } from 'next/server';
+import { checkDatabaseConnection, runDatabasePerformanceTest } from '@/lib/database/connection';
+import { profiler, getMemoryUsage } from '@/lib/utils/performance';
+import { createApiSuccess, createApiError } from '@/lib/types/api';
+import { addCorsHeaders } from '@/lib/utils/api-utils';
+
+interface HealthResponse {
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  timestamp: string;
+  uptime: number;
+  database: {
+    connected: boolean;
+    provider: string;
+    responseTime: number;
+    error?: string;
+  };
+  memory: {
+    rss: number;
+    heapTotal: number;
+    heapUsed: number;
+    external: number;
+  } | null;
+  performance?: {
+    simpleQuery: number;
+    complexQuery: number;
+    indexedQuery: number;
+  };
+  version: string;
+}
+
+const startTime = Date.now();
 
 export async function GET(request: NextRequest) {
-  const startTime = performance.now();
-  
   try {
+    const { searchParams } = new URL(request.url);
+    const includePerformance = searchParams.get('perf') === 'true';
+
     // Check database connection
     const dbHealth = await checkDatabaseConnection();
     
     // Get memory usage
     const memory = getMemoryUsage();
     
-    // Run basic performance test if requested
-    const url = new URL(request.url);
-    const includePerformanceTest = url.searchParams.get('perf') === 'true';
+    // Calculate uptime
+    const uptime = Math.floor((Date.now() - startTime) / 1000);
     
-    let performanceTest = null;
-    // Optional performance test for detailed health check - CACHED to avoid repeated slow queries
-    if (includePerformanceTest) {
+    // Determine overall health status
+    let status: 'healthy' | 'degraded' | 'unhealthy' = 'healthy';
+    
+    if (!dbHealth.connected) {
+      status = 'unhealthy';
+    } else if (dbHealth.responseTime > 1000) {
+      status = 'degraded';
+    } else if (memory && memory.heapUsed / memory.heapTotal > 0.9) {
+      status = 'degraded';
+    }
+
+    const healthResponse: HealthResponse = {
+      status,
+      timestamp: new Date().toISOString(),
+      uptime,
+      database: dbHealth,
+      memory,
+      version: process.env.npm_package_version || '1.0.0',
+    };
+
+    // Include performance test if requested
+    if (includePerformance && dbHealth.connected) {
       try {
-        // Cache performance test results for 60 seconds to avoid repeated expensive queries
-        const cacheKey = 'health-perf-test';
-        const cached = performanceTestCache.get(cacheKey);
-        if (cached && Date.now() - cached.timestamp < 60000) {
-          performanceTest = cached.data;
-        } else {
-          performanceTest = await runDatabasePerformanceTest();
-          performanceTestCache.set(cacheKey, {
-            data: performanceTest,
-            timestamp: Date.now()
-          });
-        }
+        const perfTest = await runDatabasePerformanceTest();
+        healthResponse.performance = perfTest;
       } catch (error) {
-        performanceTest = { error: 'Performance test failed' };
+        console.error('Performance test failed:', error);
       }
     }
-    
-    const responseTime = performance.now() - startTime;
-    
-    const healthStatus = {
-      status: dbHealth.connected ? "healthy" : "unhealthy",
-      timestamp: new Date().toISOString(),
-      responseTime: Number(responseTime.toFixed(2)),
-      database: {
-        connected: dbHealth.connected,
-        provider: dbHealth.provider,
-        responseTime: dbHealth.responseTime,
-        error: dbHealth.error,
-      },
-      memory,
-      performance: performanceTest,
-      uptime: process.uptime ? Math.floor(process.uptime()) : null,
-    };
-    
-    return NextResponse.json(
-      healthStatus,
-      { 
-        status: dbHealth.connected ? 200 : 503,
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
-        }
-      }
-    );
+
+    const response = NextResponse.json(createApiSuccess(healthResponse));
+    return addCorsHeaders(response);
+
   } catch (error) {
-    const responseTime = performance.now() - startTime;
+    console.error('Health check failed:', error);
     
-    return NextResponse.json(
-      {
-        status: "error",
-        timestamp: new Date().toISOString(),
-        responseTime: Number(responseTime.toFixed(2)),
+    const errorResponse = {
+      status: 'unhealthy' as const,
+      timestamp: new Date().toISOString(),
+      uptime: Math.floor((Date.now() - startTime) / 1000),
+      database: {
+        connected: false,
+        provider: 'unknown',
+        responseTime: 0,
         error: error instanceof Error ? error.message : 'Unknown error',
       },
-      { status: 500 }
+      memory: getMemoryUsage(),
+      version: process.env.npm_package_version || '1.0.0',
+    };
+
+    const response = NextResponse.json(
+      createApiError(
+        'HEALTH_CHECK_FAILED',
+        'Health check failed',
+        errorResponse,
+        request.url
+      ),
+      { status: 503 }
     );
+    
+    return addCorsHeaders(response);
   }
+}
+
+export async function OPTIONS(request: NextRequest) {
+  const response = new NextResponse(null, { status: 200 });
+  return addCorsHeaders(response);
 }
