@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from 'react';
-import { Search, Filter, Grid, List, ChevronDown } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Search, Filter, Grid, List, ChevronDown, X } from 'lucide-react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,7 @@ import type { Tag } from '@/lib/types/project';
 
 export type SortOption = 'relevance' | 'date' | 'title' | 'popularity';
 export type ViewMode = 'grid' | 'timeline';
+export type TimelineGroupBy = 'year' | 'month';
 
 interface NavigationBarProps {
   tags: Tag[];
@@ -22,6 +23,8 @@ interface NavigationBarProps {
   onSortChange: (sort: SortOption) => void;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
+  timelineGroupBy?: TimelineGroupBy;
+  onTimelineGroupByChange?: (groupBy: TimelineGroupBy) => void;
   isLoading?: boolean;
   // Progressive loading props
   canSearch?: boolean;
@@ -139,9 +142,9 @@ function getContrastColor(hexColor: string): string {
   const hex = hexColor.replace('#', '');
   
   // Convert to RGB
-  const r = parseInt(hex.substr(0, 2), 16);
-  const g = parseInt(hex.substr(2, 2), 16);
-  const b = parseInt(hex.substr(4, 2), 16);
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
   
   // Calculate luminance
   const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
@@ -160,6 +163,8 @@ export function NavigationBar({
   onSortChange,
   viewMode,
   onViewModeChange,
+  timelineGroupBy = 'year',
+  onTimelineGroupByChange,
   isLoading = false,
   canSearch = true,
   canFilter = true,
@@ -170,6 +175,18 @@ export function NavigationBar({
 }: NavigationBarProps) {
   const [showAllTags, setShowAllTags] = useState(false);
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  
+  // Use internal state for the input value to prevent focus loss
+  const [internalSearchValue, setInternalSearchValue] = useState(searchQuery);
+  
+  // Sync internal value with external prop when it changes from outside
+  useEffect(() => {
+    // Only update internal value if it's different and the input is not focused
+    if (searchQuery !== internalSearchValue && document.activeElement !== searchInputRef.current) {
+      setInternalSearchValue(searchQuery);
+    }
+  }, [searchQuery, internalSearchValue]);
 
   const handleTagClick = (tagName: string) => {
     if (selectedTags.includes(tagName)) {
@@ -181,7 +198,29 @@ export function NavigationBar({
 
   const clearFilters = () => {
     onTagSelect([]);
+    setInternalSearchValue('');
     onSearchChange('');
+  };
+
+  const clearSearchOnly = () => {
+    setInternalSearchValue('');
+    onSearchChange('');
+    // Focus the input after clearing
+    setTimeout(() => {
+      if (searchInputRef.current) {
+        searchInputRef.current.focus();
+      }
+    }, 0);
+  };
+
+  const handleSearchChange = (value: string) => {
+    // Always update internal state to prevent focus loss and allow typing
+    setInternalSearchValue(value);
+    
+    // Only notify parent if search is enabled
+    if (canSearch) {
+      onSearchChange(value);
+    }
   };
 
   const visibleTags = showAllTags ? tags : tags.slice(0, 8);
@@ -195,24 +234,67 @@ export function NavigationBar({
           {/* Search Input */}
           <div className="relative flex-1 max-w-md">
             <Search className={cn(
-              "absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4",
+              "absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 z-10",
               isSearching ? "text-primary animate-pulse" : "text-muted-foreground"
             )} />
             <Input
+              ref={searchInputRef}
               placeholder={canSearch ? "Search projects..." : "Loading projects..."}
-              value={searchQuery}
-              onChange={(e) => canSearch && onSearchChange(e.target.value)}
+              value={internalSearchValue}
+              onChange={(e) => handleSearchChange(e.target.value)}
               className={cn(
-                "pl-10",
+                "pl-10 pr-12", // Increased right padding for larger hitbox
                 isSearching && "border-primary/50"
               )}
-              disabled={isLoading || !canSearch}
+              disabled={false} // Never disable the search input - users should always be able to type
             />
-            {isSearching && (
-              <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-              </div>
-            )}
+            
+            {/* Right side icons */}
+            <div className="absolute right-2 top-1/2 transform -translate-y-1/2 flex items-center gap-1">
+              {/* Clear search button - only show when there's search text */}
+              <AnimatePresence>
+                {internalSearchValue && canSearch && (
+                  <motion.button
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    transition={{ duration: 0.2 }}
+                    onClick={clearSearchOnly}
+                    className="p-2 hover:bg-muted rounded-md transition-colors flex items-center justify-center min-w-[28px] min-h-[28px]"
+                    type="button"
+                    aria-label="Clear search"
+                  >
+                    <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                  </motion.button>
+                )}
+              </AnimatePresence>
+              
+              {/* Loading spinner */}
+              {isSearching && !internalSearchValue && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  transition={{ duration: 0.2 }}
+                  className="p-2 flex items-center justify-center min-w-[28px] min-h-[28px]"
+                >
+                  <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                </motion.div>
+              )}
+              
+              {/* Loading spinner when both search text and searching */}
+              {isSearching && internalSearchValue && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  transition={{ duration: 0.2 }}
+                  className="p-1 flex items-center justify-center"
+                >
+                  <div className="w-3 h-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                </motion.div>
+              )}
+            </div>
           </div>
 
           {/* Controls */}
@@ -284,9 +366,33 @@ export function NavigationBar({
               </Button>
             </div>
 
+            {/* Timeline Group By Toggle (only show when timeline view is active) */}
+            {viewMode === 'timeline' && onTimelineGroupByChange && (
+              <div className="flex border rounded-md">
+                <Button
+                  variant={timelineGroupBy === 'year' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => canSearch && onTimelineGroupByChange('year')}
+                  disabled={isLoading || !canSearch}
+                  className="rounded-r-none text-xs px-2"
+                >
+                  Year
+                </Button>
+                <Button
+                  variant={timelineGroupBy === 'month' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => canSearch && onTimelineGroupByChange('month')}
+                  disabled={isLoading || !canSearch}
+                  className="rounded-l-none border-l text-xs px-2"
+                >
+                  Month
+                </Button>
+              </div>
+            )}
+
             {/* Clear Filters */}
             <AnimatePresence>
-              {(selectedTags.length > 0 || searchQuery) && (
+              {(selectedTags.length > 0 || internalSearchValue) && (
                 <motion.div
                   initial={{ opacity: 0, scale: 0.8, x: 10 }}
                   animate={{ opacity: 1, scale: 1, x: 0 }}
@@ -392,7 +498,7 @@ export function NavigationBar({
 
         {/* Search Results Summary */}
         <AnimatePresence>
-          {(searchQuery || selectedTags.length > 0) && (
+          {(internalSearchValue || selectedTags.length > 0) && (
             <motion.div 
               className="mt-3 pt-3 border-t"
               initial={{ opacity: 0, height: 0 }}
@@ -402,7 +508,7 @@ export function NavigationBar({
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  {searchQuery && (
+                  {internalSearchValue && (
                     <motion.span
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
@@ -415,11 +521,11 @@ export function NavigationBar({
                         </span>
                       ) : 
                        searchResultsCount !== undefined ? 
-                       `${searchResultsCount} result${searchResultsCount !== 1 ? 's' : ''} for "${searchQuery}"` :
-                       `Results for "${searchQuery}"`}
+                       `${searchResultsCount} result${searchResultsCount !== 1 ? 's' : ''} for "${internalSearchValue}"` :
+                       `Results for "${internalSearchValue}"`}
                     </motion.span>
                   )}
-                  {searchQuery && selectedTags.length > 0 && (
+                  {internalSearchValue && selectedTags.length > 0 && (
                     <motion.span
                       initial={{ opacity: 0, scale: 0 }}
                       animate={{ opacity: 1, scale: 1 }}

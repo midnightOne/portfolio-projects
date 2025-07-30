@@ -115,16 +115,25 @@ async function projectsHandler(request: NextRequest) {
   let orderBy: any = {};
   switch (params.sortBy) {
     case 'date':
-      orderBy = { workDate: params.sortOrder };
+      // Sort by workDate first, then createdAt as fallback
+      orderBy = [
+        { workDate: params.sortOrder },
+        { createdAt: params.sortOrder }
+      ];
       break;
     case 'title':
       orderBy = { title: params.sortOrder };
       break;
     case 'popularity':
-      orderBy = { viewCount: params.sortOrder };
+      // Sort by viewCount first, then createdAt as tiebreaker
+      orderBy = [
+        { viewCount: params.sortOrder },
+        { createdAt: 'desc' }
+      ];
       break;
     case 'relevance':
     default:
+      // For relevance, use createdAt when not searching
       orderBy = { createdAt: 'desc' };
       break;
   }

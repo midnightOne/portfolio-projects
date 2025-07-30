@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { NavigationBar, type SortOption, type ViewMode } from './navigation-bar';
+import { NavigationBar, type SortOption, type ViewMode, type TimelineGroupBy } from './navigation-bar';
 import type { Tag } from '@/lib/types/project';
 
 interface ProjectsLayoutProps {
@@ -16,6 +16,8 @@ interface ProjectsLayoutProps {
   onSortChange: (sort: SortOption) => void;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
+  timelineGroupBy?: TimelineGroupBy;
+  onTimelineGroupByChange?: (groupBy: TimelineGroupBy) => void;
   isLoading?: boolean;
   // Progressive loading props
   canSearch?: boolean;
@@ -39,6 +41,8 @@ export function ProjectsLayout({
   onSortChange,
   viewMode,
   onViewModeChange,
+  timelineGroupBy,
+  onTimelineGroupByChange,
   isLoading = false,
   canSearch = true,
   canFilter = true,
@@ -77,6 +81,8 @@ export function ProjectsLayout({
           onSortChange={onSortChange}
           viewMode={viewMode}
           onViewModeChange={onViewModeChange}
+          timelineGroupBy={timelineGroupBy}
+          onTimelineGroupByChange={onTimelineGroupByChange}
           isLoading={isLoading}
           canSearch={canSearch}
           canFilter={canFilter}

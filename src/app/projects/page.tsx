@@ -4,9 +4,10 @@ import React, { Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ProjectsLayout } from '@/components/layout/projects-layout';
 import { ProjectGrid } from '@/components/projects/project-grid';
+import { ProjectTimeline } from '@/components/projects/project-timeline';
 import { ProjectModal } from '@/components/projects/project-modal';
 import { useProjects } from '@/hooks/use-projects';
-import type { ViewMode } from '@/components/layout/navigation-bar';
+import type { ViewMode, TimelineGroupBy } from '@/components/layout/navigation-bar';
 import type { ProjectWithRelations } from '@/lib/types/project';
 
 function ProjectsPageContent() {
@@ -31,6 +32,7 @@ function ProjectsPageContent() {
   } = useProjects();
 
   const [viewMode, setViewMode] = React.useState<ViewMode>('grid');
+  const [timelineGroupBy, setTimelineGroupBy] = React.useState<TimelineGroupBy>('year');
   const [selectedProject, setSelectedProject] = React.useState<ProjectWithRelations | null>(null);
   const [projectModalOpen, setProjectModalOpen] = React.useState(false);
   const [projectLoading, setProjectLoading] = React.useState(false);
@@ -160,6 +162,8 @@ function ProjectsPageContent() {
       onSortChange={setSortBy}
       viewMode={viewMode}
       onViewModeChange={setViewMode}
+      timelineGroupBy={timelineGroupBy}
+      onTimelineGroupByChange={setTimelineGroupBy}
       // Progressive loading props
       canSearch={isReady('search')}
       canFilter={isReady('filter')}
@@ -169,12 +173,22 @@ function ProjectsPageContent() {
       isSearching={isSearching}
       searchResultsCount={totalCount}
     >
-      <ProjectGrid
-        projects={projects}
-        loading={progressiveState.showSkeletons}
-        onProjectClick={(projectSlug) => handleProjectClick(projectSlug)}
-        searchQuery={debouncedQuery}
-      />
+      {viewMode === 'grid' ? (
+        <ProjectGrid
+          projects={projects}
+          loading={progressiveState.showSkeletons}
+          onProjectClick={(projectSlug) => handleProjectClick(projectSlug)}
+          searchQuery={debouncedQuery}
+        />
+      ) : (
+        <ProjectTimeline
+          projects={projects}
+          loading={progressiveState.showSkeletons}
+          onProjectClick={(projectSlug) => handleProjectClick(projectSlug)}
+          searchQuery={debouncedQuery}
+          groupBy={timelineGroupBy}
+        />
+      )}
       
       <ProjectModal
         project={selectedProject}
