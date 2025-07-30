@@ -22,7 +22,7 @@ interface ProjectModalProps {
   loading?: boolean;
 }
 
-// Modal animation variants
+// Modal animation variants with smoother transitions
 const modalVariants = {
   hidden: {
     opacity: 0,
@@ -35,8 +35,9 @@ const modalVariants = {
     y: 0,
     transition: {
       type: "spring" as const,
-      duration: 0.5,
-      bounce: 0.2,
+      duration: 0.4,
+      bounce: 0.1,
+      staggerChildren: 0.05,
     },
   },
   exit: {
@@ -44,7 +45,7 @@ const modalVariants = {
     scale: 0.95,
     y: 20,
     transition: {
-      duration: 0.3,
+      duration: 0.25,
       ease: [0.4, 0, 0.2, 1] as const,
     },
   },
@@ -77,7 +78,25 @@ const contentVariants = {
     opacity: 1,
     x: 0,
     transition: {
-      delay: 0.2,
+      delay: 0.1,
+      duration: 0.3,
+      ease: [0.4, 0, 0.2, 1] as const,
+    },
+  },
+};
+
+// Loading to content transition variants
+const loadingTransitionVariants = {
+  loading: {
+    opacity: 0.3,
+    scale: 0.98,
+    filter: "blur(1px)",
+  },
+  loaded: {
+    opacity: 1,
+    scale: 1,
+    filter: "blur(0px)",
+    transition: {
       duration: 0.4,
       ease: [0.4, 0, 0.2, 1] as const,
     },
@@ -193,71 +212,113 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
     return content;
   };
 
-  if (loading) {
-    return (
-      <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="!w-[95vw] !max-w-none sm:!max-w-[95vw] md:!max-w-6xl lg:!max-w-7xl !h-[85vh] p-0">
-          <DialogHeader className="sr-only">
-            <DialogTitle>Loading project details</DialogTitle>
-          </DialogHeader>
-          <motion.div 
-            className="flex items-center justify-center h-full"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.3 }}
-          >
-            <div className="text-center">
-              <motion.div 
-                className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"
-                initial={{ scale: 0.8 }}
-                animate={{ scale: 1 }}
-                transition={{ duration: 0.3 }}
-              />
-              <p className="text-muted-foreground">Loading project details...</p>
-            </div>
-          </motion.div>
-        </DialogContent>
-      </Dialog>
-    );
-  }
-
-  if (!project) {
+  // Don't render anything if modal is not open
+  if (!isOpen) {
     return null;
   }
 
   // Safe array access with fallbacks
-  const mediaItems = project.mediaItems || [];
-  const tags = project.tags || [];
-  const externalLinks = project.externalLinks || [];
-  const downloadableFiles = project.downloadableFiles || [];
-  const interactiveExamples = project.interactiveExamples || [];
+  const mediaItems = project?.mediaItems || [];
+  const tags = project?.tags || [];
+  const externalLinks = project?.externalLinks || [];
+  const downloadableFiles = project?.downloadableFiles || [];
+  const interactiveExamples = project?.interactiveExamples || [];
 
-  const metadataImageUrl = project.metadataImage?.url || project.thumbnailImage?.url || mediaItems[0]?.url;
+  const metadataImageUrl = project?.metadataImage?.url || project?.thumbnailImage?.url || mediaItems[0]?.url;
 
 
 
   return (
-    <AnimatePresence mode="wait">
-      {isOpen && (
-        <Dialog open={isOpen} onOpenChange={onClose}>
-          <DialogContent className="!w-[95vw] !max-w-none sm:!max-w-[95vw] md:!max-w-6xl lg:!max-w-7xl !h-[85vh] p-0 overflow-hidden">
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="!w-[95vw] !max-w-none sm:!max-w-[95vw] md:!max-w-6xl lg:!max-w-7xl !h-[85vh] p-0 overflow-hidden">
+        <motion.div
+          className="h-full"
+          variants={modalVariants}
+          initial="hidden"
+          animate="visible"
+          exit="exit"
+        >
+            {/* Loading State Overlay with seamless transition */}
+            <AnimatePresence>
+              {loading && (
+                <motion.div
+                  className="absolute inset-0 z-50 flex items-center justify-center bg-background/90 backdrop-blur-sm"
+                  initial={{ opacity: 0, backdropFilter: "blur(0px)" }}
+                  animate={{ 
+                    opacity: 1, 
+                    backdropFilter: "blur(4px)",
+                    transition: { duration: 0.2, ease: "easeOut" }
+                  }}
+                  exit={{ 
+                    opacity: 0, 
+                    backdropFilter: "blur(0px)",
+                    transition: { duration: 0.3, ease: "easeInOut" }
+                  }}
+                >
+                  <motion.div 
+                    className="text-center"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ 
+                      opacity: 1, 
+                      y: 0,
+                      transition: { delay: 0.1, duration: 0.3 }
+                    }}
+                    exit={{ 
+                      opacity: 0, 
+                      y: -10,
+                      transition: { duration: 0.2 }
+                    }}
+                  >
+                    <motion.div 
+                      className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"
+                      initial={{ scale: 0.8, opacity: 0 }}
+                      animate={{ 
+                        scale: 1, 
+                        opacity: 1,
+                        transition: { delay: 0.2, duration: 0.3 }
+                      }}
+                      exit={{ 
+                        scale: 0.8, 
+                        opacity: 0,
+                        transition: { duration: 0.2 }
+                      }}
+                    />
+                    <motion.p 
+                      className="text-muted-foreground text-sm"
+                      initial={{ opacity: 0 }}
+                      animate={{ 
+                        opacity: 1,
+                        transition: { delay: 0.3, duration: 0.3 }
+                      }}
+                      exit={{ 
+                        opacity: 0,
+                        transition: { duration: 0.2 }
+                      }}
+                    >
+                      Loading project details...
+                    </motion.p>
+                  </motion.div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Content State - Always rendered with smooth transitions */}
             <motion.div
               className="h-full"
-              variants={modalVariants}
-              initial="hidden"
-              animate="visible"
-              exit="exit"
+              variants={loadingTransitionVariants}
+              initial="loading"
+              animate={loading ? "loading" : "loaded"}
             >
               {/* Accessible title for screen readers */}
               <DialogHeader className="sr-only">
-                <DialogTitle>{project.title} - Project Details</DialogTitle>
+                <DialogTitle>{project?.title || 'Project Details'}</DialogTitle>
               </DialogHeader>
 
-              {/* Custom close button */}
+              {/* Custom close button - Always visible */}
               <Button
                 variant="ghost"
                 size="icon"
-                className="absolute top-4 right-4 z-50 bg-background/80 backdrop-blur-sm hover:bg-background/90"
+                className="absolute top-4 right-4 z-[60] bg-background/80 backdrop-blur-sm hover:bg-background/90"
                 onClick={onClose}
               >
                 <X className="h-4 w-4" />
@@ -274,8 +335,9 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                 >
                   {/* Scrollable content within fixed sidebar */}
                   <div className="flex-1 overflow-y-auto p-4 lg:p-6">
-                    <div className="space-y-4">
-                      {/* Project Title - Visible */}
+                    {project ? (
+                      <div className="space-y-4">
+                        {/* Project Title - Visible */}
                       <motion.h2 
                         className="text-xl lg:text-2xl font-bold leading-tight"
                         initial={{ opacity: 0, y: 10 }}
@@ -459,7 +521,16 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                           </div>
                         </motion.div>
                       )}
-                    </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {/* Loading placeholder content */}
+                        <div className="h-8 bg-muted/50 rounded animate-pulse" />
+                        <div className="aspect-video bg-muted/50 rounded animate-pulse" />
+                        <div className="h-4 bg-muted/50 rounded animate-pulse" />
+                        <div className="h-4 bg-muted/50 rounded animate-pulse w-3/4" />
+                      </div>
+                    )}
                   </div>
                 </motion.div>
 
@@ -471,9 +542,10 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                   animate="visible"
                 >
                   <div className="flex-1 overflow-y-auto p-4 lg:p-6" style={{ maxHeight: 'calc(85vh - 2rem)' }}>
-                    <div className="max-w-none prose prose-gray dark:prose-invert lg:prose-lg space-y-6">
-                      {/* Main Description */}
-                      {project.description && (
+                    {project ? (
+                      <div className="max-w-none prose prose-gray dark:prose-invert lg:prose-lg space-y-6">
+                        {/* Main Description */}
+                        {project.description && (
                         <motion.div 
                           className="space-y-4"
                           initial={{ opacity: 0 }}
@@ -769,14 +841,30 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                           </p>
                         </motion.div>
                       )}
-                    </div>
+                      </div>
+                    ) : (
+                      <div className="max-w-none prose prose-gray dark:prose-invert lg:prose-lg space-y-6">
+                        {/* Loading placeholder content */}
+                        <div className="space-y-4">
+                          <div className="h-6 bg-muted/50 rounded animate-pulse w-1/3" />
+                          <div className="space-y-2">
+                            <div className="h-4 bg-muted/50 rounded animate-pulse" />
+                            <div className="h-4 bg-muted/50 rounded animate-pulse" />
+                            <div className="h-4 bg-muted/50 rounded animate-pulse w-2/3" />
+                          </div>
+                        </div>
+                        <div className="space-y-4">
+                          <div className="h-6 bg-muted/50 rounded animate-pulse w-1/4" />
+                          <div className="aspect-video bg-muted/50 rounded animate-pulse" />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </motion.div>
               </div>
             </motion.div>
-          </DialogContent>
-        </Dialog>
-      )}
-    </AnimatePresence>
-  );
+          </motion.div>
+        </DialogContent>
+      </Dialog>
+    );
 } 
