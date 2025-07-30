@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 
 export type LoadingStatus = 'idle' | 'loading' | 'success' | 'error';
 
@@ -107,7 +107,7 @@ export function useProgressiveLoading(): UseProgressiveLoadingReturn {
       default:
         return false;
     }
-  }, [progressiveState, loadingState]);
+  }, [progressiveState.canFilter, progressiveState.canSearch, progressiveState.hasProjects, loadingState.tags, loadingState.projects]);
 
   const getLoadingMessage = useCallback((feature: keyof LoadingState) => {
     const messages = {
@@ -124,7 +124,7 @@ export function useProgressiveLoading(): UseProgressiveLoadingReturn {
     setProgressiveStateInternal(initialProgressiveState);
   }, []);
 
-  return {
+  return useMemo(() => ({
     loadingState,
     progressiveState,
     setLoadingStatus,
@@ -132,5 +132,5 @@ export function useProgressiveLoading(): UseProgressiveLoadingReturn {
     isReady,
     getLoadingMessage,
     reset,
-  };
+  }), [loadingState, progressiveState, setLoadingStatus, setProgressiveState, isReady, getLoadingMessage, reset]);
 }

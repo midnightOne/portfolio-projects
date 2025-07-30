@@ -6,7 +6,9 @@ import { Calendar, Eye, Download, ExternalLink } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { HighlightedText, SearchExcerpt } from '@/components/ui/highlighted-text';
 import { cn } from '@/lib/utils';
+import { highlightSearchTerms } from '@/lib/utils/search-highlight';
 import type { ProjectWithRelations } from '@/lib/types/project';
 
 interface ProjectCardProps {
@@ -14,13 +16,15 @@ interface ProjectCardProps {
   onClick: () => void;
   showViewCount?: boolean;
   className?: string;
+  searchQuery?: string;
 }
 
 export function ProjectCard({ 
   project, 
   onClick, 
   showViewCount = true,
-  className 
+  className,
+  searchQuery = ''
 }: ProjectCardProps) {
   const shouldReduceMotion = useReducedMotion();
 
@@ -50,6 +54,12 @@ export function ProjectCard({
   };
 
   const thumbnailUrl = project.thumbnailImage?.url || project.mediaItems?.[0]?.url;
+  
+  // Prepare highlighted text segments
+  const titleSegments = React.useMemo(() => 
+    highlightSearchTerms(project.title, searchQuery), 
+    [project.title, searchQuery]
+  );
 
   // Animation variants
   const cardVariants: Variants = {
@@ -200,7 +210,10 @@ export function ProjectCard({
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <CardTitle className="text-lg font-semibold line-clamp-2 group-hover:text-primary transition-colors">
-            {project.title}
+            <HighlightedText 
+              segments={titleSegments}
+              highlightClassName="bg-yellow-200 dark:bg-yellow-800 font-medium rounded-sm px-0.5"
+            />
           </CardTitle>
           
           {showViewCount && project.viewCount > 0 && (
@@ -254,9 +267,20 @@ export function ProjectCard({
       <CardContent className="pt-0">
         {/* Description */}
         {project.briefOverview && (
-          <p className="text-sm text-muted-foreground line-clamp-3 mb-3">
-            {project.briefOverview}
-          </p>
+          <div className="text-sm text-muted-foreground line-clamp-3 mb-3">
+            {searchQuery ? (
+              <SearchExcerpt
+                text={project.briefOverview}
+                searchQuery={searchQuery}
+                maxLength={150}
+                contextLength={30}
+                highlightClassName="bg-yellow-200 dark:bg-yellow-800 font-medium rounded-sm px-0.5"
+                as="span"
+              />
+            ) : (
+              project.briefOverview
+            )}
+          </div>
         )}
 
         {/* Footer with metadata */}

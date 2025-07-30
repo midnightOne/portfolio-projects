@@ -27,6 +27,9 @@ interface NavigationBarProps {
   canFilter?: boolean;
   tagsLoading?: boolean;
   loadingMessage?: string;
+  // Search state
+  isSearching?: boolean;
+  searchResultsCount?: number;
 }
 
 const sortOptions: { value: SortOption; label: string }[] = [
@@ -51,6 +54,8 @@ export function NavigationBar({
   canFilter = true,
   tagsLoading = false,
   loadingMessage,
+  isSearching = false,
+  searchResultsCount,
 }: NavigationBarProps) {
   const [showAllTags, setShowAllTags] = useState(false);
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
@@ -78,14 +83,25 @@ export function NavigationBar({
         <div className="flex flex-col sm:flex-row gap-4 mb-4">
           {/* Search Input */}
           <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+            <Search className={cn(
+              "absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4",
+              isSearching ? "text-primary animate-pulse" : "text-muted-foreground"
+            )} />
             <Input
               placeholder={canSearch ? "Search projects..." : "Loading projects..."}
               value={searchQuery}
               onChange={(e) => canSearch && onSearchChange(e.target.value)}
-              className="pl-10"
+              className={cn(
+                "pl-10",
+                isSearching && "border-primary/50"
+              )}
               disabled={isLoading || !canSearch}
             />
+            {isSearching && (
+              <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
           </div>
 
           {/* Controls */}
@@ -224,17 +240,32 @@ export function NavigationBar({
           </div>
         )}
 
-        {/* Active Filters Summary */}
-        {selectedTags.length > 0 && (
+        {/* Search Results Summary */}
+        {(searchQuery || selectedTags.length > 0) && (
           <div className="mt-3 pt-3 border-t">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span>Active filters:</span>
-              <div className="flex flex-wrap gap-1">
-                {selectedTags.map((tagName) => (
-                  <Badge key={tagName} variant="secondary" className="text-xs">
-                    {tagName}
-                  </Badge>
-                ))}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                {searchQuery && (
+                  <span>
+                    {isSearching ? 'Searching...' : 
+                     searchResultsCount !== undefined ? 
+                     `${searchResultsCount} result${searchResultsCount !== 1 ? 's' : ''} for "${searchQuery}"` :
+                     `Results for "${searchQuery}"`}
+                  </span>
+                )}
+                {searchQuery && selectedTags.length > 0 && <span>•</span>}
+                {selectedTags.length > 0 && (
+                  <>
+                    <span>Filtered by:</span>
+                    <div className="flex flex-wrap gap-1">
+                      {selectedTags.map((tagName) => (
+                        <Badge key={tagName} variant="secondary" className="text-xs">
+                          {tagName}
+                        </Badge>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           </div>

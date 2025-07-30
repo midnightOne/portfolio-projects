@@ -22,6 +22,9 @@ interface ProjectsLayoutProps {
   canFilter?: boolean;
   tagsLoading?: boolean;
   loadingMessage?: string;
+  // Search state
+  isSearching?: boolean;
+  searchResultsCount?: number;
 }
 
 export function ProjectsLayout({
@@ -41,6 +44,8 @@ export function ProjectsLayout({
   canFilter = true,
   tagsLoading = false,
   loadingMessage,
+  isSearching = false,
+  searchResultsCount,
 }: ProjectsLayoutProps) {
   return (
     <div className="min-h-screen bg-background">
@@ -77,6 +82,8 @@ export function ProjectsLayout({
           canFilter={canFilter}
           tagsLoading={tagsLoading}
           loadingMessage={loadingMessage}
+          isSearching={isSearching}
+          searchResultsCount={searchResultsCount}
         />
       )}
 

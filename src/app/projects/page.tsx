@@ -21,7 +21,10 @@ function ProjectsPageContent() {
     searchQuery,
     selectedTags,
     sortBy,
+    totalCount,
     progressiveLoading,
+    isSearching,
+    debouncedQuery,
     setSearchQuery,
     setSelectedTags,
     setSortBy,
@@ -162,11 +165,15 @@ function ProjectsPageContent() {
       canFilter={isReady('filter')}
       tagsLoading={loadingState.tags === 'loading'}
       loadingMessage={loadingMessage}
+      // Search state
+      isSearching={isSearching}
+      searchResultsCount={totalCount}
     >
       <ProjectGrid
         projects={projects}
         loading={progressiveState.showSkeletons}
         onProjectClick={(projectSlug) => handleProjectClick(projectSlug)}
+        searchQuery={debouncedQuery}
       />
       
       <ProjectModal

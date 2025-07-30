@@ -12,6 +12,7 @@ interface ProjectGridProps {
   onProjectClick: (projectSlug: string) => void;
   showViewCount?: boolean;
   className?: string;
+  searchQuery?: string;
 }
 
 export function ProjectGrid({ 
@@ -19,7 +20,8 @@ export function ProjectGrid({
   loading, 
   onProjectClick, 
   showViewCount = true,
-  className 
+  className,
+  searchQuery = ''
 }: ProjectGridProps) {
   const shouldReduceMotion = useReducedMotion();
 
@@ -152,6 +154,7 @@ export function ProjectGrid({
               project={project}
               onClick={() => onProjectClick(project.slug)}
               showViewCount={showViewCount}
+              searchQuery={searchQuery}
             />
           </motion.div>
         ))}

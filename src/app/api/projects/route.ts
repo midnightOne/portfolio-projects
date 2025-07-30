@@ -59,29 +59,45 @@ async function projectsHandler(request: NextRequest) {
     visibility: 'PUBLIC',
   };
 
-  // Add search query
+  // Add search query with full-text search
   if (params.query) {
     const searchTerms = params.query.trim();
-    where.OR = [
-      {
-        title: {
-          contains: searchTerms,
-          mode: 'insensitive'
+    
+    // Use PostgreSQL full-text search if available, fallback to ILIKE
+    if (searchTerms.length > 0) {
+      // Use fuzzy matching for better UX (full-text search will be handled separately)
+      where.OR = [
+        {
+          title: {
+            contains: searchTerms,
+            mode: 'insensitive' as const
+          }
+        },
+        {
+          description: {
+            contains: searchTerms,
+            mode: 'insensitive' as const
+          }
+        },
+        {
+          briefOverview: {
+            contains: searchTerms,
+            mode: 'insensitive' as const
+          }
+        },
+        // Search in tags as well
+        {
+          tags: {
+            some: {
+              name: {
+                contains: searchTerms,
+                mode: 'insensitive' as const
+              }
+            }
+          }
         }
-      },
-      {
-        description: {
-          contains: searchTerms,
-          mode: 'insensitive'
-        }
-      },
-      {
-        briefOverview: {
-          contains: searchTerms,
-          mode: 'insensitive'
-        }
-      }
-    ];
+      ];
+    }
   }
 
   // Add tag filtering
@@ -114,94 +130,245 @@ async function projectsHandler(request: NextRequest) {
   }
 
   // OPTIMIZED: Back to single efficient query with selective includes using our new indexes
-  const [projects, totalCount] = await Promise.all([
-    profileQuery(
-      () => prisma.project.findMany({
-        where,
-        select: {
-          id: true,
-          title: true,
-          slug: true,
-          description: true,
-          briefOverview: true,
-          workDate: true,
-          status: true,
-          visibility: true,
-          viewCount: true,
-          createdAt: true,
-          updatedAt: true,
-          // Optimized tags relationship (uses our new _ProjectTags indexes)
-          tags: {
-            select: {
-              id: true,
-              name: true,
-              color: true
+  let projects: any[];
+  let totalCount: number;
+
+  // Use full-text search if we have a search query, otherwise use regular query
+  if (params.query && params.query.trim().length > 0) {
+    const searchTerms = params.query.trim();
+    const searchQuery = searchTerms
+      .split(/\s+/)
+      .filter(term => term.length > 0)
+      .map(term => `${term}:*`)
+      .join(' & ');
+
+    // Build additional WHERE conditions for tags and other filters
+    let additionalWhere = '';
+    const queryParams: any[] = [searchQuery];
+    let paramIndex = 2;
+
+    if (params.tags && params.tags.length > 0) {
+      const tagPlaceholders = params.tags.map(() => `$${paramIndex++}`).join(',');
+      additionalWhere += ` AND EXISTS (
+        SELECT 1 FROM "_ProjectTags" pt 
+        JOIN "tags" t ON pt."B" = t.id 
+        WHERE pt."A" = p.id AND t.name IN (${tagPlaceholders})
+      )`;
+      queryParams.push(...params.tags);
+    }
+
+    // Raw SQL query for full-text search with proper ordering
+    const searchSql = `
+      SELECT p.id, p.title, p.slug, p.description, p."briefOverview", p."workDate", 
+             p.status, p.visibility, p."viewCount", p."createdAt", p."updatedAt",
+             p."thumbnailImageId", p."metadataImageId",
+             ts_rank(p.search_vector, to_tsquery('english', $1)) as search_rank
+      FROM projects p
+      WHERE p.status = 'PUBLISHED' 
+        AND p.visibility = 'PUBLIC'
+        AND p.search_vector @@ to_tsquery('english', $1)
+        ${additionalWhere}
+      ORDER BY search_rank DESC, p."createdAt" DESC
+      LIMIT ${params.limit} OFFSET ${skip}
+    `;
+
+    const countSql = `
+      SELECT COUNT(*) as count
+      FROM projects p
+      WHERE p.status = 'PUBLISHED' 
+        AND p.visibility = 'PUBLIC'
+        AND p.search_vector @@ to_tsquery('english', $1)
+        ${additionalWhere}
+    `;
+
+    const [searchResults, countResult] = await Promise.all([
+      profileQuery(
+        () => prisma.$queryRawUnsafe(searchSql, ...queryParams),
+        'projects.fullTextSearch',
+        { query: searchQuery, additionalWhere }
+      ),
+      profileQuery(
+        () => prisma.$queryRawUnsafe(countSql, ...queryParams),
+        'projects.fullTextSearchCount',
+        { query: searchQuery, additionalWhere }
+      )
+    ]);
+
+    // Get the project IDs from search results
+    const projectIds = (searchResults as any[]).map(p => p.id);
+    
+    if (projectIds.length > 0) {
+      // Fetch full project data for the search results
+      projects = await profileQuery(
+        () => prisma.project.findMany({
+          where: { id: { in: projectIds } },
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            description: true,
+            briefOverview: true,
+            workDate: true,
+            status: true,
+            visibility: true,
+            viewCount: true,
+            createdAt: true,
+            updatedAt: true,
+            tags: {
+              select: {
+                id: true,
+                name: true,
+                color: true
+              },
+              take: 5
             },
-            take: 5
-          },
-          // Essential thumbnail image
-          thumbnailImage: {
-            select: {
-              id: true,
-              url: true,
-              thumbnailUrl: true,
-              altText: true,
-              width: true,
-              height: true
-            }
-          },
-          // MINIMAL related data - just what's needed for cards
-          mediaItems: {
-            select: {
-              id: true,
-              url: true,
-              thumbnailUrl: true,
-              altText: true
+            thumbnailImage: {
+              select: {
+                id: true,
+                url: true,
+                thumbnailUrl: true,
+                altText: true,
+                width: true,
+                height: true
+              }
             },
-            take: 1,
-            orderBy: { displayOrder: 'asc' },
-            where: { type: 'IMAGE' }
-          },
-          externalLinks: {
-            select: {
-              id: true,
-              url: true,
-              label: true
+            mediaItems: {
+              select: {
+                id: true,
+                url: true,
+                thumbnailUrl: true,
+                altText: true
+              },
+              take: 1,
+              orderBy: { displayOrder: 'asc' },
+              where: { type: 'IMAGE' }
             },
-            take: 2,
-            orderBy: { order: 'asc' }
-          },
-          downloadableFiles: {
-            select: {
-              id: true,
-              filename: true,
-              fileSize: true
+            externalLinks: {
+              select: {
+                id: true,
+                url: true,
+                label: true
+              },
+              take: 2,
+              orderBy: { order: 'asc' }
             },
-            take: 2,
-            orderBy: { uploadDate: 'desc' }
-          },
-          // Efficient counts using Prisma's optimized _count
-          _count: {
-            select: {
-              mediaItems: true,
-              downloadableFiles: true,
-              externalLinks: true
+            downloadableFiles: {
+              select: {
+                id: true,
+                filename: true,
+                fileSize: true
+              },
+              take: 2,
+              orderBy: { uploadDate: 'desc' }
+            },
+            _count: {
+              select: {
+                mediaItems: true,
+                downloadableFiles: true,
+                externalLinks: true
+              }
             }
           }
-        },
-        orderBy,
-        skip,
-        take: params.limit,
-      }),
-      'projects.findManyOptimized',
-      { where, skip, take: params.limit }
-    ),
-    profileQuery(
-      () => prisma.project.count({ where }),
-      'projects.count',
-      { where }
-    ),
-  ]);
+        }),
+        'projects.findManyByIds',
+        { projectIds }
+      );
+
+      // Preserve search ranking order
+      const projectMap = new Map(projects.map(p => [p.id, p]));
+      projects = projectIds.map(id => projectMap.get(id)).filter(Boolean);
+    } else {
+      projects = [];
+    }
+
+    totalCount = parseInt((countResult as any[])[0]?.count || '0');
+  } else {
+    // Regular query without full-text search
+    [projects, totalCount] = await Promise.all([
+      profileQuery(
+        () => prisma.project.findMany({
+          where,
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            description: true,
+            briefOverview: true,
+            workDate: true,
+            status: true,
+            visibility: true,
+            viewCount: true,
+            createdAt: true,
+            updatedAt: true,
+            tags: {
+              select: {
+                id: true,
+                name: true,
+                color: true
+              },
+              take: 5
+            },
+            thumbnailImage: {
+              select: {
+                id: true,
+                url: true,
+                thumbnailUrl: true,
+                altText: true,
+                width: true,
+                height: true
+              }
+            },
+            mediaItems: {
+              select: {
+                id: true,
+                url: true,
+                thumbnailUrl: true,
+                altText: true
+              },
+              take: 1,
+              orderBy: { displayOrder: 'asc' },
+              where: { type: 'IMAGE' }
+            },
+            externalLinks: {
+              select: {
+                id: true,
+                url: true,
+                label: true
+              },
+              take: 2,
+              orderBy: { order: 'asc' }
+            },
+            downloadableFiles: {
+              select: {
+                id: true,
+                filename: true,
+                fileSize: true
+              },
+              take: 2,
+              orderBy: { uploadDate: 'desc' }
+            },
+            _count: {
+              select: {
+                mediaItems: true,
+                downloadableFiles: true,
+                externalLinks: true
+              }
+            }
+          },
+          orderBy,
+          skip,
+          take: params.limit,
+        }),
+        'projects.findManyOptimized',
+        { where, skip, take: params.limit }
+      ),
+      profileQuery(
+        () => prisma.project.count({ where }),
+        'projects.count',
+        { where }
+      ),
+    ]);
+  }
 
   // Simple data transformation for response
   const enrichedProjects = (projects as any[]).map((project: any) => ({

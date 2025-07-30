@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import type { ProjectWithRelations, Tag } from '@/lib/types/project';
 import type { SortOption } from '@/components/layout/navigation-bar';
 import { useProgressiveLoading, type UseProgressiveLoadingReturn } from './use-progressive-loading';
+import { useDebouncedSearch } from './use-debounced-search';
 
 interface UseProjectsOptions {
   initialSearchQuery?: string;
@@ -25,11 +26,16 @@ interface UseProjectsReturn {
   // Progressive loading state
   progressiveLoading: UseProgressiveLoadingReturn;
   
+  // Search state
+  isSearching: boolean;
+  debouncedQuery: string;
+  
   // Actions
   setSearchQuery: (query: string) => void;
   setSelectedTags: (tags: string[]) => void;
   setSortBy: (sort: SortOption) => void;
   refetch: () => void;
+  clearSearch: () => void;
 }
 
 export function useProjects(options: UseProjectsOptions = {}): UseProjectsReturn {
@@ -37,14 +43,23 @@ export function useProjects(options: UseProjectsOptions = {}): UseProjectsReturn
   const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState(options.initialSearchQuery || '');
   const [selectedTags, setSelectedTags] = useState<string[]>(options.initialTags || []);
   const [sortBy, setSortBy] = useState<SortOption>(options.initialSortBy || 'relevance');
   const [totalCount, setTotalCount] = useState(0);
   const [hasMore, setHasMore] = useState(false);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   
   // Progressive loading state management
   const progressiveLoading = useProgressiveLoading();
+  
+  // Debounced search functionality
+  const {
+    searchQuery,
+    debouncedQuery,
+    isSearching,
+    setSearchQuery,
+    clearSearch
+  } = useDebouncedSearch(options.initialSearchQuery || '', { delay: 300, minLength: 0 });
 
   const fetchProjects = useCallback(async () => {
     try {
@@ -54,9 +69,9 @@ export function useProjects(options: UseProjectsOptions = {}): UseProjectsReturn
       // Set progressive loading state
       progressiveLoading.setLoadingStatus('projects', 'loading');
 
-      // Build query parameters
+      // Build query parameters using debounced query
       const params = new URLSearchParams();
-      if (searchQuery) params.set('query', searchQuery);
+      if (debouncedQuery) params.set('query', debouncedQuery);
       if (selectedTags.length > 0) params.set('tags', selectedTags.join(','));
       params.set('sortBy', sortBy);
       params.set('sortOrder', 'desc');
@@ -95,7 +110,7 @@ export function useProjects(options: UseProjectsOptions = {}): UseProjectsReturn
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, selectedTags, sortBy]);
+  }, [debouncedQuery, selectedTags, sortBy]);
 
   const fetchTags = useCallback(async () => {
     try {
@@ -126,41 +141,32 @@ export function useProjects(options: UseProjectsOptions = {}): UseProjectsReturn
     }
   }, []);
 
-  // Initial load: Load projects first (priority), then tags in background
+  // Initial load: Load projects and tags
   useEffect(() => {
-    // Load projects immediately - they're the main content
-    fetchProjects();
-    
-    // Load tags in background after a short delay to prioritize projects
-    const tagsTimeout = setTimeout(() => {
+    if (isInitialLoad) {
+      // Load projects immediately
+      fetchProjects();
+      
+      // Load tags immediately as well - they're needed for filtering
       fetchTags();
-    }, 100);
-    
-    return () => clearTimeout(tagsTimeout);
-  }, []); // Empty dependency array for initial load only
+      
+      setIsInitialLoad(false);
+    }
+  }, [isInitialLoad]);
 
   // Handle search/filter changes (excluding initial values)
   useEffect(() => {
-    // Skip if this is the very first render with initial values
-    const isInitialValues = searchQuery === (options.initialSearchQuery || '') && 
-        JSON.stringify(selectedTags.sort()) === JSON.stringify((options.initialTags || []).sort()) &&
-        sortBy === (options.initialSortBy || 'relevance');
-    
-    // Skip initial load, but allow clearing filters (empty values)
-    if (isInitialValues && progressiveLoading.progressiveState.initialLoad) {
+    // Skip initial load
+    if (isInitialLoad) {
       return;
     }
     
-    // Debounce the search
-    const timeoutId = setTimeout(() => {
-      progressiveLoading.setLoadingStatus('search', 'loading');
-      fetchProjects().finally(() => {
-        progressiveLoading.setLoadingStatus('search', 'success');
-      });
-    }, 300);
-
-    return () => clearTimeout(timeoutId);
-  }, [searchQuery, selectedTags, sortBy, fetchProjects, options.initialSearchQuery, options.initialTags, options.initialSortBy, progressiveLoading.progressiveState.initialLoad]);
+    // Trigger search when debounced query changes
+    progressiveLoading.setLoadingStatus('search', 'loading');
+    fetchProjects().finally(() => {
+      progressiveLoading.setLoadingStatus('search', 'success');
+    });
+  }, [debouncedQuery, selectedTags, sortBy, isInitialLoad]); // Remove fetchProjects from dependencies
 
   return {
     projects,
@@ -176,9 +182,14 @@ export function useProjects(options: UseProjectsOptions = {}): UseProjectsReturn
     // Progressive loading state
     progressiveLoading,
     
+    // Search state
+    isSearching,
+    debouncedQuery,
+    
     setSearchQuery,
     setSelectedTags,
     setSortBy,
     refetch: fetchProjects,
+    clearSearch,
   };
 }
