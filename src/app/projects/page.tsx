@@ -120,17 +120,6 @@ function ProjectsPageContent() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [handleCloseModal, handleProjectClick]);
 
-  if (error) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-red-600 mb-4">Error Loading Projects</h1>
-          <p className="text-gray-600">{error}</p>
-        </div>
-      </div>
-    );
-  }
-
   // Get progressive loading state
   const { loadingState, progressiveState, isReady, getLoadingMessage } = progressiveLoading;
   
@@ -145,6 +134,17 @@ function ProjectsPageContent() {
     }
     return undefined;
   }, [loadingState.projects, loadingState.tags]);
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-red-600 mb-4">Error Loading Projects</h1>
+          <p className="text-gray-600">{error}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <ProjectsLayout

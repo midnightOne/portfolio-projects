@@ -2,6 +2,12 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { useProjects } from '../use-projects';
 
 // Mock the progressive loading hook
+const mockSetLoadingStatus = jest.fn();
+const mockSetProgressiveState = jest.fn();
+const mockIsReady = jest.fn(() => true);
+const mockGetLoadingMessage = jest.fn(() => 'Loading...');
+const mockReset = jest.fn();
+
 jest.mock('../use-progressive-loading', () => ({
   useProgressiveLoading: () => ({
     loadingState: {
@@ -18,11 +24,11 @@ jest.mock('../use-progressive-loading', () => ({
       canSearch: false,
       showSkeletons: true,
     },
-    setLoadingStatus: jest.fn(),
-    setProgressiveState: jest.fn(),
-    isReady: jest.fn(() => true),
-    getLoadingMessage: jest.fn(() => 'Loading...'),
-    reset: jest.fn(),
+    setLoadingStatus: mockSetLoadingStatus,
+    setProgressiveState: mockSetProgressiveState,
+    isReady: mockIsReady,
+    getLoadingMessage: mockGetLoadingMessage,
+    reset: mockReset,
   }),
 }));
 
@@ -34,6 +40,31 @@ const mockFetch = fetch as jest.MockedFunction<typeof fetch>;
 describe('useProjects', () => {
   beforeEach(() => {
     mockFetch.mockClear();
+    mockSetLoadingStatus.mockClear();
+    mockSetProgressiveState.mockClear();
+    mockIsReady.mockClear();
+    mockGetLoadingMessage.mockClear();
+    mockReset.mockClear();
+    
+    // Default mock implementation
+    mockFetch.mockImplementation((url) => {
+      if (typeof url === 'string' && url.includes('/api/projects')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            data: { items: [], totalCount: 0, hasMore: false }
+          }),
+        } as Response);
+      }
+      if (typeof url === 'string' && url.includes('/api/tags')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ success: true, data: [] }),
+        } as Response);
+      }
+      return Promise.reject(new Error('Unexpected URL'));
+    });
   });
 
   it('should initialize with correct default values', () => {
@@ -86,14 +117,24 @@ describe('useProjects', () => {
     };
 
     mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockProjectsResponse,
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockTagsResponse,
-      } as Response);
+      .mockImplementationOnce((url) => {
+        if (typeof url === 'string' && url.includes('/api/projects')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => mockProjectsResponse,
+          } as Response);
+        }
+        return Promise.reject(new Error('Unexpected URL'));
+      })
+      .mockImplementationOnce((url) => {
+        if (typeof url === 'string' && url.includes('/api/tags')) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => mockTagsResponse,
+          } as Response);
+        }
+        return Promise.reject(new Error('Unexpected URL'));
+      });
 
     const { result } = renderHook(() => useProjects());
 
@@ -108,7 +149,18 @@ describe('useProjects', () => {
   });
 
   it('should handle projects API error gracefully', async () => {
-    mockFetch.mockRejectedValueOnce(new Error('API Error'));
+    mockFetch.mockImplementation((url) => {
+      if (typeof url === 'string' && url.includes('/api/projects')) {
+        return Promise.reject(new Error('API Error'));
+      }
+      if (typeof url === 'string' && url.includes('/api/tags')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ success: true, data: [] }),
+        } as Response);
+      }
+      return Promise.reject(new Error('Unexpected URL'));
+    });
 
     const { result } = renderHook(() => useProjects());
 
@@ -130,12 +182,18 @@ describe('useProjects', () => {
       },
     };
 
-    mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockProjectsResponse,
-      } as Response)
-      .mockRejectedValueOnce(new Error('Tags API Error'));
+    mockFetch.mockImplementation((url) => {
+      if (typeof url === 'string' && url.includes('/api/projects')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => mockProjectsResponse,
+        } as Response);
+      }
+      if (typeof url === 'string' && url.includes('/api/tags')) {
+        return Promise.reject(new Error('Tags API Error'));
+      }
+      return Promise.reject(new Error('Unexpected URL'));
+    });
 
     const { result } = renderHook(() => useProjects());
 
@@ -159,10 +217,12 @@ describe('useProjects', () => {
       },
     };
 
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => mockResponse,
-    } as Response);
+    mockFetch.mockImplementation((url) => {
+      return Promise.resolve({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+    });
 
     const { result } = renderHook(() => useProjects());
 
@@ -190,10 +250,12 @@ describe('useProjects', () => {
       },
     };
 
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => mockResponse,
-    } as Response);
+    mockFetch.mockImplementation((url) => {
+      return Promise.resolve({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+    });
 
     const { result } = renderHook(() => useProjects());
 
@@ -222,10 +284,12 @@ describe('useProjects', () => {
       },
     };
 
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => mockResponse,
-    } as Response);
+    mockFetch.mockImplementation((url) => {
+      return Promise.resolve({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+    });
 
     const { result } = renderHook(() => useProjects());
 
@@ -266,10 +330,12 @@ describe('useProjects', () => {
       },
     };
 
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => mockResponse,
-    } as Response);
+    mockFetch.mockImplementation((url) => {
+      return Promise.resolve({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+    });
 
     const { result } = renderHook(() => useProjects());
 
@@ -296,10 +362,12 @@ describe('useProjects', () => {
       },
     };
 
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => mockResponse,
-    } as Response);
+    mockFetch.mockImplementation((url) => {
+      return Promise.resolve({
+        ok: true,
+        json: async () => mockResponse,
+      } as Response);
+    });
 
     const { result } = renderHook(() => useProjects());
 

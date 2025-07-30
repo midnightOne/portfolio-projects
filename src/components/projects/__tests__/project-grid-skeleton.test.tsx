@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { ProjectGridSkeleton } from '../project-grid-skeleton';
 
 // Mock framer-motion to avoid animation issues in tests
@@ -10,25 +10,25 @@ jest.mock('framer-motion', () => ({
 
 describe('ProjectGridSkeleton', () => {
   it('should render default number of skeleton cards', () => {
-    render(<ProjectGridSkeleton />);
+    const { container } = render(<ProjectGridSkeleton />);
     
     // Should render 6 skeleton cards by default
-    const skeletonCards = screen.getAllByRole('generic');
-    expect(skeletonCards.length).toBeGreaterThanOrEqual(6);
+    const gridContainer = container.firstChild as HTMLElement;
+    expect(gridContainer.children.length).toBe(6);
   });
 
   it('should render custom number of skeleton cards', () => {
-    render(<ProjectGridSkeleton count={3} />);
+    const { container } = render(<ProjectGridSkeleton count={3} />);
     
     // Should render 3 skeleton cards
-    const gridContainer = screen.getByRole('generic');
+    const gridContainer = container.firstChild as HTMLElement;
     expect(gridContainer.children.length).toBe(3);
   });
 
   it('should render with proper grid layout classes', () => {
-    render(<ProjectGridSkeleton />);
+    const { container } = render(<ProjectGridSkeleton />);
     
-    const gridContainer = screen.getByRole('generic');
+    const gridContainer = container.firstChild as HTMLElement;
     expect(gridContainer).toHaveClass('grid');
     expect(gridContainer).toHaveClass('grid-cols-1');
     expect(gridContainer).toHaveClass('sm:grid-cols-2');
@@ -37,17 +37,18 @@ describe('ProjectGridSkeleton', () => {
   });
 
   it('should render skeleton elements with proper structure', () => {
-    render(<ProjectGridSkeleton count={1} />);
+    const { container } = render(<ProjectGridSkeleton count={1} />);
     
     // Should have card structure
-    const card = screen.getByRole('generic').firstChild;
+    const gridContainer = container.firstChild as HTMLElement;
+    const card = gridContainer.firstChild;
     expect(card).toBeInTheDocument();
   });
 
   it('should handle showStaggered prop', () => {
-    render(<ProjectGridSkeleton count={2} showStaggered={false} />);
+    const { container } = render(<ProjectGridSkeleton count={2} showStaggered={false} />);
     
-    const gridContainer = screen.getByRole('generic');
+    const gridContainer = container.firstChild as HTMLElement;
     expect(gridContainer.children.length).toBe(2);
   });
 });
