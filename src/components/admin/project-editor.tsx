@@ -8,7 +8,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { X, Plus, Upload, Save, ArrowLeft } from "lucide-react";
+import { AIChatSidebar } from "@/components/admin/ai-chat-sidebar";
+import { X, Plus, Upload, Save, ArrowLeft, Bot } from "lucide-react";
+import { ProjectWithRelations, TextSelection } from "@/lib/types/project";
 
 interface ProjectData {
   title: string;
@@ -41,6 +43,9 @@ export function ProjectEditor({ projectId, initialData }: ProjectEditorProps) {
   const [newTag, setNewTag] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [aiChatOpen, setAiChatOpen] = useState(false);
+  const [selectedText, setSelectedText] = useState<TextSelection | undefined>();
+  const [fullProject, setFullProject] = useState<ProjectWithRelations | null>(null);
 
   const isEditing = !!projectId;
 
@@ -130,6 +135,91 @@ export function ProjectEditor({ projectId, initialData }: ProjectEditorProps) {
     router.push('/admin');
   };
 
+  const handleTextSelection = (textareaRef: HTMLTextAreaElement) => {
+    const start = textareaRef.selectionStart;
+    const end = textareaRef.selectionEnd;
+    
+    if (start !== end) {
+      const selectedText = textareaRef.value.substring(start, end);
+      const contextLength = 100;
+      const contextStart = Math.max(0, start - contextLength);
+      const contextEnd = Math.min(textareaRef.value.length, end + contextLength);
+      const context = textareaRef.value.substring(contextStart, contextEnd);
+      
+      setSelectedText({
+        start,
+        end,
+        text: selectedText,
+        context
+      });
+      setAiChatOpen(true);
+    } else {
+      setSelectedText(undefined);
+    }
+  };
+
+  const handleContentUpdate = (updates: Partial<ProjectWithRelations>) => {
+    // Update form data with AI suggestions
+    if (updates.title) {
+      setFormData(prev => ({ ...prev, title: updates.title! }));
+    }
+    if (updates.description) {
+      setFormData(prev => ({ ...prev, description: updates.description! }));
+    }
+    if (updates.briefOverview) {
+      setFormData(prev => ({ ...prev, briefOverview: updates.briefOverview! }));
+    }
+    
+    // Handle tag updates
+    if (updates.tags) {
+      const newTags = updates.tags.map(t => t.name);
+      setFormData(prev => ({ ...prev, tags: newTags }));
+    }
+  };
+
+  // Create a mock project for AI context when creating new projects
+  const getMockProjectForAI = (): ProjectWithRelations => {
+    if (fullProject) return fullProject;
+    
+    return {
+      id: 'new-project',
+      title: formData.title,
+      slug: formData.title.toLowerCase().replace(/\s+/g, '-'),
+      description: formData.description,
+      briefOverview: formData.briefOverview,
+      workDate: formData.workDate ? new Date(formData.workDate) : null,
+      status: formData.status as any,
+      visibility: formData.visibility as any,
+      viewCount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      thumbnailImageId: null,
+      metadataImageId: null,
+      tags: formData.tags.map((tag, index) => ({
+        id: `tag-${index}`,
+        name: tag,
+        color: null,
+        createdAt: new Date()
+      })),
+      thumbnailImage: null,
+      metadataImage: null,
+      mediaItems: [],
+      articleContent: {
+        id: 'article-new',
+        projectId: 'new-project',
+        content: formData.description,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        embeddedMedia: []
+      },
+      interactiveExamples: [],
+      externalLinks: [],
+      downloadableFiles: [],
+      carousels: [],
+      analytics: []
+    };
+  };
+
   return (
     <div className="space-y-6">
       {/* Header Actions */}
@@ -143,6 +233,15 @@ export function ProjectEditor({ projectId, initialData }: ProjectEditorProps) {
           Back to Dashboard
         </Button>
         <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            onClick={() => setAiChatOpen(true)}
+            className="flex items-center gap-2"
+            disabled={loading}
+          >
+            <Bot size={16} />
+            AI Assistant
+          </Button>
           <Button 
             variant="outline" 
             onClick={handleCancel}
@@ -196,14 +295,16 @@ export function ProjectEditor({ projectId, initialData }: ProjectEditorProps) {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Brief Overview
                 </label>
-                <Input
+                <Textarea
                   value={formData.briefOverview}
                   onChange={(e) => handleInputChange('briefOverview', e.target.value)}
+                  onMouseUp={(e) => handleTextSelection(e.target as HTMLTextAreaElement)}
                   placeholder="Short description for project cards"
                   disabled={loading}
+                  rows={2}
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  This appears on project cards. Leave empty to auto-generate from description.
+                  This appears on project cards. Select text and use AI assistant for help.
                 </p>
               </div>
 
@@ -214,10 +315,14 @@ export function ProjectEditor({ projectId, initialData }: ProjectEditorProps) {
                 <Textarea
                   value={formData.description}
                   onChange={(e) => handleInputChange('description', e.target.value)}
+                  onMouseUp={(e) => handleTextSelection(e.target as HTMLTextAreaElement)}
                   placeholder="Detailed project description"
                   rows={6}
                   disabled={loading}
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  Select text and use the AI assistant for writing help and suggestions.
+                </p>
               </div>
 
               <div>
@@ -343,6 +448,69 @@ export function ProjectEditor({ projectId, initialData }: ProjectEditorProps) {
             </CardContent>
           </Card>
 
+          {/* AI Assistant */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Bot size={16} />
+                AI Assistant
+              </CardTitle>
+              <CardDescription>
+                Get help writing and improving your project content
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Button 
+                variant="outline" 
+                size="sm"
+                className="w-full justify-start"
+                onClick={() => {
+                  setSelectedText(undefined);
+                  setAiChatOpen(true);
+                }}
+                disabled={loading}
+              >
+                💡 Generate project ideas
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm"
+                className="w-full justify-start"
+                onClick={() => {
+                  setSelectedText(undefined);
+                  setAiChatOpen(true);
+                }}
+                disabled={loading}
+              >
+                ✍️ Improve writing
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm"
+                className="w-full justify-start"
+                onClick={() => {
+                  setSelectedText(undefined);
+                  setAiChatOpen(true);
+                }}
+                disabled={loading}
+              >
+                🏷️ Suggest tags
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm"
+                className="w-full justify-start"
+                onClick={() => {
+                  setSelectedText(undefined);
+                  setAiChatOpen(true);
+                }}
+                disabled={loading}
+              >
+                📝 Write description
+              </Button>
+            </CardContent>
+          </Card>
+
           {/* Media Upload */}
           <Card>
             <CardHeader>
@@ -372,6 +540,15 @@ export function ProjectEditor({ projectId, initialData }: ProjectEditorProps) {
           </Card>
         </div>
       </div>
+
+      {/* AI Chat Sidebar */}
+      <AIChatSidebar
+        project={getMockProjectForAI()}
+        isOpen={aiChatOpen}
+        onToggle={() => setAiChatOpen(!aiChatOpen)}
+        onContentUpdate={handleContentUpdate}
+        selectedText={selectedText}
+      />
     </div>
   );
 } 

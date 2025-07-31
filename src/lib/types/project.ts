@@ -304,3 +304,190 @@ export interface ProjectAnalytics {
   ipAddress?: string;
   metadata?: Record<string, any>;
 }
+
+// ============================================================================
+// AI-RELATED TYPES
+// ============================================================================
+
+export interface AISettings {
+  id: string;
+  anthropicApiKey?: string | null;
+  openaiApiKey?: string | null;
+  systemPrompt: string;
+  preferredProvider: 'anthropic' | 'openai';
+  preferredModel: string;
+  temperature: number;
+  maxTokens: number;
+  dailyCostLimit: number;
+  monthlyTokenLimit: number;
+  conversationHistory: boolean;
+  autoSaveInterval: number;
+  maxVersionsPerProject: number;
+  autoDeleteOldVersions: boolean;
+  versionRetentionDays: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AIConversation {
+  id: string;
+  projectId: string;
+  title?: string | null;
+  createdAt: Date;
+  lastActiveAt: Date;
+  messages: AIMessage[];
+}
+
+export interface AIMessage {
+  id: string;
+  conversationId: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: Date;
+  model?: string | null;
+  tokens?: number | null;
+  context?: Record<string, any> | null;
+}
+
+export interface ContentVersion {
+  id: string;
+  projectId: string;
+  versionNumber: number;
+  contentSnapshot: Record<string, any>;
+  changeSummary?: string | null;
+  changedBy: 'user' | 'ai';
+  aiConversationId?: string | null;
+  createdAt: Date;
+}
+
+export interface AIProvider {
+  name: 'anthropic' | 'openai';
+  models: AIModel[];
+  isConfigured: boolean;
+  rateLimit: {
+    requestsPerMinute: number;
+    tokensPerMinute: number;
+  };
+}
+
+export interface AIModel {
+  id: string;
+  name: string;
+  maxTokens: number;
+  costPer1kTokens: number;
+  capabilities: string[];
+}
+
+export interface ProjectContext {
+  currentContent: string;
+  tags: string[];
+  externalLinks: ExternalLink[];
+  mediaItems: MediaItem[];
+  selectedText?: TextSelection;
+  metadata: {
+    title: string;
+    description: string;
+    workDate?: Date;
+    status: string;
+  };
+}
+
+export interface TextSelection {
+  start: number;
+  end: number;
+  text: string;
+  context: string;
+}
+
+export interface AIRequest {
+  prompt: string;
+  context: ProjectContext;
+  systemPrompt?: string;
+  model: string;
+  provider: 'anthropic' | 'openai';
+  temperature?: number;
+  maxTokens?: number;
+  stream?: boolean;
+}
+
+export interface AIResponse {
+  content: string;
+  error?: string;
+  metadata: {
+    model: string;
+    tokens: number;
+    cost: number;
+    duration: number;
+  };
+}
+
+export interface StructuredAIResponse {
+  reasoning: string;
+  changes: {
+    articleContent?: string;
+    partialUpdate?: {
+      start: number;
+      end: number;
+      content: string;
+      reasoning: string;
+      preserveFormatting: boolean;
+    };
+    metadata?: {
+      title?: string;
+      description?: string;
+      briefOverview?: string;
+      tags?: {
+        add: string[];
+        remove: string[];
+        reasoning: string;
+      };
+      externalLinks?: {
+        add: ExternalLink[];
+        remove: string[];
+        reasoning: string;
+      };
+    };
+    media?: {
+      suggestions: MediaSuggestion[];
+      reorder?: { id: string; newOrder: number }[];
+      reasoning: string;
+    };
+  };
+  confidence: number;
+  warnings: string[];
+  modelUsed: string;
+  tokensUsed: number;
+}
+
+export interface MediaSuggestion {
+  type: 'add' | 'remove' | 'replace';
+  targetId?: string;
+  suggestion: string;
+  placement: 'inline' | 'gallery' | 'header';
+  reasoning: string;
+}
+
+export interface ParsedChanges {
+  articleContent?: string;
+  partialUpdate?: {
+    start: number;
+    end: number;
+    content: string;
+    reasoning: string;
+    preserveFormatting: boolean;
+  };
+  tagsToAdd: string[];
+  tagsToRemove: string[];
+  metadataChanges?: {
+    title?: string;
+    description?: string;
+    briefOverview?: string;
+    externalLinks?: {
+      add: ExternalLink[];
+      remove: string[];
+    };
+  };
+  mediaSuggestions: MediaSuggestion[];
+  confidence: number;
+  warnings: string[];
+}
