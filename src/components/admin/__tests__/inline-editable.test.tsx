@@ -2,33 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { InlineEditable } from '../inline-editable';
 import { TextSelection } from '@/lib/types/project';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { describe } from 'node:test';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { describe } from 'node:test';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { describe } from 'node:test';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { describe } from 'node:test';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { describe } from 'node:test';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { describe } from 'node:test';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { describe } from 'node:test';
-import { beforeEach } from 'node:test';
-import { describe } from 'node:test';
+import { describe, it, beforeEach } from '@jest/globals';
 
 describe('InlineEditable', () => {
   const defaultProps = {

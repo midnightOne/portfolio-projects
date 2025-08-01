@@ -308,7 +308,7 @@ export function UnifiedProjectEditor({ projectId, mode }: UnifiedProjectEditorPr
       slug: formData.title.toLowerCase().replace(/\s+/g, '-'),
       description: formData.description,
       briefOverview: formData.briefOverview,
-      workDate: formData.workDate ? new Date(formData.workDate) : null,
+      workDate: formData.workDate ? new Date(formData.workDate) : undefined,
       status: formData.status as 'DRAFT' | 'PUBLISHED',
       visibility: formData.visibility as 'PUBLIC' | 'PRIVATE',
       viewCount: 0,
@@ -347,7 +347,7 @@ export function UnifiedProjectEditor({ projectId, mode }: UnifiedProjectEditorPr
     briefOverview: data.briefOverview,
     status: data.status as 'DRAFT' | 'PUBLISHED',
     visibility: data.visibility as 'PUBLIC' | 'PRIVATE',
-    workDate: data.workDate ? new Date(data.workDate) : null,
+    workDate: data.workDate ? new Date(data.workDate) : undefined,
     tags: data.tags.map((tag, index) => ({
       id: `tag-${index}`,
       name: tag,

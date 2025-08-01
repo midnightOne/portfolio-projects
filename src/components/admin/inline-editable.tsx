@@ -59,7 +59,7 @@ export function InlineEditable({
   const [isDirty, setIsDirty] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const autoSaveTimeoutRef = useRef<NodeJS.Timeout>();
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Update local value when prop changes
   useEffect(() => {

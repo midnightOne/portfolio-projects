@@ -6,21 +6,7 @@ import { AIResponseParser } from '@/lib/services/ai/response-parser';
 import { ProjectContextBuilder } from '@/lib/utils/context-builder';
 import { EncryptionService } from '@/lib/services/encryption';
 import { ProjectWithRelations } from '@/lib/types/project';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { describe } from 'node:test';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { describe } from 'node:test';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { describe } from 'node:test';
-import { describe } from 'node:test';
+import { describe, it } from '@jest/globals';
 
 // Mock project data for testing
 const mockProject: ProjectWithRelations = {

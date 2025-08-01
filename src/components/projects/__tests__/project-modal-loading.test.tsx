@@ -1,11 +1,8 @@
 /**
  * @jest-environment jsdom
  */
-import { describe } from 'node:test';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
 import React from 'react';
+import { describe, it } from '@jest/globals';
 
 // Simple test to verify the modal loading transition logic
 describe('ProjectModal Loading Transitions', () => {
