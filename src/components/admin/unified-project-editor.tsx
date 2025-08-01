@@ -202,7 +202,7 @@ export function UnifiedProjectEditor({ projectId, mode }: UnifiedProjectEditorPr
         setProject({
           ...project,
           thumbnailImage: null,
-          thumbnailImageId: null
+          thumbnailImageId: undefined
         });
       }
       
@@ -213,7 +213,7 @@ export function UnifiedProjectEditor({ projectId, mode }: UnifiedProjectEditorPr
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          thumbnailImageId: null
+          thumbnailImageId: undefined
         }),
       });
 
@@ -314,8 +314,8 @@ export function UnifiedProjectEditor({ projectId, mode }: UnifiedProjectEditorPr
       viewCount: 0,
       createdAt: new Date(),
       updatedAt: new Date(),
-      thumbnailImageId: null,
-      metadataImageId: null,
+      thumbnailImageId: undefined,
+      metadataImageId: undefined,
       tags: formData.tags.map((tag, index) => ({
         id: `tag-${index}`,
         name: tag,
@@ -430,13 +430,11 @@ export function UnifiedProjectEditor({ projectId, mode }: UnifiedProjectEditorPr
                           onChange={(value) => handleFormDataChange({ title: value })}
                           placeholder="Enter your project title..."
                           className="text-xl font-bold"
-                          onTextSelection={(element) => handleTextSelection({
-                            start: element.selectionStart || 0,
-                            end: element.selectionEnd || 0,
-                            text: element.value.substring(element.selectionStart || 0, element.selectionEnd || 0),
-                            context: element.value,
-                            field: 'title'
-                          })}
+                          onTextSelection={handleTextSelection}
+                          fieldName="title"
+                          required
+                          maxLength={255}
+                          showCharacterCount
                         />
                       </div>
 
@@ -462,28 +460,25 @@ export function UnifiedProjectEditor({ projectId, mode }: UnifiedProjectEditorPr
                         />
                       </div>
 
-                      {/* Project Description */}
+                      {/* Brief Overview */}
                       <div className="space-y-2">
                         <label className="text-sm font-medium text-gray-700">
-                          Project Description
+                          Brief Overview
                         </label>
                         <InlineEditable
-                          value={formData.description}
-                          onChange={(value) => handleFormDataChange({ description: value })}
-                          placeholder="Describe your project in detail..."
+                          value={formData.briefOverview}
+                          onChange={(value) => handleFormDataChange({ briefOverview: value })}
+                          placeholder="A short description that appears on project cards..."
                           multiline
-                          rows={4}
-                          className="text-sm text-gray-700"
-                          onTextSelection={(element) => handleTextSelection({
-                            start: element.selectionStart || 0,
-                            end: element.selectionEnd || 0,
-                            text: element.value.substring(element.selectionStart || 0, element.selectionEnd || 0),
-                            context: element.value,
-                            field: 'description'
-                          })}
+                          rows={3}
+                          maxLength={200}
+                          className="text-sm text-gray-600"
+                          onTextSelection={handleTextSelection}
+                          fieldName="briefOverview"
+                          showCharacterCount
                         />
                         <p className="text-xs text-gray-500">
-                          This appears in the project modal description section
+                          This appears on project cards and in search results
                         </p>
                       </div>
 
@@ -524,6 +519,28 @@ export function UnifiedProjectEditor({ projectId, mode }: UnifiedProjectEditorPr
                         />
                       </div>
 
+                      {/* Project Description */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-700">
+                          Project Description
+                        </label>
+                        <InlineEditable
+                          value={formData.description}
+                          onChange={(value) => handleFormDataChange({ description: value })}
+                          placeholder="Describe your project in detail..."
+                          multiline
+                          rows={4}
+                          className="text-sm text-gray-700"
+                          onTextSelection={handleTextSelection}
+                          fieldName="description"
+                          maxLength={2000}
+                          showCharacterCount
+                        />
+                        <p className="text-xs text-gray-500">
+                          This appears in the project modal description section
+                        </p>
+                      </div>
+
                     </div>
                   </div>
                 </div>
@@ -546,13 +563,9 @@ export function UnifiedProjectEditor({ projectId, mode }: UnifiedProjectEditorPr
                         multiline
                         rows={20}
                         className="text-sm text-gray-700 font-mono min-h-[500px]"
-                        onTextSelection={(element) => handleTextSelection({
-                          start: element.selectionStart || 0,
-                          end: element.selectionEnd || 0,
-                          text: element.value.substring(element.selectionStart || 0, element.selectionEnd || 0),
-                          context: element.value,
-                          field: 'articleContent'
-                        })}
+                        onTextSelection={handleTextSelection}
+                        fieldName="articleContent"
+                        showCharacterCount
                       />
                       <p className="text-xs text-gray-500">
                         Select text and use the AI assistant for writing help and improvements

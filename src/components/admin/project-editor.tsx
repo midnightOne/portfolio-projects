@@ -193,8 +193,8 @@ export function ProjectEditor({ projectId, initialData }: ProjectEditorProps) {
       viewCount: 0,
       createdAt: new Date(),
       updatedAt: new Date(),
-      thumbnailImageId: null,
-      metadataImageId: null,
+      thumbnailImageId: undefined,
+      metadataImageId: undefined,
       tags: formData.tags.map((tag, index) => ({
         id: `tag-${index}`,
         name: tag,

@@ -35,8 +35,8 @@ const mockProject: ProjectWithRelations = {
   viewCount: 0,
   createdAt: new Date(),
   updatedAt: new Date(),
-  thumbnailImageId: null,
-  metadataImageId: null,
+  thumbnailImageId: undefined,
+  metadataImageId: undefined,
   tags: [
     { id: '1', name: 'AI', color: '#3B82F6', createdAt: new Date() },
     { id: '2', name: 'Testing', color: '#10B981', createdAt: new Date() }

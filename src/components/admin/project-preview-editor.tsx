@@ -2,14 +2,14 @@
 
 import { useState } from 'react';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { SmartTagInput } from '@/components/admin/smart-tag-input';
+import { SmartTagInput, Tag } from '@/components/admin/smart-tag-input';
 import { ClickableMediaUpload } from '@/components/admin/clickable-media-upload';
 import { InlineEditable } from '@/components/admin/inline-editable';
+import { ProjectDisplay } from '@/components/admin/project-display';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Calendar, Tag as TagIcon } from 'lucide-react';
-import { TextSelection } from '@/lib/types/project';
+import { TextSelection, ProjectWithRelations, MediaItem } from '@/lib/types/project';
 
 interface ProjectFormData {
   title: string;
@@ -28,6 +28,15 @@ interface ProjectPreviewEditorProps {
   onTextSelection: (selection: TextSelection | undefined) => void;
   errors: Record<string, string>;
   className?: string;
+  // Additional props for enhanced functionality
+  existingTags?: Tag[];
+  currentMedia?: MediaItem;
+  onMediaSelect?: (media: MediaItem) => void;
+  onMediaRemove?: () => void;
+  projectId?: string;
+  // Auto-save functionality
+  autoSave?: boolean;
+  onAutoSave?: (field: string, value: string) => void;
 }
 
 export function ProjectPreviewEditor({
@@ -35,40 +44,29 @@ export function ProjectPreviewEditor({
   onChange,
   onTextSelection,
   errors,
-  className = ''
+  className = '',
+  existingTags = [],
+  currentMedia,
+  onMediaSelect,
+  onMediaRemove,
+  projectId,
+  autoSave = false,
+  onAutoSave
 }: ProjectPreviewEditorProps) {
   const [focusedField, setFocusedField] = useState<string | null>(null);
-
-  const handleTextSelection = (
-    field: string,
-    element: HTMLTextAreaElement | HTMLInputElement
-  ) => {
-    const start = element.selectionStart;
-    const end = element.selectionEnd;
-    
-    if (start !== end && start !== null && end !== null) {
-      const selectedText = element.value.substring(start, end);
-      const contextLength = 100;
-      const contextStart = Math.max(0, start - contextLength);
-      const contextEnd = Math.min(element.value.length, end + contextLength);
-      const context = element.value.substring(contextStart, contextEnd);
-      
-      onTextSelection({
-        start,
-        end,
-        text: selectedText,
-        context,
-        field
-      });
-    } else {
-      onTextSelection(undefined);
-    }
-  };
 
   const handleFieldChange = (field: keyof ProjectFormData, value: any) => {
     onChange({ [field]: value });
   };
 
+  const handleAutoSave = (field: string, value: string) => {
+    if (onAutoSave) {
+      onAutoSave(field, value);
+    }
+  };
+
+  // This component is now just a wrapper - the actual layout is handled in unified-project-editor
+  // This maintains backward compatibility while allowing the enhanced inline editing
   return (
     <div className={`space-y-6 overflow-y-auto ${className}`}>
       {/* Project Header Section */}
@@ -84,7 +82,13 @@ export function ProjectPreviewEditor({
             placeholder="Enter your project title..."
             className="text-2xl font-bold"
             error={errors.title}
-            onTextSelection={(element) => handleTextSelection('title', element)}
+            onTextSelection={onTextSelection}
+            fieldName="title"
+            required
+            maxLength={255}
+            showCharacterCount
+            autoSave={autoSave}
+            onAutoSave={(value) => handleAutoSave('title', value)}
           />
         </div>
 
@@ -101,7 +105,11 @@ export function ProjectPreviewEditor({
             maxLength={200}
             className="text-gray-600"
             error={errors.briefOverview}
-            onTextSelection={(element) => handleTextSelection('briefOverview', element)}
+            onTextSelection={onTextSelection}
+            fieldName="briefOverview"
+            showCharacterCount
+            autoSave={autoSave}
+            onAutoSave={(value) => handleAutoSave('briefOverview', value)}
           />
           <p className="text-xs text-gray-500">
             This appears on project cards and in search results
@@ -121,15 +129,10 @@ export function ProjectPreviewEditor({
               Project Image
             </label>
             <ClickableMediaUpload
-              currentMedia={undefined} // TODO: Connect to actual media
-              onMediaSelect={(media) => {
-                // TODO: Handle media selection
-                console.log('Media selected:', media);
-              }}
-              onMediaRemove={() => {
-                // TODO: Handle media removal
-                console.log('Media removed');
-              }}
+              currentMedia={currentMedia}
+              projectId={projectId}
+              onMediaSelect={onMediaSelect || (() => {})}
+              onMediaRemove={onMediaRemove || (() => {})}
               aspectRatio="16:9"
               placeholder={
                 <div className="flex flex-col items-center justify-center py-8 text-gray-500">
@@ -151,9 +154,18 @@ export function ProjectPreviewEditor({
             <SmartTagInput
               value={project.tags}
               onChange={(tags) => handleFieldChange('tags', tags)}
-              existingTags={[]} // TODO: Load existing tags from API
+              existingTags={existingTags}
               placeholder="Add tags (comma or semicolon separated)..."
               error={errors.tags}
+              maxTags={10}
+              showSuggestions={true}
+              animateDuplicates={true}
+              onTagCreate={(tagName) => {
+                console.log('New tag created:', tagName);
+              }}
+              onDuplicateAttempt={(tagName) => {
+                console.log('Duplicate tag attempted:', tagName);
+              }}
             />
             {project.tags.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
@@ -199,7 +211,12 @@ export function ProjectPreviewEditor({
             rows={6}
             className="text-gray-700"
             error={errors.description}
-            onTextSelection={(element) => handleTextSelection('description', element)}
+            onTextSelection={onTextSelection}
+            fieldName="description"
+            maxLength={2000}
+            showCharacterCount
+            autoSave={autoSave}
+            onAutoSave={(value) => handleAutoSave('description', value)}
           />
         </CardContent>
       </Card>
@@ -221,7 +238,11 @@ export function ProjectPreviewEditor({
             rows={15}
             className="text-gray-700 font-mono text-sm"
             error={errors.articleContent}
-            onTextSelection={(element) => handleTextSelection('articleContent', element)}
+            onTextSelection={onTextSelection}
+            fieldName="articleContent"
+            showCharacterCount
+            autoSave={autoSave}
+            onAutoSave={(value) => handleAutoSave('articleContent', value)}
           />
           <p className="text-xs text-gray-500 mt-2">
             Select text and use the AI assistant for writing help and improvements

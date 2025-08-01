@@ -2,6 +2,19 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ProjectTimeline } from '../project-timeline';
 import type { ProjectWithRelations } from '@/lib/types/project';
+import { it } from 'zod/v4/locales';
+import { it } from 'zod/v4/locales';
+import { it } from 'zod/v4/locales';
+import { it } from 'zod/v4/locales';
+import { it } from 'zod/v4/locales';
+import { it } from 'zod/v4/locales';
+import { it } from 'zod/v4/locales';
+import { it } from 'zod/v4/locales';
+import { it } from 'zod/v4/locales';
+import { it } from 'zod/v4/locales';
+import { it } from 'zod/v4/locales';
+import { beforeEach } from 'node:test';
+import { describe } from 'node:test';
 
 // Mock framer-motion to avoid animation issues in tests
 jest.mock('framer-motion', () => ({
@@ -283,7 +296,7 @@ describe('ProjectTimeline', () => {
   it('handles projects without workDate by using createdAt', () => {
     const projectWithoutWorkDate = {
       ...mockProjects[0],
-      workDate: null,
+      workDate: undefined,
       createdAt: new Date('2023-03-15'),
     };
 
