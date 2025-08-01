@@ -8,7 +8,7 @@ import { ProjectPreviewEditor } from '@/components/admin/project-preview-editor'
 import { AIAssistantPanel } from '@/components/admin/ai-assistant-panel';
 import { FloatingSaveBar } from '@/components/admin/floating-save-bar';
 import { InlineEditable } from '@/components/admin/inline-editable';
-import { SmartTagInput } from '@/components/admin/smart-tag-input';
+import { SmartTagInput, Tag } from '@/components/admin/smart-tag-input';
 import { ClickableMediaUpload } from '@/components/admin/clickable-media-upload';
 import { ArrowLeft, Loader2, Calendar, Tag as TagIcon } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -41,6 +41,7 @@ export function UnifiedProjectEditor({ projectId, mode }: UnifiedProjectEditorPr
   const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
   const [selectedText, setSelectedText] = useState<TextSelection | undefined>();
   const [saveBarVisible, setSaveBarVisible] = useState(true);
+  const [existingTags, setExistingTags] = useState<Tag[]>([]);
 
   // Form state
   const [formData, setFormData] = useState<ProjectFormData>({
@@ -56,11 +57,12 @@ export function UnifiedProjectEditor({ projectId, mode }: UnifiedProjectEditorPr
 
   const isEditing = mode === 'edit' && !!projectId;
 
-  // Load project data for editing
+  // Load project data for editing and fetch existing tags
   useEffect(() => {
     if (isEditing) {
       fetchProject();
     }
+    fetchExistingTags();
   }, [isEditing, projectId]);
 
   // Track unsaved changes
@@ -131,6 +133,21 @@ export function UnifiedProjectEditor({ projectId, mode }: UnifiedProjectEditorPr
       setError(err instanceof Error ? err.message : 'Failed to load project');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchExistingTags = async () => {
+    try {
+      const response = await fetch('/api/tags');
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.data) {
+          setExistingTags(result.data);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch existing tags:', err);
+      // Don't show error to user, just continue without autocomplete
     }
   };
 
@@ -479,18 +496,18 @@ export function UnifiedProjectEditor({ projectId, mode }: UnifiedProjectEditorPr
                         <SmartTagInput
                           value={formData.tags}
                           onChange={(tags) => handleFormDataChange({ tags })}
-                          existingTags={[]}
+                          existingTags={existingTags}
                           placeholder="Add tags (comma or semicolon separated)..."
+                          onTagCreate={(tagName) => {
+                            console.log('New tag created:', tagName);
+                          }}
+                          onDuplicateAttempt={(tagName) => {
+                            console.log('Duplicate tag attempted:', tagName);
+                          }}
+                          maxTags={10}
+                          showSuggestions={true}
+                          animateDuplicates={true}
                         />
-                        {formData.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-2 mt-2">
-                            {formData.tags.map((tag) => (
-                              <Badge key={tag} variant="secondary">
-                                {tag}
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
                       </div>
 
                       {/* Work Date */}
