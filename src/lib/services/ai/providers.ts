@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
-import { AIRequest, AIResponse, AIModel, AIProvider } from '@/lib/types/project';
+import { AIRequest, AIResponse, AIModel, AIProvider, ProjectContext } from '@/lib/types/project';
 
 /**
  * AI service provider interface
@@ -63,7 +63,7 @@ export const AI_MODELS = {
  * Anthropic provider implementation
  */
 export class AnthropicProvider implements AIServiceProvider {
-  name: 'anthropic' = 'anthropic';
+  readonly name = 'anthropic' as const;
   private client: Anthropic;
 
   constructor(apiKey: string) {
@@ -99,7 +99,7 @@ export class AnthropicProvider implements AIServiceProvider {
           duration
         }
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       return {
         content: '',
         error: this.handleError(error),
@@ -147,24 +147,25 @@ export class AnthropicProvider implements AIServiceProvider {
     return `${request.prompt}\n\n**Context:**\n${context}`;
   }
 
-  private formatContext(context: any): string {
+  private formatContext(context: ProjectContext): string {
     return JSON.stringify({
       title: context.metadata?.title,
       description: context.metadata?.description,
       tags: context.tags,
-      currentContent: context.currentContent?.substring(0, 2000) + '...',
+      currentContent: context.currentContent.substring(0, 2000) + '...',
       selectedText: context.selectedText
     }, null, 2);
   }
 
-  private handleError(error: any): string {
-    if (error.status === 429) {
+  private handleError(error: unknown): string {
+    const errorObj = error as Record<string, unknown>;
+    if (errorObj.status === 429) {
       return 'Rate limit exceeded. Please try again later.';
     }
-    if (error.status === 401) {
+    if (errorObj.status === 401) {
       return 'Invalid API key for Anthropic. Please check your settings.';
     }
-    return `AI service error: ${error.message}`;
+    return `AI service error: ${errorObj.message || 'Unknown error'}`;
   }
 }
 
@@ -172,7 +173,7 @@ export class AnthropicProvider implements AIServiceProvider {
  * OpenAI provider implementation
  */
 export class OpenAIProvider implements AIServiceProvider {
-  name: 'openai' = 'openai';
+  readonly name = 'openai' as const;
   private client: OpenAI;
 
   constructor(apiKey: string) {
@@ -208,7 +209,7 @@ export class OpenAIProvider implements AIServiceProvider {
           duration
         }
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       return {
         content: '',
         error: this.handleError(error),
@@ -256,24 +257,25 @@ export class OpenAIProvider implements AIServiceProvider {
     return `${request.prompt}\n\n**Context:**\n${context}`;
   }
 
-  private formatContext(context: any): string {
+  private formatContext(context: ProjectContext): string {
     return JSON.stringify({
       title: context.metadata?.title,
       description: context.metadata?.description,
       tags: context.tags,
-      currentContent: context.currentContent?.substring(0, 2000) + '...',
+      currentContent: context.currentContent.substring(0, 2000) + '...',
       selectedText: context.selectedText
     }, null, 2);
   }
 
-  private handleError(error: any): string {
-    if (error.status === 429) {
+  private handleError(error: unknown): string {
+    const errorObj = error as Record<string, unknown>;
+    if (errorObj.status === 429) {
       return 'Rate limit exceeded. Please try again later.';
     }
-    if (error.status === 401) {
+    if (errorObj.status === 401) {
       return 'Invalid API key for OpenAI. Please check your settings.';
     }
-    return `AI service error: ${error.message}`;
+    return `AI service error: ${errorObj.message || 'Unknown error'}`;
   }
 }
 
