@@ -112,18 +112,31 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // Prepare response data
+    // Prepare response data - return the full MediaItem for consistency
     const responseData = {
-      id: mediaItem.id,
-      url: uploadResult.secureUrl,
-      publicId: uploadResult.publicId,
-      format: uploadResult.format,
-      width: uploadResult.width,
-      height: uploadResult.height,
-      bytes: uploadResult.bytes,
-      resourceType: uploadResult.resourceType,
-      provider: mediaProvider.name,
-      createdAt: uploadResult.createdAt.toISOString()
+      // MediaItem fields
+      mediaItem: {
+        id: mediaItem.id,
+        projectId: mediaItem.projectId,
+        type: mediaItem.type,
+        url: mediaItem.url,
+        thumbnailUrl: mediaItem.thumbnailUrl,
+        altText: mediaItem.altText,
+        description: mediaItem.description,
+        width: mediaItem.width,
+        height: mediaItem.height,
+        fileSize: mediaItem.fileSize,
+        displayOrder: mediaItem.displayOrder,
+        createdAt: mediaItem.createdAt
+      },
+      // Additional upload metadata
+      uploadMetadata: {
+        publicId: uploadResult.publicId,
+        format: uploadResult.format,
+        bytes: uploadResult.bytes,
+        resourceType: uploadResult.resourceType,
+        provider: mediaProvider.name
+      }
     };
 
     // Include warnings if any

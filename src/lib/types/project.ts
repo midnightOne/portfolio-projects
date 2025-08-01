@@ -397,6 +397,7 @@ export interface TextSelection {
   end: number;
   text: string;
   context: string;
+  field?: string; // Optional field identifier for context
 }
 
 export interface AIRequest {

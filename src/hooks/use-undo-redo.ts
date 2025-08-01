@@ -29,7 +29,7 @@ export function useUndoRedo<T>(
   });
 
   const lastSaveTime = useRef<number>(Date.now());
-  const debounceTimeout = useRef<NodeJS.Timeout>();
+  const debounceTimeout = useRef<NodeJS.Timeout | null>(null);
 
   const set = useCallback((newState: T) => {
     // Debounce rapid changes to avoid cluttering history

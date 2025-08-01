@@ -106,8 +106,8 @@ export function ProjectMediaManager({ projectId, projectTitle, existingMedia }: 
       ));
 
       // Add to media list
-      if (result.mediaItem) {
-        setMedia(prev => [result.mediaItem, ...prev]);
+      if (result.success && result.data?.mediaItem) {
+        setMedia(prev => [result.data.mediaItem, ...prev]);
       }
     } catch (error) {
       setFiles(prev => prev.map(f => 

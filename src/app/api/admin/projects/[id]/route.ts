@@ -35,7 +35,15 @@ export async function GET(
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
-    return NextResponse.json(project);
+    // Handle BigInt serialization for fileSize fields
+    const serializedProject = JSON.parse(JSON.stringify(project, (key, value) => {
+      if (typeof value === 'bigint') {
+        return value.toString();
+      }
+      return value;
+    }));
+
+    return NextResponse.json(serializedProject);
   } catch (error) {
     console.error('Error fetching project:', error);
     return NextResponse.json(
@@ -57,7 +65,7 @@ export async function PUT(
 
     const { id } = await params;
     const updates = await request.json();
-    const { title, description, briefOverview, articleContent } = updates;
+    const { title, description, briefOverview, articleContent, thumbnailImageId } = updates;
 
     // Update project basic info
     const project = await prisma.project.update({
@@ -66,6 +74,7 @@ export async function PUT(
         title,
         description,
         briefOverview,
+        thumbnailImageId: thumbnailImageId !== undefined ? thumbnailImageId : undefined,
         updatedAt: new Date()
       }
     });
@@ -101,7 +110,15 @@ export async function PUT(
       }
     });
 
-    return NextResponse.json(updatedProject);
+    // Handle BigInt serialization for fileSize fields
+    const serializedUpdatedProject = JSON.parse(JSON.stringify(updatedProject, (key, value) => {
+      if (typeof value === 'bigint') {
+        return value.toString();
+      }
+      return value;
+    }));
+
+    return NextResponse.json(serializedUpdatedProject);
   } catch (error) {
     console.error('Error updating project:', error);
     return NextResponse.json(
