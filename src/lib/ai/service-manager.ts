@@ -1,0 +1,753 @@
+/**
+ * AI Service Manager - Core service for managing AI providers and operations
+ */
+
+import { PrismaClient } from '@prisma/client';
+import { ProviderFactory } from './provider-factory';
+import { 
+  AIProvider, 
+  AIProviderType, 
+  AIProviderStatus, 
+  ConnectionTestResult,
+  ProviderChatRequest,
+  ProviderChatResponse
+} from './types';
+
+const prisma = new PrismaClient();
+
+export interface AIModelConfig {
+  provider: AIProviderType;
+  models: string[];
+  defaultModel?: string;
+}
+
+export interface ModelValidationResult {
+  valid: string[];
+  invalid: string[];
+  warnings: string[];
+}
+
+export interface AIContentEditRequest {
+  model: string;
+  operation: 'rewrite' | 'improve' | 'expand' | 'summarize' | 'make_professional' | 'make_casual';
+  content: string;
+  selectedText?: {
+    text: string;
+    start: number;
+    end: number;
+  };
+  context: {
+    projectTitle: string;
+    projectDescription: string;
+    existingTags: string[];
+    fullContent: string;
+  };
+  systemPrompt?: string;
+  temperature?: number;
+}
+
+export interface AIContentEditResponse {
+  success: boolean;
+  changes: {
+    // Full content replacement
+    fullContent?: string;
+    
+    // Partial text replacement
+    partialUpdate?: {
+      start: number;
+      end: number;
+      newText: string;
+      reasoning: string;
+    };
+    
+    // Metadata suggestions
+    suggestedTags?: {
+      add: string[];
+      remove: string[];
+      reasoning: string;
+    };
+    
+    // Other metadata
+    suggestedTitle?: string;
+    suggestedDescription?: string;
+  };
+  reasoning: string;
+  confidence: number;
+  warnings: string[];
+  model: string;
+  tokensUsed: number;
+  cost: number;
+}
+
+export interface AITagSuggestionRequest {
+  model: string;
+  projectTitle: string;
+  projectDescription: string;
+  articleContent: string;
+  existingTags: string[];
+  maxSuggestions?: number;
+}
+
+export interface AITagSuggestionResponse {
+  success: boolean;
+  suggestions: {
+    add: Array<{
+      tag: string;
+      confidence: number;
+      reasoning: string;
+    }>;
+    remove: Array<{
+      tag: string;
+      reasoning: string;
+    }>;
+  };
+  reasoning: string;
+  model: string;
+  tokensUsed: number;
+  cost: number;
+}
+
+export class AIServiceManager {
+  private providers: Map<AIProviderType, AIProvider> = new Map();
+  private modelConfigs: Map<AIProviderType, string[]> = new Map();
+  
+  constructor() {
+    this.initializeProviders();
+  }
+  
+  /**
+   * Initialize providers based on available environment variables
+   */
+  private initializeProviders(): void {
+    const availableProviders = ProviderFactory.createAvailableProviders();
+    this.providers = availableProviders;
+  }
+  
+  /**
+   * Get status of all available providers with connection information
+   */
+  async getAvailableProviders(): Promise<AIProviderStatus[]> {
+    const statuses: AIProviderStatus[] = [];
+    
+    // Check all possible provider types, not just configured ones
+    const allProviderTypes: AIProviderType[] = ['openai', 'anthropic'];
+    
+    for (const providerType of allProviderTypes) {
+      const provider = this.providers.get(providerType);
+      const models = this.modelConfigs.get(providerType) || [];
+      
+      if (!provider) {
+        // Provider not configured (no API key)
+        statuses.push({
+          name: providerType,
+          configured: false,
+          connected: false,
+          error: `${providerType.toUpperCase()}_API_KEY environment variable not set`,
+          models: [],
+          lastTested: new Date()
+        });
+        continue;
+      }
+      
+      try {
+        const testResult = await this.testConnection(providerType);
+        statuses.push({
+          name: providerType,
+          configured: true,
+          connected: testResult.success,
+          error: testResult.success ? undefined : testResult.message,
+          models,
+          lastTested: new Date()
+        });
+      } catch (error) {
+        statuses.push({
+          name: providerType,
+          configured: true,
+          connected: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          models,
+          lastTested: new Date()
+        });
+      }
+    }
+    
+    return statuses;
+  }
+  
+  /**
+   * Test connection to a specific provider
+   */
+  async testConnection(providerType: AIProviderType): Promise<ConnectionTestResult> {
+    const provider = this.providers.get(providerType);
+    
+    if (!provider) {
+      return {
+        success: false,
+        message: `${providerType} not configured - check environment variables`,
+        error: {
+          code: 'NOT_CONFIGURED',
+          details: `Missing ${providerType.toUpperCase()}_API_KEY environment variable`,
+          actionable: true
+        }
+      };
+    }
+    
+    try {
+      const isConnected = await provider.testConnection();
+      
+      if (isConnected) {
+        const models = await provider.listModels();
+        return {
+          success: true,
+          message: `Connected successfully - ${models.length} models available`,
+          availableModels: models
+        };
+      } else {
+        return {
+          success: false,
+          message: `Connection test failed for ${providerType}`,
+          error: {
+            code: 'CONNECTION_FAILED',
+            details: 'Provider connection test returned false',
+            actionable: true
+          }
+        };
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        message: this.parseProviderError(error, providerType),
+        error: {
+          code: this.getErrorCode(error),
+          details: error instanceof Error ? error.message : 'Unknown error',
+          actionable: this.isActionableError(error)
+        }
+      };
+    }
+  }
+  
+  /**
+   * Parse provider-specific errors into user-friendly messages
+   */
+  private parseProviderError(error: any, provider: AIProviderType): string {
+    if (error.status === 401) {
+      return `Invalid API key for ${provider}`;
+    }
+    if (error.status === 429) {
+      return `Rate limit exceeded for ${provider}`;
+    }
+    if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      return `Network error connecting to ${provider}`;
+    }
+    return `Connection failed: ${error.message || 'Unknown error'}`;
+  }
+  
+  /**
+   * Get error code for categorization
+   */
+  private getErrorCode(error: any): string {
+    if (error.status === 401 || error.code === 'invalid_api_key') {
+      return 'INVALID_API_KEY';
+    }
+    if (error.status === 429 || error.code === 'rate_limit_exceeded') {
+      return 'RATE_LIMIT_EXCEEDED';
+    }
+    if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+      return 'NETWORK_ERROR';
+    }
+    if (error.status === 400) {
+      return 'BAD_REQUEST';
+    }
+    return 'UNKNOWN_ERROR';
+  }
+  
+  /**
+   * Check if error is actionable by user
+   */
+  private isActionableError(error: any): boolean {
+    const code = this.getErrorCode(error);
+    return ['INVALID_API_KEY', 'BAD_REQUEST'].includes(code);
+  }
+  
+  /**
+   * Get configured models from database
+   */
+  async getConfiguredModels(): Promise<AIModelConfig[]> {
+    try {
+      const configs = await prisma.aIModelConfig.findMany();
+      
+      const modelConfigs: AIModelConfig[] = configs.map(config => {
+        const models = config.models ? config.models.split(',').map(m => m.trim()).filter(Boolean) : [];
+        this.modelConfigs.set(config.provider as AIProviderType, models);
+        
+        return {
+          provider: config.provider as AIProviderType,
+          models,
+          defaultModel: models[0] // First model as default
+        };
+      });
+      
+      return modelConfigs;
+    } catch (error) {
+      console.error('Failed to get configured models:', error);
+      return [];
+    }
+  }
+  
+  /**
+   * Validate model IDs against provider APIs
+   */
+  async validateModels(providerType: AIProviderType, models: string[]): Promise<ModelValidationResult> {
+    const provider = this.providers.get(providerType);
+    
+    if (!provider) {
+      return {
+        valid: [],
+        invalid: models,
+        warnings: [`${providerType} provider not configured`]
+      };
+    }
+    
+    try {
+      const availableModels = await provider.listModels();
+      const valid: string[] = [];
+      const invalid: string[] = [];
+      const warnings: string[] = [];
+      
+      for (const model of models) {
+        if (availableModels.includes(model)) {
+          valid.push(model);
+        } else {
+          invalid.push(model);
+          warnings.push(`Model '${model}' not found in ${providerType} API - it may be a new model not yet listed`);
+        }
+      }
+      
+      return { valid, invalid, warnings };
+    } catch (error) {
+      return {
+        valid: [],
+        invalid: models,
+        warnings: [`Could not validate models for ${providerType}: ${error instanceof Error ? error.message : 'Unknown error'}`]
+      };
+    }
+  }
+  
+  /**
+   * Save model configuration to database
+   */
+  async saveModelConfiguration(providerType: AIProviderType, models: string[]): Promise<void> {
+    try {
+      const modelsString = models.join(',');
+      
+      await prisma.aIModelConfig.upsert({
+        where: { provider: providerType },
+        update: { models: modelsString },
+        create: { provider: providerType, models: modelsString }
+      });
+      
+      // Update in-memory cache
+      this.modelConfigs.set(providerType, models);
+    } catch (error) {
+      console.error(`Failed to save model configuration for ${providerType}:`, error);
+      throw new Error(`Failed to save model configuration: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+  
+  /**
+   * Get all available models across all configured providers
+   */
+  async getAllAvailableModels(): Promise<{ provider: AIProviderType; model: string }[]> {
+    const allModels: { provider: AIProviderType; model: string }[] = [];
+    
+    for (const [providerType, provider] of this.providers) {
+      try {
+        const models = await provider.listModels();
+        models.forEach(model => {
+          allModels.push({ provider: providerType, model });
+        });
+      } catch (error) {
+        console.warn(`Failed to get models for ${providerType}:`, error);
+      }
+    }
+    
+    return allModels;
+  }
+  
+  /**
+   * Initialize model configurations from database on startup
+   */
+  async initializeModelConfigurations(): Promise<void> {
+    try {
+      await this.getConfiguredModels();
+      console.log('Model configurations initialized');
+    } catch (error) {
+      console.error('Failed to initialize model configurations:', error);
+    }
+  }
+  
+  /**
+   * Get models for a specific provider
+   */
+  getProviderModels(providerType: AIProviderType): string[] {
+    return this.modelConfigs.get(providerType) || [];
+  }
+  
+  /**
+   * Check if a model is configured for any provider
+   */
+  isModelConfigured(model: string): boolean {
+    for (const models of this.modelConfigs.values()) {
+      if (models.includes(model)) {
+        return true;
+      }
+    }
+    return false;
+  }
+  
+  /**
+   * Get the provider for a specific model
+   */
+  getProviderForModel(model: string): AIProviderType | null {
+    for (const [provider, models] of this.modelConfigs.entries()) {
+      if (models.includes(model)) {
+        return provider;
+      }
+    }
+    return null;
+  }
+  
+  /**
+   * Get all configured models in a format suitable for dropdowns
+   */
+  async getModelsForDropdown(): Promise<Array<{ provider: AIProviderType; model: string; available: boolean }>> {
+    const dropdownModels: Array<{ provider: AIProviderType; model: string; available: boolean }> = [];
+    
+    for (const [providerType, models] of this.modelConfigs.entries()) {
+      const provider = this.providers.get(providerType);
+      const isProviderAvailable = !!provider;
+      
+      models.forEach(model => {
+        dropdownModels.push({
+          provider: providerType,
+          model,
+          available: isProviderAvailable
+        });
+      });
+    }
+    
+    // Sort by provider, then by model name
+    return dropdownModels.sort((a, b) => {
+      if (a.provider !== b.provider) {
+        return a.provider.localeCompare(b.provider);
+      }
+      return a.model.localeCompare(b.model);
+    });
+  }
+  
+  /**
+   * Edit content using AI
+   */
+  async editContent(request: AIContentEditRequest): Promise<AIContentEditResponse> {
+    const provider = this.getProviderForModel(request.model);
+    
+    if (!provider) {
+      throw new Error(`Model ${request.model} is not configured`);
+    }
+    
+    const providerInstance = this.providers.get(provider);
+    if (!providerInstance) {
+      throw new Error(`Provider ${provider} is not available`);
+    }
+    
+    try {
+      // Build the prompt based on the operation
+      const prompt = this.buildContentEditPrompt(request);
+      
+      const chatRequest: ProviderChatRequest = {
+        model: request.model,
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        systemPrompt: request.systemPrompt || this.getDefaultSystemPrompt(),
+        temperature: request.temperature ?? 0.7,
+        maxTokens: 4000
+      };
+      
+      const response = await providerInstance.chat(chatRequest);
+      
+      // Parse the structured response
+      const parsedResponse = this.parseContentEditResponse(response.content, request);
+      
+      return {
+        success: true,
+        changes: parsedResponse.changes,
+        reasoning: parsedResponse.reasoning,
+        confidence: parsedResponse.confidence,
+        warnings: parsedResponse.warnings,
+        model: request.model,
+        tokensUsed: response.tokensUsed,
+        cost: response.cost
+      };
+    } catch (error) {
+      console.error('Content editing failed:', error);
+      return {
+        success: false,
+        changes: {},
+        reasoning: `Content editing failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        confidence: 0,
+        warnings: ['AI content editing is currently unavailable'],
+        model: request.model,
+        tokensUsed: 0,
+        cost: 0
+      };
+    }
+  }
+  
+  /**
+   * Suggest tags for project content
+   */
+  async suggestTags(request: AITagSuggestionRequest): Promise<AITagSuggestionResponse> {
+    const provider = this.getProviderForModel(request.model);
+    
+    if (!provider) {
+      throw new Error(`Model ${request.model} is not configured`);
+    }
+    
+    const providerInstance = this.providers.get(provider);
+    if (!providerInstance) {
+      throw new Error(`Provider ${provider} is not available`);
+    }
+    
+    try {
+      const prompt = this.buildTagSuggestionPrompt(request);
+      
+      const chatRequest: ProviderChatRequest = {
+        model: request.model,
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        systemPrompt: 'You are an expert at analyzing project content and suggesting relevant technology and skill tags. Provide structured JSON responses.',
+        temperature: 0.3, // Lower temperature for more consistent tag suggestions
+        maxTokens: 2000
+      };
+      
+      const response = await providerInstance.chat(chatRequest);
+      
+      // Parse the tag suggestions
+      const parsedResponse = this.parseTagSuggestionResponse(response.content);
+      
+      return {
+        success: true,
+        suggestions: parsedResponse.suggestions,
+        reasoning: parsedResponse.reasoning,
+        model: request.model,
+        tokensUsed: response.tokensUsed,
+        cost: response.cost
+      };
+    } catch (error) {
+      console.error('Tag suggestion failed:', error);
+      return {
+        success: false,
+        suggestions: { add: [], remove: [] },
+        reasoning: `Tag suggestion failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        model: request.model,
+        tokensUsed: 0,
+        cost: 0
+      };
+    }
+  }
+  
+  /**
+   * Improve content using AI
+   */
+  async improveContent(request: AIContentEditRequest): Promise<AIContentEditResponse> {
+    // Use the same editContent method but with 'improve' operation
+    return this.editContent({ ...request, operation: 'improve' });
+  }
+  
+  /**
+   * Build prompt for content editing operations
+   */
+  private buildContentEditPrompt(request: AIContentEditRequest): string {
+    const { operation, content, selectedText, context } = request;
+    
+    let prompt = `Project: ${context.projectTitle}\n`;
+    if (context.projectDescription) {
+      prompt += `Description: ${context.projectDescription}\n`;
+    }
+    prompt += `Existing tags: ${context.existingTags.join(', ')}\n\n`;
+    
+    const targetText = selectedText ? selectedText.text : content;
+    
+    switch (operation) {
+      case 'rewrite':
+        prompt += `Please rewrite the following text to improve clarity and flow while maintaining the original meaning:\n\n"${targetText}"\n\n`;
+        break;
+      case 'improve':
+        prompt += `Please improve the following text by enhancing clarity, fixing grammar, and making it more engaging:\n\n"${targetText}"\n\n`;
+        break;
+      case 'expand':
+        prompt += `Please expand the following text with more detail and context, keeping it relevant to the project:\n\n"${targetText}"\n\n`;
+        break;
+      case 'summarize':
+        prompt += `Please summarize the following text, keeping the key points concise:\n\n"${targetText}"\n\n`;
+        break;
+      case 'make_professional':
+        prompt += `Please rewrite the following text in a more professional tone:\n\n"${targetText}"\n\n`;
+        break;
+      case 'make_casual':
+        prompt += `Please rewrite the following text in a more casual, friendly tone:\n\n"${targetText}"\n\n`;
+        break;
+    }
+    
+    prompt += `Please respond with a JSON object containing:
+{
+  "newText": "the improved text",
+  "reasoning": "explanation of changes made",
+  "confidence": 0.8,
+  "warnings": ["any warnings or notes"],
+  "suggestedTags": {
+    "add": ["new tag suggestions based on content"],
+    "remove": ["tags that might not fit"],
+    "reasoning": "explanation for tag suggestions"
+  }
+}`;
+    
+    return prompt;
+  }
+  
+  /**
+   * Build prompt for tag suggestions
+   */
+  private buildTagSuggestionPrompt(request: AITagSuggestionRequest): string {
+    let prompt = `Analyze this project and suggest relevant tags:\n\n`;
+    prompt += `Title: ${request.projectTitle}\n`;
+    if (request.projectDescription) {
+      prompt += `Description: ${request.projectDescription}\n`;
+    }
+    prompt += `Content: ${request.articleContent.substring(0, 2000)}...\n\n`;
+    prompt += `Current tags: ${request.existingTags.join(', ')}\n\n`;
+    
+    prompt += `Please suggest up to ${request.maxSuggestions || 5} new tags and identify any current tags that might not fit. `;
+    prompt += `Focus on technology stacks, programming languages, frameworks, tools, and relevant skills.\n\n`;
+    
+    prompt += `Respond with JSON:
+{
+  "suggestions": {
+    "add": [
+      {
+        "tag": "suggested-tag",
+        "confidence": 0.9,
+        "reasoning": "why this tag fits"
+      }
+    ],
+    "remove": [
+      {
+        "tag": "existing-tag",
+        "reasoning": "why this tag might not fit"
+      }
+    ]
+  },
+  "reasoning": "overall analysis of the project's technology focus"
+}`;
+    
+    return prompt;
+  }
+  
+  /**
+   * Parse content edit response from AI
+   */
+  private parseContentEditResponse(response: string, request: AIContentEditRequest): {
+    changes: AIContentEditResponse['changes'];
+    reasoning: string;
+    confidence: number;
+    warnings: string[];
+  } {
+    try {
+      // Try to parse as JSON first
+      const parsed = JSON.parse(response);
+      
+      const changes: AIContentEditResponse['changes'] = {};
+      
+      if (parsed.newText) {
+        if (request.selectedText) {
+          // Partial update
+          changes.partialUpdate = {
+            start: request.selectedText.start,
+            end: request.selectedText.end,
+            newText: parsed.newText,
+            reasoning: parsed.reasoning || 'AI-generated improvement'
+          };
+        } else {
+          // Full content replacement
+          changes.fullContent = parsed.newText;
+        }
+      }
+      
+      if (parsed.suggestedTags) {
+        changes.suggestedTags = {
+          add: parsed.suggestedTags.add || [],
+          remove: parsed.suggestedTags.remove || [],
+          reasoning: parsed.suggestedTags.reasoning || 'AI-generated tag suggestions'
+        };
+      }
+      
+      return {
+        changes,
+        reasoning: parsed.reasoning || 'Content improved by AI',
+        confidence: parsed.confidence || 0.8,
+        warnings: parsed.warnings || []
+      };
+    } catch (error) {
+      // Fallback to text parsing if JSON parsing fails
+      return {
+        changes: {
+          fullContent: response
+        },
+        reasoning: 'AI response could not be parsed as structured data',
+        confidence: 0.6,
+        warnings: ['Response format was not structured - using raw text']
+      };
+    }
+  }
+  
+  /**
+   * Parse tag suggestion response from AI
+   */
+  private parseTagSuggestionResponse(response: string): {
+    suggestions: AITagSuggestionResponse['suggestions'];
+    reasoning: string;
+  } {
+    try {
+      const parsed = JSON.parse(response);
+      
+      return {
+        suggestions: {
+          add: parsed.suggestions?.add || [],
+          remove: parsed.suggestions?.remove || []
+        },
+        reasoning: parsed.reasoning || 'AI-generated tag analysis'
+      };
+    } catch (error) {
+      // Fallback parsing
+      return {
+        suggestions: { add: [], remove: [] },
+        reasoning: 'Could not parse tag suggestions from AI response'
+      };
+    }
+  }
+  
+  /**
+   * Get default system prompt for content editing
+   */
+  private getDefaultSystemPrompt(): string {
+    return 'You are an expert content editor for portfolio projects. Help improve and edit project content while maintaining the author\'s voice and style. Always provide structured JSON responses when requested.';
+  }
+}
