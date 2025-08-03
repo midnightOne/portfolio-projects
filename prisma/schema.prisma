@@ -37,8 +37,6 @@ model Project {
   metadataImage       MediaItem?               @relation("ProjectMetadata", fields: [metadataImageId], references: [id])
   thumbnailImage      MediaItem?               @relation("ProjectThumbnail", fields: [thumbnailImageId], references: [id])
   tags                Tag[]                    @relation("ProjectTags")
-  aiConversations     AIConversation[]
-  contentVersions     ContentVersion[]
 
   @@index([status, visibility])
   @@index([workDate])
@@ -271,73 +269,25 @@ enum AnalyticsEvent {
   @@map("analytics_event")
 }
 
-model AISettings {
-  id                    String   @id @default(cuid())
-  anthropicApiKey       String?  // Encrypted
-  openaiApiKey          String?  // Encrypted
-  systemPrompt          String   @default("You are an expert content editor for portfolio projects. Help improve and edit project content while maintaining the author's voice and style.")
-  preferredProvider     String   @default("anthropic") // 'anthropic' | 'openai'
-  preferredModel        String   @default("claude-3-5-sonnet-20241022")
-  temperature           Float    @default(0.7)
-  maxTokens             Int      @default(4000)
-  dailyCostLimit        Float    @default(10.0)
-  monthlyTokenLimit     Int      @default(100000)
-  conversationHistory   Boolean  @default(true)
-  autoSaveInterval      Int      @default(60) // seconds
-  maxVersionsPerProject Int      @default(20)
-  autoDeleteOldVersions Boolean  @default(true)
-  versionRetentionDays  Int      @default(30)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+model AIModelConfig {
+  id        String   @id @default(cuid())
+  provider  String   @unique
+  models    String   // comma-separated model IDs
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@map("ai_settings")
+  @@index([provider])
+  @@map("ai_model_config")
 }
 
-model AIConversation {
-  id              String           @id @default(cuid())
-  projectId       String
-  title           String?          @db.VarChar(255)
-  createdAt       DateTime         @default(now())
-  lastActiveAt    DateTime         @updatedAt
-  project         Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  messages        AIMessage[]
-  contentVersions ContentVersion[]
+model AIGeneralSettings {
+  id              String   @id @default(cuid())
+  defaultProvider String   @default("openai")
+  systemPrompt    String   @default("You are an expert content editor for portfolio projects. Help improve and edit project content while maintaining the author's voice and style.")
+  temperature     Float    @default(0.7)
+  maxTokens       Int      @default(4000)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  @@index([projectId])
-  @@index([lastActiveAt])
-  @@map("ai_conversations")
-}
-
-model AIMessage {
-  id             String         @id @default(cuid())
-  conversationId String
-  role           String         // 'user' | 'assistant' | 'system'
-  content        String
-  timestamp      DateTime       @default(now())
-  model          String?
-  tokens         Int?
-  context        Json?
-  conversation   AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  @@index([conversationId])
-  @@index([timestamp])
-  @@map("ai_messages")
-}
-
-model ContentVersion {
-  id                  String         @id @default(cuid())
-  projectId           String
-  versionNumber       Int
-  contentSnapshot     Json           // Full project state
-  changeSummary       String?
-  changedBy           String         @default("user") // 'user' | 'ai'
-  aiConversationId    String?
-  createdAt           DateTime       @default(now())
-  project             Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  aiConversation      AIConversation? @relation(fields: [aiConversationId], references: [id], onDelete: SetNull)
-
-  @@unique([projectId, versionNumber])
-  @@index([projectId])
-  @@index([createdAt])
-  @@map("content_versions")
+  @@map("ai_general_settings")
 }
