@@ -14,8 +14,9 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { AlertCircle, CheckCircle, Settings, Brain, Key, Sliders } from 'lucide-react';
 import { AISettings, AIProvider } from '@/lib/types/project';
+import { AdminLayout } from '@/components/admin/layout';
 
-export default function AISettingsPage() {
+function AISettingsContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [settings, setSettings] = useState<AISettings | null>(null);
@@ -153,16 +154,7 @@ export default function AISettingsPage() {
   }
 
   return (
-    <div className="container mx-auto py-8 max-w-4xl">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold flex items-center gap-2">
-          <Brain className="h-8 w-8" />
-          AI Assistant Settings
-        </h1>
-        <p className="text-muted-foreground mt-2">
-          Configure AI providers and settings for content editing assistance
-        </p>
-      </div>
+    <div className="space-y-6">
 
       {error && (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
@@ -505,5 +497,13 @@ export default function AISettingsPage() {
         </Button>
       </div>
     </div>
+  );
+}
+
+export default function AISettingsPage() {
+  return (
+    <AdminLayout currentTab="ai-settings">
+      <AISettingsContent />
+    </AdminLayout>
   );
 }

@@ -94,34 +94,20 @@ export function AdminDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-6">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">
-                Admin Dashboard
-              </h1>
-              <p className="text-sm text-gray-600 mt-1">
-                Manage your portfolio projects and media
-              </p>
-            </div>
-            <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-600">
-                Welcome, {session?.user?.name}
-              </span>
-              <Button onClick={handleSignOut} variant="outline">
-                Sign Out
-              </Button>
-            </div>
-          </div>
+    <div className="space-y-6">
+      {/* Header with user info and sign out */}
+      <div className="flex justify-between items-center">
+        <div className="flex items-center space-x-4">
+          <span className="text-sm text-muted-foreground">
+            Welcome, {session?.user?.name}
+          </span>
         </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        <div className="px-4 py-6 sm:px-0">
-          {/* Statistics Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+        <Button onClick={handleSignOut} variant="outline">
+          Sign Out
+        </Button>
+      </div>
+      {/* Statistics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-gray-600">Total Projects</CardTitle>
@@ -174,10 +160,10 @@ export function AdminDashboard() {
                 </p>
               </CardContent>
             </Card>
-          </div>
+      </div>
 
-          {/* Quick Actions */}
-          <div className="mb-8">
+      {/* Quick Actions */}
+      <div>
             <Card>
               <CardHeader>
                 <CardTitle>Quick Actions</CardTitle>
@@ -208,10 +194,10 @@ export function AdminDashboard() {
                 </Button>
               </CardContent>
             </Card>
-          </div>
+      </div>
 
-          {/* Recent Projects */}
-          <Card>
+      {/* Recent Projects */}
+      <Card>
             <CardHeader>
               <div className="flex justify-between items-center">
                 <div>
@@ -285,8 +271,6 @@ export function AdminDashboard() {
               )}
             </CardContent>
           </Card>
-        </div>
-      </main>
     </div>
   );
 }

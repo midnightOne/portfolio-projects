@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth-utils";
 import { AdminDashboard } from "@/components/admin/dashboard";
+import { AdminLayout } from "@/components/admin/layout";
 
 export default async function AdminPage() {
   const session = await getSession();
@@ -9,5 +10,9 @@ export default async function AdminPage() {
     redirect("/admin/login");
   }
 
-  return <AdminDashboard />;
+  return (
+    <AdminLayout currentTab="dashboard">
+      <AdminDashboard />
+    </AdminLayout>
+  );
 }
