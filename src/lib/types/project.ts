@@ -309,55 +309,23 @@ export interface ProjectAnalytics {
 // AI-RELATED TYPES
 // ============================================================================
 
-export interface AISettings {
+// New simplified AI types for the redesigned architecture
+export interface AIModelConfig {
   id: string;
-  anthropicApiKey?: string | null;
-  openaiApiKey?: string | null;
-  systemPrompt: string;
-  preferredProvider: 'anthropic' | 'openai';
-  preferredModel: string;
-  temperature: number;
-  maxTokens: number;
-  dailyCostLimit: number;
-  monthlyTokenLimit: number;
-  conversationHistory: boolean;
-  autoSaveInterval: number;
-  maxVersionsPerProject: number;
-  autoDeleteOldVersions: boolean;
-  versionRetentionDays: number;
+  provider: string;
+  models: string; // comma-separated model IDs
   createdAt: Date;
   updatedAt: Date;
 }
 
-export interface AIConversation {
+export interface AIGeneralSettings {
   id: string;
-  projectId: string;
-  title?: string | null;
+  defaultProvider: string;
+  systemPrompt: string;
+  temperature: number;
+  maxTokens: number;
   createdAt: Date;
-  lastActiveAt: Date;
-  messages: AIMessage[];
-}
-
-export interface AIMessage {
-  id: string;
-  conversationId: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp: Date;
-  model?: string | null;
-  tokens?: number | null;
-  context?: Record<string, any> | null;
-}
-
-export interface ContentVersion {
-  id: string;
-  projectId: string;
-  versionNumber: number;
-  contentSnapshot: Record<string, any>;
-  changeSummary?: string | null;
-  changedBy: 'user' | 'ai';
-  aiConversationId?: string | null;
-  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface AIProvider {
