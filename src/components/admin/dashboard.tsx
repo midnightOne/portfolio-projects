@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Upload, BarChart3, Edit, Trash2, Eye } from "lucide-react";
+import { Plus, Upload, BarChart3, Edit, Trash2, Eye, Brain } from "lucide-react";
 
 interface DashboardStats {
   totalProjects: number;
@@ -191,6 +191,14 @@ export function AdminDashboard() {
                 >
                   <BarChart3 size={16} />
                   Performance Dashboard
+                </Button>
+                <Button 
+                  onClick={() => router.push('/admin/ai')} 
+                  variant="outline" 
+                  className="flex items-center gap-2"
+                >
+                  <Brain size={16} />
+                  AI Settings
                 </Button>
               </CardContent>
             </Card>

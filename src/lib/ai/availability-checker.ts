@@ -5,7 +5,6 @@
  * graceful degradation when AI features are not available.
  */
 
-import { AIServiceManager } from './service-manager';
 import { AIProviderType } from './types';
 
 export interface AIAvailabilityStatus {
@@ -27,13 +26,12 @@ export interface ProviderAvailability {
 
 export class AIAvailabilityChecker {
   private static instance: AIAvailabilityChecker;
-  private serviceManager: AIServiceManager;
   private lastCheck: Date | null = null;
   private cachedStatus: AIAvailabilityStatus | null = null;
   private cacheTimeout = 30000; // 30 seconds
   
   private constructor() {
-    this.serviceManager = new AIServiceManager();
+    // No service manager instantiation on client side
   }
   
   /**
@@ -59,16 +57,26 @@ export class AIAvailabilityChecker {
     }
     
     try {
-      // Get provider statuses
-      const providerStatuses = await this.serviceManager.getAvailableProviders();
+      // Make API call to get provider statuses
+      const response = await fetch('/api/admin/ai/providers');
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error?.message || 'API call failed');
+      }
+      
+      const providerStatuses = data.data || [];
       
       // Analyze availability
-      const configuredProviders = providerStatuses.filter(p => p.configured);
-      const connectedProviders = providerStatuses.filter(p => p.configured && p.connected);
+      const configuredProviders = providerStatuses.filter((p: any) => p.configured);
+      const connectedProviders = providerStatuses.filter((p: any) => p.configured && p.connected);
       
       // Get all available models
       const availableModels: string[] = [];
-      connectedProviders.forEach(provider => {
+      connectedProviders.forEach((provider: any) => {
         availableModels.push(...provider.models);
       });
       
@@ -82,7 +90,7 @@ export class AIAvailabilityChecker {
         suggestions.push('Visit the AI Settings page to configure providers');
       } else if (connectedProviders.length === 0) {
         unavailableReasons.push('No AI providers are connected');
-        configuredProviders.forEach(provider => {
+        configuredProviders.forEach((provider: any) => {
           if (provider.error) {
             unavailableReasons.push(`${provider.name}: ${provider.error}`);
           }
@@ -141,8 +149,18 @@ export class AIAvailabilityChecker {
    */
   async getProviderAvailability(providerType: AIProviderType): Promise<ProviderAvailability> {
     try {
-      const providerStatuses = await this.serviceManager.getAvailableProviders();
-      const providerStatus = providerStatuses.find(p => p.name === providerType);
+      const response = await fetch('/api/admin/ai/providers');
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error?.message || 'API call failed');
+      }
+      
+      const providerStatuses = data.data || [];
+      const providerStatus = providerStatuses.find((p: any) => p.name === providerType);
       
       if (!providerStatus) {
         return {
@@ -216,7 +234,7 @@ export class AIAvailabilityChecker {
           {
             label: 'Manage Settings',
             description: 'Configure models and preferences',
-            href: '/admin/ai-settings'
+            href: '/admin/ai'
           }
         ]
       };
@@ -234,7 +252,7 @@ export class AIAvailabilityChecker {
           {
             label: 'Visit AI Settings',
             description: 'Check configuration status and test connections',
-            href: '/admin/ai-settings'
+            href: '/admin/ai'
           },
           {
             label: 'Get API Keys',
@@ -252,7 +270,7 @@ export class AIAvailabilityChecker {
           {
             label: 'Test Connections',
             description: 'Verify API keys and network connectivity',
-            href: '/admin/ai-settings'
+            href: '/admin/ai'
           },
           {
             label: 'Check API Keys',
@@ -273,7 +291,7 @@ export class AIAvailabilityChecker {
         {
           label: 'Configure Models',
           description: 'Add model IDs in the AI Settings page',
-          href: '/admin/ai-settings'
+          href: '/admin/ai'
         },
         {
           label: 'Check Documentation',

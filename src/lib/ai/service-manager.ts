@@ -114,6 +114,8 @@ export class AIServiceManager {
   
   constructor() {
     this.initializeProviders();
+    // Note: Model configurations are initialized on-demand in API routes
+    // to avoid Prisma client issues on the client side
   }
   
   /**

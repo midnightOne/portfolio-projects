@@ -132,7 +132,7 @@ export const AIStatusIndicator: React.FC<AIStatusIndicatorProps> = ({
               </Button>
               {!status.available && (
                 <Button variant="outline" size="sm" asChild>
-                  <a href="/admin/ai-settings">
+                  <a href="/admin/ai">
                     <Settings className="h-3 w-3 mr-1" />
                     Configure
                   </a>
@@ -255,7 +255,7 @@ export const AIStatusIndicator: React.FC<AIStatusIndicatorProps> = ({
         {showActions && (
           <div className="flex gap-2 pt-2 border-t">
             <Button variant="outline" asChild>
-              <a href="/admin/ai-settings">
+              <a href="/admin/ai">
                 <Settings className="h-4 w-4 mr-2" />
                 AI Settings
               </a>
