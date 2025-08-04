@@ -10,7 +10,7 @@ export abstract class BaseProvider implements AIProvider {
   
   constructor(apiKey: string) {
     if (!apiKey) {
-      throw new Error(`API key is required for ${this.name} provider`);
+      throw new Error(`API key is required for provider`);
     }
     this.apiKey = apiKey;
   }

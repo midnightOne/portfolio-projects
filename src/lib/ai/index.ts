@@ -42,4 +42,4 @@ export {
 } from './database-setup';
 
 // Environment utilities
-export { validateEnvironment, getEnvironmentStatus } from './environment';
+export { EnvironmentValidator, type AIEnvironmentConfig, type AIConfigStatus } from './environment';
