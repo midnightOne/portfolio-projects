@@ -20,6 +20,9 @@ import {
 import { UnifiedModelSelector } from './unified-model-selector';
 import { AIStatusIndicator, AIUnavailableMessage } from './ai-status-indicator';
 import { AIAvailabilityChecker } from '@/lib/ai/availability-checker';
+import { useToast } from '@/components/ui/toast';
+import { StatusBadge } from '@/components/ui/status-badge';
+import { AsyncOperationIndicator } from '@/components/ui/loading-indicator';
 
 export interface TextSelection {
   text: string;
@@ -140,6 +143,7 @@ export function AIQuickActions({
   onApplyChanges,
   className = ''
 }: AIQuickActionsProps) {
+  const toast = useToast();
   const [selectedModel, setSelectedModel] = useState<string>('');
   const [processingAction, setProcessingAction] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<AIQuickActionResult | null>(null);
@@ -168,13 +172,13 @@ export function AIQuickActions({
   const handleQuickAction = async (action: AIQuickAction) => {
     // Check if text selection is required
     if (action.requiresSelection && !selectedText) {
-      alert('Please select some text first to use this action.');
+      toast.warning('Text selection required', `Please select some text to use "${action.label}"`);
       return;
     }
 
     // Check if model is selected
     if (!selectedModel) {
-      alert('Please select an AI model first.');
+      toast.warning('Model selection required', 'Please select an AI model first');
       return;
     }
 
@@ -230,17 +234,36 @@ export function AIQuickActions({
 
       const result: AIQuickActionResult = await response.json();
       
-      setLastResult(result);
-      setShowPreview(true);
+      if (result.success) {
+        toast.success(
+          'AI action completed',
+          `${action.label} completed successfully. Review the changes below.`
+        );
+        setLastResult(result);
+        setShowPreview(true);
+      } else {
+        toast.error(
+          'AI action failed',
+          result.reasoning || 'The AI operation could not be completed'
+        );
+        setLastResult(result);
+        setShowPreview(true);
+      }
 
     } catch (error) {
       console.error('AI quick action failed:', error);
       
-      // Create error result
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(
+        'AI service error',
+        `Failed to execute ${action.label}: ${errorMessage}`
+      );
+      
+      // Create error result for display
       const errorResult: AIQuickActionResult = {
         success: false,
         changes: {},
-        reasoning: `Action failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        reasoning: `Action failed: ${errorMessage}`,
         confidence: 0,
         warnings: ['AI service is currently unavailable. Please try again later.'],
         model: selectedModel,
@@ -260,6 +283,7 @@ export function AIQuickActions({
       onApplyChanges(lastResult);
       setShowPreview(false);
       setLastResult(null);
+      toast.success('Changes applied', 'AI suggestions have been applied to your content');
     }
   };
 
@@ -378,14 +402,20 @@ export function AIQuickActions({
                 >
                   <div className="flex items-start gap-2 w-full">
                     {isProcessing ? (
-                      <Loader2 className="h-4 w-4 animate-spin flex-shrink-0 mt-0.5" />
+                      <AsyncOperationIndicator
+                        isLoading={true}
+                        operation={action.label}
+                        className="flex-shrink-0"
+                      />
                     ) : (
-                      <Icon className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                      <>
+                        <Icon className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                        <div className="text-left">
+                          <div className="font-medium text-sm">{action.label}</div>
+                          <div className="text-xs opacity-75">{action.description}</div>
+                        </div>
+                      </>
                     )}
-                    <div className="text-left">
-                      <div className="font-medium text-sm">{action.label}</div>
-                      <div className="text-xs opacity-75">{action.description}</div>
-                    </div>
                   </div>
                 </Button>
               );
@@ -423,9 +453,15 @@ export function AIQuickActions({
           <CardContent className="space-y-4">
             {/* Success/Error Status */}
             <div className="flex items-center justify-between">
-              <Badge variant={lastResult.success ? "default" : "destructive"}>
-                {lastResult.success ? 'Success' : 'Failed'}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <StatusBadge 
+                  status={lastResult.success ? 'success' : 'error'}
+                  label={lastResult.success ? 'Completed' : 'Failed'}
+                />
+                <Badge variant="outline" className="text-xs">
+                  Confidence: {Math.round(lastResult.confidence * 100)}%
+                </Badge>
+              </div>
               <div className="text-sm text-gray-500">
                 Model: {lastResult.model} • Tokens: {lastResult.tokensUsed} • Cost: ${lastResult.cost.toFixed(4)}
               </div>

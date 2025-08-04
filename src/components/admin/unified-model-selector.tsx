@@ -6,6 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Loader2, AlertCircle, CheckCircle, RefreshCw } from 'lucide-react';
 import { AIAvailabilityChecker } from '@/lib/ai/availability-checker';
+import { useToast } from '@/components/ui/toast';
+import { StatusBadge } from '@/components/ui/status-badge';
 
 interface ModelOption {
   id: string;
@@ -66,6 +68,7 @@ export function UnifiedModelSelector({
   showRefreshButton = false,
   onRefresh
 }: UnifiedModelSelectorProps) {
+  const toast = useToast();
   const [models, setModels] = useState<ModelOption[]>([]);
   const [providerStatus, setProviderStatus] = useState<ModelsByProvider>({});
   const [loading, setLoading] = useState(true);
@@ -110,13 +113,22 @@ export function UnifiedModelSelector({
       setModels(availableModels);
       setProviderStatus(data.data.byProvider);
       
+      if (availableModels.length === 0) {
+        toast.warning(
+          'No models available',
+          'Configure AI providers in settings to enable model selection'
+        );
+      }
+      
       // Call onRefresh callback if provided
       if (onRefresh) {
         onRefresh();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load models');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load models';
+      setError(errorMessage);
       setModels([]);
+      toast.error('Failed to load models', errorMessage);
     } finally {
       setLoading(false);
     }

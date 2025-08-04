@@ -13,6 +13,10 @@ import { Badge } from '@/components/ui/badge';
 import { AlertCircle, CheckCircle, Brain, ExternalLink, Loader2 } from 'lucide-react';
 import { AdminLayout } from '@/components/admin/layout';
 import { AIStatusIndicator } from '@/components/admin/ai-status-indicator';
+import { useToast } from '@/components/ui/toast';
+import { StatusBadge, ConnectionStatus, ConfigurationStatus } from '@/components/ui/status-badge';
+import { HelpText, DocumentationLink, HelpSection } from '@/components/ui/help-text';
+import { AsyncOperationIndicator, ButtonLoadingState } from '@/components/ui/loading-indicator';
 
 interface EnvironmentStatus {
   openai: {
@@ -84,6 +88,7 @@ interface GeneralSettings {
 function AISettingsContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const toast = useToast();
   
   // State management
   const [environmentStatus, setEnvironmentStatus] = useState<EnvironmentStatus | null>(null);
@@ -101,7 +106,6 @@ function AISettingsContent() {
   const [saving, setSaving] = useState(false);
   const [testingProvider, setTestingProvider] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (status === 'loading') return;
@@ -153,8 +157,11 @@ function AISettingsContent() {
         maxTokens: 4000
       });
       
+      toast.success('Configuration loaded', 'AI settings loaded successfully');
+      
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load AI configuration');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load AI configuration';
+      toast.error('Failed to load configuration', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -162,9 +169,10 @@ function AISettingsContent() {
 
   const testConnection = async (provider: 'openai' | 'anthropic') => {
     setTestingProvider(provider);
-    setError(null);
     
     try {
+      toast.info('Testing connection', `Testing ${provider} connection...`);
+      
       const response = await fetch('/api/admin/ai/test-connection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -175,6 +183,18 @@ function AISettingsContent() {
       
       // Update connection status regardless of success/failure
       setConnectionStatus(prev => new Map(prev.set(provider, result)));
+      
+      if (result.success) {
+        toast.success(
+          'Connection successful', 
+          `${provider} connected with ${result.data?.modelCount || 0} models available`
+        );
+      } else {
+        toast.error(
+          'Connection failed', 
+          result.data?.message || `Failed to connect to ${provider}`
+        );
+      }
       
     } catch (err) {
       // Handle network errors
@@ -188,6 +208,11 @@ function AISettingsContent() {
         }
       };
       setConnectionStatus(prev => new Map(prev.set(provider, errorResult)));
+      
+      toast.error(
+        'Network error', 
+        `Failed to test ${provider} connection - check your network`
+      );
     } finally {
       setTestingProvider(null);
     }
@@ -195,8 +220,6 @@ function AISettingsContent() {
 
   const saveConfiguration = async () => {
     setSaving(true);
-    setError(null);
-    setSuccess(null);
     
     try {
       const response = await fetch('/api/admin/ai/model-config', {
@@ -219,13 +242,14 @@ function AISettingsContent() {
         throw new Error(result.error?.message || 'Failed to save configuration');
       }
       
-      setSuccess('Configuration saved successfully!');
-      
-      // Clear success message after 3 seconds
-      setTimeout(() => setSuccess(null), 3000);
+      toast.success(
+        'Configuration saved', 
+        'AI settings have been updated successfully'
+      );
       
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save configuration');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save configuration';
+      toast.error('Save failed', errorMessage);
     } finally {
       setSaving(false);
     }
@@ -257,19 +281,7 @@ function AISettingsContent() {
       {/* AI Status Overview */}
       <AIStatusIndicator variant="detailed" showActions={true} />
 
-      {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
-          <AlertCircle className="h-5 w-5 text-red-600" />
-          <span className="text-red-800">{error}</span>
-        </div>
-      )}
 
-      {success && (
-        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
-          <CheckCircle className="h-5 w-5 text-green-600" />
-          <span className="text-green-800">{success}</span>
-        </div>
-      )}
 
       {/* Environment Status Section */}
       <Card className="mb-6">
@@ -278,6 +290,19 @@ function AISettingsContent() {
           <CardDescription>
             API keys are read from environment variables for security
           </CardDescription>
+          <HelpText variant="card">
+            <HelpSection
+              title="Environment Setup"
+              links={[
+                { label: 'OpenAI API Keys', href: 'https://platform.openai.com/api-keys' },
+                { label: 'Anthropic API Keys', href: 'https://console.anthropic.com/settings/keys' },
+                { label: 'Environment Variables Guide', href: '/docs/environment-setup' }
+              ]}
+            >
+              Set your API keys as environment variables (OPENAI_API_KEY, ANTHROPIC_API_KEY) 
+              in your deployment environment. Never commit API keys to your repository.
+            </HelpSection>
+          </HelpText>
         </CardHeader>
         <CardContent className="space-y-4">
           {environmentStatus && (
@@ -306,10 +331,15 @@ function AISettingsContent() {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
+                  <ConfigurationStatus 
+                    isConfigured={environmentStatus.openai.configured}
+                    label={environmentStatus.openai.configured ? 'Configured' : 'Not Set'}
+                  />
                   {connectionStatus.get('openai') && (
-                    <Badge variant={connectionStatus.get('openai')?.success ? 'default' : 'destructive'}>
-                      {connectionStatus.get('openai')?.success ? '✅ Connected' : '❌ Failed'}
-                    </Badge>
+                    <ConnectionStatus
+                      isConnected={connectionStatus.get('openai')?.success || false}
+                      label={connectionStatus.get('openai')?.success ? 'Connected' : 'Failed'}
+                    />
                   )}
                   <Button
                     variant="outline"
@@ -317,41 +347,45 @@ function AISettingsContent() {
                     onClick={() => testConnection('openai')}
                     disabled={!environmentStatus.openai.configured || testingProvider === 'openai'}
                   >
-                    {testingProvider === 'openai' ? (
-                      <>
-                        <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                        Testing...
-                      </>
-                    ) : (
-                      'Test'
-                    )}
+                    <ButtonLoadingState
+                      isLoading={testingProvider === 'openai'}
+                      loadingText="Testing..."
+                    >
+                      Test
+                    </ButtonLoadingState>
                   </Button>
                 </div>
               </div>
               
-              {/* Connection test result for OpenAI */}
+              {/* Connection test status for OpenAI */}
+              <AsyncOperationIndicator
+                isLoading={testingProvider === 'openai'}
+                operation="Testing OpenAI connection"
+                success={connectionStatus.get('openai')?.success}
+                error={connectionStatus.get('openai') && !connectionStatus.get('openai')?.success 
+                  ? connectionStatus.get('openai')?.data?.message 
+                  : undefined}
+                className="ml-3"
+              />
+              
+              {/* Detailed error guidance for OpenAI */}
               {connectionStatus.get('openai') && !connectionStatus.get('openai')?.success && (
-                <div className="ml-3 p-2 bg-red-50 border border-red-200 rounded text-sm">
-                  <p className="text-red-800">
-                    {connectionStatus.get('openai')?.data?.message}
-                  </p>
+                <div className="ml-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm">
                   {connectionStatus.get('openai')?.data?.error?.guidance && (
-                    <div className="mt-1">
-                      <p className="font-medium text-red-900">
+                    <div className="space-y-2">
+                      <div className="font-medium text-red-900">
                         {connectionStatus.get('openai')?.data?.error?.guidance?.message}
-                      </p>
-                      <p className="text-red-700">
+                      </div>
+                      <div className="text-red-700">
                         {connectionStatus.get('openai')?.data?.error?.guidance?.action}
-                      </p>
+                      </div>
                       {connectionStatus.get('openai')?.data?.error?.guidance?.documentation && (
-                        <a 
-                          href={connectionStatus.get('openai')?.data?.error?.guidance?.documentation}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-red-600 underline flex items-center gap-1 mt-1"
+                        <DocumentationLink 
+                          href={connectionStatus.get('openai')?.data?.error?.guidance?.documentation || ''}
+                          className="text-red-600"
                         >
-                          View documentation <ExternalLink className="h-3 w-3" />
-                        </a>
+                          View documentation
+                        </DocumentationLink>
                       )}
                     </div>
                   )}
@@ -382,10 +416,15 @@ function AISettingsContent() {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
+                  <ConfigurationStatus 
+                    isConfigured={environmentStatus.anthropic.configured}
+                    label={environmentStatus.anthropic.configured ? 'Configured' : 'Not Set'}
+                  />
                   {connectionStatus.get('anthropic') && (
-                    <Badge variant={connectionStatus.get('anthropic')?.success ? 'default' : 'destructive'}>
-                      {connectionStatus.get('anthropic')?.success ? '✅ Connected' : '❌ Failed'}
-                    </Badge>
+                    <ConnectionStatus
+                      isConnected={connectionStatus.get('anthropic')?.success || false}
+                      label={connectionStatus.get('anthropic')?.success ? 'Connected' : 'Failed'}
+                    />
                   )}
                   <Button
                     variant="outline"
@@ -393,41 +432,45 @@ function AISettingsContent() {
                     onClick={() => testConnection('anthropic')}
                     disabled={!environmentStatus.anthropic.configured || testingProvider === 'anthropic'}
                   >
-                    {testingProvider === 'anthropic' ? (
-                      <>
-                        <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                        Testing...
-                      </>
-                    ) : (
-                      'Test'
-                    )}
+                    <ButtonLoadingState
+                      isLoading={testingProvider === 'anthropic'}
+                      loadingText="Testing..."
+                    >
+                      Test
+                    </ButtonLoadingState>
                   </Button>
                 </div>
               </div>
               
-              {/* Connection test result for Anthropic */}
+              {/* Connection test status for Anthropic */}
+              <AsyncOperationIndicator
+                isLoading={testingProvider === 'anthropic'}
+                operation="Testing Anthropic connection"
+                success={connectionStatus.get('anthropic')?.success}
+                error={connectionStatus.get('anthropic') && !connectionStatus.get('anthropic')?.success 
+                  ? connectionStatus.get('anthropic')?.data?.message 
+                  : undefined}
+                className="ml-3"
+              />
+              
+              {/* Detailed error guidance for Anthropic */}
               {connectionStatus.get('anthropic') && !connectionStatus.get('anthropic')?.success && (
-                <div className="ml-3 p-2 bg-red-50 border border-red-200 rounded text-sm">
-                  <p className="text-red-800">
-                    {connectionStatus.get('anthropic')?.data?.message}
-                  </p>
+                <div className="ml-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm">
                   {connectionStatus.get('anthropic')?.data?.error?.guidance && (
-                    <div className="mt-1">
-                      <p className="font-medium text-red-900">
+                    <div className="space-y-2">
+                      <div className="font-medium text-red-900">
                         {connectionStatus.get('anthropic')?.data?.error?.guidance?.message}
-                      </p>
-                      <p className="text-red-700">
+                      </div>
+                      <div className="text-red-700">
                         {connectionStatus.get('anthropic')?.data?.error?.guidance?.action}
-                      </p>
+                      </div>
                       {connectionStatus.get('anthropic')?.data?.error?.guidance?.documentation && (
-                        <a 
-                          href={connectionStatus.get('anthropic')?.data?.error?.guidance?.documentation}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-red-600 underline flex items-center gap-1 mt-1"
+                        <DocumentationLink 
+                          href={connectionStatus.get('anthropic')?.data?.error?.guidance?.documentation || ''}
+                          className="text-red-600"
                         >
-                          View documentation <ExternalLink className="h-3 w-3" />
-                        </a>
+                          View documentation
+                        </DocumentationLink>
                       )}
                     </div>
                   )}
@@ -445,6 +488,19 @@ function AISettingsContent() {
           <CardDescription>
             Configure which models are available for each provider
           </CardDescription>
+          <HelpText variant="expandable">
+            <HelpSection
+              title="Model Configuration"
+              links={[
+                { label: 'OpenAI Models', href: 'https://platform.openai.com/docs/models' },
+                { label: 'Anthropic Models', href: 'https://docs.anthropic.com/claude/docs/models-overview' }
+              ]}
+            >
+              Enter comma-separated model IDs for each provider. Models will be validated 
+              when you save the configuration. Unknown models will show warnings but can 
+              still be saved for future compatibility.
+            </HelpSection>
+          </HelpText>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
@@ -456,9 +512,9 @@ function AISettingsContent() {
               onChange={(e) => setModelConfig(prev => ({ ...prev, openai: e.target.value }))}
               disabled={!environmentStatus?.openai.configured}
             />
-            <p className="text-xs text-muted-foreground">
-              Comma-separated list of OpenAI model IDs
-            </p>
+            <HelpText>
+              Comma-separated list of OpenAI model IDs. Popular models: gpt-4o, gpt-4o-mini, gpt-3.5-turbo
+            </HelpText>
           </div>
           
           <div className="space-y-2">
@@ -470,9 +526,9 @@ function AISettingsContent() {
               onChange={(e) => setModelConfig(prev => ({ ...prev, anthropic: e.target.value }))}
               disabled={!environmentStatus?.anthropic.configured}
             />
-            <p className="text-xs text-muted-foreground">
-              Comma-separated list of Anthropic model IDs
-            </p>
+            <HelpText>
+              Comma-separated list of Anthropic model IDs. Popular models: claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022
+            </HelpText>
           </div>
         </CardContent>
       </Card>
@@ -481,6 +537,24 @@ function AISettingsContent() {
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>General Settings</CardTitle>
+          <CardDescription>
+            Configure AI behavior and default parameters
+          </CardDescription>
+          <HelpText variant="expandable">
+            <HelpSection
+              title="AI Parameters"
+              links={[
+                { label: 'Temperature Guide', href: 'https://platform.openai.com/docs/api-reference/chat/create#chat/create-temperature' },
+                { label: 'Token Limits', href: 'https://platform.openai.com/docs/models' }
+              ]}
+            >
+              <div className="space-y-2">
+                <div><strong>Temperature:</strong> Controls randomness (0 = deterministic, 1 = creative)</div>
+                <div><strong>Max Tokens:</strong> Maximum response length (varies by model)</div>
+                <div><strong>System Prompt:</strong> Instructions that guide AI behavior</div>
+              </div>
+            </HelpSection>
+          </HelpText>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
@@ -549,14 +623,12 @@ function AISettingsContent() {
       {/* Save Button */}
       <div className="flex justify-end">
         <Button onClick={saveConfiguration} disabled={saving}>
-          {saving ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-              Saving...
-            </>
-          ) : (
-            'Save Configuration'
-          )}
+          <ButtonLoadingState
+            isLoading={saving}
+            loadingText="Saving Configuration..."
+          >
+            Save Configuration
+          </ButtonLoadingState>
         </Button>
       </div>
     </div>
