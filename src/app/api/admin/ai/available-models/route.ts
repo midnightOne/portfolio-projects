@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { AIServiceManager } from '@/lib/ai/service-manager';
 
 /**
@@ -14,8 +16,24 @@ import { AIServiceManager } from '@/lib/ai/service-manager';
  */
 export async function GET(request: NextRequest) {
   try {
+    // Check authentication
+    const session = await getServerSession(authOptions);
+    if (!session?.user || (session.user as any).role !== 'admin') {
+      return NextResponse.json({
+        success: false,
+        error: { 
+          message: 'Unauthorized',
+          code: 'UNAUTHORIZED',
+          details: 'Admin access required'
+        }
+      }, { status: 401 });
+    }
+
     // Initialize AI service manager
     const aiService = new AIServiceManager();
+    
+    // Initialize model configurations
+    await aiService.initializeModelConfigurations();
     
     // Get provider statuses to determine which providers are available
     const providerStatuses = await aiService.getAvailableProviders();

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useRef, useEffect } from 'react';
+import React, { useCallback, useRef, useEffect, createContext, useContext } from 'react';
 
 export interface TextSelection {
   text: string;
@@ -186,6 +186,16 @@ export interface TextSelectionManagerProps {
   children: React.ReactNode;
 }
 
+interface TextSelectionManagerMethods {
+  applyChange: (change: TextChange) => void;
+  setFullContent: (content: string) => void;
+  getCurrentSelection: () => TextSelection | null;
+  getFullContent: () => string;
+  focusEditor: () => void;
+}
+
+const TextSelectionManagerContext = createContext<TextSelectionManagerMethods | null>(null);
+
 /**
  * Text Selection Manager component
  * Manages text selection and change application across different editor types
@@ -288,42 +298,43 @@ export function TextSelectionManager({
     focusEditor
   };
 
-  // Clone children and pass manager methods
-  const childrenWithProps = React.Children.map(children, (child) => {
-    if (React.isValidElement(child)) {
-      return React.cloneElement(child, { textSelectionManager: managerMethods } as any);
-    }
-    return child;
-  });
-
-  return <>{childrenWithProps}</>;
+  return (
+    <TextSelectionManagerContext.Provider value={managerMethods}>
+      {children}
+    </TextSelectionManagerContext.Provider>
+  );
 }
 
 /**
  * Hook for using text selection manager methods
  */
-export function useTextSelectionManager() {
-  // This would be used with React Context in a full implementation
-  // For now, return placeholder methods
-  return {
-    applyChange: (change: TextChange) => {
-      console.warn('useTextSelectionManager: applyChange not connected to manager');
-    },
-    setFullContent: (content: string) => {
-      console.warn('useTextSelectionManager: setFullContent not connected to manager');
-    },
-    getCurrentSelection: () => {
-      console.warn('useTextSelectionManager: getCurrentSelection not connected to manager');
-      return null;
-    },
-    getFullContent: () => {
-      console.warn('useTextSelectionManager: getFullContent not connected to manager');
-      return '';
-    },
-    focusEditor: () => {
-      console.warn('useTextSelectionManager: focusEditor not connected to manager');
-    }
-  };
+export function useTextSelectionManager(): TextSelectionManagerMethods {
+  const context = useContext(TextSelectionManagerContext);
+  
+  if (!context) {
+    // Return placeholder methods when not within a TextSelectionManager
+    return {
+      applyChange: (change: TextChange) => {
+        console.warn('useTextSelectionManager: applyChange not connected to manager');
+      },
+      setFullContent: (content: string) => {
+        console.warn('useTextSelectionManager: setFullContent not connected to manager');
+      },
+      getCurrentSelection: () => {
+        console.warn('useTextSelectionManager: getCurrentSelection not connected to manager');
+        return null;
+      },
+      getFullContent: () => {
+        console.warn('useTextSelectionManager: getFullContent not connected to manager');
+        return '';
+      },
+      focusEditor: () => {
+        console.warn('useTextSelectionManager: focusEditor not connected to manager');
+      }
+    };
+  }
+  
+  return context;
 }
 
 /**

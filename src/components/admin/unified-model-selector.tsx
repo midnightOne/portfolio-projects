@@ -8,6 +8,7 @@ import { Loader2, AlertCircle, CheckCircle, RefreshCw } from 'lucide-react';
 import { AIAvailabilityChecker } from '@/lib/ai/availability-checker';
 import { useToast } from '@/components/ui/toast';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { useSession } from 'next-auth/react';
 
 interface ModelOption {
   id: string;
@@ -69,6 +70,7 @@ export function UnifiedModelSelector({
   onRefresh
 }: UnifiedModelSelectorProps) {
   const toast = useToast();
+  const { data: session, status } = useSession();
   const [models, setModels] = useState<ModelOption[]>([]);
   const [providerStatus, setProviderStatus] = useState<ModelsByProvider>({});
   const [loading, setLoading] = useState(true);
@@ -76,9 +78,17 @@ export function UnifiedModelSelector({
   const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
 
   useEffect(() => {
-    loadAvailableModels();
-    checkAIAvailability();
-  }, []);
+    // Only load models if user is authenticated
+    if (status === 'loading') return;
+    
+    if (session?.user && (session.user as any).role === 'admin') {
+      loadAvailableModels();
+      checkAIAvailability();
+    } else {
+      setLoading(false);
+      setError('Authentication required');
+    }
+  }, [session, status]);
 
   const checkAIAvailability = async () => {
     try {
@@ -97,6 +107,17 @@ export function UnifiedModelSelector({
       setError(null);
 
       const response = await fetch('/api/admin/ai/available-models');
+      
+      // Check if response is actually JSON
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('API returned non-JSON response - authentication may be required');
+      }
+      
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+      }
+
       const data: AvailableModelsResponse = await response.json();
 
       if (!data.success) {
@@ -114,6 +135,10 @@ export function UnifiedModelSelector({
       setProviderStatus(data.data.byProvider);
       
       if (availableModels.length === 0) {
+        console.log('Debug: API response data:', data.data);
+        console.log('Debug: Provider status:', data.data.byProvider);
+        console.log('Debug: Unified models before filter:', data.data.unified);
+        
         toast.warning(
           'No models available',
           'Configure AI providers in settings to enable model selection'
@@ -128,7 +153,11 @@ export function UnifiedModelSelector({
       const errorMessage = err instanceof Error ? err.message : 'Failed to load models';
       setError(errorMessage);
       setModels([]);
-      toast.error('Failed to load models', errorMessage);
+      
+      // Don't show toast error for authentication issues to avoid spam
+      if (!errorMessage.includes('authentication')) {
+        toast.error('Failed to load models', errorMessage);
+      }
     } finally {
       setLoading(false);
     }
