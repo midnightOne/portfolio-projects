@@ -31,6 +31,7 @@ export interface ConnectionTestResult {
     code: string;
     details: string;
     actionable: boolean;
+    suggestions?: string[];
   };
 }
 

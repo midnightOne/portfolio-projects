@@ -43,3 +43,16 @@ export {
 
 // Environment utilities
 export { EnvironmentValidator, type AIEnvironmentConfig, type AIConfigStatus } from './environment';
+
+// Error handling
+export { AIErrorHandler, AIErrorType, type AIError, type ErrorContext } from './error-handler';
+
+// Availability checking and graceful degradation
+export { 
+  AIAvailabilityChecker, 
+  useAIAvailability, 
+  shouldDisableAI, 
+  getAIDisabledMessage,
+  type AIAvailabilityStatus,
+  type ProviderAvailability
+} from './availability-checker';

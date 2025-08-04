@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Loader2, AlertCircle, CheckCircle, RefreshCw } from 'lucide-react';
+import { AIAvailabilityChecker } from '@/lib/ai/availability-checker';
 
 interface ModelOption {
   id: string;
@@ -69,10 +70,23 @@ export function UnifiedModelSelector({
   const [providerStatus, setProviderStatus] = useState<ModelsByProvider>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
 
   useEffect(() => {
     loadAvailableModels();
+    checkAIAvailability();
   }, []);
+
+  const checkAIAvailability = async () => {
+    try {
+      const checker = AIAvailabilityChecker.getInstance();
+      const available = await checker.isAIEnabled();
+      setAiAvailable(available);
+    } catch (error) {
+      console.error('Failed to check AI availability:', error);
+      setAiAvailable(false);
+    }
+  };
 
   const loadAvailableModels = async () => {
     try {
@@ -183,18 +197,24 @@ export function UnifiedModelSelector({
     );
   }
 
-  if (models.length === 0) {
+  // Show graceful degradation when AI is not available
+  if (aiAvailable === false || models.length === 0) {
     // Check if we have any configured providers
     const hasConfiguredProviders = Object.values(providerStatus).some(status => status.configured);
     const hasConnectedProviders = Object.values(providerStatus).some(status => status.connected);
     
-    let message = "No models available";
+    let message = "AI features disabled";
+    let helpText = "Configure AI providers to enable model selection";
+    
     if (!hasConfiguredProviders) {
-      message = "No AI providers configured - check environment variables";
+      message = "No AI providers configured";
+      helpText = "Set OPENAI_API_KEY or ANTHROPIC_API_KEY environment variables";
     } else if (!hasConnectedProviders) {
-      message = "No providers connected - check API keys and connection";
-    } else {
-      message = "No models configured - add models in AI settings";
+      message = "No providers connected";
+      helpText = "Check API keys and test connections in AI Settings";
+    } else if (models.length === 0) {
+      message = "No models configured";
+      helpText = "Add model IDs in AI Settings page";
     }
 
     return (
@@ -202,7 +222,10 @@ export function UnifiedModelSelector({
         <SelectTrigger className={className}>
           <div className="flex items-center gap-2 text-muted-foreground">
             <AlertCircle className="h-4 w-4" />
-            <span>{message}</span>
+            <div className="flex flex-col items-start">
+              <span className="text-sm">{message}</span>
+              <span className="text-xs text-muted-foreground">{helpText}</span>
+            </div>
           </div>
         </SelectTrigger>
       </Select>

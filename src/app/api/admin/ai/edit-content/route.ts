@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AIServiceManager, AIContentEditRequest } from '@/lib/ai/service-manager';
+import { AIErrorHandler, AIErrorType } from '@/lib/ai/error-handler';
 
 /**
  * POST /api/admin/ai/edit-content
@@ -13,8 +14,10 @@ import { AIServiceManager, AIContentEditRequest } from '@/lib/ai/service-manager
  * Requirements: 6.1, 6.2, 6.3, 8.1, 8.2
  */
 export async function POST(request: NextRequest) {
+  let body: any;
+  
   try {
-    const body = await request.json();
+    body = await request.json();
     
     // Validate required fields
     const { model, operation, content, context } = body;
@@ -140,39 +143,41 @@ export async function POST(request: NextRequest) {
     }
     
   } catch (error) {
-    console.error('Error in content editing API:', error);
+    const aiError = AIErrorHandler.parseError(error, {
+      operation: 'editContent',
+      model: body?.model,
+      provider: body?.model ? undefined : 'unknown'
+    });
     
-    // Handle specific error types
-    if (error instanceof SyntaxError) {
-      return NextResponse.json({
-        success: false,
-        error: {
-          message: 'Invalid JSON in request body',
-          code: 'INVALID_JSON',
-          details: 'Request body must be valid JSON with required fields'
-        }
-      }, { status: 400 });
-    }
+    AIErrorHandler.logError(aiError);
     
-    if (error instanceof Error && error.message.includes('not configured')) {
-      return NextResponse.json({
-        success: false,
-        error: {
-          message: 'AI model not configured',
-          code: 'MODEL_NOT_CONFIGURED',
-          details: error.message
-        }
-      }, { status: 400 });
+    // Determine appropriate HTTP status code
+    let statusCode = 500;
+    if (error instanceof SyntaxError || 
+        aiError.type === AIErrorType.BAD_REQUEST ||
+        aiError.type === AIErrorType.MISSING_MODEL ||
+        aiError.type === AIErrorType.NOT_CONFIGURED) {
+      statusCode = 400;
     }
     
     return NextResponse.json({
       success: false,
       error: {
-        message: 'Internal server error during content editing',
-        code: 'INTERNAL_ERROR',
-        details: error instanceof Error ? error.message : 'Unknown error occurred'
+        message: aiError.message,
+        code: aiError.type,
+        details: aiError.details,
+        actionable: aiError.actionable,
+        suggestions: aiError.suggestions
+      },
+      data: {
+        warnings: aiError.suggestions,
+        metadata: {
+          model: body?.model || 'unknown',
+          operation: body?.operation || 'unknown',
+          processedAt: new Date().toISOString()
+        }
       }
-    }, { status: 500 });
+    }, { status: statusCode });
   }
 }
 

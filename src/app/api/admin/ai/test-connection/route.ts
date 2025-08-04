@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AIServiceManager } from '@/lib/ai/service-manager';
 import { AIProviderType } from '@/lib/ai/types';
+import { AIErrorHandler, AIErrorType } from '@/lib/ai/error-handler';
 
 /**
  * POST /api/admin/ai/test-connection
@@ -13,8 +14,10 @@ import { AIProviderType } from '@/lib/ai/types';
  * Requirements: 4.1, 4.2, 4.3, 9.1, 9.2
  */
 export async function POST(request: NextRequest) {
+  let body: any;
+  
   try {
-    const body = await request.json();
+    body = await request.json();
     const { provider } = body;
     
     // Validate provider parameter
@@ -80,28 +83,29 @@ export async function POST(request: NextRequest) {
     }
     
   } catch (error) {
-    console.error('Error testing AI provider connection:', error);
+    const aiError = AIErrorHandler.parseError(error, {
+      operation: 'testConnection',
+      provider: body?.provider
+    });
     
-    // Handle specific error types
-    if (error instanceof SyntaxError) {
-      return NextResponse.json({
-        success: false,
-        error: {
-          message: 'Invalid JSON in request body',
-          code: 'INVALID_JSON',
-          details: 'Request body must be valid JSON with "provider" field'
-        }
-      }, { status: 400 });
+    AIErrorHandler.logError(aiError);
+    
+    // Handle specific error types with appropriate HTTP status codes
+    let statusCode = 500;
+    if (error instanceof SyntaxError || aiError.type === AIErrorType.BAD_REQUEST) {
+      statusCode = 400;
     }
     
     return NextResponse.json({
       success: false,
       error: {
-        message: 'Internal server error during connection test',
-        code: 'INTERNAL_ERROR',
-        details: error instanceof Error ? error.message : 'Unknown error occurred'
+        message: aiError.message,
+        code: aiError.type,
+        details: aiError.details,
+        actionable: aiError.actionable,
+        suggestions: aiError.suggestions
       }
-    }, { status: 500 });
+    }, { status: statusCode });
   }
 }
 

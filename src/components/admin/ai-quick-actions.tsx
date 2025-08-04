@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -18,6 +18,8 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { UnifiedModelSelector } from './unified-model-selector';
+import { AIStatusIndicator, AIUnavailableMessage } from './ai-status-indicator';
+import { AIAvailabilityChecker } from '@/lib/ai/availability-checker';
 
 export interface TextSelection {
   text: string;
@@ -142,6 +144,26 @@ export function AIQuickActions({
   const [processingAction, setProcessingAction] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<AIQuickActionResult | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [aiAvailable, setAiAvailable] = useState<boolean | null>(null);
+  const [checkingAvailability, setCheckingAvailability] = useState(true);
+
+  // Check AI availability on component mount
+  useEffect(() => {
+    const checkAvailability = async () => {
+      try {
+        const checker = AIAvailabilityChecker.getInstance();
+        const available = await checker.isAIEnabled();
+        setAiAvailable(available);
+      } catch (error) {
+        console.error('Failed to check AI availability:', error);
+        setAiAvailable(false);
+      } finally {
+        setCheckingAvailability(false);
+      }
+    };
+
+    checkAvailability();
+  }, []);
 
   const handleQuickAction = async (action: AIQuickAction) => {
     // Check if text selection is required
@@ -258,8 +280,53 @@ export function AIQuickActions({
     return colorMap[color];
   };
 
+  // Show loading state while checking availability
+  if (checkingAvailability) {
+    return (
+      <div className={`space-y-4 ${className}`}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              AI Quick Actions
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">Checking AI availability...</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Show graceful degradation when AI is not available
+  if (aiAvailable === false) {
+    return (
+      <div className={`space-y-4 ${className}`}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-orange-500" />
+              AI Quick Actions
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AIUnavailableMessage
+              title="AI Features Disabled"
+              message="AI quick actions require configuration to enable intelligent content assistance."
+              showFallbacks={true}
+            />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className={`space-y-4 ${className}`}>
+      {/* AI Status Indicator */}
+      <AIStatusIndicator variant="compact" showActions={false} />
+      
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg">AI Quick Actions</CardTitle>

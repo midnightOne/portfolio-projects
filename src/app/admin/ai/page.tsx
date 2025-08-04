@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { AlertCircle, CheckCircle, Brain, ExternalLink, Loader2 } from 'lucide-react';
 import { AdminLayout } from '@/components/admin/layout';
+import { AIStatusIndicator } from '@/components/admin/ai-status-indicator';
 
 interface EnvironmentStatus {
   openai: {
@@ -252,6 +253,9 @@ function AISettingsContent() {
           Configure AI providers and models for content assistance
         </p>
       </div>
+
+      {/* AI Status Overview */}
+      <AIStatusIndicator variant="detailed" showActions={true} />
 
       {error && (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">

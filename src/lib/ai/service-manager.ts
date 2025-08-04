@@ -12,6 +12,7 @@ import {
   ProviderChatRequest,
   ProviderChatResponse
 } from './types';
+import { AIErrorHandler, AIError, AIErrorType } from './error-handler';
 
 const prisma = new PrismaClient();
 
@@ -181,13 +182,18 @@ export class AIServiceManager {
     const provider = this.providers.get(providerType);
     
     if (!provider) {
+      const aiError = AIErrorHandler.parseError(
+        new Error(`Missing ${providerType.toUpperCase()}_API_KEY environment variable`),
+        { provider: providerType, operation: 'testConnection' }
+      );
+      
       return {
         success: false,
-        message: `${providerType} not configured - check environment variables`,
+        message: aiError.message,
         error: {
-          code: 'NOT_CONFIGURED',
-          details: `Missing ${providerType.toUpperCase()}_API_KEY environment variable`,
-          actionable: true
+          code: aiError.type,
+          details: aiError.details,
+          actionable: aiError.actionable
         }
       };
     }
@@ -203,71 +209,42 @@ export class AIServiceManager {
           availableModels: models
         };
       } else {
+        const aiError = AIErrorHandler.parseError(
+          new Error('Provider connection test returned false'),
+          { provider: providerType, operation: 'testConnection' }
+        );
+        
         return {
           success: false,
-          message: `Connection test failed for ${providerType}`,
+          message: aiError.message,
           error: {
-            code: 'CONNECTION_FAILED',
-            details: 'Provider connection test returned false',
-            actionable: true
+            code: aiError.type,
+            details: aiError.details,
+            actionable: aiError.actionable
           }
         };
       }
     } catch (error: any) {
+      const aiError = AIErrorHandler.parseError(error, {
+        provider: providerType,
+        operation: 'testConnection'
+      });
+      
+      AIErrorHandler.logError(aiError);
+      
       return {
         success: false,
-        message: this.parseProviderError(error, providerType),
+        message: aiError.message,
         error: {
-          code: this.getErrorCode(error),
-          details: error instanceof Error ? error.message : 'Unknown error',
-          actionable: this.isActionableError(error)
+          code: aiError.type,
+          details: aiError.details,
+          actionable: aiError.actionable
         }
       };
     }
   }
   
-  /**
-   * Parse provider-specific errors into user-friendly messages
-   */
-  private parseProviderError(error: any, provider: AIProviderType): string {
-    if (error.status === 401) {
-      return `Invalid API key for ${provider}`;
-    }
-    if (error.status === 429) {
-      return `Rate limit exceeded for ${provider}`;
-    }
-    if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
-      return `Network error connecting to ${provider}`;
-    }
-    return `Connection failed: ${error.message || 'Unknown error'}`;
-  }
-  
-  /**
-   * Get error code for categorization
-   */
-  private getErrorCode(error: any): string {
-    if (error.status === 401 || error.code === 'invalid_api_key') {
-      return 'INVALID_API_KEY';
-    }
-    if (error.status === 429 || error.code === 'rate_limit_exceeded') {
-      return 'RATE_LIMIT_EXCEEDED';
-    }
-    if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
-      return 'NETWORK_ERROR';
-    }
-    if (error.status === 400) {
-      return 'BAD_REQUEST';
-    }
-    return 'UNKNOWN_ERROR';
-  }
-  
-  /**
-   * Check if error is actionable by user
-   */
-  private isActionableError(error: any): boolean {
-    const code = this.getErrorCode(error);
-    return ['INVALID_API_KEY', 'BAD_REQUEST'].includes(code);
-  }
+
   
   /**
    * Get configured models from database
@@ -301,10 +278,15 @@ export class AIServiceManager {
     const provider = this.providers.get(providerType);
     
     if (!provider) {
+      const aiError = AIErrorHandler.parseError(
+        new Error(`${providerType} provider not configured`),
+        { provider: providerType, operation: 'validateModels' }
+      );
+      
       return {
         valid: [],
         invalid: models,
-        warnings: [`${providerType} provider not configured`]
+        warnings: [aiError.message, ...aiError.suggestions]
       };
     }
     
@@ -325,10 +307,17 @@ export class AIServiceManager {
       
       return { valid, invalid, warnings };
     } catch (error) {
+      const aiError = AIErrorHandler.parseError(error, {
+        provider: providerType,
+        operation: 'validateModels'
+      });
+      
+      AIErrorHandler.logError(aiError);
+      
       return {
         valid: [],
         invalid: models,
-        warnings: [`Could not validate models for ${providerType}: ${error instanceof Error ? error.message : 'Unknown error'}`]
+        warnings: [aiError.message, ...aiError.suggestions]
       };
     }
   }
@@ -452,12 +441,44 @@ export class AIServiceManager {
     const provider = this.getProviderForModel(request.model);
     
     if (!provider) {
-      throw new Error(`Model ${request.model} is not configured`);
+      const aiError = AIErrorHandler.parseError(
+        new Error(`Model ${request.model} is not configured`),
+        { model: request.model, operation: 'editContent' }
+      );
+      
+      AIErrorHandler.logError(aiError);
+      
+      return {
+        success: false,
+        changes: {},
+        reasoning: aiError.message,
+        confidence: 0,
+        warnings: aiError.suggestions,
+        model: request.model,
+        tokensUsed: 0,
+        cost: 0
+      };
     }
     
     const providerInstance = this.providers.get(provider);
     if (!providerInstance) {
-      throw new Error(`Provider ${provider} is not available`);
+      const aiError = AIErrorHandler.parseError(
+        new Error(`Provider ${provider} is not available`),
+        { provider, model: request.model, operation: 'editContent' }
+      );
+      
+      AIErrorHandler.logError(aiError);
+      
+      return {
+        success: false,
+        changes: {},
+        reasoning: aiError.message,
+        confidence: 0,
+        warnings: aiError.suggestions,
+        model: request.model,
+        tokensUsed: 0,
+        cost: 0
+      };
     }
     
     try {
@@ -493,13 +514,20 @@ export class AIServiceManager {
         cost: response.cost
       };
     } catch (error) {
-      console.error('Content editing failed:', error);
+      const aiError = AIErrorHandler.parseError(error, {
+        provider,
+        model: request.model,
+        operation: 'editContent'
+      });
+      
+      AIErrorHandler.logError(aiError);
+      
       return {
         success: false,
         changes: {},
-        reasoning: `Content editing failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        reasoning: aiError.message,
         confidence: 0,
-        warnings: ['AI content editing is currently unavailable'],
+        warnings: aiError.suggestions,
         model: request.model,
         tokensUsed: 0,
         cost: 0
@@ -514,12 +542,40 @@ export class AIServiceManager {
     const provider = this.getProviderForModel(request.model);
     
     if (!provider) {
-      throw new Error(`Model ${request.model} is not configured`);
+      const aiError = AIErrorHandler.parseError(
+        new Error(`Model ${request.model} is not configured`),
+        { model: request.model, operation: 'suggestTags' }
+      );
+      
+      AIErrorHandler.logError(aiError);
+      
+      return {
+        success: false,
+        suggestions: { add: [], remove: [] },
+        reasoning: aiError.message,
+        model: request.model,
+        tokensUsed: 0,
+        cost: 0
+      };
     }
     
     const providerInstance = this.providers.get(provider);
     if (!providerInstance) {
-      throw new Error(`Provider ${provider} is not available`);
+      const aiError = AIErrorHandler.parseError(
+        new Error(`Provider ${provider} is not available`),
+        { provider, model: request.model, operation: 'suggestTags' }
+      );
+      
+      AIErrorHandler.logError(aiError);
+      
+      return {
+        success: false,
+        suggestions: { add: [], remove: [] },
+        reasoning: aiError.message,
+        model: request.model,
+        tokensUsed: 0,
+        cost: 0
+      };
     }
     
     try {
@@ -552,11 +608,18 @@ export class AIServiceManager {
         cost: response.cost
       };
     } catch (error) {
-      console.error('Tag suggestion failed:', error);
+      const aiError = AIErrorHandler.parseError(error, {
+        provider,
+        model: request.model,
+        operation: 'suggestTags'
+      });
+      
+      AIErrorHandler.logError(aiError);
+      
       return {
         success: false,
         suggestions: { add: [], remove: [] },
-        reasoning: `Tag suggestion failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        reasoning: aiError.message,
         model: request.model,
         tokensUsed: 0,
         cost: 0
