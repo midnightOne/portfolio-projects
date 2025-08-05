@@ -251,7 +251,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
 
   const handleApplyAIChanges = (result: AIQuickActionResult) => {
     const adapter = getCurrentAdapter();
-    if (!adapter) return;
+    if (!adapter || !result.changes) return;
 
     // Apply full content replacement
     if (result.changes.fullContent) {
@@ -293,7 +293,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
 
   const handleApplyPromptChanges = (result: AIPromptResult) => {
     const adapter = getCurrentAdapter();
-    if (!adapter) return;
+    if (!adapter || !result.changes) return;
 
     // Apply full content replacement
     if (result.changes.fullContent) {

@@ -65,6 +65,9 @@ export async function POST(request: NextRequest) {
     // Initialize AI service manager
     const aiService = new AIServiceManager();
     
+    // Initialize model configurations from database
+    await aiService.initializeModelConfigurations();
+    
     // Get tag suggestions
     const result = await aiService.suggestTags(tagRequest);
     

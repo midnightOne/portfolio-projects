@@ -542,7 +542,7 @@ export function AIPromptInterface({
                 </Badge>
               </div>
               <div className="text-sm text-gray-500">
-                Model: {lastResult.model} • Tokens: {lastResult.tokensUsed} • Cost: ${lastResult.cost.toFixed(4)}
+                Model: {lastResult.model} • Tokens: {lastResult.tokensUsed} • Cost: ${(lastResult.cost || 0).toFixed(4)}
               </div>
             </div>
 
@@ -618,7 +618,7 @@ export function AIPromptInterface({
             )}
 
             {/* Warnings */}
-            {lastResult.warnings.length > 0 && (
+            {lastResult.warnings && lastResult.warnings.length > 0 && (
               <div>
                 <p className="text-sm font-medium mb-1 text-amber-700">Warnings:</p>
                 <ul className="text-sm text-amber-800 space-y-1">

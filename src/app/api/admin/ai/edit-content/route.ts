@@ -101,6 +101,9 @@ export async function POST(request: NextRequest) {
     // Initialize AI service manager
     const aiService = new AIServiceManager();
     
+    // Initialize model configurations from database
+    await aiService.initializeModelConfigurations();
+    
     // Perform content editing
     const result = await aiService.editContent(editRequest);
     

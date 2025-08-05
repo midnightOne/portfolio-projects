@@ -4,10 +4,10 @@
 
 import { PrismaClient } from '@prisma/client';
 import { ProviderFactory } from './provider-factory';
-import { 
-  AIProvider, 
-  AIProviderType, 
-  AIProviderStatus, 
+import {
+  AIProvider,
+  AIProviderType,
+  AIProviderStatus,
   ConnectionTestResult,
   ProviderChatRequest,
   ProviderChatResponse
@@ -52,7 +52,7 @@ export interface AIContentEditResponse {
   changes: {
     // Full content replacement
     fullContent?: string;
-    
+
     // Partial text replacement
     partialUpdate?: {
       start: number;
@@ -60,14 +60,14 @@ export interface AIContentEditResponse {
       newText: string;
       reasoning: string;
     };
-    
+
     // Metadata suggestions
     suggestedTags?: {
       add: string[];
       remove: string[];
       reasoning: string;
     };
-    
+
     // Other metadata
     suggestedTitle?: string;
     suggestedDescription?: string;
@@ -132,7 +132,7 @@ export interface AICustomPromptResponse {
   changes: {
     // Full content replacement
     fullContent?: string;
-    
+
     // Partial text replacement
     partialUpdate?: {
       start: number;
@@ -140,14 +140,14 @@ export interface AICustomPromptResponse {
       newText: string;
       reasoning: string;
     };
-    
+
     // Metadata suggestions
     suggestedTags?: {
       add: string[];
       remove: string[];
       reasoning: string;
     };
-    
+
     // Other metadata
     suggestedTitle?: string;
     suggestedDescription?: string;
@@ -164,13 +164,13 @@ export interface AICustomPromptResponse {
 export class AIServiceManager {
   private providers: Map<AIProviderType, AIProvider> = new Map();
   private modelConfigs: Map<AIProviderType, string[]> = new Map();
-  
+
   constructor() {
     this.initializeProviders();
     // Note: Model configurations are initialized on-demand in API routes
     // to avoid Prisma client issues on the client side
   }
-  
+
   /**
    * Initialize providers based on available environment variables
    */
@@ -178,20 +178,20 @@ export class AIServiceManager {
     const availableProviders = ProviderFactory.createAvailableProviders();
     this.providers = availableProviders;
   }
-  
+
   /**
    * Get status of all available providers with connection information
    */
   async getAvailableProviders(): Promise<AIProviderStatus[]> {
     const statuses: AIProviderStatus[] = [];
-    
+
     // Check all possible provider types, not just configured ones
     const allProviderTypes: AIProviderType[] = ['openai', 'anthropic'];
-    
+
     for (const providerType of allProviderTypes) {
       const provider = this.providers.get(providerType);
       const models = this.modelConfigs.get(providerType) || [];
-      
+
       if (!provider) {
         // Provider not configured (no API key)
         statuses.push({
@@ -204,7 +204,7 @@ export class AIServiceManager {
         });
         continue;
       }
-      
+
       try {
         const testResult = await this.testConnection(providerType);
         statuses.push({
@@ -226,22 +226,22 @@ export class AIServiceManager {
         });
       }
     }
-    
+
     return statuses;
   }
-  
+
   /**
    * Test connection to a specific provider
    */
   async testConnection(providerType: AIProviderType): Promise<ConnectionTestResult> {
     const provider = this.providers.get(providerType);
-    
+
     if (!provider) {
       const aiError = AIErrorHandler.parseError(
         new Error(`Missing ${providerType.toUpperCase()}_API_KEY environment variable`),
         { provider: providerType, operation: 'testConnection' }
       );
-      
+
       return {
         success: false,
         message: aiError.message,
@@ -252,10 +252,10 @@ export class AIServiceManager {
         }
       };
     }
-    
+
     try {
       const isConnected = await provider.testConnection();
-      
+
       if (isConnected) {
         const models = await provider.listModels();
         return {
@@ -268,7 +268,7 @@ export class AIServiceManager {
           new Error('Provider connection test returned false'),
           { provider: providerType, operation: 'testConnection' }
         );
-        
+
         return {
           success: false,
           message: aiError.message,
@@ -284,9 +284,9 @@ export class AIServiceManager {
         provider: providerType,
         operation: 'testConnection'
       });
-      
+
       AIErrorHandler.logError(aiError);
-      
+
       return {
         success: false,
         message: aiError.message,
@@ -298,59 +298,59 @@ export class AIServiceManager {
       };
     }
   }
-  
 
-  
+
+
   /**
    * Get configured models from database
    */
   async getConfiguredModels(): Promise<AIModelConfig[]> {
     try {
       const configs = await prisma.aIModelConfig.findMany();
-      
+
       const modelConfigs: AIModelConfig[] = configs.map(config => {
         const models = config.models ? config.models.split(',').map(m => m.trim()).filter(Boolean) : [];
         this.modelConfigs.set(config.provider as AIProviderType, models);
-        
+
         return {
           provider: config.provider as AIProviderType,
           models,
           defaultModel: models[0] // First model as default
         };
       });
-      
+
       return modelConfigs;
     } catch (error) {
       console.error('Failed to get configured models:', error);
       return [];
     }
   }
-  
+
   /**
    * Validate model IDs against provider APIs
    */
   async validateModels(providerType: AIProviderType, models: string[]): Promise<ModelValidationResult> {
     const provider = this.providers.get(providerType);
-    
+
     if (!provider) {
       const aiError = AIErrorHandler.parseError(
         new Error(`${providerType} provider not configured`),
         { provider: providerType, operation: 'validateModels' }
       );
-      
+
       return {
         valid: [],
         invalid: models,
         warnings: [aiError.message, ...aiError.suggestions]
       };
     }
-    
+
     try {
       const availableModels = await provider.listModels();
       const valid: string[] = [];
       const invalid: string[] = [];
       const warnings: string[] = [];
-      
+
       for (const model of models) {
         if (availableModels.includes(model)) {
           valid.push(model);
@@ -359,16 +359,16 @@ export class AIServiceManager {
           warnings.push(`Model '${model}' not found in ${providerType} API - it may be a new model not yet listed`);
         }
       }
-      
+
       return { valid, invalid, warnings };
     } catch (error) {
       const aiError = AIErrorHandler.parseError(error, {
         provider: providerType,
         operation: 'validateModels'
       });
-      
+
       AIErrorHandler.logError(aiError);
-      
+
       return {
         valid: [],
         invalid: models,
@@ -376,20 +376,20 @@ export class AIServiceManager {
       };
     }
   }
-  
+
   /**
    * Save model configuration to database
    */
   async saveModelConfiguration(providerType: AIProviderType, models: string[]): Promise<void> {
     try {
       const modelsString = models.join(',');
-      
+
       await prisma.aIModelConfig.upsert({
         where: { provider: providerType },
         update: { models: modelsString },
         create: { provider: providerType, models: modelsString }
       });
-      
+
       // Update in-memory cache
       this.modelConfigs.set(providerType, models);
     } catch (error) {
@@ -397,13 +397,13 @@ export class AIServiceManager {
       throw new Error(`Failed to save model configuration: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
-  
+
   /**
    * Get all available models across all configured providers
    */
   async getAllAvailableModels(): Promise<{ provider: AIProviderType; model: string }[]> {
     const allModels: { provider: AIProviderType; model: string }[] = [];
-    
+
     for (const [providerType, provider] of this.providers) {
       try {
         const models = await provider.listModels();
@@ -414,10 +414,10 @@ export class AIServiceManager {
         console.warn(`Failed to get models for ${providerType}:`, error);
       }
     }
-    
+
     return allModels;
   }
-  
+
   /**
    * Initialize model configurations from database on startup
    */
@@ -429,14 +429,14 @@ export class AIServiceManager {
       console.error('Failed to initialize model configurations:', error);
     }
   }
-  
+
   /**
    * Get models for a specific provider
    */
   getProviderModels(providerType: AIProviderType): string[] {
     return this.modelConfigs.get(providerType) || [];
   }
-  
+
   /**
    * Check if a model is configured for any provider
    */
@@ -448,7 +448,7 @@ export class AIServiceManager {
     }
     return false;
   }
-  
+
   /**
    * Get the provider for a specific model
    */
@@ -460,17 +460,17 @@ export class AIServiceManager {
     }
     return null;
   }
-  
+
   /**
    * Get all configured models in a format suitable for dropdowns
    */
   async getModelsForDropdown(): Promise<Array<{ provider: AIProviderType; model: string; available: boolean }>> {
     const dropdownModels: Array<{ provider: AIProviderType; model: string; available: boolean }> = [];
-    
+
     for (const [providerType, models] of this.modelConfigs.entries()) {
       const provider = this.providers.get(providerType);
       const isProviderAvailable = !!provider;
-      
+
       models.forEach(model => {
         dropdownModels.push({
           provider: providerType,
@@ -479,7 +479,7 @@ export class AIServiceManager {
         });
       });
     }
-    
+
     // Sort by provider, then by model name
     return dropdownModels.sort((a, b) => {
       if (a.provider !== b.provider) {
@@ -488,21 +488,21 @@ export class AIServiceManager {
       return a.model.localeCompare(b.model);
     });
   }
-  
+
   /**
    * Edit content using AI
    */
   async editContent(request: AIContentEditRequest): Promise<AIContentEditResponse> {
     const provider = this.getProviderForModel(request.model);
-    
+
     if (!provider) {
       const aiError = AIErrorHandler.parseError(
         new Error(`Model ${request.model} is not configured`),
         { model: request.model, operation: 'editContent' }
       );
-      
+
       AIErrorHandler.logError(aiError);
-      
+
       return {
         success: false,
         changes: {},
@@ -514,16 +514,16 @@ export class AIServiceManager {
         cost: 0
       };
     }
-    
+
     const providerInstance = this.providers.get(provider);
     if (!providerInstance) {
       const aiError = AIErrorHandler.parseError(
         new Error(`Provider ${provider} is not available`),
         { provider, model: request.model, operation: 'editContent' }
       );
-      
+
       AIErrorHandler.logError(aiError);
-      
+
       return {
         success: false,
         changes: {},
@@ -535,11 +535,11 @@ export class AIServiceManager {
         cost: 0
       };
     }
-    
+
     try {
       // Build the prompt based on the operation
       const prompt = this.buildContentEditPrompt(request);
-      
+
       const chatRequest: ProviderChatRequest = {
         model: request.model,
         messages: [
@@ -552,12 +552,12 @@ export class AIServiceManager {
         temperature: request.temperature ?? 0.7,
         maxTokens: 4000
       };
-      
+
       const response = await providerInstance.chat(chatRequest);
-      
+
       // Parse the structured response
-      const parsedResponse = this.parseContentEditResponse(response.content, request);
-      
+      const parsedResponse = this.parseCustomPromptResponse(response.content, request);
+
       return {
         success: true,
         changes: parsedResponse.changes,
@@ -572,11 +572,11 @@ export class AIServiceManager {
       const aiError = AIErrorHandler.parseError(error, {
         provider,
         model: request.model,
-        operation: 'editContent'
+        operation: 'processCustomPrompt'
       });
-      
+
       AIErrorHandler.logError(aiError);
-      
+
       return {
         success: false,
         changes: {},
@@ -589,21 +589,21 @@ export class AIServiceManager {
       };
     }
   }
-  
+
   /**
    * Suggest tags for project content
    */
   async suggestTags(request: AITagSuggestionRequest): Promise<AITagSuggestionResponse> {
     const provider = this.getProviderForModel(request.model);
-    
+
     if (!provider) {
       const aiError = AIErrorHandler.parseError(
         new Error(`Model ${request.model} is not configured`),
         { model: request.model, operation: 'suggestTags' }
       );
-      
+
       AIErrorHandler.logError(aiError);
-      
+
       return {
         success: false,
         suggestions: { add: [], remove: [] },
@@ -613,16 +613,16 @@ export class AIServiceManager {
         cost: 0
       };
     }
-    
+
     const providerInstance = this.providers.get(provider);
     if (!providerInstance) {
       const aiError = AIErrorHandler.parseError(
         new Error(`Provider ${provider} is not available`),
         { provider, model: request.model, operation: 'suggestTags' }
       );
-      
+
       AIErrorHandler.logError(aiError);
-      
+
       return {
         success: false,
         suggestions: { add: [], remove: [] },
@@ -632,10 +632,10 @@ export class AIServiceManager {
         cost: 0
       };
     }
-    
+
     try {
       const prompt = this.buildTagSuggestionPrompt(request);
-      
+
       const chatRequest: ProviderChatRequest = {
         model: request.model,
         messages: [
@@ -648,12 +648,12 @@ export class AIServiceManager {
         temperature: 0.3, // Lower temperature for more consistent tag suggestions
         maxTokens: 2000
       };
-      
+
       const response = await providerInstance.chat(chatRequest);
-      
+
       // Parse the tag suggestions
       const parsedResponse = this.parseTagSuggestionResponse(response.content);
-      
+
       return {
         success: true,
         suggestions: parsedResponse.suggestions,
@@ -668,9 +668,9 @@ export class AIServiceManager {
         model: request.model,
         operation: 'suggestTags'
       });
-      
+
       AIErrorHandler.logError(aiError);
-      
+
       return {
         success: false,
         suggestions: { add: [], remove: [] },
@@ -681,7 +681,7 @@ export class AIServiceManager {
       };
     }
   }
-  
+
   /**
    * Improve content using AI
    */
@@ -689,22 +689,22 @@ export class AIServiceManager {
     // Use the same editContent method but with 'improve' operation
     return this.editContent({ ...request, operation: 'improve' });
   }
-  
+
   /**
    * Process custom prompt using AI (Claude Artifacts-style)
    * Single-prompt processing without maintaining chat history
    */
   async processCustomPrompt(request: AICustomPromptRequest): Promise<AICustomPromptResponse> {
     const provider = this.getProviderForModel(request.model);
-    
+
     if (!provider) {
       const aiError = AIErrorHandler.parseError(
         new Error(`Model ${request.model} is not configured`),
         { model: request.model, operation: 'processCustomPrompt' }
       );
-      
+
       AIErrorHandler.logError(aiError);
-      
+
       return {
         success: false,
         changes: {},
@@ -716,16 +716,16 @@ export class AIServiceManager {
         cost: 0
       };
     }
-    
+
     const providerInstance = this.providers.get(provider);
     if (!providerInstance) {
       const aiError = AIErrorHandler.parseError(
         new Error(`Provider ${provider} is not available`),
         { provider, model: request.model, operation: 'processCustomPrompt' }
       );
-      
+
       AIErrorHandler.logError(aiError);
-      
+
       return {
         success: false,
         changes: {},
@@ -737,11 +737,11 @@ export class AIServiceManager {
         cost: 0
       };
     }
-    
+
     try {
       // Build the prompt for custom processing
       const prompt = this.buildCustomPrompt(request);
-      
+
       const chatRequest: ProviderChatRequest = {
         model: request.model,
         messages: [
@@ -754,12 +754,12 @@ export class AIServiceManager {
         temperature: request.temperature ?? 0.7,
         maxTokens: 4000
       };
-      
+
       const response = await providerInstance.chat(chatRequest);
-      
+
       // Parse the structured response
       const parsedResponse = this.parseCustomPromptResponse(response.content, request);
-      
+
       return {
         success: true,
         changes: parsedResponse.changes,
@@ -768,8 +768,8 @@ export class AIServiceManager {
         warnings: parsedResponse.warnings,
         userFeedback: parsedResponse.userFeedback,
         model: request.model,
-        tokensUsed: response.tokensUsed,
-        cost: response.cost
+        tokensUsed: response.tokensUsed || 0,
+        cost: response.cost || 0
       };
     } catch (error) {
       const aiError = AIErrorHandler.parseError(error, {
@@ -777,9 +777,9 @@ export class AIServiceManager {
         model: request.model,
         operation: 'processCustomPrompt'
       });
-      
+
       AIErrorHandler.logError(aiError);
-      
+
       return {
         success: false,
         changes: {},
@@ -792,21 +792,21 @@ export class AIServiceManager {
       };
     }
   }
-  
+
   /**
    * Build prompt for content editing operations
    */
   private buildContentEditPrompt(request: AIContentEditRequest): string {
     const { operation, content, selectedText, context } = request;
-    
+
     let prompt = `Project: ${context.projectTitle}\n`;
     if (context.projectDescription) {
       prompt += `Description: ${context.projectDescription}\n`;
     }
     prompt += `Existing tags: ${context.existingTags.join(', ')}\n\n`;
-    
+
     const targetText = selectedText ? selectedText.text : content;
-    
+
     switch (operation) {
       case 'rewrite':
         prompt += `Please rewrite the following text to improve clarity and flow while maintaining the original meaning:\n\n"${targetText}"\n\n`;
@@ -827,7 +827,7 @@ export class AIServiceManager {
         prompt += `Please rewrite the following text in a more casual, friendly tone:\n\n"${targetText}"\n\n`;
         break;
     }
-    
+
     prompt += `Please respond with a JSON object containing:
 {
   "newText": "the improved text",
@@ -840,10 +840,10 @@ export class AIServiceManager {
     "reasoning": "explanation for tag suggestions"
   }
 }`;
-    
+
     return prompt;
   }
-  
+
   /**
    * Build prompt for tag suggestions
    */
@@ -855,10 +855,10 @@ export class AIServiceManager {
     }
     prompt += `Content: ${request.articleContent.substring(0, 2000)}...\n\n`;
     prompt += `Current tags: ${request.existingTags.join(', ')}\n\n`;
-    
+
     prompt += `Please suggest up to ${request.maxSuggestions || 5} new tags and identify any current tags that might not fit. `;
     prompt += `Focus on technology stacks, programming languages, frameworks, tools, and relevant skills.\n\n`;
-    
+
     prompt += `Respond with JSON:
 {
   "suggestions": {
@@ -878,10 +878,10 @@ export class AIServiceManager {
   },
   "reasoning": "overall analysis of the project's technology focus"
 }`;
-    
+
     return prompt;
   }
-  
+
   /**
    * Parse content edit response from AI
    */
@@ -892,14 +892,22 @@ export class AIServiceManager {
     warnings: string[];
   } {
     try {
-      // Try to parse as JSON first
-      const parsed = JSON.parse(response);
+      // Clean up the response - remove markdown code blocks if present
+      let cleanResponse = response.trim();
+      if (cleanResponse.startsWith('```json')) {
+        cleanResponse = cleanResponse.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+      } else if (cleanResponse.startsWith('```')) {
+        cleanResponse = cleanResponse.replace(/^```\s*/, '').replace(/\s*```$/, '');
+      }
       
+      // Try to parse as JSON
+      const parsed = JSON.parse(cleanResponse);
+
       const changes: AIContentEditResponse['changes'] = {};
-      
+
       if (parsed.newText) {
         if (request.selectedText) {
-          // Partial update
+          // Partial update for selected text
           changes.partialUpdate = {
             start: request.selectedText.start,
             end: request.selectedText.end,
@@ -907,11 +915,11 @@ export class AIServiceManager {
             reasoning: parsed.reasoning || 'AI-generated improvement'
           };
         } else {
-          // Full content replacement
+          // Full content replacement when no text is selected
           changes.fullContent = parsed.newText;
         }
       }
-      
+
       if (parsed.suggestedTags) {
         changes.suggestedTags = {
           add: parsed.suggestedTags.add || [],
@@ -919,7 +927,7 @@ export class AIServiceManager {
           reasoning: parsed.suggestedTags.reasoning || 'AI-generated tag suggestions'
         };
       }
-      
+
       return {
         changes,
         reasoning: parsed.reasoning || 'Content improved by AI',
@@ -938,7 +946,7 @@ export class AIServiceManager {
       };
     }
   }
-  
+
   /**
    * Parse tag suggestion response from AI
    */
@@ -948,7 +956,7 @@ export class AIServiceManager {
   } {
     try {
       const parsed = JSON.parse(response);
-      
+
       return {
         suggestions: {
           add: parsed.suggestions?.add || [],
@@ -964,96 +972,7 @@ export class AIServiceManager {
       };
     }
   }
-  
-  /**
-   * Get default system prompt for content editing
-   */
-  private getDefaultSystemPrompt(): string {
-    return 'You are an expert content editor for portfolio projects. Help improve and edit project content while maintaining the author\'s voice and style. Always provide structured JSON responses when requested.';
-  }
-  
-  /**
-   * Get system prompt for custom prompt processing
-   */
-  private getCustomPromptSystemPrompt(): string {
-    return `You are an expert content editor and writing assistant for portfolio projects. You help developers improve their project documentation, articles, and content.
 
-When processing user prompts:
-1. Understand the user's intent and apply it to the provided content
-2. Maintain the author's voice and technical accuracy
-3. Provide helpful feedback and suggestions
-4. Always respond with structured JSON format
-
-Your responses should be professional, helpful, and focused on improving the content quality while respecting the user's specific requests.`;
-  }
-  
-  /**
-   * Build prompt for custom prompt processing
-   */
-  private buildCustomPrompt(request: AICustomPromptRequest): string {
-    const { prompt, content, selectedText, context } = request;
-    
-    let builtPrompt = `Project Context:
-Title: ${context.projectTitle}
-Description: ${context.projectDescription || 'No description provided'}
-Existing Tags: ${context.existingTags.join(', ') || 'None'}
-
-`;
-    
-    if (selectedText) {
-      builtPrompt += `Selected Text to Process:
-"${selectedText.text}"
-
-Full Article Context:
-${context.fullContent.substring(0, 1000)}${context.fullContent.length > 1000 ? '...' : ''}
-
-`;
-    } else {
-      builtPrompt += `Content to Process:
-${content}
-
-`;
-    }
-    
-    builtPrompt += `User Request:
-${prompt}
-
-Please process the ${selectedText ? 'selected text' : 'content'} according to the user's request. Respond with a JSON object containing:
-
-{
-  "success": true,
-  "changes": {
-    "fullContent": "complete new content (if replacing entire content)",
-    "partialUpdate": {
-      "start": ${selectedText?.start || 0},
-      "end": ${selectedText?.end || content.length},
-      "newText": "replacement text for selected portion",
-      "reasoning": "explanation of changes made"
-    },
-    "suggestedTags": {
-      "add": ["new tag suggestions based on content changes"],
-      "remove": ["tags that might not fit after changes"],
-      "reasoning": "explanation for tag suggestions"
-    },
-    "suggestedTitle": "improved title if relevant",
-    "suggestedDescription": "improved description if relevant"
-  },
-  "reasoning": "detailed explanation of what you did and why",
-  "confidence": 0.9,
-  "warnings": ["any important notes or limitations"],
-  "userFeedback": "helpful feedback or suggestions for the user (optional)"
-}
-
-Important:
-- Only include the fields in "changes" that are actually being modified
-- If processing selected text, use "partialUpdate", otherwise use "fullContent"
-- Provide clear reasoning for all changes
-- Include helpful user feedback when appropriate
-- Set confidence based on how well you could fulfill the request`;
-    
-    return builtPrompt;
-  }
-  
   /**
    * Parse custom prompt response from AI
    */
@@ -1065,8 +984,16 @@ Important:
     userFeedback?: string;
   } {
     try {
-      // Try to parse as JSON first
-      const parsed = JSON.parse(response);
+      // Clean up the response - remove markdown code blocks if present
+      let cleanResponse = response.trim();
+      if (cleanResponse.startsWith('```json')) {
+        cleanResponse = cleanResponse.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+      } else if (cleanResponse.startsWith('```')) {
+        cleanResponse = cleanResponse.replace(/^```\s*/, '').replace(/\s*```$/, '');
+      }
+      
+      // Try to parse as JSON
+      const parsed = JSON.parse(cleanResponse);
       
       const changes: AICustomPromptResponse['changes'] = {};
       
@@ -1122,4 +1049,95 @@ Important:
       };
     }
   }
+
+  /**
+   * Get default system prompt for content editing
+   */
+  private getDefaultSystemPrompt(): string {
+    return 'You are an expert content editor for portfolio projects. Help improve and edit project content while maintaining the author\'s voice and style. Always provide structured JSON responses when requested.';
+  }
+
+  /**
+   * Get system prompt for custom prompt processing
+   */
+  private getCustomPromptSystemPrompt(): string {
+    return `You are an expert content editor and writing assistant for portfolio projects. You help developers improve their project documentation, articles, and content.
+
+When processing user prompts:
+1. Understand the user's intent and apply it to the provided content
+2. Maintain the author's voice and technical accuracy
+3. Provide helpful feedback and suggestions
+4. Always respond with structured JSON format
+
+Your responses should be professional, helpful, and focused on improving the content quality while respecting the user's specific requests.`;
+  }
+
+  /**
+   * Build prompt for custom prompt processing
+   */
+  private buildCustomPrompt(request: AICustomPromptRequest): string {
+    const { prompt, content, selectedText, context } = request;
+
+    let builtPrompt = `Project Context:
+Title: ${context.projectTitle}
+Description: ${context.projectDescription || 'No description provided'}
+Existing Tags: ${context.existingTags.join(', ') || 'None'}
+
+`;
+
+    if (selectedText) {
+      builtPrompt += `Selected Text to Process:
+"${selectedText.text}"
+
+Full Article Context:
+${context.fullContent.substring(0, 1000)}${context.fullContent.length > 1000 ? '...' : ''}
+
+`;
+    } else {
+      builtPrompt += `Content to Process:
+${content}
+
+`;
+    }
+
+    builtPrompt += `User Request:
+${prompt}
+
+Please process the ${selectedText ? 'selected text' : 'content'} according to the user's request. Respond with a JSON object containing:
+
+{
+  "success": true,
+  "changes": {
+    "fullContent": "complete new content (if replacing entire content)",
+    "partialUpdate": {
+      "start": ${selectedText?.start || 0},
+      "end": ${selectedText?.end || content.length},
+      "newText": "replacement text for selected portion",
+      "reasoning": "explanation of changes made"
+    },
+    "suggestedTags": {
+      "add": ["new tag suggestions based on content changes"],
+      "remove": ["tags that might not fit after changes"],
+      "reasoning": "explanation for tag suggestions"
+    },
+    "suggestedTitle": "improved title if relevant",
+    "suggestedDescription": "improved description if relevant"
+  },
+  "reasoning": "detailed explanation of what you did and why",
+  "confidence": 0.9,
+  "warnings": ["any important notes or limitations"],
+  "userFeedback": "helpful feedback or suggestions for the user (optional)"
+}
+
+Important:
+- Only include the fields in "changes" that are actually being modified
+- If processing selected text, use "partialUpdate", otherwise use "fullContent"
+- Provide clear reasoning for all changes
+- Include helpful user feedback when appropriate
+- Set confidence based on how well you could fulfill the request`;
+
+    return builtPrompt;
+  }
+
+  
 }

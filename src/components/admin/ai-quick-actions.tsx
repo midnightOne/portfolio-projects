@@ -232,7 +232,19 @@ export function AIQuickActions({
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const result: AIQuickActionResult = await response.json();
+      const apiResponse = await response.json();
+      
+      // Handle the API response structure
+      const result: AIQuickActionResult = {
+        success: apiResponse.success,
+        changes: apiResponse.data?.changes || {},
+        reasoning: apiResponse.data?.reasoning || apiResponse.error?.message || 'Unknown error',
+        confidence: apiResponse.data?.confidence || 0,
+        warnings: apiResponse.data?.warnings || [],
+        model: apiResponse.data?.metadata?.model || selectedModel,
+        tokensUsed: apiResponse.data?.metadata?.tokensUsed || 0,
+        cost: apiResponse.data?.metadata?.cost || 0
+      };
       
       if (result.success) {
         toast.success(
@@ -262,7 +274,7 @@ export function AIQuickActions({
       // Create error result for display
       const errorResult: AIQuickActionResult = {
         success: false,
-        changes: {},
+        changes: {}, // Ensure changes is always an object
         reasoning: `Action failed: ${errorMessage}`,
         confidence: 0,
         warnings: ['AI service is currently unavailable. Please try again later.'],
@@ -463,7 +475,7 @@ export function AIQuickActions({
                 </Badge>
               </div>
               <div className="text-sm text-gray-500">
-                Model: {lastResult.model} • Tokens: {lastResult.tokensUsed} • Cost: ${lastResult.cost.toFixed(4)}
+                Model: {lastResult.model} • Tokens: {lastResult.tokensUsed} • Cost: ${(lastResult.cost || 0).toFixed(4)}
               </div>
             </div>
 
@@ -539,7 +551,7 @@ export function AIQuickActions({
             )}
 
             {/* Warnings */}
-            {lastResult.warnings.length > 0 && (
+            {lastResult.warnings && lastResult.warnings.length > 0 && (
               <div>
                 <p className="text-sm font-medium mb-1 text-amber-700">Warnings:</p>
                 <ul className="text-sm text-amber-800 space-y-1">
