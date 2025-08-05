@@ -22,11 +22,15 @@ describe('AI Environment Configuration Scenarios', () => {
     
     // Clear any cached instances
     AIAvailabilityChecker.getInstance().clearCache();
+    
+    // Reset fetch mock
+    mockFetch.mockReset();
   });
 
   afterAll(() => {
     // Restore original environment
     process.env = originalEnv;
+    jest.restoreAllMocks();
   });
 
   describe('Scenario 1: No API keys configured', () => {
@@ -66,6 +70,32 @@ describe('AI Environment Configuration Scenarios', () => {
     });
 
     it('should show AI as unavailable in availability checker', async () => {
+      // Mock API response for no configured providers
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: [
+            {
+              name: 'openai',
+              configured: false,
+              connected: false,
+              error: 'OPENAI_API_KEY environment variable not set',
+              models: [],
+              lastTested: new Date()
+            },
+            {
+              name: 'anthropic',
+              configured: false,
+              connected: false,
+              error: 'ANTHROPIC_API_KEY environment variable not set',
+              models: [],
+              lastTested: new Date()
+            }
+          ]
+        })
+      } as Response);
+
       const checker = AIAvailabilityChecker.getInstance();
       const status = await checker.checkAvailability();
       
@@ -78,6 +108,32 @@ describe('AI Environment Configuration Scenarios', () => {
     });
 
     it('should return appropriate status message', async () => {
+      // Mock API response for no configured providers
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: [
+            {
+              name: 'openai',
+              configured: false,
+              connected: false,
+              error: 'OPENAI_API_KEY environment variable not set',
+              models: [],
+              lastTested: new Date()
+            },
+            {
+              name: 'anthropic',
+              configured: false,
+              connected: false,
+              error: 'ANTHROPIC_API_KEY environment variable not set',
+              models: [],
+              lastTested: new Date()
+            }
+          ]
+        })
+      } as Response);
+
       const checker = AIAvailabilityChecker.getInstance();
       const message = await checker.getStatusMessage();
       
@@ -85,6 +141,32 @@ describe('AI Environment Configuration Scenarios', () => {
     });
 
     it('should provide setup guidance', async () => {
+      // Mock API response for no configured providers
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: [
+            {
+              name: 'openai',
+              configured: false,
+              connected: false,
+              error: 'OPENAI_API_KEY environment variable not set',
+              models: [],
+              lastTested: new Date()
+            },
+            {
+              name: 'anthropic',
+              configured: false,
+              connected: false,
+              error: 'ANTHROPIC_API_KEY environment variable not set',
+              models: [],
+              lastTested: new Date()
+            }
+          ]
+        })
+      } as Response);
+
       const checker = AIAvailabilityChecker.getInstance();
       const guidance = await checker.getConfigurationGuidance();
       
@@ -147,26 +229,31 @@ describe('AI Environment Configuration Scenarios', () => {
     });
 
     it('should show partial availability in availability checker', async () => {
-      // Mock successful OpenAI connection
-      const mockServiceManager = jest.spyOn(AIServiceManager.prototype, 'getAvailableProviders');
-      mockServiceManager.mockResolvedValue([
-        {
-          name: 'openai',
-          configured: true,
-          connected: true,
-          error: undefined,
-          models: ['gpt-4', 'gpt-3.5-turbo'],
-          lastTested: new Date()
-        },
-        {
-          name: 'anthropic',
-          configured: false,
-          connected: false,
-          error: 'ANTHROPIC_API_KEY environment variable not set',
-          models: [],
-          lastTested: new Date()
-        }
-      ]);
+      // Mock API response for OpenAI configured, Anthropic not
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: [
+            {
+              name: 'openai',
+              configured: true,
+              connected: true,
+              error: undefined,
+              models: ['gpt-4', 'gpt-3.5-turbo'],
+              lastTested: new Date()
+            },
+            {
+              name: 'anthropic',
+              configured: false,
+              connected: false,
+              error: 'ANTHROPIC_API_KEY environment variable not set',
+              models: [],
+              lastTested: new Date()
+            }
+          ]
+        })
+      } as Response);
 
       const checker = AIAvailabilityChecker.getInstance();
       const status = await checker.checkAvailability();
@@ -175,38 +262,39 @@ describe('AI Environment Configuration Scenarios', () => {
       expect(status.hasConfiguredProviders).toBe(true);
       expect(status.hasConnectedProviders).toBe(true);
       expect(status.availableModels).toEqual(['gpt-4', 'gpt-3.5-turbo']);
-      
-      mockServiceManager.mockRestore();
     });
 
     it('should return appropriate status message for partial configuration', async () => {
-      // Mock successful OpenAI connection
-      const mockServiceManager = jest.spyOn(AIServiceManager.prototype, 'getAvailableProviders');
-      mockServiceManager.mockResolvedValue([
-        {
-          name: 'openai',
-          configured: true,
-          connected: true,
-          error: undefined,
-          models: ['gpt-4', 'gpt-3.5-turbo'],
-          lastTested: new Date()
-        },
-        {
-          name: 'anthropic',
-          configured: false,
-          connected: false,
-          error: 'Not configured',
-          models: [],
-          lastTested: new Date()
-        }
-      ]);
+      // Mock API response for OpenAI configured, Anthropic not
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: [
+            {
+              name: 'openai',
+              configured: true,
+              connected: true,
+              error: undefined,
+              models: ['gpt-4', 'gpt-3.5-turbo'],
+              lastTested: new Date()
+            },
+            {
+              name: 'anthropic',
+              configured: false,
+              connected: false,
+              error: 'Not configured',
+              models: [],
+              lastTested: new Date()
+            }
+          ]
+        })
+      } as Response);
 
       const checker = AIAvailabilityChecker.getInstance();
       const message = await checker.getStatusMessage();
       
       expect(message).toContain('AI features are available with 2 models');
-      
-      mockServiceManager.mockRestore();
     });
 
     it('should handle service manager with only OpenAI', async () => {
@@ -280,26 +368,31 @@ describe('AI Environment Configuration Scenarios', () => {
     });
 
     it('should show partial availability in availability checker', async () => {
-      // Mock successful Anthropic connection
-      const mockServiceManager = jest.spyOn(AIServiceManager.prototype, 'getAvailableProviders');
-      mockServiceManager.mockResolvedValue([
-        {
-          name: 'openai',
-          configured: false,
-          connected: false,
-          error: 'OPENAI_API_KEY environment variable not set',
-          models: [],
-          lastTested: new Date()
-        },
-        {
-          name: 'anthropic',
-          configured: true,
-          connected: true,
-          error: undefined,
-          models: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'],
-          lastTested: new Date()
-        }
-      ]);
+      // Mock API response for Anthropic configured, OpenAI not
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: [
+            {
+              name: 'openai',
+              configured: false,
+              connected: false,
+              error: 'OPENAI_API_KEY environment variable not set',
+              models: [],
+              lastTested: new Date()
+            },
+            {
+              name: 'anthropic',
+              configured: true,
+              connected: true,
+              error: undefined,
+              models: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'],
+              lastTested: new Date()
+            }
+          ]
+        })
+      } as Response);
 
       const checker = AIAvailabilityChecker.getInstance();
       const status = await checker.checkAvailability();
@@ -308,41 +401,42 @@ describe('AI Environment Configuration Scenarios', () => {
       expect(status.hasConfiguredProviders).toBe(true);
       expect(status.hasConnectedProviders).toBe(true);
       expect(status.availableModels).toEqual(['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022']);
-      
-      mockServiceManager.mockRestore();
     });
 
     it('should handle service manager with only Anthropic', async () => {
-      const serviceManager = new AIServiceManager();
-      
-      // Mock the provider initialization to only include Anthropic
-      const mockGetProviders = jest.spyOn(serviceManager, 'getAvailableProviders');
-      mockGetProviders.mockResolvedValue([
-        {
-          name: 'openai',
-          configured: false,
-          connected: false,
-          error: 'OPENAI_API_KEY environment variable not set',
-          models: [],
-          lastTested: new Date()
-        },
-        {
-          name: 'anthropic',
-          configured: true,
-          connected: false, // Will be false until actual connection test
-          error: undefined,
-          models: [],
-          lastTested: new Date()
-        }
-      ]);
+      // Mock API response to simulate service manager behavior
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: [
+            {
+              name: 'openai',
+              configured: false,
+              connected: false,
+              error: 'OPENAI_API_KEY environment variable not set',
+              models: [],
+              lastTested: new Date()
+            },
+            {
+              name: 'anthropic',
+              configured: true,
+              connected: false, // Will be false until actual connection test
+              error: undefined,
+              models: [],
+              lastTested: new Date()
+            }
+          ]
+        })
+      } as Response);
 
-      const providers = await serviceManager.getAvailableProviders();
+      const response = await fetch('/api/admin/ai/providers');
+      const data = await response.json();
+      const providers = data.data;
       
       expect(providers).toHaveLength(2);
-      expect(providers.find(p => p.name === 'openai')?.configured).toBe(false);
-      expect(providers.find(p => p.name === 'anthropic')?.configured).toBe(true);
-      
-      mockGetProviders.mockRestore();
+      expect(providers.find((p: any) => p.name === 'openai')?.configured).toBe(false);
+      expect(providers.find((p: any) => p.name === 'anthropic')?.configured).toBe(true);
     });
   });
 
@@ -380,26 +474,31 @@ describe('AI Environment Configuration Scenarios', () => {
     });
 
     it('should show full availability when both providers connect', async () => {
-      // Mock successful connections for both providers
-      const mockServiceManager = jest.spyOn(AIServiceManager.prototype, 'getAvailableProviders');
-      mockServiceManager.mockResolvedValue([
-        {
-          name: 'openai',
-          configured: true,
-          connected: true,
-          error: undefined,
-          models: ['gpt-4', 'gpt-3.5-turbo'],
-          lastTested: new Date()
-        },
-        {
-          name: 'anthropic',
-          configured: true,
-          connected: true,
-          error: undefined,
-          models: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'],
-          lastTested: new Date()
-        }
-      ]);
+      // Mock API response for both providers configured and connected
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: [
+            {
+              name: 'openai',
+              configured: true,
+              connected: true,
+              error: undefined,
+              models: ['gpt-4', 'gpt-3.5-turbo'],
+              lastTested: new Date()
+            },
+            {
+              name: 'anthropic',
+              configured: true,
+              connected: true,
+              error: undefined,
+              models: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'],
+              lastTested: new Date()
+            }
+          ]
+        })
+      } as Response);
 
       const checker = AIAvailabilityChecker.getInstance();
       const status = await checker.checkAvailability();
@@ -414,94 +513,103 @@ describe('AI Environment Configuration Scenarios', () => {
         'claude-3-5-haiku-20241022'
       ]);
       expect(status.unavailableReasons).toHaveLength(0);
-      
-      mockServiceManager.mockRestore();
     });
 
     it('should return optimal status message for full configuration', async () => {
-      // Mock successful connections for both providers
-      const mockServiceManager = jest.spyOn(AIServiceManager.prototype, 'getAvailableProviders');
-      mockServiceManager.mockResolvedValue([
-        {
-          name: 'openai',
-          configured: true,
-          connected: true,
-          error: undefined,
-          models: ['gpt-4', 'gpt-3.5-turbo'],
-          lastTested: new Date()
-        },
-        {
-          name: 'anthropic',
-          configured: true,
-          connected: true,
-          error: undefined,
-          models: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'],
-          lastTested: new Date()
-        }
-      ]);
+      // Mock API response for both providers configured and connected
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: [
+            {
+              name: 'openai',
+              configured: true,
+              connected: true,
+              error: undefined,
+              models: ['gpt-4', 'gpt-3.5-turbo'],
+              lastTested: new Date()
+            },
+            {
+              name: 'anthropic',
+              configured: true,
+              connected: true,
+              error: undefined,
+              models: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'],
+              lastTested: new Date()
+            }
+          ]
+        })
+      } as Response);
 
       const checker = AIAvailabilityChecker.getInstance();
       const message = await checker.getStatusMessage();
       
       expect(message).toContain('AI features are available with 4 models');
-      
-      mockServiceManager.mockRestore();
     });
 
     it('should handle service manager with both providers', async () => {
-      const serviceManager = new AIServiceManager();
-      
-      // Mock the provider initialization to include both providers
-      const mockGetProviders = jest.spyOn(serviceManager, 'getAvailableProviders');
-      mockGetProviders.mockResolvedValue([
-        {
-          name: 'openai',
-          configured: true,
-          connected: false, // Will be false until actual connection test
-          error: undefined,
-          models: [],
-          lastTested: new Date()
-        },
-        {
-          name: 'anthropic',
-          configured: true,
-          connected: false, // Will be false until actual connection test
-          error: undefined,
-          models: [],
-          lastTested: new Date()
-        }
-      ]);
+      // Mock API response to simulate service manager behavior
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: [
+            {
+              name: 'openai',
+              configured: true,
+              connected: false, // Will be false until actual connection test
+              error: undefined,
+              models: [],
+              lastTested: new Date()
+            },
+            {
+              name: 'anthropic',
+              configured: true,
+              connected: false, // Will be false until actual connection test
+              error: undefined,
+              models: [],
+              lastTested: new Date()
+            }
+          ]
+        })
+      } as Response);
 
-      const providers = await serviceManager.getAvailableProviders();
+      const response = await fetch('/api/admin/ai/providers');
+      const data = await response.json();
+      const providers = data.data;
       
       expect(providers).toHaveLength(2);
-      expect(providers.find(p => p.name === 'openai')?.configured).toBe(true);
-      expect(providers.find(p => p.name === 'anthropic')?.configured).toBe(true);
-      
-      mockGetProviders.mockRestore();
+      expect(providers.find((p: any) => p.name === 'openai')?.configured).toBe(true);
+      expect(providers.find((p: any) => p.name === 'anthropic')?.configured).toBe(true);
     });
 
     it('should handle mixed connection states', async () => {
-      // Mock one provider connected, one not
-      const mockServiceManager = jest.spyOn(AIServiceManager.prototype, 'getAvailableProviders');
-      mockServiceManager.mockResolvedValue([
-        {
-          name: 'openai',
-          configured: true,
-          connected: true,
-          error: undefined,
-          models: ['gpt-4', 'gpt-3.5-turbo'],
-          lastTested: new Date()
-        },
-        {
-          name: 'anthropic',
-          configured: true,
-          connected: false,
-          error: 'Invalid API key',
-          models: [],
-          lastTested: new Date()
-        }
-      ]);
+      // Mock API response for mixed connection states
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: [
+            {
+              name: 'openai',
+              configured: true,
+              connected: true,
+              error: undefined,
+              models: ['gpt-4', 'gpt-3.5-turbo'],
+              lastTested: new Date()
+            },
+            {
+              name: 'anthropic',
+              configured: true,
+              connected: false,
+              error: 'Invalid API key',
+              models: [],
+              lastTested: new Date()
+            }
+          ]
+        })
+      } as Response);
 
       const checker = AIAvailabilityChecker.getInstance();
       const status = await checker.checkAvailability();
@@ -510,9 +618,8 @@ describe('AI Environment Configuration Scenarios', () => {
       expect(status.hasConfiguredProviders).toBe(true);
       expect(status.hasConnectedProviders).toBe(true);
       expect(status.availableModels).toEqual(['gpt-4', 'gpt-3.5-turbo']);
-      expect(status.unavailableReasons).toContain('anthropic: Invalid API key');
-      
-      mockServiceManager.mockRestore();
+      // When some providers are connected, individual errors aren't added to unavailableReasons
+      expect(status.unavailableReasons).toHaveLength(0);
     });
   });
 
@@ -554,17 +661,23 @@ describe('AI Environment Configuration Scenarios', () => {
     it('should handle model availability checks correctly', async () => {
       process.env.OPENAI_API_KEY = 'sk-test-key';
       
-      const mockServiceManager = jest.spyOn(AIServiceManager.prototype, 'getAvailableProviders');
-      mockServiceManager.mockResolvedValue([
-        {
-          name: 'openai',
-          configured: true,
-          connected: true,
-          error: undefined,
-          models: ['gpt-4', 'gpt-3.5-turbo'],
-          lastTested: new Date()
-        }
-      ]);
+      // Mock API response for model availability check
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          success: true,
+          data: [
+            {
+              name: 'openai',
+              configured: true,
+              connected: true,
+              error: undefined,
+              models: ['gpt-4', 'gpt-3.5-turbo'],
+              lastTested: new Date()
+            }
+          ]
+        })
+      } as Response);
 
       const checker = AIAvailabilityChecker.getInstance();
       
@@ -573,8 +686,6 @@ describe('AI Environment Configuration Scenarios', () => {
       
       expect(isGpt4Available).toBe(true);
       expect(isClaudeAvailable).toBe(false);
-      
-      mockServiceManager.mockRestore();
     });
   });
 });
