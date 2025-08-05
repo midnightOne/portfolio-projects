@@ -246,6 +246,14 @@ export function AIQuickActions({
         cost: apiResponse.data?.metadata?.cost || 0
       };
       
+      // Debug: Log the response to see what we're getting
+      console.log('AI Response Debug:', {
+        apiResponse,
+        resultChanges: result.changes,
+        hasPartialUpdate: !!result.changes.partialUpdate,
+        hasFullContent: !!result.changes.fullContent
+      });
+      
       if (result.success) {
         toast.success(
           'AI action completed',

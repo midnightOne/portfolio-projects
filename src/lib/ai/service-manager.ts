@@ -556,7 +556,7 @@ export class AIServiceManager {
       const response = await providerInstance.chat(chatRequest);
 
       // Parse the structured response
-      const parsedResponse = this.parseCustomPromptResponse(response.content, request);
+      const parsedResponse = this.parseContentEditResponse(response.content, request);
 
       return {
         success: true,
@@ -565,8 +565,8 @@ export class AIServiceManager {
         confidence: parsedResponse.confidence,
         warnings: parsedResponse.warnings,
         model: request.model,
-        tokensUsed: response.tokensUsed,
-        cost: response.cost
+        tokensUsed: response.tokensUsed || 0,
+        cost: response.cost || 0
       };
     } catch (error) {
       const aiError = AIErrorHandler.parseError(error, {
@@ -892,6 +892,9 @@ export class AIServiceManager {
     warnings: string[];
   } {
     try {
+      // Debug: Log the raw response
+      console.log('Raw AI response:', response);
+
       // Clean up the response - remove markdown code blocks if present
       let cleanResponse = response.trim();
       if (cleanResponse.startsWith('```json')) {
@@ -899,25 +902,44 @@ export class AIServiceManager {
       } else if (cleanResponse.startsWith('```')) {
         cleanResponse = cleanResponse.replace(/^```\s*/, '').replace(/\s*```$/, '');
       }
-      
+
+      console.log('Cleaned response:', cleanResponse);
+
       // Try to parse as JSON
       const parsed = JSON.parse(cleanResponse);
+      console.log('Parsed JSON:', parsed);
 
       const changes: AIContentEditResponse['changes'] = {};
 
-      if (parsed.newText) {
+      // Try different field names for the improved text
+      const improvedText = parsed.newText || parsed.text || parsed.content || parsed.improvedText || parsed.result;
+
+      console.log('Looking for improved text in:', {
+        newText: parsed.newText,
+        text: parsed.text,
+        content: parsed.content,
+        improvedText: parsed.improvedText,
+        result: parsed.result,
+        finalImprovedText: improvedText
+      });
+
+      if (improvedText) {
         if (request.selectedText) {
           // Partial update for selected text
           changes.partialUpdate = {
             start: request.selectedText.start,
             end: request.selectedText.end,
-            newText: parsed.newText,
+            newText: improvedText,
             reasoning: parsed.reasoning || 'AI-generated improvement'
           };
+          console.log('Created partialUpdate:', changes.partialUpdate);
         } else {
           // Full content replacement when no text is selected
-          changes.fullContent = parsed.newText;
+          changes.fullContent = improvedText;
+          console.log('Created fullContent:', changes.fullContent);
         }
+      } else {
+        console.log('No improved text found in any expected field');
       }
 
       if (parsed.suggestedTags) {
@@ -935,6 +957,9 @@ export class AIServiceManager {
         warnings: parsed.warnings || []
       };
     } catch (error) {
+      console.log('JSON parsing failed:', error);
+      console.log('Falling back to raw text');
+
       // Fallback to text parsing if JSON parsing fails
       return {
         changes: {
@@ -991,18 +1016,18 @@ export class AIServiceManager {
       } else if (cleanResponse.startsWith('```')) {
         cleanResponse = cleanResponse.replace(/^```\s*/, '').replace(/\s*```$/, '');
       }
-      
+
       // Try to parse as JSON
       const parsed = JSON.parse(cleanResponse);
-      
+
       const changes: AICustomPromptResponse['changes'] = {};
-      
+
       // Handle different types of changes
       if (parsed.changes) {
         if (parsed.changes.fullContent) {
           changes.fullContent = parsed.changes.fullContent;
         }
-        
+
         if (parsed.changes.partialUpdate) {
           changes.partialUpdate = {
             start: parsed.changes.partialUpdate.start || (request.selectedText?.start ?? 0),
@@ -1011,7 +1036,7 @@ export class AIServiceManager {
             reasoning: parsed.changes.partialUpdate.reasoning || 'AI-generated improvement'
           };
         }
-        
+
         if (parsed.changes.suggestedTags) {
           changes.suggestedTags = {
             add: parsed.changes.suggestedTags.add || [],
@@ -1019,16 +1044,16 @@ export class AIServiceManager {
             reasoning: parsed.changes.suggestedTags.reasoning || 'AI-generated tag suggestions'
           };
         }
-        
+
         if (parsed.changes.suggestedTitle) {
           changes.suggestedTitle = parsed.changes.suggestedTitle;
         }
-        
+
         if (parsed.changes.suggestedDescription) {
           changes.suggestedDescription = parsed.changes.suggestedDescription;
         }
       }
-      
+
       return {
         changes,
         reasoning: parsed.reasoning || 'Content processed by AI',
@@ -1139,5 +1164,5 @@ Important:
     return builtPrompt;
   }
 
-  
+
 }

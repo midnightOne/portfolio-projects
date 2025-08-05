@@ -250,17 +250,26 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
   };
 
   const handleApplyAIChanges = (result: AIQuickActionResult) => {
+    console.log('handleApplyAIChanges called with:', result);
+    
     const adapter = getCurrentAdapter();
-    if (!adapter || !result.changes) return;
+    console.log('Current adapter:', adapter);
+    
+    if (!adapter || !result.changes) {
+      console.log('Early return: no adapter or no changes');
+      return;
+    }
 
     // Apply full content replacement
     if (result.changes.fullContent) {
+      console.log('Applying full content:', result.changes.fullContent);
       adapter.setFullContent(result.changes.fullContent);
     }
 
     // Apply partial text replacement
     if (result.changes.partialUpdate) {
       const { start, end, newText } = result.changes.partialUpdate;
+      console.log('Applying partial update:', { start, end, newText });
       adapter.applyChange({ start, end, newText });
     }
 
