@@ -11,6 +11,7 @@ A modern, responsive portfolio website built with Next.js 14, TypeScript, and Ta
 - 🎮 Interactive content embedding (WebXR, Canvas, iframes)
 - 📊 Analytics and view tracking
 - 🔐 Secure admin interface
+- 🤖 AI-powered content editing and assistance
 - 🚀 Optimized performance with Next.js 14
 
 ## Tech Stack
@@ -105,10 +106,61 @@ src/
 - 🎨 **Media Configuration**: Read `MEDIA_CONFIGURATION.md` for upload setup
 - 🔗 **Provider Setup**: See `MEDIA_PROVIDER_SETUP.md` for storage configuration
 - 🔧 **Database Setup**: Check `docs/database-providers.md` for provider configuration
+- 🤖 **AI Configuration**: See `docs/ai-configuration-guide.md` for AI setup and configuration
+- 🔧 **AI Troubleshooting**: Check `docs/ai-troubleshooting.md` for common issues and solutions
+- 🚀 **AI Deployment**: See `docs/ai-deployment-guide.md` for platform-specific deployment guides
+- 📦 **AI Migration**: See `docs/ai-migration-guide.md` for upgrading from previous versions
+- 🔌 **API Documentation**: Check `docs/api-documentation.md` for endpoint reference
 
 ## Environment Variables
 
-See `.env.example` for all required environment variables.
+### Required Variables
+
+Copy `.env.example` to `.env.local` and configure the following:
+
+#### Database Configuration
+```bash
+DATABASE_PROVIDER="supabase"  # or "vercel", "local"
+DATABASE_URL="your-database-url"
+DIRECT_URL="your-direct-database-url"  # For connection pooling
+```
+
+#### Authentication
+```bash
+NEXTAUTH_URL="http://localhost:3000"
+NEXTAUTH_SECRET="your-secret-key"
+ADMIN_USERNAME="admin"
+ADMIN_PASSWORD="your-secure-password"
+```
+
+#### AI Configuration (Optional)
+```bash
+# OpenAI Integration
+OPENAI_API_KEY="sk-proj-..."  # Get from https://platform.openai.com/api-keys
+
+# Anthropic Integration  
+ANTHROPIC_API_KEY="sk-ant-api03-..."  # Get from https://console.anthropic.com/
+```
+
+**Note**: AI features are optional. The application will work without AI keys, but content editing assistance will be disabled.
+
+#### Media & File Upload
+```bash
+UPLOAD_DIR="./public/uploads"
+MAX_FILE_SIZE="52428800"  # 50MB in bytes
+MEDIA_BASE_URL="http://localhost:3000"
+```
+
+### AI Configuration Guide
+
+The AI system supports both OpenAI and Anthropic providers:
+
+- **OpenAI**: Supports GPT-4, GPT-4 Turbo, and GPT-3.5 models
+- **Anthropic**: Supports Claude 3.5 Sonnet, Claude 3.5 Haiku, and Claude 3 Opus
+
+Configure available models in the admin interface at `/admin/ai-settings`.
+
+For detailed AI setup instructions, see `docs/ai-configuration-guide.md`.
 
 ## License
 
