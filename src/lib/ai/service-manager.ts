@@ -108,6 +108,59 @@ export interface AITagSuggestionResponse {
   cost: number;
 }
 
+export interface AICustomPromptRequest {
+  model: string;
+  prompt: string;
+  content: string;
+  selectedText?: {
+    text: string;
+    start: number;
+    end: number;
+  };
+  context: {
+    projectTitle: string;
+    projectDescription: string;
+    existingTags: string[];
+    fullContent: string;
+  };
+  systemPrompt?: string;
+  temperature?: number;
+}
+
+export interface AICustomPromptResponse {
+  success: boolean;
+  changes: {
+    // Full content replacement
+    fullContent?: string;
+    
+    // Partial text replacement
+    partialUpdate?: {
+      start: number;
+      end: number;
+      newText: string;
+      reasoning: string;
+    };
+    
+    // Metadata suggestions
+    suggestedTags?: {
+      add: string[];
+      remove: string[];
+      reasoning: string;
+    };
+    
+    // Other metadata
+    suggestedTitle?: string;
+    suggestedDescription?: string;
+  };
+  reasoning: string;
+  confidence: number;
+  warnings: string[];
+  userFeedback?: string;
+  model: string;
+  tokensUsed: number;
+  cost: number;
+}
+
 export class AIServiceManager {
   private providers: Map<AIProviderType, AIProvider> = new Map();
   private modelConfigs: Map<AIProviderType, string[]> = new Map();
@@ -638,6 +691,109 @@ export class AIServiceManager {
   }
   
   /**
+   * Process custom prompt using AI (Claude Artifacts-style)
+   * Single-prompt processing without maintaining chat history
+   */
+  async processCustomPrompt(request: AICustomPromptRequest): Promise<AICustomPromptResponse> {
+    const provider = this.getProviderForModel(request.model);
+    
+    if (!provider) {
+      const aiError = AIErrorHandler.parseError(
+        new Error(`Model ${request.model} is not configured`),
+        { model: request.model, operation: 'processCustomPrompt' }
+      );
+      
+      AIErrorHandler.logError(aiError);
+      
+      return {
+        success: false,
+        changes: {},
+        reasoning: aiError.message,
+        confidence: 0,
+        warnings: aiError.suggestions,
+        model: request.model,
+        tokensUsed: 0,
+        cost: 0
+      };
+    }
+    
+    const providerInstance = this.providers.get(provider);
+    if (!providerInstance) {
+      const aiError = AIErrorHandler.parseError(
+        new Error(`Provider ${provider} is not available`),
+        { provider, model: request.model, operation: 'processCustomPrompt' }
+      );
+      
+      AIErrorHandler.logError(aiError);
+      
+      return {
+        success: false,
+        changes: {},
+        reasoning: aiError.message,
+        confidence: 0,
+        warnings: aiError.suggestions,
+        model: request.model,
+        tokensUsed: 0,
+        cost: 0
+      };
+    }
+    
+    try {
+      // Build the prompt for custom processing
+      const prompt = this.buildCustomPrompt(request);
+      
+      const chatRequest: ProviderChatRequest = {
+        model: request.model,
+        messages: [
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        systemPrompt: request.systemPrompt || this.getCustomPromptSystemPrompt(),
+        temperature: request.temperature ?? 0.7,
+        maxTokens: 4000
+      };
+      
+      const response = await providerInstance.chat(chatRequest);
+      
+      // Parse the structured response
+      const parsedResponse = this.parseCustomPromptResponse(response.content, request);
+      
+      return {
+        success: true,
+        changes: parsedResponse.changes,
+        reasoning: parsedResponse.reasoning,
+        confidence: parsedResponse.confidence,
+        warnings: parsedResponse.warnings,
+        userFeedback: parsedResponse.userFeedback,
+        model: request.model,
+        tokensUsed: response.tokensUsed,
+        cost: response.cost
+      };
+    } catch (error) {
+      const aiError = AIErrorHandler.parseError(error, {
+        provider,
+        model: request.model,
+        operation: 'processCustomPrompt'
+      });
+      
+      AIErrorHandler.logError(aiError);
+      
+      return {
+        success: false,
+        changes: {},
+        reasoning: aiError.message,
+        confidence: 0,
+        warnings: aiError.suggestions,
+        model: request.model,
+        tokensUsed: 0,
+        cost: 0
+      };
+    }
+  }
+  
+  /**
    * Build prompt for content editing operations
    */
   private buildContentEditPrompt(request: AIContentEditRequest): string {
@@ -814,5 +970,156 @@ export class AIServiceManager {
    */
   private getDefaultSystemPrompt(): string {
     return 'You are an expert content editor for portfolio projects. Help improve and edit project content while maintaining the author\'s voice and style. Always provide structured JSON responses when requested.';
+  }
+  
+  /**
+   * Get system prompt for custom prompt processing
+   */
+  private getCustomPromptSystemPrompt(): string {
+    return `You are an expert content editor and writing assistant for portfolio projects. You help developers improve their project documentation, articles, and content.
+
+When processing user prompts:
+1. Understand the user's intent and apply it to the provided content
+2. Maintain the author's voice and technical accuracy
+3. Provide helpful feedback and suggestions
+4. Always respond with structured JSON format
+
+Your responses should be professional, helpful, and focused on improving the content quality while respecting the user's specific requests.`;
+  }
+  
+  /**
+   * Build prompt for custom prompt processing
+   */
+  private buildCustomPrompt(request: AICustomPromptRequest): string {
+    const { prompt, content, selectedText, context } = request;
+    
+    let builtPrompt = `Project Context:
+Title: ${context.projectTitle}
+Description: ${context.projectDescription || 'No description provided'}
+Existing Tags: ${context.existingTags.join(', ') || 'None'}
+
+`;
+    
+    if (selectedText) {
+      builtPrompt += `Selected Text to Process:
+"${selectedText.text}"
+
+Full Article Context:
+${context.fullContent.substring(0, 1000)}${context.fullContent.length > 1000 ? '...' : ''}
+
+`;
+    } else {
+      builtPrompt += `Content to Process:
+${content}
+
+`;
+    }
+    
+    builtPrompt += `User Request:
+${prompt}
+
+Please process the ${selectedText ? 'selected text' : 'content'} according to the user's request. Respond with a JSON object containing:
+
+{
+  "success": true,
+  "changes": {
+    "fullContent": "complete new content (if replacing entire content)",
+    "partialUpdate": {
+      "start": ${selectedText?.start || 0},
+      "end": ${selectedText?.end || content.length},
+      "newText": "replacement text for selected portion",
+      "reasoning": "explanation of changes made"
+    },
+    "suggestedTags": {
+      "add": ["new tag suggestions based on content changes"],
+      "remove": ["tags that might not fit after changes"],
+      "reasoning": "explanation for tag suggestions"
+    },
+    "suggestedTitle": "improved title if relevant",
+    "suggestedDescription": "improved description if relevant"
+  },
+  "reasoning": "detailed explanation of what you did and why",
+  "confidence": 0.9,
+  "warnings": ["any important notes or limitations"],
+  "userFeedback": "helpful feedback or suggestions for the user (optional)"
+}
+
+Important:
+- Only include the fields in "changes" that are actually being modified
+- If processing selected text, use "partialUpdate", otherwise use "fullContent"
+- Provide clear reasoning for all changes
+- Include helpful user feedback when appropriate
+- Set confidence based on how well you could fulfill the request`;
+    
+    return builtPrompt;
+  }
+  
+  /**
+   * Parse custom prompt response from AI
+   */
+  private parseCustomPromptResponse(response: string, request: AICustomPromptRequest): {
+    changes: AICustomPromptResponse['changes'];
+    reasoning: string;
+    confidence: number;
+    warnings: string[];
+    userFeedback?: string;
+  } {
+    try {
+      // Try to parse as JSON first
+      const parsed = JSON.parse(response);
+      
+      const changes: AICustomPromptResponse['changes'] = {};
+      
+      // Handle different types of changes
+      if (parsed.changes) {
+        if (parsed.changes.fullContent) {
+          changes.fullContent = parsed.changes.fullContent;
+        }
+        
+        if (parsed.changes.partialUpdate) {
+          changes.partialUpdate = {
+            start: parsed.changes.partialUpdate.start || (request.selectedText?.start ?? 0),
+            end: parsed.changes.partialUpdate.end || (request.selectedText?.end ?? request.content.length),
+            newText: parsed.changes.partialUpdate.newText || '',
+            reasoning: parsed.changes.partialUpdate.reasoning || 'AI-generated improvement'
+          };
+        }
+        
+        if (parsed.changes.suggestedTags) {
+          changes.suggestedTags = {
+            add: parsed.changes.suggestedTags.add || [],
+            remove: parsed.changes.suggestedTags.remove || [],
+            reasoning: parsed.changes.suggestedTags.reasoning || 'AI-generated tag suggestions'
+          };
+        }
+        
+        if (parsed.changes.suggestedTitle) {
+          changes.suggestedTitle = parsed.changes.suggestedTitle;
+        }
+        
+        if (parsed.changes.suggestedDescription) {
+          changes.suggestedDescription = parsed.changes.suggestedDescription;
+        }
+      }
+      
+      return {
+        changes,
+        reasoning: parsed.reasoning || 'Content processed by AI',
+        confidence: parsed.confidence || 0.8,
+        warnings: parsed.warnings || [],
+        userFeedback: parsed.userFeedback
+      };
+    } catch (error) {
+      // Fallback to text parsing if JSON parsing fails
+      return {
+        changes: {
+          fullContent: response
+        },
+        reasoning: 'AI response could not be parsed as structured data - using raw text',
+        confidence: 0.6,
+        warnings: ['Response format was not structured - using raw text'],
+        userFeedback: 'The AI response was not in the expected format. You may need to manually review and apply changes.'
+      };
+    }
   }
 }

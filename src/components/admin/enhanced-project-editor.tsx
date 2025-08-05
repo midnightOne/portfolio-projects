@@ -17,6 +17,10 @@ import {
   AIQuickActionResult 
 } from './ai-quick-actions';
 import { 
+  AIPromptInterface,
+  AIPromptResult 
+} from './ai-prompt-interface';
+import { 
   TextSelectionManager, 
   TextareaAdapter, 
   TextChange 
@@ -52,6 +56,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
   const [selectedText, setSelectedText] = useState<TextSelection | undefined>();
   const [existingTags, setExistingTags] = useState<Tag[]>([]);
   const [activeField, setActiveField] = useState<string>('');
+  const [aiMode, setAiMode] = useState<'quick-actions' | 'prompt-interface'>('prompt-interface');
 
   // Refs for text areas
   const titleRef = useRef<HTMLInputElement>(null);
@@ -283,6 +288,66 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
     }
     if (result.changes.suggestedDescription) {
       handleFormDataChange({ description: result.changes.suggestedDescription });
+    }
+  };
+
+  const handleApplyPromptChanges = (result: AIPromptResult) => {
+    const adapter = getCurrentAdapter();
+    if (!adapter) return;
+
+    // Apply full content replacement
+    if (result.changes.fullContent) {
+      adapter.setFullContent(result.changes.fullContent);
+    }
+
+    // Apply partial text replacement
+    if (result.changes.partialUpdate) {
+      const { start, end, newText } = result.changes.partialUpdate;
+      adapter.applyChange({ start, end, newText });
+    }
+
+    // Apply tag suggestions
+    if (result.changes.suggestedTags) {
+      const { add, remove } = result.changes.suggestedTags;
+      let newTags = [...formData.tags];
+      
+      // Remove suggested tags
+      newTags = newTags.filter(tag => !remove.includes(tag));
+      
+      // Add new tags (avoid duplicates)
+      add.forEach(tag => {
+        if (!newTags.includes(tag)) {
+          newTags.push(tag);
+        }
+      });
+      
+      handleFormDataChange({ tags: newTags });
+    }
+
+    // Apply other metadata changes
+    if (result.changes.suggestedTitle) {
+      handleFormDataChange({ title: result.changes.suggestedTitle });
+    }
+    if (result.changes.suggestedDescription) {
+      handleFormDataChange({ description: result.changes.suggestedDescription });
+    }
+  };
+
+  const handleContentChange = (content: string) => {
+    // Update the appropriate field based on active field
+    switch (activeField) {
+      case 'title':
+        handleFormDataChange({ title: content });
+        break;
+      case 'briefOverview':
+        handleFormDataChange({ briefOverview: content });
+        break;
+      case 'description':
+        handleFormDataChange({ description: content });
+        break;
+      case 'articleContent':
+        handleFormDataChange({ articleContent: content });
+        break;
     }
   };
 
@@ -569,18 +634,48 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
                   <Bot className="h-5 w-5" />
                   AI Assistant
                 </CardTitle>
-                <p className="text-sm text-gray-600">
-                  Select text in any field and use AI to improve your content
-                </p>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-gray-600">
+                    Select text in any field and use AI to improve your content
+                  </p>
+                  <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+                    <Button
+                      variant={aiMode === 'quick-actions' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setAiMode('quick-actions')}
+                      className="h-7 px-2 text-xs"
+                    >
+                      Quick Actions
+                    </Button>
+                    <Button
+                      variant={aiMode === 'prompt-interface' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => setAiMode('prompt-interface')}
+                      className="h-7 px-2 text-xs"
+                    >
+                      Custom Prompt
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent className="flex-1 overflow-hidden">
                 <div className="h-full">
-                  <AIQuickActions
-                    selectedText={selectedText}
-                    projectContext={getProjectContext()}
-                    onApplyChanges={handleApplyAIChanges}
-                    className="h-full"
-                  />
+                  {aiMode === 'quick-actions' ? (
+                    <AIQuickActions
+                      selectedText={selectedText}
+                      projectContext={getProjectContext()}
+                      onApplyChanges={handleApplyAIChanges}
+                      className="h-full"
+                    />
+                  ) : (
+                    <AIPromptInterface
+                      selectedText={selectedText}
+                      projectContext={getProjectContext()}
+                      onApplyChanges={handleApplyPromptChanges}
+                      onContentChange={handleContentChange}
+                      className="h-full"
+                    />
+                  )}
                 </div>
               </CardContent>
             </Card>
