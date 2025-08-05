@@ -1,0 +1,165 @@
+// Bulk Operations Database Schema
+// This should be added to the main schema.prisma file
+
+model BulkEditOperation {
+  id          String                    @id @default(cuid())
+  type        BulkOperationType
+  status      BulkOperationStatus       @default(PENDING)
+  createdAt   DateTime                  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  
+  // Configuration (stored as JSON)
+  config      Json
+  filters     Json?
+  
+  // Progress tracking
+  totalItems       Int @default(0)
+  processedItems   Int @default(0)
+  successfulItems  Int @default(0)
+  failedItems      Int @default(0)
+  currentBatch     Int @default(0)
+  totalBatches     Int @default(0)
+  
+  // Results and costs
+  estimatedCost    Float @default(0)
+  actualCost       Float @default(0)
+  tokensUsed       Int   @default(0)
+  processingTime   Int   @default(0) // milliseconds
+  
+  // Metadata
+  userId    String?
+  sessionId String
+  userAgent String?
+  source    BulkOperationSource @default(UI)
+  
+  // Relations
+  items     BulkEditOperationItem[]
+  errors    BulkOperationError[]
+  
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+  @@index([userId])
+  @@map("bulk_edit_operations")
+}
+
+model BulkEditOperationItem {
+  id          String                    @id @default(cuid())
+  operationId String
+  projectId   String
+  status      BulkOperationItemStatus   @default(PENDING)
+  
+  startedAt   DateTime?
+  completedAt DateTime?
+  retryCount  Int                       @default(0)
+  
+  // Original content for rollback (stored as JSON)
+  originalContent Json?
+  
+  // Generated changes (stored as JSON)
+  changes Json?
+  
+  // Processing metadata
+  tokensUsed     Int    @default(0)
+  cost           Float  @default(0)
+  model          String?
+  provider       String?
+  processingTime Int    @default(0)
+  confidence     Float?
+  
+  // Error information
+  errorCode    String?
+  errorMessage String?
+  errorDetails Json?
+  errorTime    DateTime?
+  
+  // Relations
+  operation BulkEditOperation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  @@unique([operationId, projectId])
+  @@index([operationId])
+  @@index([projectId])
+  @@index([status])
+  @@map("bulk_edit_operation_items")
+}
+
+model BulkOperationError {
+  id          String   @id @default(cuid())
+  operationId String
+  projectId   String
+  error       String
+  timestamp   DateTime @default(now())
+  retryCount  Int      @default(0)
+  
+  operation BulkEditOperation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  
+  @@index([operationId])
+  @@index([projectId])
+  @@index([timestamp])
+  @@map("bulk_operation_errors")
+}
+
+model BulkOperationSchedule {
+  id            String                @id @default(cuid())
+  name          String                @db.VarChar(255)
+  operationType BulkOperationType
+  config        Json
+  filters       Json?
+  schedule      Json
+  enabled       Boolean               @default(true)
+  lastRun       DateTime?
+  nextRun       DateTime?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  
+  @@index([enabled])
+  @@index([nextRun])
+  @@index([operationType])
+  @@map("bulk_operation_schedules")
+}
+
+// Add this relation to the existing Project model
+// model Project {
+//   // ... existing fields ...
+//   bulkOperationItems BulkEditOperationItem[]
+// }
+
+enum BulkOperationType {
+  IMPROVE_CONTENT
+  UPDATE_TAGS
+  STANDARDIZE_FORMAT
+  TRANSLATE
+  OPTIMIZE_SEO
+  
+  @@map("bulk_operation_type")
+}
+
+enum BulkOperationStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  CANCELLED
+  
+  @@map("bulk_operation_status")
+}
+
+enum BulkOperationItemStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  SKIPPED
+  
+  @@map("bulk_operation_item_status")
+}
+
+enum BulkOperationSource {
+  API
+  UI
+  SCHEDULED
+  
+  @@map("bulk_operation_source")
+}
