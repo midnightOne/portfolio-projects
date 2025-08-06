@@ -115,3 +115,96 @@ export function ProgressiveLoadingBar({
     </div>
   );
 }
+
+interface AsyncOperationIndicatorProps {
+  isLoading: boolean;
+  operation: string;
+  success?: boolean;
+  error?: string;
+  className?: string;
+}
+
+export function AsyncOperationIndicator({
+  isLoading,
+  operation,
+  success,
+  error,
+  className
+}: AsyncOperationIndicatorProps) {
+  if (!isLoading && !success && !error) return null;
+
+  return (
+    <motion.div
+      className={cn("flex items-center gap-2 text-sm", className)}
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -10 }}
+    >
+      {isLoading && (
+        <>
+          <LoadingIndicator size="sm" showMessage={false} />
+          <span className="text-muted-foreground">{operation}...</span>
+        </>
+      )}
+      
+      {success && !isLoading && (
+        <>
+          <motion.div
+            className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center"
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ type: "spring", stiffness: 300, damping: 20 }}
+          >
+            <motion.div
+              className="w-2 h-1 bg-white rounded-full"
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: 1 }}
+              transition={{ delay: 0.2 }}
+            />
+          </motion.div>
+          <span className="text-green-600 font-medium">{operation} completed</span>
+        </>
+      )}
+      
+      {error && !isLoading && (
+        <>
+          <motion.div
+            className="w-4 h-4 bg-red-500 rounded-full flex items-center justify-center"
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ type: "spring", stiffness: 300, damping: 20 }}
+          >
+            <motion.div
+              className="w-2 h-2 bg-white rounded-full"
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ delay: 0.2 }}
+            />
+          </motion.div>
+          <span className="text-red-600">{error}</span>
+        </>
+      )}
+    </motion.div>
+  );
+}
+
+interface ButtonLoadingStateProps {
+  isLoading: boolean;
+  children: React.ReactNode;
+  loadingText?: string;
+  className?: string;
+}
+
+export function ButtonLoadingState({
+  isLoading,
+  children,
+  loadingText,
+  className
+}: ButtonLoadingStateProps) {
+  return (
+    <span className={cn("flex items-center gap-2", className)}>
+      {isLoading && <LoadingIndicator size="sm" showMessage={false} />}
+      {isLoading && loadingText ? loadingText : children}
+    </span>
+  );
+}

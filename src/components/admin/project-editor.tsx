@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { AIChatSidebar } from "@/components/admin/ai-chat-sidebar";
+// AI chat sidebar removed - will be replaced with new AI assistant
 import { X, Plus, Upload, Save, ArrowLeft, Bot } from "lucide-react";
 import { ProjectWithRelations, TextSelection } from "@/lib/types/project";
 
@@ -541,14 +541,7 @@ export function ProjectEditor({ projectId, initialData }: ProjectEditorProps) {
         </div>
       </div>
 
-      {/* AI Chat Sidebar */}
-      <AIChatSidebar
-        project={getMockProjectForAI()}
-        isOpen={aiChatOpen}
-        onToggle={() => setAiChatOpen(!aiChatOpen)}
-        onContentUpdate={handleContentUpdate}
-        selectedText={selectedText}
-      />
+      {/* AI Chat Sidebar removed - will be replaced with new AI assistant */}
     </div>
   );
 } 

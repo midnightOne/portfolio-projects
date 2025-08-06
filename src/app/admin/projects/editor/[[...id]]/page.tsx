@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import { UnifiedProjectEditor } from '@/components/admin/unified-project-editor';
+import { EnhancedProjectEditor } from '@/components/admin/enhanced-project-editor';
 import { Loader2 } from 'lucide-react';
 
 interface UnifiedProjectEditorPageProps {
@@ -49,7 +49,7 @@ export default function UnifiedProjectEditorPage({ params: paramsPromise }: Unif
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <UnifiedProjectEditor 
+      <EnhancedProjectEditor 
         projectId={projectId}
         mode={isEditing ? 'edit' : 'create'}
       />

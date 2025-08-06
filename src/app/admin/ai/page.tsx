@@ -9,39 +9,103 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { AlertCircle, CheckCircle, Settings, Brain, Key, Sliders } from 'lucide-react';
-import { AISettings, AIProvider } from '@/lib/types/project';
+import { AlertCircle, CheckCircle, Brain, ExternalLink, Loader2 } from 'lucide-react';
+import { AdminLayout } from '@/components/admin/layout';
+import { AIStatusIndicator } from '@/components/admin/ai-status-indicator';
+import { useToast } from '@/components/ui/toast';
+import { StatusBadge, ConnectionStatus, ConfigurationStatus } from '@/components/ui/status-badge';
+import { HelpText, DocumentationLink, HelpSection } from '@/components/ui/help-text';
+import { AsyncOperationIndicator, ButtonLoadingState } from '@/components/ui/loading-indicator';
 
-export default function AISettingsPage() {
+interface EnvironmentStatus {
+  openai: {
+    configured: boolean;
+    keyPreview: string;
+    environmentVariable: string;
+  };
+  anthropic: {
+    configured: boolean;
+    keyPreview: string;
+    environmentVariable: string;
+  };
+  summary: {
+    hasAnyProvider: boolean;
+    configuredProviders: string[];
+    isFullyConfigured: boolean;
+    totalConfigured: number;
+    totalAvailable: number;
+  };
+  warnings: string[];
+  setupInstructions: {
+    openai?: {
+      message: string;
+      documentation: string;
+      example: string;
+    };
+    anthropic?: {
+      message: string;
+      documentation: string;
+      example: string;
+    };
+  };
+}
+
+interface ConnectionTestResult {
+  success: boolean;
+  data?: {
+    provider: string;
+    connected: boolean;
+    message: string;
+    availableModels?: string[];
+    modelCount?: number;
+    error?: {
+      code: string;
+      details: string;
+      actionable: boolean;
+      guidance?: {
+        message: string;
+        action: string;
+        documentation?: string;
+      };
+    };
+    testedAt: string;
+  };
+}
+
+interface ModelConfig {
+  openai: string;
+  anthropic: string;
+}
+
+interface GeneralSettings {
+  defaultProvider: 'openai' | 'anthropic';
+  systemPrompt: string;
+  temperature: number;
+  maxTokens: number;
+}
+
+function AISettingsContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [settings, setSettings] = useState<AISettings | null>(null);
-  const [providers, setProviders] = useState<AIProvider[]>([]);
+  const toast = useToast();
+  
+  // State management
+  const [environmentStatus, setEnvironmentStatus] = useState<EnvironmentStatus | null>(null);
+  const [modelConfig, setModelConfig] = useState<ModelConfig>({ openai: '', anthropic: '' });
+  const [generalSettings, setGeneralSettings] = useState<GeneralSettings>({
+    defaultProvider: 'openai',
+    systemPrompt: '',
+    temperature: 0.7,
+    maxTokens: 4000
+  });
+  const [connectionStatus, setConnectionStatus] = useState<Map<string, ConnectionTestResult>>(new Map());
+  
+  // UI state
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [testingProvider, setTestingProvider] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-
-  // Form state
-  const [formData, setFormData] = useState({
-    anthropicApiKey: '',
-    openaiApiKey: '',
-    systemPrompt: '',
-    preferredProvider: 'anthropic' as 'anthropic' | 'openai',
-    preferredModel: '',
-    temperature: 0.7,
-    maxTokens: 4000,
-    dailyCostLimit: 10.0,
-    monthlyTokenLimit: 100000,
-    conversationHistory: true,
-    autoSaveInterval: 60,
-    maxVersionsPerProject: 20,
-    autoDeleteOldVersions: true,
-    versionRetentionDays: 30
-  });
 
   useEffect(() => {
     if (status === 'loading') return;
@@ -50,460 +114,531 @@ export default function AISettingsPage() {
       return;
     }
 
-    fetchData();
+    loadConfiguration();
   }, [session, status, router]);
 
-  const fetchData = async () => {
+  const loadConfiguration = async () => {
     try {
       setLoading(true);
+      setError(null);
       
-      // Fetch settings and providers in parallel
-      const [settingsRes, providersRes] = await Promise.all([
-        fetch('/api/admin/ai/settings'),
-        fetch('/api/admin/ai/providers')
+      // Fetch environment status and model configuration in parallel
+      const [envResponse, configResponse] = await Promise.all([
+        fetch('/api/admin/ai/environment-status'),
+        fetch('/api/admin/ai/model-config')
       ]);
 
-      if (!settingsRes.ok || !providersRes.ok) {
-        throw new Error('Failed to fetch AI configuration');
+      if (!envResponse.ok) {
+        throw new Error('Failed to fetch environment status');
+      }
+      
+      if (!configResponse.ok) {
+        throw new Error('Failed to fetch model configuration');
       }
 
-      const settingsData = await settingsRes.json();
-      const providersData = await providersRes.json();
+      const envData = await envResponse.json();
+      const configData = await configResponse.json();
 
-      setSettings(settingsData);
-      setProviders(providersData);
+      if (!envData.success) {
+        throw new Error(envData.error?.message || 'Failed to load environment status');
+      }
       
-      // Update form data
-      setFormData({
-        anthropicApiKey: settingsData.anthropicApiKey || '',
-        openaiApiKey: settingsData.openaiApiKey || '',
-        systemPrompt: settingsData.systemPrompt || '',
-        preferredProvider: settingsData.preferredProvider || 'anthropic',
-        preferredModel: settingsData.preferredModel || '',
-        temperature: settingsData.temperature || 0.7,
-        maxTokens: settingsData.maxTokens || 4000,
-        dailyCostLimit: settingsData.dailyCostLimit || 10.0,
-        monthlyTokenLimit: settingsData.monthlyTokenLimit || 100000,
-        conversationHistory: settingsData.conversationHistory ?? true,
-        autoSaveInterval: settingsData.autoSaveInterval || 60,
-        maxVersionsPerProject: settingsData.maxVersionsPerProject || 20,
-        autoDeleteOldVersions: settingsData.autoDeleteOldVersions ?? true,
-        versionRetentionDays: settingsData.versionRetentionDays || 30
+      if (!configData.success) {
+        throw new Error(configData.error?.message || 'Failed to load model configuration');
+      }
+
+      // Update state with fetched data
+      setEnvironmentStatus(envData.data);
+      setModelConfig(configData.data.modelConfig || { openai: '', anthropic: '' });
+      setGeneralSettings(configData.data.generalSettings || {
+        defaultProvider: 'openai',
+        systemPrompt: '',
+        temperature: 0.7,
+        maxTokens: 4000
       });
+      
+      toast.success('Configuration loaded', 'AI settings loaded successfully');
+      
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load AI settings');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to load AI configuration';
+      toast.error('Failed to load configuration', errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSave = async () => {
+  const testConnection = async (provider: 'openai' | 'anthropic') => {
+    setTestingProvider(provider);
+    
     try {
-      setSaving(true);
-      setError(null);
-      setSuccess(null);
+      toast.info('Testing connection', `Testing ${provider} connection...`);
+      
+      const response = await fetch('/api/admin/ai/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider })
+      });
+      
+      const result = await response.json();
+      
+      // Update connection status regardless of success/failure
+      setConnectionStatus(prev => new Map(prev.set(provider, result)));
+      
+      if (result.success) {
+        toast.success(
+          'Connection successful', 
+          `${provider} connected with ${result.data?.modelCount || 0} models available`
+        );
+      } else {
+        toast.error(
+          'Connection failed', 
+          result.data?.message || `Failed to connect to ${provider}`
+        );
+      }
+      
+    } catch (err) {
+      // Handle network errors
+      const errorResult: ConnectionTestResult = {
+        success: false,
+        data: {
+          provider,
+          connected: false,
+          message: 'Network error - check your connection',
+          testedAt: new Date().toISOString()
+        }
+      };
+      setConnectionStatus(prev => new Map(prev.set(provider, errorResult)));
+      
+      toast.error(
+        'Network error', 
+        `Failed to test ${provider} connection - check your network`
+      );
+    } finally {
+      setTestingProvider(null);
+    }
+  };
 
-      const response = await fetch('/api/admin/ai/settings', {
+  const saveConfiguration = async () => {
+    setSaving(true);
+    
+    try {
+      const response = await fetch('/api/admin/ai/model-config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+        body: JSON.stringify({
+          modelConfig,
+          generalSettings
+        })
       });
-
+      
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to save settings');
+        throw new Error(errorData.error?.message || 'Failed to save configuration');
       }
-
-      const updatedSettings = await response.json();
-      setSettings(updatedSettings);
-      setSuccess('AI settings saved successfully!');
       
-      // Clear success message after 3 seconds
-      setTimeout(() => setSuccess(null), 3000);
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error?.message || 'Failed to save configuration');
+      }
+      
+      toast.success(
+        'Configuration saved', 
+        'AI settings have been updated successfully'
+      );
+      
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save settings');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save configuration';
+      toast.error('Save failed', errorMessage);
     } finally {
       setSaving(false);
     }
   };
 
-  const getAvailableModels = () => {
-    const provider = providers.find(p => p.name === formData.preferredProvider);
-    return provider?.models || [];
-  };
-
-  const isProviderConfigured = (providerName: 'anthropic' | 'openai') => {
-    if (providerName === 'anthropic') {
-      return formData.anthropicApiKey && formData.anthropicApiKey !== '';
-    }
-    return formData.openaiApiKey && formData.openaiApiKey !== '';
-  };
-
   if (loading) {
     return (
-      <div className="container mx-auto py-8">
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-center">
-            <Brain className="h-8 w-8 animate-spin mx-auto mb-4" />
-            <p>Loading AI settings...</p>
-          </div>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+          <p>Loading AI settings...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto py-8 max-w-4xl">
+    <div className="space-y-6">
       <div className="mb-8">
         <h1 className="text-3xl font-bold flex items-center gap-2">
           <Brain className="h-8 w-8" />
-          AI Assistant Settings
+          AI Settings
         </h1>
         <p className="text-muted-foreground mt-2">
-          Configure AI providers and settings for content editing assistance
+          Configure AI providers and models for content assistance
         </p>
       </div>
 
-      {error && (
-        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
-          <AlertCircle className="h-5 w-5 text-red-600" />
-          <span className="text-red-800">{error}</span>
-        </div>
-      )}
+      {/* AI Status Overview */}
+      <AIStatusIndicator variant="detailed" showActions={true} />
 
-      {success && (
-        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
-          <CheckCircle className="h-5 w-5 text-green-600" />
-          <span className="text-green-800">{success}</span>
-        </div>
-      )}
 
-      <Tabs defaultValue="providers" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="providers" className="flex items-center gap-2">
-            <Key className="h-4 w-4" />
-            Providers
-          </TabsTrigger>
-          <TabsTrigger value="models" className="flex items-center gap-2">
-            <Brain className="h-4 w-4" />
-            Models
-          </TabsTrigger>
-          <TabsTrigger value="behavior" className="flex items-center gap-2">
-            <Sliders className="h-4 w-4" />
-            Behavior
-          </TabsTrigger>
-          <TabsTrigger value="versioning" className="flex items-center gap-2">
-            <Settings className="h-4 w-4" />
-            Versioning
-          </TabsTrigger>
-        </TabsList>
 
-        <TabsContent value="providers" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>API Keys</CardTitle>
-              <CardDescription>
-                Configure your AI provider API keys. Keys are encrypted before storage.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="anthropic-key" className="flex items-center gap-2">
-                  Anthropic API Key
-                  {isProviderConfigured('anthropic') && (
-                    <Badge variant="secondary" className="text-xs">
-                      <CheckCircle className="h-3 w-3 mr-1" />
-                      Configured
-                    </Badge>
+      {/* Environment Status Section */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Environment Configuration</CardTitle>
+          <CardDescription>
+            API keys are read from environment variables for security
+          </CardDescription>
+          <HelpText variant="card">
+            <HelpSection
+              title="Environment Setup"
+              links={[
+                { label: 'OpenAI API Keys', href: 'https://platform.openai.com/api-keys' },
+                { label: 'Anthropic API Keys', href: 'https://console.anthropic.com/settings/keys' },
+                { label: 'Environment Variables Guide', href: '/docs/environment-setup' }
+              ]}
+            >
+              Set your API keys as environment variables (OPENAI_API_KEY, ANTHROPIC_API_KEY) 
+              in your deployment environment. Never commit API keys to your repository.
+            </HelpSection>
+          </HelpText>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {environmentStatus && (
+            <>
+              {/* OpenAI Status */}
+              <div className="flex items-center justify-between p-3 border rounded-lg">
+                <div>
+                  <div className="font-medium">OpenAI</div>
+                  <div className="text-sm text-muted-foreground">
+                    {environmentStatus.openai.configured 
+                      ? `Configured: ${environmentStatus.openai.keyPreview}`
+                      : 'Not configured - set OPENAI_API_KEY environment variable'
+                    }
+                  </div>
+                  {environmentStatus.setupInstructions.openai && (
+                    <div className="text-xs text-muted-foreground mt-1">
+                      <a 
+                        href={environmentStatus.setupInstructions.openai.documentation} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="underline flex items-center gap-1"
+                      >
+                        Get API key <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
                   )}
-                </Label>
-                <Input
-                  id="anthropic-key"
-                  type="password"
-                  placeholder="sk-ant-..."
-                  value={formData.anthropicApiKey}
-                  onChange={(e) => setFormData(prev => ({ ...prev, anthropicApiKey: e.target.value }))}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Get your API key from <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer" className="underline">Anthropic Console</a>
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="openai-key" className="flex items-center gap-2">
-                  OpenAI API Key
-                  {isProviderConfigured('openai') && (
-                    <Badge variant="secondary" className="text-xs">
-                      <CheckCircle className="h-3 w-3 mr-1" />
-                      Configured
-                    </Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                  <ConfigurationStatus 
+                    isConfigured={environmentStatus.openai.configured}
+                    label={environmentStatus.openai.configured ? 'Configured' : 'Not Set'}
+                  />
+                  {connectionStatus.get('openai') && (
+                    <ConnectionStatus
+                      isConnected={connectionStatus.get('openai')?.success || false}
+                      label={connectionStatus.get('openai')?.success ? 'Connected' : 'Failed'}
+                    />
                   )}
-                </Label>
-                <Input
-                  id="openai-key"
-                  type="password"
-                  placeholder="sk-..."
-                  value={formData.openaiApiKey}
-                  onChange={(e) => setFormData(prev => ({ ...prev, openaiApiKey: e.target.value }))}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline">OpenAI Platform</a>
-                </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => testConnection('openai')}
+                    disabled={!environmentStatus.openai.configured || testingProvider === 'openai'}
+                  >
+                    <ButtonLoadingState
+                      isLoading={testingProvider === 'openai'}
+                      loadingText="Testing..."
+                    >
+                      Test
+                    </ButtonLoadingState>
+                  </Button>
+                </div>
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="models" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Model Selection</CardTitle>
-              <CardDescription>
-                Choose your preferred AI provider and model for content editing
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="provider">Preferred Provider</Label>
-                <Select
-                  value={formData.preferredProvider}
-                  onValueChange={(value: 'anthropic' | 'openai') => 
-                    setFormData(prev => ({ ...prev, preferredProvider: value, preferredModel: '' }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="anthropic" disabled={!isProviderConfigured('anthropic')}>
-                      Anthropic Claude {!isProviderConfigured('anthropic') && '(API key required)'}
-                    </SelectItem>
-                    <SelectItem value="openai" disabled={!isProviderConfigured('openai')}>
-                      OpenAI GPT {!isProviderConfigured('openai') && '(API key required)'}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="model">Model</Label>
-                <Select
-                  value={formData.preferredModel}
-                  onValueChange={(value) => setFormData(prev => ({ ...prev, preferredModel: value }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a model" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {getAvailableModels().map((model) => (
-                      <SelectItem key={model.id} value={model.id}>
-                        <div className="flex items-center justify-between w-full">
-                          <span>{model.name}</span>
-                          <Badge variant="outline" className="ml-2 text-xs">
-                            ${model.costPer1kTokens}/1k tokens
-                          </Badge>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {formData.preferredModel && (
-                <div className="p-3 bg-muted rounded-lg">
-                  {(() => {
-                    const model = getAvailableModels().find(m => m.id === formData.preferredModel);
-                    return model ? (
-                      <div className="space-y-1 text-sm">
-                        <p><strong>Max Tokens:</strong> {model.maxTokens.toLocaleString()}</p>
-                        <p><strong>Cost:</strong> ${model.costPer1kTokens}/1k tokens</p>
-                        <p><strong>Capabilities:</strong> {model.capabilities.join(', ')}</p>
+              
+              {/* Connection test status for OpenAI */}
+              <AsyncOperationIndicator
+                isLoading={testingProvider === 'openai'}
+                operation="Testing OpenAI connection"
+                success={connectionStatus.get('openai')?.success}
+                error={connectionStatus.get('openai') && !connectionStatus.get('openai')?.success 
+                  ? connectionStatus.get('openai')?.data?.message 
+                  : undefined}
+                className="ml-3"
+              />
+              
+              {/* Detailed error guidance for OpenAI */}
+              {connectionStatus.get('openai') && !connectionStatus.get('openai')?.success && (
+                <div className="ml-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm">
+                  {connectionStatus.get('openai')?.data?.error?.guidance && (
+                    <div className="space-y-2">
+                      <div className="font-medium text-red-900">
+                        {connectionStatus.get('openai')?.data?.error?.guidance?.message}
                       </div>
-                    ) : null;
-                  })()}
+                      <div className="text-red-700">
+                        {connectionStatus.get('openai')?.data?.error?.guidance?.action}
+                      </div>
+                      {connectionStatus.get('openai')?.data?.error?.guidance?.documentation && (
+                        <DocumentationLink 
+                          href={connectionStatus.get('openai')?.data?.error?.guidance?.documentation || ''}
+                          className="text-red-600"
+                        >
+                          View documentation
+                        </DocumentationLink>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+              
+              {/* Anthropic Status */}
+              <div className="flex items-center justify-between p-3 border rounded-lg">
+                <div>
+                  <div className="font-medium">Anthropic</div>
+                  <div className="text-sm text-muted-foreground">
+                    {environmentStatus.anthropic.configured 
+                      ? `Configured: ${environmentStatus.anthropic.keyPreview}`
+                      : 'Not configured - set ANTHROPIC_API_KEY environment variable'
+                    }
+                  </div>
+                  {environmentStatus.setupInstructions.anthropic && (
+                    <div className="text-xs text-muted-foreground mt-1">
+                      <a 
+                        href={environmentStatus.setupInstructions.anthropic.documentation} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="underline flex items-center gap-1"
+                      >
+                        Get API key <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <ConfigurationStatus 
+                    isConfigured={environmentStatus.anthropic.configured}
+                    label={environmentStatus.anthropic.configured ? 'Configured' : 'Not Set'}
+                  />
+                  {connectionStatus.get('anthropic') && (
+                    <ConnectionStatus
+                      isConnected={connectionStatus.get('anthropic')?.success || false}
+                      label={connectionStatus.get('anthropic')?.success ? 'Connected' : 'Failed'}
+                    />
+                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => testConnection('anthropic')}
+                    disabled={!environmentStatus.anthropic.configured || testingProvider === 'anthropic'}
+                  >
+                    <ButtonLoadingState
+                      isLoading={testingProvider === 'anthropic'}
+                      loadingText="Testing..."
+                    >
+                      Test
+                    </ButtonLoadingState>
+                  </Button>
+                </div>
+              </div>
+              
+              {/* Connection test status for Anthropic */}
+              <AsyncOperationIndicator
+                isLoading={testingProvider === 'anthropic'}
+                operation="Testing Anthropic connection"
+                success={connectionStatus.get('anthropic')?.success}
+                error={connectionStatus.get('anthropic') && !connectionStatus.get('anthropic')?.success 
+                  ? connectionStatus.get('anthropic')?.data?.message 
+                  : undefined}
+                className="ml-3"
+              />
+              
+              {/* Detailed error guidance for Anthropic */}
+              {connectionStatus.get('anthropic') && !connectionStatus.get('anthropic')?.success && (
+                <div className="ml-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm">
+                  {connectionStatus.get('anthropic')?.data?.error?.guidance && (
+                    <div className="space-y-2">
+                      <div className="font-medium text-red-900">
+                        {connectionStatus.get('anthropic')?.data?.error?.guidance?.message}
+                      </div>
+                      <div className="text-red-700">
+                        {connectionStatus.get('anthropic')?.data?.error?.guidance?.action}
+                      </div>
+                      {connectionStatus.get('anthropic')?.data?.error?.guidance?.documentation && (
+                        <DocumentationLink 
+                          href={connectionStatus.get('anthropic')?.data?.error?.guidance?.documentation || ''}
+                          className="text-red-600"
+                        >
+                          View documentation
+                        </DocumentationLink>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
 
-        <TabsContent value="behavior" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>AI Behavior</CardTitle>
-              <CardDescription>
-                Configure how the AI assistant behaves and responds
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
+      {/* Model Configuration Section */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Model Configuration</CardTitle>
+          <CardDescription>
+            Configure which models are available for each provider
+          </CardDescription>
+          <HelpText variant="expandable">
+            <HelpSection
+              title="Model Configuration"
+              links={[
+                { label: 'OpenAI Models', href: 'https://platform.openai.com/docs/models' },
+                { label: 'Anthropic Models', href: 'https://docs.anthropic.com/claude/docs/models-overview' }
+              ]}
+            >
+              Enter comma-separated model IDs for each provider. Models will be validated 
+              when you save the configuration. Unknown models will show warnings but can 
+              still be saved for future compatibility.
+            </HelpSection>
+          </HelpText>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="openai-models">OpenAI Models</Label>
+            <Input
+              id="openai-models"
+              placeholder="gpt-4o, gpt-4o-mini, gpt-3.5-turbo"
+              value={modelConfig.openai}
+              onChange={(e) => setModelConfig(prev => ({ ...prev, openai: e.target.value }))}
+              disabled={!environmentStatus?.openai.configured}
+            />
+            <HelpText>
+              Comma-separated list of OpenAI model IDs. Popular models: gpt-4o, gpt-4o-mini, gpt-3.5-turbo
+            </HelpText>
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="anthropic-models">Anthropic Models</Label>
+            <Input
+              id="anthropic-models"
+              placeholder="claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022"
+              value={modelConfig.anthropic}
+              onChange={(e) => setModelConfig(prev => ({ ...prev, anthropic: e.target.value }))}
+              disabled={!environmentStatus?.anthropic.configured}
+            />
+            <HelpText>
+              Comma-separated list of Anthropic model IDs. Popular models: claude-3-5-sonnet-20241022, claude-3-5-haiku-20241022
+            </HelpText>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* General Settings */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>General Settings</CardTitle>
+          <CardDescription>
+            Configure AI behavior and default parameters
+          </CardDescription>
+          <HelpText variant="expandable">
+            <HelpSection
+              title="AI Parameters"
+              links={[
+                { label: 'Temperature Guide', href: 'https://platform.openai.com/docs/api-reference/chat/create#chat/create-temperature' },
+                { label: 'Token Limits', href: 'https://platform.openai.com/docs/models' }
+              ]}
+            >
               <div className="space-y-2">
-                <Label htmlFor="system-prompt">System Prompt</Label>
-                <Textarea
-                  id="system-prompt"
-                  placeholder="You are an expert content editor for portfolio projects..."
-                  value={formData.systemPrompt}
-                  onChange={(e) => setFormData(prev => ({ ...prev, systemPrompt: e.target.value }))}
-                  rows={4}
-                />
-                <p className="text-xs text-muted-foreground">
-                  This prompt defines the AI's personality and behavior. Be specific about your writing style and preferences.
-                </p>
+                <div><strong>Temperature:</strong> Controls randomness (0 = deterministic, 1 = creative)</div>
+                <div><strong>Max Tokens:</strong> Maximum response length (varies by model)</div>
+                <div><strong>System Prompt:</strong> Instructions that guide AI behavior</div>
               </div>
+            </HelpSection>
+          </HelpText>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="default-provider">Default Provider</Label>
+            <Select
+              value={generalSettings.defaultProvider}
+              onValueChange={(value: 'openai' | 'anthropic') => 
+                setGeneralSettings(prev => ({ ...prev, defaultProvider: value }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="openai" disabled={!environmentStatus?.openai.configured}>
+                  OpenAI {!environmentStatus?.openai.configured && '(Not configured)'}
+                </SelectItem>
+                <SelectItem value="anthropic" disabled={!environmentStatus?.anthropic.configured}>
+                  Anthropic {!environmentStatus?.anthropic.configured && '(Not configured)'}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="system-prompt">System Prompt</Label>
+            <Textarea
+              id="system-prompt"
+              placeholder="You are an expert content editor..."
+              value={generalSettings.systemPrompt}
+              onChange={(e) => setGeneralSettings(prev => ({ ...prev, systemPrompt: e.target.value }))}
+              rows={3}
+            />
+          </div>
+          
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="temperature">Temperature ({generalSettings.temperature})</Label>
+              <input
+                id="temperature"
+                type="range"
+                min="0"
+                max="1"
+                step="0.1"
+                value={generalSettings.temperature}
+                onChange={(e) => setGeneralSettings(prev => ({ ...prev, temperature: parseFloat(e.target.value) }))}
+                className="w-full"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="max-tokens">Max Tokens</Label>
+              <Input
+                id="max-tokens"
+                type="number"
+                min="100"
+                max="8000"
+                value={generalSettings.maxTokens}
+                onChange={(e) => setGeneralSettings(prev => ({ ...prev, maxTokens: parseInt(e.target.value) }))}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="temperature">Temperature ({formData.temperature})</Label>
-                  <input
-                    id="temperature"
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.1"
-                    value={formData.temperature}
-                    onChange={(e) => setFormData(prev => ({ ...prev, temperature: parseFloat(e.target.value) }))}
-                    className="w-full"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Lower = more focused, Higher = more creative
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="max-tokens">Max Tokens</Label>
-                  <Input
-                    id="max-tokens"
-                    type="number"
-                    min="100"
-                    max="8000"
-                    value={formData.maxTokens}
-                    onChange={(e) => setFormData(prev => ({ ...prev, maxTokens: parseInt(e.target.value) }))}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Maximum response length
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="daily-limit">Daily Cost Limit ($)</Label>
-                  <Input
-                    id="daily-limit"
-                    type="number"
-                    min="1"
-                    max="100"
-                    step="0.50"
-                    value={formData.dailyCostLimit}
-                    onChange={(e) => setFormData(prev => ({ ...prev, dailyCostLimit: parseFloat(e.target.value) }))}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="monthly-tokens">Monthly Token Limit</Label>
-                  <Input
-                    id="monthly-tokens"
-                    type="number"
-                    min="10000"
-                    max="1000000"
-                    step="10000"
-                    value={formData.monthlyTokenLimit}
-                    onChange={(e) => setFormData(prev => ({ ...prev, monthlyTokenLimit: parseInt(e.target.value) }))}
-                  />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="versioning" className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Content Versioning</CardTitle>
-              <CardDescription>
-                Configure automatic saving and version management
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="auto-save">Auto-save Interval (seconds)</Label>
-                <Select
-                  value={formData.autoSaveInterval.toString()}
-                  onValueChange={(value) => setFormData(prev => ({ ...prev, autoSaveInterval: parseInt(value) }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="0">Disabled</SelectItem>
-                    <SelectItem value="30">Every 30 seconds</SelectItem>
-                    <SelectItem value="60">Every 1 minute</SelectItem>
-                    <SelectItem value="120">Every 2 minutes</SelectItem>
-                    <SelectItem value="300">Every 5 minutes</SelectItem>
-                    <SelectItem value="600">Every 10 minutes</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="max-versions">Max Versions per Project</Label>
-                  <Input
-                    id="max-versions"
-                    type="number"
-                    min="5"
-                    max="100"
-                    value={formData.maxVersionsPerProject}
-                    onChange={(e) => setFormData(prev => ({ ...prev, maxVersionsPerProject: parseInt(e.target.value) }))}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="retention-days">Version Retention (days)</Label>
-                  <Input
-                    id="retention-days"
-                    type="number"
-                    min="7"
-                    max="365"
-                    value={formData.versionRetentionDays}
-                    onChange={(e) => setFormData(prev => ({ ...prev, versionRetentionDays: parseInt(e.target.value) }))}
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <input
-                  id="auto-delete"
-                  type="checkbox"
-                  checked={formData.autoDeleteOldVersions}
-                  onChange={(e) => setFormData(prev => ({ ...prev, autoDeleteOldVersions: e.target.checked }))}
-                  className="rounded"
-                />
-                <Label htmlFor="auto-delete">Automatically delete old versions</Label>
-              </div>
-
-              <div className="flex items-center space-x-2">
-                <input
-                  id="conversation-history"
-                  type="checkbox"
-                  checked={formData.conversationHistory}
-                  onChange={(e) => setFormData(prev => ({ ...prev, conversationHistory: e.target.checked }))}
-                  className="rounded"
-                />
-                <Label htmlFor="conversation-history">Keep conversation history</Label>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      <div className="flex justify-end gap-4 pt-6">
-        <Button variant="outline" onClick={fetchData} disabled={loading}>
-          Reset
-        </Button>
-        <Button onClick={handleSave} disabled={saving}>
-          {saving ? 'Saving...' : 'Save Settings'}
+      {/* Save Button */}
+      <div className="flex justify-end">
+        <Button onClick={saveConfiguration} disabled={saving}>
+          <ButtonLoadingState
+            isLoading={saving}
+            loadingText="Saving Configuration..."
+          >
+            Save Configuration
+          </ButtonLoadingState>
         </Button>
       </div>
     </div>
+  );
+}
+
+export default function AISettingsPage() {
+  return (
+    <AdminLayout currentTab="ai-settings">
+      <AISettingsContent />
+    </AdminLayout>
   );
 }

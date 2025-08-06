@@ -482,11 +482,44 @@ The platform has processed over $2M in transactions in its first year, with 99.9
     },
   });
 
+  // Create default AI configuration
+  await prisma.aIModelConfig.upsert({
+    where: { provider: 'openai' },
+    update: {},
+    create: {
+      provider: 'openai',
+      models: 'gpt-4o,gpt-4o-mini,gpt-3.5-turbo',
+    },
+  });
+
+  await prisma.aIModelConfig.upsert({
+    where: { provider: 'anthropic' },
+    update: {},
+    create: {
+      provider: 'anthropic',
+      models: 'claude-3-5-sonnet-20241022,claude-3-5-haiku-20241022',
+    },
+  });
+
+  await prisma.aIGeneralSettings.upsert({
+    where: { id: 'default' },
+    update: {},
+    create: {
+      id: 'default',
+      defaultProvider: 'openai',
+      systemPrompt: 'You are an expert content editor for portfolio projects. Help improve and edit project content while maintaining the author\'s voice and style.',
+      temperature: 0.7,
+      maxTokens: 4000,
+    },
+  });
+
   console.log('✅ Database seeded successfully!');
   console.log(`Created ${await prisma.tag.count()} tags`);
   console.log(`Created ${await prisma.project.count()} projects`);
   console.log(`Created ${await prisma.mediaItem.count()} media items`);
   console.log(`Created ${await prisma.externalLink.count()} external links`);
+  console.log(`Created ${await prisma.aIModelConfig.count()} AI model configurations`);
+  console.log(`Created ${await prisma.aIGeneralSettings.count()} AI general settings`);
 }
 
 main()

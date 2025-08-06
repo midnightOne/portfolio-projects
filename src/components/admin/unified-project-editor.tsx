@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { ProjectPreviewEditor } from '@/components/admin/project-preview-editor';
-import { AIAssistantPanel } from '@/components/admin/ai-assistant-panel';
+import { AIPromptInterface, AIPromptResult } from '@/components/admin/ai-prompt-interface';
 import { FloatingSaveBar } from '@/components/admin/floating-save-bar';
 import { InlineEditable } from '@/components/admin/inline-editable';
 import { SmartTagInput, Tag } from '@/components/admin/smart-tag-input';
@@ -278,91 +278,53 @@ export function UnifiedProjectEditor({ projectId, mode }: UnifiedProjectEditorPr
     setSelectedText(selection);
   };
 
-  const handleContentUpdate = (updates: Partial<ProjectWithRelations>) => {
+  const handleAIPromptResult = (result: AIPromptResult) => {
+    if (!result.success) {
+      setError('AI processing failed');
+      return;
+    }
+
     // Update form data with AI suggestions
     const formUpdates: Partial<ProjectFormData> = {};
     
-    if (updates.title) formUpdates.title = updates.title;
-    if (updates.description) formUpdates.description = updates.description;
-    if (updates.briefOverview) formUpdates.briefOverview = updates.briefOverview;
-    if (updates.articleContent?.content) formUpdates.articleContent = updates.articleContent.content;
-    if (updates.tags) formUpdates.tags = updates.tags.map(t => t.name);
+    if (result.changes.suggestedTitle) formUpdates.title = result.changes.suggestedTitle;
+    if (result.changes.suggestedDescription) formUpdates.description = result.changes.suggestedDescription;
+    
+    // Handle content changes
+    if (result.changes.fullContent) {
+      formUpdates.articleContent = result.changes.fullContent;
+    } else if (result.changes.partialUpdate) {
+      const currentContent = formData.articleContent;
+      const newContent = 
+        currentContent.substring(0, result.changes.partialUpdate.start) +
+        result.changes.partialUpdate.newText +
+        currentContent.substring(result.changes.partialUpdate.end);
+      formUpdates.articleContent = newContent;
+    }
+
+    // Handle tag suggestions
+    if (result.changes.suggestedTags) {
+      const currentTags = [...formData.tags];
+      // Remove suggested tags to remove
+      result.changes.suggestedTags.remove.forEach(tag => {
+        const index = currentTags.indexOf(tag);
+        if (index > -1) currentTags.splice(index, 1);
+      });
+      // Add suggested tags to add
+      result.changes.suggestedTags.add.forEach(tag => {
+        if (!currentTags.includes(tag)) currentTags.push(tag);
+      });
+      formUpdates.tags = currentTags;
+    }
 
     if (Object.keys(formUpdates).length > 0) {
       handleFormDataChange(formUpdates);
     }
-
-    // Update project state for AI context
-    if (project) {
-      setProject(prev => prev ? { ...prev, ...updates } : null);
-    }
   };
 
-  // Create mock project for AI context when creating new projects
-  const getProjectForAI = (): ProjectWithRelations => {
-    if (project) return { ...project, ...formDataToProject(formData) };
-    
-    return {
-      id: 'new-project',
-      title: formData.title,
-      slug: formData.title.toLowerCase().replace(/\s+/g, '-'),
-      description: formData.description,
-      briefOverview: formData.briefOverview,
-      workDate: formData.workDate ? new Date(formData.workDate) : undefined,
-      status: formData.status as 'DRAFT' | 'PUBLISHED',
-      visibility: formData.visibility as 'PUBLIC' | 'PRIVATE',
-      viewCount: 0,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      thumbnailImageId: undefined,
-      metadataImageId: undefined,
-      tags: formData.tags.map((tag, index) => ({
-        id: `tag-${index}`,
-        name: tag,
-        color: null,
-        createdAt: new Date()
-      })),
-      thumbnailImage: null,
-      metadataImage: null,
-      mediaItems: [],
-      articleContent: {
-        id: 'article-new',
-        projectId: 'new-project',
-        content: formData.articleContent,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        embeddedMedia: []
-      },
-      interactiveExamples: [],
-      externalLinks: [],
-      downloadableFiles: [],
-      carousels: [],
-      analytics: []
-    };
-  };
 
-  const formDataToProject = (data: ProjectFormData): Partial<ProjectWithRelations> => ({
-    title: data.title,
-    description: data.description,
-    briefOverview: data.briefOverview,
-    status: data.status as 'DRAFT' | 'PUBLISHED',
-    visibility: data.visibility as 'PUBLIC' | 'PRIVATE',
-    workDate: data.workDate ? new Date(data.workDate) : undefined,
-    tags: data.tags.map((tag, index) => ({
-      id: `tag-${index}`,
-      name: tag,
-      color: null,
-      createdAt: new Date()
-    })),
-    articleContent: {
-      id: project?.articleContent?.id || 'article-new',
-      projectId: project?.id || 'new-project',
-      content: data.articleContent,
-      createdAt: project?.articleContent?.createdAt || new Date(),
-      updatedAt: new Date(),
-      embeddedMedia: project?.articleContent?.embeddedMedia || []
-    }
-  });
+
+
 
   if (loading) {
     return (
@@ -580,13 +542,16 @@ export function UnifiedProjectEditor({ projectId, mode }: UnifiedProjectEditorPr
           {/* AI Assistant Panel - 35% */}
           <div className="flex-shrink-0" style={{ flexBasis: '35%' }}>
             <Card className="h-full">
-              <AIAssistantPanel
-                project={getProjectForAI()}
+              <AIPromptInterface
                 selectedText={selectedText}
-                onApplyChanges={handleContentUpdate}
-                onTextSelection={handleTextSelection}
-                isEnabled={true}
-                height={600}
+                projectContext={{
+                  title: formData.title,
+                  description: formData.description,
+                  existingTags: formData.tags,
+                  fullContent: formData.articleContent
+                }}
+                onApplyChanges={handleAIPromptResult}
+                onContentChange={(content) => handleFormDataChange({ articleContent: content })}
                 className="h-full"
               />
             </Card>
