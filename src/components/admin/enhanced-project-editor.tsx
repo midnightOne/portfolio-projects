@@ -29,7 +29,7 @@ import {
 import { SmartTagInput, Tag } from './smart-tag-input';
 import { ClickableMediaUpload } from './clickable-media-upload';
 import { FloatingSaveBar } from './floating-save-bar';
-import { NovelEditorWithAI, NovelContent } from './novel-editor-with-ai';
+import { NovelEditorWithAI, NovelContentData } from './novel-editor-with-ai';
 
 interface ProjectFormData {
   title: string;
@@ -40,7 +40,7 @@ interface ProjectFormData {
   visibility: 'PUBLIC' | 'PRIVATE';
   workDate: string;
   articleContent: string;
-  articleContentJson?: NovelContent;
+  articleContentJson?: NovelContentData;
   contentType: 'text' | 'json';
 }
 
@@ -623,7 +623,11 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
                         onSelectionChange={(selection) => handleTextSelection(selection, 'articleContent')}
                       >
                         <NovelEditorWithAI
-                          initialContent={formData.articleContentJson || formData.articleContent}
+                          initialContent={
+                            formData.contentType === 'json' 
+                              ? (formData.articleContentJson || formData.articleContent)
+                              : formData.articleContent
+                          }
                           onChange={(content) => {
                             handleFormDataChange({ 
                               articleContentJson: content,
@@ -668,7 +672,11 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
                       </TextSelectionManager>
                     ) : (
                       <NovelEditorWithAI
-                        initialContent={formData.articleContentJson || formData.articleContent}
+                        initialContent={
+                          formData.contentType === 'json' 
+                            ? (formData.articleContentJson || formData.articleContent)
+                            : formData.articleContent
+                        }
                         onChange={(content) => {
                           handleFormDataChange({ 
                             articleContentJson: content,

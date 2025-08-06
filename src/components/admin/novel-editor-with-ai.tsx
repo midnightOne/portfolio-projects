@@ -1,12 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import '../../styles/novel-editor.css';
-import { EditorRoot, EditorContent, type EditorContentProps } from 'novel';
 import { JSONContent } from '@tiptap/react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Bot, Wand2, FileText, Tag as TagIcon } from 'lucide-react';
+import { Bot, Wand2, FileText } from 'lucide-react';
 import { 
   AIQuickActions, 
   TextSelection, 
@@ -17,21 +16,18 @@ import {
   AIPromptInterface,
   AIPromptResult 
 } from './ai-prompt-interface';
+import { NovelContent, NovelContentRef } from '../novel/novel-content';
+import { processContent } from '@/lib/novel/content-processor';
 
-// Import necessary Tiptap extensions for minimal schema
-import { StarterKit } from '@tiptap/starter-kit';
-import { Placeholder } from '@tiptap/extension-placeholder';
-import { NovelToolbar } from '../novel/toolbar/novel-toolbar';
-
-export interface NovelContent {
+export interface NovelContentData {
   type: 'doc';
   content: JSONContent[];
 }
 
 interface NovelEditorWithAIProps {
   // Content
-  initialContent?: NovelContent | string;
-  onChange: (content: NovelContent) => void;
+  initialContent?: NovelContentData | string;
+  onChange: (content: NovelContentData) => void;
   
   // AI integration
   projectContext: ProjectContext;
@@ -62,45 +58,21 @@ export function NovelEditorWithAI({
   showAIPanel = true,
   aiPanelHeight = 600
 }: NovelEditorWithAIProps) {
-  const [content, setContent] = useState<JSONContent>(() => {
-    if (typeof initialContent === 'string') {
-      // Convert plain text to Novel JSON format, preserving line breaks
-      if (!initialContent.trim()) {
-        return { type: 'doc', content: [] };
-      }
-      
-      const paragraphs = initialContent.split('\n').map(paragraph => ({
-        type: 'paragraph',
-        content: paragraph.trim() ? [{ type: 'text', text: paragraph }] : []
-      }));
-      
-      return {
-        type: 'doc',
-        content: paragraphs.length > 0 ? paragraphs : [
-          { type: 'paragraph', content: [] }
-        ]
-      };
-    }
-    return initialContent || { type: 'doc', content: [{ type: 'paragraph', content: [] }] };
-  });
-
+  const novelRef = useRef<NovelContentRef>(null);
   const [selectedText, setSelectedText] = useState<TextSelection | undefined>();
   const [aiMode, setAiMode] = useState<'quick-actions' | 'prompt-interface'>('quick-actions');
-  const [editor, setEditor] = useState<any>(null);
 
   // Handle content changes
   const handleContentChange = useCallback((newContent: JSONContent) => {
-    setContent(newContent);
-    onChange(newContent as NovelContent);
+    onChange(newContent as NovelContentData);
   }, [onChange]);
 
   // Handle text selection for AI assistance
-  const handleSelectionChange = useCallback((editorInstance: any) => {
-    if (!editorInstance) return;
+  const handleSelectionChange = useCallback((editor: any) => {
+    if (!editor) return;
 
     try {
-      // Handle both editor instance and prosemirror view
-      const state = editorInstance.state || editorInstance.editor?.state;
+      const state = editor.state;
       if (!state) return;
 
       const { from, to } = state.selection;
@@ -110,7 +82,6 @@ export function NovelEditorWithAI({
       }
 
       const selectedContent = state.doc.textBetween(from, to);
-      console.log('Selection detected:', { from, to, text: selectedContent }); // Debug log
       
       if (selectedContent.trim()) {
         setSelectedText({
@@ -118,7 +89,6 @@ export function NovelEditorWithAI({
           start: from,
           end: to
         });
-        console.log('Selection set:', selectedContent); // Debug log
       } else {
         setSelectedText(undefined);
       }
@@ -128,125 +98,58 @@ export function NovelEditorWithAI({
     }
   }, []);
 
+  // Handle editor ready
+  const handleEditorReady = useCallback((editor: any) => {
+    onEditorReady?.(editor);
+  }, [onEditorReady]);
+
   // Apply AI changes to the editor
   const handleApplyAIChanges = useCallback((result: AIQuickActionResult | AIPromptResult) => {
-    if (!editor || !result.changes) return;
+    if (!novelRef.current?.editor || !result.changes) return;
 
     try {
       const { changes } = result;
+      const editor = novelRef.current.editor;
 
       // Handle full content replacement
       if (changes.fullContent) {
-        // Convert plain text to proper Novel format with paragraphs
-        const paragraphs = changes.fullContent.split('\n').filter(p => p.trim()).map(paragraph => ({
-          type: 'paragraph',
-          content: [{ type: 'text', text: paragraph }]
-        }));
-        
-        const newContent = {
-          type: 'doc',
-          content: paragraphs.length > 0 ? paragraphs : [
-            { type: 'paragraph', content: [{ type: 'text', text: changes.fullContent }] }
-          ]
-        };
-        editor.commands.setContent(newContent);
+        const processed = processContent(changes.fullContent);
+        novelRef.current.setContent(processed.json);
       }
-
-      // Handle partial text replacement
+      
+      // Handle partial content updates
       if (changes.partialUpdate && selectedText) {
-        const { newText } = changes.partialUpdate;
-        editor.chain()
-          .focus()
-          .setTextSelection({ from: selectedText.start, to: selectedText.end })
-          .insertContent(newText)
-          .run();
+        const { start, end, content } = changes.partialUpdate;
+        
+        editor.commands.setTextSelection({ from: start, to: end });
+        editor.commands.insertContent(content);
       }
 
-      // Call parent handler for other changes (tags, metadata, etc.)
+      // Apply metadata changes via parent callback
       if (onApplyAIChanges) {
         onApplyAIChanges(result);
       }
     } catch (error) {
-      console.warn('Error applying AI changes:', error);
-      // Call parent handler anyway for metadata changes
-      if (onApplyAIChanges) {
-        onApplyAIChanges(result);
-      }
+      console.error('Failed to apply AI changes:', error);
     }
-  }, [editor, selectedText, onApplyAIChanges]);
-
-  // Update content when initialContent changes
-  useEffect(() => {
-    if (initialContent && typeof initialContent === 'string') {
-      const paragraphs = initialContent.split('\n').map(paragraph => ({
-        type: 'paragraph',
-        content: paragraph.trim() ? [{ type: 'text', text: paragraph }] : []
-      }));
-      
-      const newContent = {
-        type: 'doc',
-        content: paragraphs.length > 0 ? paragraphs : [
-          { type: 'paragraph', content: [] }
-        ]
-      };
-      setContent(newContent);
-    } else if (initialContent && typeof initialContent === 'object') {
-      setContent(initialContent);
-    }
-  }, [initialContent]);
-
-  // Create minimal extensions that provide proper schema with 'doc' node
-  const portfolioExtensions = [
-    StarterKit,
-    Placeholder.configure({
-      placeholder: placeholder,
-    }),
-  ];
+  }, [selectedText, onApplyAIChanges]);
 
   if (!showAIPanel) {
     // Simple editor without AI panel
     return (
       <div className={className}>
-        <EditorRoot>
-          <NovelToolbar editor={editor} />
-          <EditorContent
-            initialContent={content}
-            onUpdate={({ editor }: any) => {
-              handleContentChange(editor.getJSON());
-            }}
-            onCreate={({ editor }: any) => {
-              setEditor(editor);
-              // Set up selection tracking with event listeners
-              editor.on('selectionUpdate', () => {
-                handleSelectionChange(editor);
-              });
-            }}
-            onSelectionUpdate={({ editor }: any) => {
-              handleSelectionChange(editor);
-            }}
-            editable={editable}
-            className="min-h-[400px] w-full max-w-full focus:outline-none"
-            extensions={portfolioExtensions}
-            editorProps={{
-              attributes: {
-                class: 'novel-editor-content p-4 min-h-[400px] focus:outline-none',
-                style: 'white-space: pre-wrap; word-wrap: break-word;'
-              },
-              handleDOMEvents: {
-                mouseup: (view, event) => {
-                  // Trigger selection change on mouse up
-                  setTimeout(() => handleSelectionChange(view), 10);
-                  return false;
-                },
-                keyup: (view, event) => {
-                  // Trigger selection change on key up
-                  setTimeout(() => handleSelectionChange(view), 10);
-                  return false;
-                }
-              }
-            }}
-          />
-        </EditorRoot>
+        <NovelContent
+          ref={novelRef}
+          mode="editor"
+          initialContent={initialContent}
+          onChange={handleContentChange}
+          onSelectionUpdate={handleSelectionChange}
+          onReady={handleEditorReady}
+          placeholder={placeholder}
+          editable={editable}
+          className="min-h-[400px] w-full max-w-full focus:outline-none"
+          contentClassName="novel-editor-content p-4 min-h-[400px] focus:outline-none"
+        />
       </div>
     );
   }
@@ -256,7 +159,7 @@ export function NovelEditorWithAI({
     <div className={`flex gap-4 ${className}`}>
       {/* Novel Editor - 65% */}
       <div className="flex-1" style={{ flexBasis: '65%' }}>
-        <Card className="h-full">
+        <Card className="h-full" style={{ height: `${aiPanelHeight}px` }}>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
@@ -268,50 +171,18 @@ export function NovelEditorWithAI({
           </CardHeader>
           <CardContent className="flex-1 overflow-hidden">
             <div className="h-full min-h-[500px]">
-              <EditorRoot>
-                <NovelToolbar editor={editor} />
-                <EditorContent
-                  initialContent={content}
-                  onUpdate={({ editor }: any) => {
-                    handleContentChange(editor.getJSON());
-                  }}
-                  onCreate={({ editor }: any) => {
-                    setEditor(editor);
-                    // Set up selection tracking with event listeners
-                    editor.on('selectionUpdate', () => {
-                      handleSelectionChange(editor);
-                    });
-                    // Notify parent component about editor ready
-                    if (onEditorReady) {
-                      onEditorReady(editor);
-                    }
-                  }}
-                  onSelectionUpdate={({ editor }: any) => {
-                    handleSelectionChange(editor);
-                  }}
-                  editable={editable}
-                  className="h-full w-full max-w-full focus:outline-none overflow-y-auto"
-                  extensions={portfolioExtensions}
-                  editorProps={{
-                    attributes: {
-                      class: 'novel-editor-content p-4 h-full focus:outline-none',
-                      style: 'white-space: pre-wrap; word-wrap: break-word;'
-                    },
-                    handleDOMEvents: {
-                      mouseup: (view, event) => {
-                        // Trigger selection change on mouse up
-                        setTimeout(() => handleSelectionChange(view), 10);
-                        return false;
-                      },
-                      keyup: (view, event) => {
-                        // Trigger selection change on key up
-                        setTimeout(() => handleSelectionChange(view), 10);
-                        return false;
-                      }
-                    }
-                  }}
-                />
-              </EditorRoot>
+              <NovelContent
+                ref={novelRef}
+                mode="editor"
+                initialContent={initialContent}
+                onChange={handleContentChange}
+                onSelectionUpdate={handleSelectionChange}
+                onReady={handleEditorReady}
+                placeholder={placeholder}
+                editable={editable}
+                className="h-full w-full max-w-full focus:outline-none overflow-y-auto"
+                contentClassName="novel-editor-content p-4 h-full focus:outline-none"
+              />
             </div>
           </CardContent>
         </Card>
@@ -372,17 +243,9 @@ export function NovelEditorWithAI({
                   onApplyChanges={handleApplyAIChanges}
                   onContentChange={(content) => {
                     // Handle content changes from AI prompt interface
-                    if (editor) {
-                      const newContent = {
-                        type: 'doc',
-                        content: [
-                          {
-                            type: 'paragraph',
-                            content: [{ type: 'text', text: content }]
-                          }
-                        ]
-                      };
-                      editor.commands.setContent(newContent);
+                    if (novelRef.current) {
+                      const processed = processContent(content);
+                      novelRef.current.setContent(processed.json);
                     }
                   }}
                   className="h-full"

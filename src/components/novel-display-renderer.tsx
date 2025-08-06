@@ -1,19 +1,29 @@
 'use client';
 
+import React from 'react';
 import { JSONContent } from '@tiptap/react';
 import { MediaItem, DownloadableFile } from '@/lib/types/project';
-import { NovelContent } from './admin/novel-editor-with-ai';
+import { processContent } from '@/lib/novel/content-processor';
+
+export interface NovelContentData {
+  type: 'doc';
+  content: JSONContent[];
+}
 
 interface NovelDisplayRendererProps {
-  content: NovelContent | string;
+  content: NovelContentData | JSONContent | string | null | undefined;
   className?: string;
   
-  // Portfolio-specific rendering
+  // Portfolio-specific rendering (for future extension)
   mediaRenderer?: (mediaItems: MediaItem[]) => React.ReactNode;
   interactiveRenderer?: (url: string) => React.ReactNode;
   downloadRenderer?: (files: DownloadableFile[]) => React.ReactNode;
 }
 
+/**
+ * Simple, reliable NovelDisplayRenderer for read-only content
+ * Uses direct HTML rendering for maximum compatibility
+ */
 export function NovelDisplayRenderer({
   content,
   className = "",
@@ -21,20 +31,25 @@ export function NovelDisplayRenderer({
   interactiveRenderer,
   downloadRenderer
 }: NovelDisplayRendererProps) {
-  // Convert string content to JSON if needed
-  const jsonContent: JSONContent = typeof content === 'string' 
-    ? {
-        type: 'doc',
-        content: content ? [
-          {
-            type: 'paragraph',
-            content: [{ type: 'text', text: content }]
-          }
-        ] : []
-      }
-    : content;
+  // Process the content to ensure it's in the right format
+  const processed = React.useMemo(() => {
+    try {
+      return processContent(content as any);
+    } catch (error) {
+      console.error('Error processing content:', error);
+      return { json: { type: 'doc', content: [] }, text: '', isEmpty: true };
+    }
+  }, [content]);
+  
+  if (processed.isEmpty) {
+    return (
+      <div className={`novel-display-content max-w-none ${className}`}>
+        <p className="text-gray-500 italic">No content available</p>
+      </div>
+    );
+  }
 
-  // Render JSON content to HTML
+  // Simple HTML renderer for display
   const renderContent = (node: JSONContent): React.ReactNode => {
     if (!node) return null;
 
@@ -43,16 +58,19 @@ export function NovelDisplayRenderer({
         return (
           <div className={`novel-display-content max-w-none ${className}`}>
             {node.content?.map((child: any, index: number) => (
-              <div key={index}>{renderContent(child)}</div>
+              <React.Fragment key={index}>{renderContent(child)}</React.Fragment>
             ))}
           </div>
         );
 
       case 'paragraph':
+        if (!node.content || node.content.length === 0) {
+          return <p><br /></p>;
+        }
         return (
           <p>
             {node.content?.map((child: any, index: number) => (
-              <span key={index}>{renderContent(child)}</span>
+              <React.Fragment key={index}>{renderContent(child)}</React.Fragment>
             ))}
           </p>
         );
@@ -60,7 +78,6 @@ export function NovelDisplayRenderer({
       case 'text':
         let textElement = <span>{node.text}</span>;
         
-        // Apply text marks
         if (node.marks) {
           node.marks.forEach((mark: any) => {
             switch (mark.type) {
@@ -74,7 +91,7 @@ export function NovelDisplayRenderer({
                 textElement = <s className="line-through">{textElement}</s>;
                 break;
               case 'code':
-                textElement = <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono">{textElement}</code>;
+                textElement = <code className="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded text-sm font-mono text-gray-800 dark:text-gray-200">{textElement}</code>;
                 break;
               case 'link':
                 textElement = (
@@ -82,7 +99,7 @@ export function NovelDisplayRenderer({
                     href={mark.attrs?.href} 
                     target="_blank" 
                     rel="noopener noreferrer"
-                    className="text-blue-600 hover:text-blue-800 underline"
+                    className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline"
                   >
                     {textElement}
                   </a>
@@ -96,9 +113,18 @@ export function NovelDisplayRenderer({
 
       case 'heading':
         const level = node.attrs?.level || 1;
-        const headingClass = `font-bold ${level === 1 ? 'text-3xl' : level === 2 ? 'text-2xl' : level === 3 ? 'text-xl' : 'text-lg'} mb-4`;
+        const headingClasses = {
+          1: 'text-3xl font-bold mb-4 mt-6 first:mt-0 leading-tight',
+          2: 'text-2xl font-semibold mb-3 mt-5 first:mt-0 leading-tight',
+          3: 'text-xl font-semibold mb-2 mt-4 first:mt-0 leading-tight',
+          4: 'text-lg font-medium mb-2 mt-3 first:mt-0 leading-normal',
+          5: 'text-base font-medium mb-2 mt-3 first:mt-0 leading-normal',
+          6: 'text-sm font-medium mb-2 mt-3 first:mt-0 leading-normal'
+        };
+        
+        const headingClass = headingClasses[level as keyof typeof headingClasses] || headingClasses[1];
         const content = node.content?.map((child: any, index: number) => (
-          <span key={index}>{renderContent(child)}</span>
+          <React.Fragment key={index}>{renderContent(child)}</React.Fragment>
         ));
         
         switch (level) {
@@ -113,37 +139,37 @@ export function NovelDisplayRenderer({
 
       case 'bulletList':
         return (
-          <ul className="list-disc pl-6 mb-4">
+          <ul className="list-disc pl-6 mb-4 space-y-1">
             {node.content?.map((child: any, index: number) => (
-              <li key={index}>{renderContent(child)}</li>
+              <React.Fragment key={index}>{renderContent(child)}</React.Fragment>
             ))}
           </ul>
         );
 
       case 'orderedList':
         return (
-          <ol className="list-decimal pl-6 mb-4">
+          <ol className="list-decimal pl-6 mb-4 space-y-1">
             {node.content?.map((child: any, index: number) => (
-              <li key={index}>{renderContent(child)}</li>
+              <React.Fragment key={index}>{renderContent(child)}</React.Fragment>
             ))}
           </ol>
         );
 
       case 'listItem':
         return (
-          <>
+          <li>
             {node.content?.map((child: any, index: number) => (
-              <div key={index}>{renderContent(child)}</div>
+              <React.Fragment key={index}>{renderContent(child)}</React.Fragment>
             ))}
-          </>
+          </li>
         );
 
       case 'codeBlock':
         return (
-          <pre className="bg-gray-100 p-4 rounded-lg overflow-x-auto mb-4">
-            <code>
+          <pre className="bg-gray-100 dark:bg-gray-800 p-4 rounded-lg overflow-x-auto mb-4 font-mono text-sm">
+            <code className="text-gray-800 dark:text-gray-200">
               {node.content?.map((child: any, index: number) => (
-                <span key={index}>{renderContent(child)}</span>
+                <React.Fragment key={index}>{renderContent(child)}</React.Fragment>
               ))}
             </code>
           </pre>
@@ -151,125 +177,33 @@ export function NovelDisplayRenderer({
 
       case 'blockquote':
         return (
-          <blockquote className="border-l-4 border-gray-300 pl-4 italic mb-4">
+          <blockquote className="border-l-4 border-gray-300 dark:border-gray-600 pl-4 italic mb-4 text-gray-600 dark:text-gray-400">
             {node.content?.map((child: any, index: number) => (
-              <div key={index}>{renderContent(child)}</div>
+              <React.Fragment key={index}>{renderContent(child)}</React.Fragment>
             ))}
           </blockquote>
-        );
-
-      case 'image':
-        return (
-          <img 
-            src={node.attrs?.src} 
-            alt={node.attrs?.alt || ''} 
-            className="max-w-full h-auto rounded-lg mb-4"
-          />
         );
 
       case 'hardBreak':
         return <br />;
 
       case 'horizontalRule':
-        return <hr className="my-4 border-gray-300" />;
-
-      // Portfolio-specific node types
-      case 'imageCarousel':
-        const images = node.attrs?.images || [];
-        if (images.length === 0) return null;
-        
-        return (
-          <div className="my-6">
-            {/* Simple carousel implementation for display */}
-            <div className="grid grid-cols-1 gap-4">
-              {images.map((image: any, index: number) => (
-                <div key={index} className="text-center">
-                  <img 
-                    src={image.src} 
-                    alt={image.alt || `Image ${index + 1}`}
-                    className="max-w-full h-auto rounded-lg mx-auto"
-                  />
-                  {image.caption && (
-                    <p className="text-sm text-gray-600 italic mt-2">{image.caption}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-
-      case 'interactiveEmbed':
-        const { url, type, title, width = '100%', height = '400px' } = node.attrs || {};
-        if (!url) return null;
-        
-        return (
-          <div className="my-6">
-            {title && <h4 className="text-lg font-semibold mb-2">{title}</h4>}
-            <div className="relative bg-gray-100 rounded-lg overflow-hidden">
-              <iframe
-                src={url}
-                title={title || 'Interactive Content'}
-                width={width}
-                height={height}
-                className="w-full border-0"
-                sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-              />
-              {type === 'webxr' && (
-                <div className="absolute top-2 right-2 bg-black/50 text-white px-2 py-1 rounded text-xs">
-                  WebXR
-                </div>
-              )}
-            </div>
-          </div>
-        );
-
-      case 'downloadButton':
-        const { files, label = 'Download' } = node.attrs || {};
-        if (!files || files.length === 0) return null;
-        
-        return (
-          <div className="my-6 text-center">
-            <button 
-              onClick={() => {
-                // Handle download - this would be implemented by the parent
-                if (files[0]) {
-                  window.open(files[0].url, '_blank');
-                }
-              }}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              {label}
-            </button>
-          </div>
-        );
-
-      case 'projectReference':
-        const { projectId, projectTitle, displayText } = node.attrs || {};
-        if (!projectId) return null;
-        
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-700 rounded text-sm">
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2-2z" />
-            </svg>
-            {displayText || projectTitle || `Project ${projectId}`}
-          </span>
-        );
+        return <hr className="my-6 border-gray-300 dark:border-gray-600" />;
 
       default:
-        // Handle unknown node types gracefully
-        return (
-          <div>
-            {node.content?.map((child: any, index: number) => (
-              <div key={index}>{renderContent(child)}</div>
-            ))}
-          </div>
-        );
+        console.warn(`Unknown node type: ${node.type}`, node);
+        if (node.content) {
+          return (
+            <>
+              {node.content.map((child: any, index: number) => (
+                <React.Fragment key={index}>{renderContent(child)}</React.Fragment>
+              ))}
+            </>
+          );
+        }
+        return null;
     }
   };
 
-  return <>{renderContent(jsonContent)}</>;
+  return <>{renderContent(processed.json)}</>;
 }
