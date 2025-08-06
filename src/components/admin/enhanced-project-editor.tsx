@@ -23,6 +23,7 @@ import {
 import { 
   TextSelectionManager, 
   TextareaAdapter, 
+  NovelAdapter,
   TextChange 
 } from './text-selection-manager';
 import { SmartTagInput, Tag } from './smart-tag-input';
@@ -66,6 +67,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
   const titleRef = useRef<HTMLInputElement>(null);
   const briefOverviewRef = useRef<HTMLTextAreaElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
+  const novelEditorRef = useRef<any>(null); // Novel editor instance
 
   // Form state
   const [formData, setFormData] = useState<ProjectFormData>({
@@ -110,7 +112,14 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
     return null;
   };
 
-
+  const getNovelAdapter = () => {
+    if (novelEditorRef.current) {
+      return new NovelAdapter(novelEditorRef.current, (content) => {
+        setFormData(prev => ({ ...prev, articleContent: content }));
+      });
+    }
+    return null;
+  };
 
   // Get current adapter based on active field
   const getCurrentAdapter = () => {
@@ -118,6 +127,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
       case 'title': return getTitleAdapter();
       case 'briefOverview': return getBriefOverviewAdapter();
       case 'description': return getDescriptionAdapter();
+      case 'articleContent': return getNovelAdapter();
       default: return null;
     }
   };
@@ -607,16 +617,24 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
                 {/* Right Content Area - Article Content */}
                 <div className="flex-1 flex flex-col">
                   <div className="flex-1 overflow-hidden p-4">
-                    <NovelEditorWithAI
-                      initialContent={formData.articleContentJson || formData.articleContent}
-                      onChange={(content) => {
-                        handleFormDataChange({ 
-                          articleContentJson: content,
-                          contentType: 'json'
-                        });
-                      }}
-                      projectContext={getProjectContext()}
-                      onApplyAIChanges={(result) => {
+                    {getNovelAdapter() ? (
+                      <TextSelectionManager
+                        adapter={getNovelAdapter()!}
+                        onSelectionChange={(selection) => handleTextSelection(selection, 'articleContent')}
+                      >
+                        <NovelEditorWithAI
+                          initialContent={formData.articleContentJson || formData.articleContent}
+                          onChange={(content) => {
+                            handleFormDataChange({ 
+                              articleContentJson: content,
+                              contentType: 'json'
+                            });
+                          }}
+                          onEditorReady={(editor) => {
+                            novelEditorRef.current = editor;
+                          }}
+                          projectContext={getProjectContext()}
+                          onApplyAIChanges={(result) => {
                         // Handle AI changes that affect other fields (tags, metadata, etc.)
                         if (result.changes?.suggestedTags) {
                           const { add, remove } = result.changes.suggestedTags;
@@ -643,10 +661,56 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
                           handleFormDataChange({ description: result.changes.suggestedDescription });
                         }
                       }}
-                      placeholder="Start writing your project article with rich formatting. Use / to insert special content blocks like image carousels, interactive embeds, and download buttons."
-                      showAIPanel={false} // AI panel is handled separately
-                      className="h-full"
-                    />
+                          placeholder="Start writing your project article with rich formatting. Use / to insert special content blocks like image carousels, interactive embeds, and download buttons."
+                          showAIPanel={false} // AI panel is handled separately
+                          className="h-full"
+                        />
+                      </TextSelectionManager>
+                    ) : (
+                      <NovelEditorWithAI
+                        initialContent={formData.articleContentJson || formData.articleContent}
+                        onChange={(content) => {
+                          handleFormDataChange({ 
+                            articleContentJson: content,
+                            contentType: 'json'
+                          });
+                        }}
+                        onEditorReady={(editor) => {
+                          novelEditorRef.current = editor;
+                        }}
+                        projectContext={getProjectContext()}
+                        onApplyAIChanges={(result) => {
+                          // Handle AI changes that affect other fields (tags, metadata, etc.)
+                          if (result.changes?.suggestedTags) {
+                            const { add, remove } = result.changes.suggestedTags;
+                            let newTags = [...formData.tags];
+                            
+                            // Remove suggested tags
+                            newTags = newTags.filter(tag => !remove.includes(tag));
+                            
+                            // Add new tags (avoid duplicates)
+                            add.forEach(tag => {
+                              if (!newTags.includes(tag)) {
+                                newTags.push(tag);
+                              }
+                            });
+                            
+                            handleFormDataChange({ tags: newTags });
+                          }
+
+                          // Apply other metadata changes
+                          if (result.changes?.suggestedTitle) {
+                            handleFormDataChange({ title: result.changes.suggestedTitle });
+                          }
+                          if (result.changes?.suggestedDescription) {
+                            handleFormDataChange({ description: result.changes.suggestedDescription });
+                          }
+                        }}
+                        placeholder="Start writing your project article with rich formatting. Use / to insert special content blocks like image carousels, interactive embeds, and download buttons."
+                        showAIPanel={false} // AI panel is handled separately
+                        className="h-full"
+                      />
+                    )}
                   </div>
                 </div>
               </div>

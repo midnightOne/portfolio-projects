@@ -1,6 +1,7 @@
 "use client";
 
 import React from 'react';
+import '../../styles/novel-editor.css';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Calendar, Eye, Download, ExternalLink, Tag as TagIcon } from 'lucide-react';
 import {

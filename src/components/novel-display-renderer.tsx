@@ -41,7 +41,7 @@ export function NovelDisplayRenderer({
     switch (node.type) {
       case 'doc':
         return (
-          <div className={`prose prose-lg max-w-none ${className}`}>
+          <div className={`novel-display-content max-w-none ${className}`}>
             {node.content?.map((child: any, index: number) => (
               <div key={index}>{renderContent(child)}</div>
             ))}
@@ -70,8 +70,11 @@ export function NovelDisplayRenderer({
               case 'italic':
                 textElement = <em>{textElement}</em>;
                 break;
+              case 'strike':
+                textElement = <s className="line-through">{textElement}</s>;
+                break;
               case 'code':
-                textElement = <code className="bg-gray-100 px-1 py-0.5 rounded text-sm">{textElement}</code>;
+                textElement = <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono">{textElement}</code>;
                 break;
               case 'link':
                 textElement = (
@@ -166,6 +169,9 @@ export function NovelDisplayRenderer({
 
       case 'hardBreak':
         return <br />;
+
+      case 'horizontalRule':
+        return <hr className="my-4 border-gray-300" />;
 
       // Portfolio-specific node types
       case 'imageCarousel':

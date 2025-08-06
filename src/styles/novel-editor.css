@@ -1,0 +1,264 @@
+/* Novel Editor Custom Styles */
+
+/* Remove default focus outline and add subtle border */
+.novel-editor-content {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.novel-editor-content:focus {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Ensure proper text formatting with tighter spacing */
+.novel-editor-content p {
+  margin-bottom: 0.25rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.novel-editor-content p:last-child {
+  margin-bottom: 0;
+}
+
+.novel-editor-content p:empty {
+  margin-bottom: 0.125rem;
+}
+
+/* Heading styles */
+.novel-editor-content h1 {
+  font-size: 1.875rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+  margin-top: 1rem;
+  line-height: 1.2;
+}
+
+.novel-editor-content h1:first-child {
+  margin-top: 0;
+}
+
+.novel-editor-content h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  margin-top: 0.75rem;
+  line-height: 1.3;
+}
+
+.novel-editor-content h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  margin-top: 0.75rem;
+  line-height: 1.4;
+}
+
+/* List styles */
+.novel-editor-content ul {
+  list-style-type: disc;
+  margin-left: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.novel-editor-content ol {
+  list-style-type: decimal;
+  margin-left: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.novel-editor-content li {
+  margin-bottom: 0.125rem;
+  line-height: 1.5;
+}
+
+/* Blockquote styles */
+.novel-editor-content blockquote {
+  border-left: 4px solid #d1d5db;
+  padding-left: 1rem;
+  font-style: italic;
+  margin-bottom: 0.75rem;
+  color: #6b7280;
+}
+
+/* Code styles */
+.novel-editor-content code {
+  background-color: #f3f4f6;
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-family: 'Courier New', monospace;
+  font-size: 0.875rem;
+}
+
+.novel-editor-content pre {
+  background-color: #f3f4f6;
+  padding: 0.75rem;
+  border-radius: 0.375rem;
+  overflow-x: auto;
+  margin-bottom: 0.75rem;
+}
+
+.novel-editor-content pre code {
+  background: none;
+  padding: 0;
+}
+
+/* Strong and emphasis */
+.novel-editor-content strong {
+  font-weight: 600;
+}
+
+.novel-editor-content em {
+  font-style: italic;
+}
+
+/* Links */
+.novel-editor-content a {
+  color: #3b82f6;
+  text-decoration: underline;
+}
+
+.novel-editor-content a:hover {
+  color: #1d4ed8;
+}
+
+/* Ensure proper line breaks and spacing */
+.novel-editor-content br {
+  line-height: 1.6;
+}
+
+/* Remove any conflicting prose styles */
+.novel-editor-content.prose,
+.novel-editor-content .prose {
+  max-width: none !important;
+}
+
+/* Fix any Tiptap specific styling issues */
+.ProseMirror {
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.ProseMirror:focus {
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Placeholder styling */
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #9ca3af;
+  pointer-events: none;
+  height: 0;
+}
+/* No
+vel Display Renderer Styles (for public viewing) */
+.novel-display-content {
+  line-height: 1.6;
+}
+
+.novel-display-content p {
+  margin-bottom: 1rem;
+  line-height: 1.6;
+}
+
+.novel-display-content p:last-child {
+  margin-bottom: 0;
+}
+
+.novel-display-content h1 {
+  font-size: 1.875rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  margin-top: 1.5rem;
+  line-height: 1.2;
+}
+
+.novel-display-content h1:first-child {
+  margin-top: 0;
+}
+
+.novel-display-content h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+  margin-top: 1.25rem;
+  line-height: 1.3;
+}
+
+.novel-display-content h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  margin-top: 1rem;
+  line-height: 1.4;
+}
+
+.novel-display-content ul {
+  list-style-type: disc;
+  margin-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.novel-display-content ol {
+  list-style-type: decimal;
+  margin-left: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.novel-display-content li {
+  margin-bottom: 0.25rem;
+  line-height: 1.6;
+}
+
+.novel-display-content blockquote {
+  border-left: 4px solid #d1d5db;
+  padding-left: 1rem;
+  font-style: italic;
+  margin-bottom: 1rem;
+  color: #6b7280;
+}
+
+.novel-display-content code {
+  background-color: #f3f4f6;
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-family: 'Courier New', monospace;
+  font-size: 0.875rem;
+}
+
+.novel-display-content pre {
+  background-color: #f3f4f6;
+  padding: 0.75rem;
+  border-radius: 0.375rem;
+  overflow-x: auto;
+  margin-bottom: 1rem;
+}
+
+.novel-display-content pre code {
+  background: none;
+  padding: 0;
+}
+
+.novel-display-content strong {
+  font-weight: 600;
+}
+
+.novel-display-content em {
+  font-style: italic;
+}
+
+.novel-display-content a {
+  color: #3b82f6;
+  text-decoration: underline;
+}
+
+.novel-display-content a:hover {
+  color: #1d4ed8;
+}

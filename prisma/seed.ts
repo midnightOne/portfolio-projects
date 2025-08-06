@@ -3,6 +3,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
+import { convertTextToNovelJSON } from '../src/lib/utils/novel-content-converter';
 
 const prisma = new PrismaClient();
 
@@ -294,116 +295,227 @@ async function main() {
     },
   });
 
-  // Create comprehensive article content for all projects
-  await prisma.articleContent.upsert({
-    where: { projectId: project1.id },
-    update: {},
-    create: {
-      projectId: project1.id,
-      content: `# Portfolio Website Project
+  // Create comprehensive article content for all projects showcasing Novel editor features
+  const project1ArticleText = `# Portfolio Website Project
 
-This portfolio website was built to showcase my web development skills and projects. The site features a modern, responsive design that works seamlessly across all devices.
+This portfolio website was built to showcase my web development skills and projects. The site features a **modern, responsive design** that works seamlessly across all devices.
 
 ## Design Philosophy
 
-The design focuses on simplicity and user experience. Clean lines, thoughtful typography, and strategic use of whitespace create an engaging and professional presentation.
+The design focuses on *simplicity* and user experience. Clean lines, thoughtful typography, and strategic use of whitespace create an engaging and professional presentation.
+
+> "Good design is not just what it looks like and feels like. Good design is how it works." - Steve Jobs
 
 ## Key Features
 
 - **Responsive Design**: Optimized for desktop, tablet, and mobile devices
-- **Fast Performance**: Built with Next.js for optimal loading speeds
+- **Fast Performance**: Built with Next.js for optimal loading speeds  
 - **SEO Optimized**: Proper meta tags and structured data
 - **Accessibility**: WCAG compliant design
-- **Dark Mode**: Toggle between light and dark themes
+- ~~Dark Mode~~: Toggle between light and dark themes
 - **Interactive Animations**: Smooth hover effects and page transitions
 
 ## Technical Implementation
 
 The website is built using modern web technologies:
 
-- **Frontend**: Next.js 14 with TypeScript
-- **Styling**: Tailwind CSS for utility-first styling
-- **Database**: PostgreSQL with Prisma ORM
-- **Deployment**: Vercel for seamless CI/CD
-- **Analytics**: Real-time visitor tracking and engagement metrics
+1. **Frontend**: Next.js 14 with TypeScript
+2. **Styling**: Tailwind CSS for utility-first styling
+3. **Database**: PostgreSQL with Prisma ORM
+4. **Deployment**: Vercel for seamless CI/CD
+5. **Analytics**: Real-time visitor tracking and engagement metrics
+
+### Code Example
+
+Here's a sample component from the project:
+
+\`\`\`typescript
+export function ProjectCard({ project }: ProjectCardProps) {
+  return (
+    <div className="group relative overflow-hidden rounded-lg bg-white shadow-md transition-shadow hover:shadow-lg">
+      <div className="aspect-video overflow-hidden">
+        <Image
+          src={project.thumbnailUrl}
+          alt={project.title}
+          className="h-full w-full object-cover transition-transform group-hover:scale-105"
+        />
+      </div>
+      <div className="p-4">
+        <h3 className="font-semibold text-gray-900">{project.title}</h3>
+        <p className="mt-1 text-sm text-gray-600">{project.description}</p>
+      </div>
+    </div>
+  );
+}
+\`\`\`
+
+---
 
 ## Development Process
 
-The development followed an iterative approach with continuous testing and refinement. User feedback was incorporated throughout the process to ensure optimal usability.
+The development followed an iterative approach:
+
+1. **Planning & Research**: Understanding user needs and competitive analysis
+2. **Design & Prototyping**: Creating wireframes and visual designs
+3. **Development**: Building features incrementally with testing
+4. **Testing & Refinement**: User feedback and performance optimization
+5. **Deployment & Monitoring**: Production deployment with analytics
 
 ## Performance Optimization
 
 Special attention was paid to performance optimization, resulting in excellent Core Web Vitals scores and fast loading times across all devices.
 
+**Performance Metrics:**
+- Lighthouse Score: 98/100
+- First Contentful Paint: < 1.2s
+- Largest Contentful Paint: < 2.5s
+
+## Links & Resources
+
+- [Live Demo](https://portfolio-demo.example.com)
+- [GitHub Repository](https://github.com/example/portfolio)
+- [Design System](https://design.example.com)
+
 ## Results and Impact
 
-The portfolio has received positive feedback and has helped me connect with potential clients and collaborators. The site loads quickly and provides an excellent user experience across all devices.`,
+The portfolio has received positive feedback and has helped me connect with potential clients and collaborators. The site loads quickly and provides an excellent user experience across all devices.`;
+
+  await prisma.articleContent.upsert({
+    where: { projectId: project1.id },
+    update: {},
+    create: {
+      projectId: project1.id,
+      content: project1ArticleText,
+      jsonContent: convertTextToNovelJSON(project1ArticleText) as any,
+      contentType: 'json',
     },
   });
+
+  const project2ArticleText = `# Task Management Application
+
+A **comprehensive task management solution** designed for modern teams who need to collaborate effectively and track project progress in *real-time*.
+
+## Project Overview
+
+The application addresses common pain points in team collaboration by providing an intuitive interface for task creation, assignment, and tracking. Real-time updates ensure team members stay synchronized.
+
+> "The best way to get something done is to begin." - This app makes beginning (and finishing) easier than ever.
+
+## Core Functionality
+
+### Task Management Features
+- **Create, edit, and delete** tasks with rich descriptions
+- Set priorities, due dates, and assign team members
+- Track task progress with *customizable status workflows*
+- Add \`comments\` and attachments to tasks
+- ~~Manual status updates~~ **Automatic progress tracking**
+
+### Real-Time Collaboration
+- Live updates across all connected devices
+- Instant notifications for task changes  
+- Team chat integration for quick discussions
+- Activity feeds showing recent project updates
+
+### Project Organization
+
+The system supports multiple organizational patterns:
+
+1. **Project-based structure**: Group tasks by project
+2. **Team-based organization**: Assign tasks to specific teams
+3. **Priority-based sorting**: Focus on high-impact work
+4. **Timeline management**: Track deadlines and milestones
+
+## Technical Architecture
+
+The application is built with a modern tech stack emphasizing performance and scalability:
+
+### Frontend Technologies
+- **React 18** with TypeScript for type safety
+- **Redux Toolkit** for predictable state management
+- **React Query** for server state synchronization
+- **Tailwind CSS** for responsive styling
+
+### Backend Infrastructure  
+- **Node.js** with Express framework
+- **WebSocket** connections for real-time features
+- **PostgreSQL** with optimized queries for large datasets
+- **Redis** for session management and caching
+
+### Authentication & Security
+\`\`\`typescript
+// JWT token validation middleware
+const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  
+  if (!token) {
+    return res.sendStatus(401);
+  }
+  
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, user) => {
+    if (err) return res.sendStatus(403);
+    req.user = user;
+    next();
+  });
+};
+\`\`\`
+
+---
+
+## User Experience Design
+
+The interface prioritizes usability with:
+- Drag-and-drop functionality
+- Keyboard shortcuts for power users
+- Responsive design for mobile and desktop
+- Dark mode support
+
+**Accessibility Features:**
+- Screen reader compatibility
+- High contrast mode
+- Keyboard navigation
+- ARIA labels and descriptions
+
+## Deployment Pipeline
+
+The application uses **Docker containers** with automated CI/CD pipelines:
+
+1. **Code commit** triggers automated tests
+2. **Test suite** runs unit and integration tests
+3. **Build process** creates optimized production bundle
+4. **Deployment** to staging environment for QA
+5. **Production release** with zero-downtime deployment
+
+## Performance Metrics
+
+Since launch, the application has achieved impressive results:
+
+| Metric | Before | After | Improvement |
+|--------|--------|-------|-------------|
+| Task completion rate | 65% | 89% | +24% |
+| Team productivity | Baseline | +30% | 30% increase |
+| User satisfaction | 3.2/5 | 4.7/5 | +47% |
+
+## Links & Documentation
+
+- [Live Application](https://taskmanager-demo.example.com)
+- [API Documentation](https://docs.taskmanager.example.com)
+- [GitHub Repository](https://github.com/example/task-manager)
+
+The application continues to evolve based on user feedback, with new features and improvements released monthly.`;
 
   await prisma.articleContent.upsert({
     where: { projectId: project2.id },
     update: {},
     create: {
       projectId: project2.id,
-      content: `# Task Management Application
-
-A comprehensive task management solution designed for modern teams who need to collaborate effectively and track project progress in real-time.
-
-## Project Overview
-
-The application addresses common pain points in team collaboration by providing an intuitive interface for task creation, assignment, and tracking. Real-time updates ensure team members stay synchronized.
-
-## Core Functionality
-
-### Task Management
-- Create, edit, and delete tasks with rich descriptions
-- Set priorities, due dates, and assign team members
-- Track task progress with customizable status workflows
-- Add comments and attachments to tasks
-
-### Real-Time Collaboration
-- Live updates across all connected devices
-- Instant notifications for task changes
-- Team chat integration for quick discussions
-- Activity feeds showing recent project updates
-
-### Project Organization
-- Organize tasks into projects and categories
-- Custom project templates for recurring workflows
-- Advanced filtering and search capabilities
-- Kanban boards and list views
-
-## Technical Architecture
-
-The application is built with a modern tech stack emphasizing performance and scalability:
-
-- **Frontend**: React with TypeScript and Redux for state management
-- **Backend**: Node.js with Express and WebSocket for real-time features
-- **Database**: PostgreSQL with optimized queries for large datasets
-- **Authentication**: JWT-based authentication with role-based permissions
-- **Real-time**: Socket.io for instant updates and notifications
-
-## User Experience Design
-
-The interface prioritizes usability with drag-and-drop functionality, keyboard shortcuts, and responsive design. Extensive user testing informed design decisions throughout development.
-
-## Deployment and DevOps
-
-The application uses Docker containers with automated CI/CD pipelines, ensuring reliable deployments and easy scaling as team size grows.
-
-## Results and Metrics
-
-Since launch, the application has facilitated thousands of completed tasks and improved team productivity by an average of 30% according to user feedback surveys.`,
+      content: project2ArticleText,
+      jsonContent: convertTextToNovelJSON(project2ArticleText) as any,
+      contentType: 'json',
     },
   });
 
-  await prisma.articleContent.upsert({
-    where: { projectId: project3.id },
-    update: {},
-    create: {
-      projectId: project3.id,
-      content: `# E-commerce Platform
+  const project3ArticleText = `# E-commerce Platform
 
 A full-featured e-commerce solution built to handle everything from product catalog management to payment processing and order fulfillment.
 
@@ -478,7 +590,16 @@ The platform integrates with popular business tools including CRM systems, email
 
 ## Results and Business Impact
 
-The platform has processed over $2M in transactions in its first year, with 99.9% uptime and consistently positive user feedback regarding performance and ease of use.`,
+The platform has processed over $2M in transactions in its first year, with 99.9% uptime and consistently positive user feedback regarding performance and ease of use.`;
+
+  await prisma.articleContent.upsert({
+    where: { projectId: project3.id },
+    update: {},
+    create: {
+      projectId: project3.id,
+      content: project3ArticleText,
+      jsonContent: convertTextToNovelJSON(project3ArticleText) as any,
+      contentType: 'json',
     },
   });
 
