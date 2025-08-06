@@ -252,6 +252,8 @@ export interface ArticleContent {
   id: string;
   projectId: string;
   content: string;
+  jsonContent?: any; // JSON content for Novel editor
+  contentType: string; // 'text' or 'json'
   createdAt: Date;
   updatedAt: Date;
   embeddedMedia: EmbeddedMedia[];

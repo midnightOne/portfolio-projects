@@ -87,11 +87,14 @@ model ArticleContent {
   id            String          @id @default(cuid())
   projectId     String          @unique
   content       String
+  jsonContent   Json?
+  contentType   String          @default("text") @db.VarChar(20)
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
   project       Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   embeddedMedia EmbeddedMedia[]
 
+  @@index([contentType])
   @@map("article_content")
 }
 

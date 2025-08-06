@@ -65,7 +65,19 @@ export async function PUT(
 
     const { id } = await params;
     const updates = await request.json();
-    const { title, description, briefOverview, articleContent, thumbnailImageId } = updates;
+    const { 
+      title, 
+      description, 
+      briefOverview, 
+      articleContent, 
+      articleContentJson,
+      contentType,
+      thumbnailImageId,
+      tags,
+      status,
+      visibility,
+      workDate
+    } = updates;
 
     // Update project basic info
     const project = await prisma.project.update({
@@ -74,22 +86,39 @@ export async function PUT(
         title,
         description,
         briefOverview,
+        status: status || undefined,
+        visibility: visibility || undefined,
+        workDate: workDate ? new Date(workDate) : undefined,
         thumbnailImageId: thumbnailImageId !== undefined ? thumbnailImageId : undefined,
-        updatedAt: new Date()
+        updatedAt: new Date(),
+        // Update tags if provided
+        ...(tags && {
+          tags: {
+            set: [], // Clear existing tags
+            connectOrCreate: tags.map((tagName: string) => ({
+              where: { name: tagName },
+              create: { name: tagName }
+            }))
+          }
+        })
       }
     });
 
     // Update article content if provided
-    if (articleContent !== undefined) {
+    if (articleContent !== undefined || articleContentJson !== undefined) {
       await prisma.articleContent.upsert({
         where: { projectId: id },
         update: {
-          content: articleContent,
+          content: articleContent || '',
+          jsonContent: articleContentJson || null,
+          contentType: contentType || 'json',
           updatedAt: new Date()
         },
         create: {
           projectId: id,
-          content: articleContent
+          content: articleContent || '',
+          jsonContent: articleContentJson || null,
+          contentType: contentType || 'json'
         }
       });
     }

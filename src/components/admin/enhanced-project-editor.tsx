@@ -28,6 +28,7 @@ import {
 import { SmartTagInput, Tag } from './smart-tag-input';
 import { ClickableMediaUpload } from './clickable-media-upload';
 import { FloatingSaveBar } from './floating-save-bar';
+import { NovelEditorWithAI, NovelContent } from './novel-editor-with-ai';
 
 interface ProjectFormData {
   title: string;
@@ -38,6 +39,8 @@ interface ProjectFormData {
   visibility: 'PUBLIC' | 'PRIVATE';
   workDate: string;
   articleContent: string;
+  articleContentJson?: NovelContent;
+  contentType: 'text' | 'json';
 }
 
 interface EnhancedProjectEditorProps {
@@ -63,7 +66,6 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
   const titleRef = useRef<HTMLInputElement>(null);
   const briefOverviewRef = useRef<HTMLTextAreaElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
-  const articleContentRef = useRef<HTMLTextAreaElement>(null);
 
   // Form state
   const [formData, setFormData] = useState<ProjectFormData>({
@@ -74,7 +76,8 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
     status: 'DRAFT',
     visibility: 'PRIVATE',
     workDate: new Date().toISOString().split('T')[0],
-    articleContent: ''
+    articleContent: '',
+    contentType: 'json' // Default to JSON for new projects
   });
 
   const isEditing = mode === 'edit' && !!projectId;
@@ -107,14 +110,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
     return null;
   };
 
-  const getArticleContentAdapter = () => {
-    if (refsReady && articleContentRef.current) {
-      return new TextareaAdapter(articleContentRef.current, (content) => {
-        setFormData(prev => ({ ...prev, articleContent: content }));
-      });
-    }
-    return null;
-  };
+
 
   // Get current adapter based on active field
   const getCurrentAdapter = () => {
@@ -122,7 +118,6 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
       case 'title': return getTitleAdapter();
       case 'briefOverview': return getBriefOverviewAdapter();
       case 'description': return getDescriptionAdapter();
-      case 'articleContent': return getArticleContentAdapter();
       default: return null;
     }
   };
@@ -131,7 +126,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
   useEffect(() => {
     const checkRefs = () => {
       const allRefsReady = titleRef.current && briefOverviewRef.current && 
-                          descriptionRef.current && articleContentRef.current;
+                          descriptionRef.current;
       if (allRefsReady && !refsReady) {
         setRefsReady(true);
       }
@@ -160,6 +155,8 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
         formData.description !== project.description ||
         formData.briefOverview !== project.briefOverview ||
         formData.articleContent !== (project.articleContent?.content || '') ||
+        JSON.stringify(formData.articleContentJson) !== JSON.stringify(project.articleContent?.jsonContent) ||
+        formData.contentType !== (project.articleContent?.contentType || 'json') ||
         JSON.stringify(formData.tags.sort()) !== JSON.stringify(project.tags.map(t => t.name).sort()) ||
         formData.status !== (project.status as string) ||
         formData.visibility !== (project.visibility as string);
@@ -200,7 +197,9 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
         status: projectData.status || 'DRAFT',
         visibility: projectData.visibility || 'PRIVATE',
         workDate: projectData.workDate ? new Date(projectData.workDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-        articleContent: projectData.articleContent?.content || ''
+        articleContent: projectData.articleContent?.content || '',
+        articleContentJson: projectData.articleContent?.jsonContent || undefined,
+        contentType: projectData.articleContent?.contentType || 'json'
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load project');
@@ -371,9 +370,6 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
         break;
       case 'description':
         handleFormDataChange({ description: content });
-        break;
-      case 'articleContent':
-        handleFormDataChange({ articleContent: content });
         break;
     }
   };
@@ -610,43 +606,47 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
 
                 {/* Right Content Area - Article Content */}
                 <div className="flex-1 flex flex-col">
-                  <div className="flex-1 overflow-y-auto p-4">
-                    <div className="space-y-4">
-                      <div className="mb-4">
-                        <h2 className="text-lg font-semibold text-gray-900">Article Content</h2>
-                        <p className="text-sm text-gray-600">
-                          Write the detailed project article with technical details and insights
-                        </p>
-                      </div>
+                  <div className="flex-1 overflow-hidden p-4">
+                    <NovelEditorWithAI
+                      initialContent={formData.articleContentJson || formData.articleContent}
+                      onChange={(content) => {
+                        handleFormDataChange({ 
+                          articleContentJson: content,
+                          contentType: 'json'
+                        });
+                      }}
+                      projectContext={getProjectContext()}
+                      onApplyAIChanges={(result) => {
+                        // Handle AI changes that affect other fields (tags, metadata, etc.)
+                        if (result.changes?.suggestedTags) {
+                          const { add, remove } = result.changes.suggestedTags;
+                          let newTags = [...formData.tags];
+                          
+                          // Remove suggested tags
+                          newTags = newTags.filter(tag => !remove.includes(tag));
+                          
+                          // Add new tags (avoid duplicates)
+                          add.forEach(tag => {
+                            if (!newTags.includes(tag)) {
+                              newTags.push(tag);
+                            }
+                          });
+                          
+                          handleFormDataChange({ tags: newTags });
+                        }
 
-                      {getArticleContentAdapter() ? (
-                        <TextSelectionManager
-                          adapter={getArticleContentAdapter()!}
-                          onSelectionChange={(selection) => handleTextSelection(selection, 'articleContent')}
-                        >
-                          <Textarea
-                            ref={articleContentRef}
-                            value={formData.articleContent}
-                            onChange={(e) => handleFormDataChange({ articleContent: e.target.value })}
-                            placeholder="Write your project article here. This is where you can go into technical details, explain your process, share insights, and tell the story of your project..."
-                            rows={20}
-                            className="text-sm text-gray-700 font-mono min-h-[500px]"
-                          />
-                        </TextSelectionManager>
-                      ) : (
-                        <Textarea
-                          ref={articleContentRef}
-                          value={formData.articleContent}
-                          onChange={(e) => handleFormDataChange({ articleContent: e.target.value })}
-                          placeholder="Write your project article here. This is where you can go into technical details, explain your process, share insights, and tell the story of your project..."
-                          rows={20}
-                          className="text-sm text-gray-700 font-mono min-h-[500px]"
-                        />
-                      )}
-                      <p className="text-xs text-gray-500">
-                        Select text and use the AI assistant for writing help and improvements
-                      </p>
-                    </div>
+                        // Apply other metadata changes
+                        if (result.changes?.suggestedTitle) {
+                          handleFormDataChange({ title: result.changes.suggestedTitle });
+                        }
+                        if (result.changes?.suggestedDescription) {
+                          handleFormDataChange({ description: result.changes.suggestedDescription });
+                        }
+                      }}
+                      placeholder="Start writing your project article with rich formatting. Use / to insert special content blocks like image carousels, interactive embeds, and download buttons."
+                      showAIPanel={false} // AI panel is handled separately
+                      className="h-full"
+                    />
                   </div>
                 </div>
               </div>
