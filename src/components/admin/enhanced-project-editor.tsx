@@ -57,6 +57,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
   const [existingTags, setExistingTags] = useState<Tag[]>([]);
   const [activeField, setActiveField] = useState<string>('');
   const [aiMode, setAiMode] = useState<'quick-actions' | 'prompt-interface'>('prompt-interface');
+  const [refsReady, setRefsReady] = useState(false);
 
   // Refs for text areas
   const titleRef = useRef<HTMLInputElement>(null);
@@ -78,53 +79,70 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
 
   const isEditing = mode === 'edit' && !!projectId;
 
-  // Create adapters for different text fields
-  const titleAdapter = useMemo(() => {
-    if (titleRef.current) {
+  // Create adapters dynamically when needed
+  const getTitleAdapter = () => {
+    if (refsReady && titleRef.current) {
       return new TextareaAdapter(titleRef.current as any, (content) => {
         setFormData(prev => ({ ...prev, title: content }));
       });
     }
     return null;
-  }, [titleRef.current]);
+  };
 
-  const briefOverviewAdapter = useMemo(() => {
-    if (briefOverviewRef.current) {
+  const getBriefOverviewAdapter = () => {
+    if (refsReady && briefOverviewRef.current) {
       return new TextareaAdapter(briefOverviewRef.current, (content) => {
         setFormData(prev => ({ ...prev, briefOverview: content }));
       });
     }
     return null;
-  }, [briefOverviewRef.current]);
+  };
 
-  const descriptionAdapter = useMemo(() => {
-    if (descriptionRef.current) {
+  const getDescriptionAdapter = () => {
+    if (refsReady && descriptionRef.current) {
       return new TextareaAdapter(descriptionRef.current, (content) => {
         setFormData(prev => ({ ...prev, description: content }));
       });
     }
     return null;
-  }, [descriptionRef.current]);
+  };
 
-  const articleContentAdapter = useMemo(() => {
-    if (articleContentRef.current) {
+  const getArticleContentAdapter = () => {
+    if (refsReady && articleContentRef.current) {
       return new TextareaAdapter(articleContentRef.current, (content) => {
         setFormData(prev => ({ ...prev, articleContent: content }));
       });
     }
     return null;
-  }, [articleContentRef.current]);
+  };
 
   // Get current adapter based on active field
   const getCurrentAdapter = () => {
     switch (activeField) {
-      case 'title': return titleAdapter;
-      case 'briefOverview': return briefOverviewAdapter;
-      case 'description': return descriptionAdapter;
-      case 'articleContent': return articleContentAdapter;
+      case 'title': return getTitleAdapter();
+      case 'briefOverview': return getBriefOverviewAdapter();
+      case 'description': return getDescriptionAdapter();
+      case 'articleContent': return getArticleContentAdapter();
       default: return null;
     }
   };
+
+  // Check if refs are ready and trigger re-render
+  useEffect(() => {
+    const checkRefs = () => {
+      const allRefsReady = titleRef.current && briefOverviewRef.current && 
+                          descriptionRef.current && articleContentRef.current;
+      if (allRefsReady && !refsReady) {
+        setRefsReady(true);
+      }
+    };
+
+    // Check immediately and also set up a small interval to catch ref updates
+    checkRefs();
+    const interval = setInterval(checkRefs, 50);
+
+    return () => clearInterval(interval);
+  }, [refsReady]);
 
   // Load project data for editing and fetch existing tags
   useEffect(() => {
@@ -428,9 +446,9 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
                         <label className="text-sm font-medium text-gray-700">
                           Project Title *
                         </label>
-                        {titleAdapter ? (
+                        {getTitleAdapter() ? (
                           <TextSelectionManager
-                            adapter={titleAdapter}
+                            adapter={getTitleAdapter()!}
                             onSelectionChange={(selection) => handleTextSelection(selection, 'title')}
                           >
                             <Input
@@ -489,9 +507,9 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
                         <label className="text-sm font-medium text-gray-700">
                           Brief Overview
                         </label>
-                        {briefOverviewAdapter ? (
+                        {getBriefOverviewAdapter() ? (
                           <TextSelectionManager
-                            adapter={briefOverviewAdapter}
+                            adapter={getBriefOverviewAdapter()!}
                             onSelectionChange={(selection) => handleTextSelection(selection, 'briefOverview')}
                           >
                             <Textarea
@@ -556,9 +574,9 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
                         <label className="text-sm font-medium text-gray-700">
                           Project Description
                         </label>
-                        {descriptionAdapter ? (
+                        {getDescriptionAdapter() ? (
                           <TextSelectionManager
-                            adapter={descriptionAdapter}
+                            adapter={getDescriptionAdapter()!}
                             onSelectionChange={(selection) => handleTextSelection(selection, 'description')}
                           >
                             <Textarea
@@ -601,9 +619,9 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
                         </p>
                       </div>
 
-                      {articleContentAdapter ? (
+                      {getArticleContentAdapter() ? (
                         <TextSelectionManager
-                          adapter={articleContentAdapter}
+                          adapter={getArticleContentAdapter()!}
                           onSelectionChange={(selection) => handleTextSelection(selection, 'articleContent')}
                         >
                           <Textarea

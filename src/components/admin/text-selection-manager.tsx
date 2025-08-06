@@ -38,31 +38,38 @@ export class TextareaAdapter implements EditorAdapter {
   getSelection(): TextSelection | null {
     const start = this.element.selectionStart;
     const end = this.element.selectionEnd;
-    
-    if (start === end) {
+
+    // Check if we have valid selection positions
+    if (start === null || end === null || start === end) {
       return null;
     }
-    
+
     const text = this.element.value.substring(start, end);
+
+    // Only return selection if there's actual text selected
+    if (!text.trim()) {
+      return null;
+    }
+
     return { text, start, end };
   }
 
   applyChange(change: TextChange): void {
     const currentValue = this.element.value;
-    const newValue = currentValue.substring(0, change.start) + 
-                    change.newText + 
-                    currentValue.substring(change.end);
-    
+    const newValue = currentValue.substring(0, change.start) +
+      change.newText +
+      currentValue.substring(change.end);
+
     this.element.value = newValue;
-    
+
     // Update cursor position to end of inserted text
     const newCursorPosition = change.start + change.newText.length;
     this.element.setSelectionRange(newCursorPosition, newCursorPosition);
-    
+
     // Trigger change event
     const event = new Event('input', { bubbles: true });
     this.element.dispatchEvent(event);
-    
+
     // Call content change callback
     if (this.onContentChange) {
       this.onContentChange(newValue);
@@ -75,11 +82,11 @@ export class TextareaAdapter implements EditorAdapter {
 
   setFullContent(content: string): void {
     this.element.value = content;
-    
+
     // Trigger change event
     const event = new Event('input', { bubbles: true });
     this.element.dispatchEvent(event);
-    
+
     // Call content change callback
     if (this.onContentChange) {
       this.onContentChange(content);
@@ -212,9 +219,9 @@ export function TextSelectionManager({
   // Check for selection changes periodically
   const checkSelection = useCallback(() => {
     const currentSelection = adapter.getSelection();
-    
+
     // Compare with last selection to avoid unnecessary updates
-    const selectionChanged = 
+    const selectionChanged =
       (!lastSelection.current && currentSelection) ||
       (lastSelection.current && !currentSelection) ||
       (lastSelection.current && currentSelection && (
@@ -233,26 +240,40 @@ export function TextSelectionManager({
 
   // Start/stop selection monitoring
   useEffect(() => {
-    // Start monitoring selection changes
+    // Start monitoring selection changes with both polling and events
     selectionCheckInterval.current = setInterval(checkSelection, 100);
+
+    // Also listen to selection events for more immediate detection
+    const handleSelectionChange = () => {
+      // Small delay to ensure selection is stable
+      setTimeout(checkSelection, 10);
+    };
+
+    // Add event listeners for better selection detection
+    document.addEventListener('selectionchange', handleSelectionChange);
+    document.addEventListener('mouseup', handleSelectionChange);
+    document.addEventListener('keyup', handleSelectionChange);
 
     return () => {
       if (selectionCheckInterval.current) {
         clearInterval(selectionCheckInterval.current);
       }
+      document.removeEventListener('selectionchange', handleSelectionChange);
+      document.removeEventListener('mouseup', handleSelectionChange);
+      document.removeEventListener('keyup', handleSelectionChange);
     };
   }, [checkSelection]);
 
   // Apply text changes through the adapter
   const applyChange = useCallback((change: TextChange) => {
     adapter.applyChange(change);
-    
+
     // Notify about content change
     if (onContentChange) {
       const newContent = adapter.getFullContent();
       onContentChange(newContent);
     }
-    
+
     // Clear selection after applying change
     if (onSelectionChange) {
       onSelectionChange(null);
@@ -262,12 +283,12 @@ export function TextSelectionManager({
   // Apply full content replacement
   const setFullContent = useCallback((content: string) => {
     adapter.setFullContent(content);
-    
+
     // Notify about content change
     if (onContentChange) {
       onContentChange(content);
     }
-    
+
     // Clear selection after content change
     if (onSelectionChange) {
       onSelectionChange(null);
@@ -310,7 +331,7 @@ export function TextSelectionManager({
  */
 export function useTextSelectionManager(): TextSelectionManagerMethods {
   const context = useContext(TextSelectionManagerContext);
-  
+
   if (!context) {
     // Return placeholder methods when not within a TextSelectionManager
     return {
@@ -333,7 +354,7 @@ export function useTextSelectionManager(): TextSelectionManagerMethods {
       }
     };
   }
-  
+
   return context;
 }
 
@@ -362,24 +383,24 @@ export function createEditorAdapter(
  */
 export function detectTextSelection(element: HTMLElement): TextSelection | null {
   const selection = window.getSelection();
-  
+
   if (!selection || selection.rangeCount === 0) {
     return null;
   }
-  
+
   const range = selection.getRangeAt(0);
-  
+
   // Check if selection is within the target element
   if (!element.contains(range.commonAncestorContainer)) {
     return null;
   }
-  
+
   const selectedText = selection.toString();
-  
+
   if (!selectedText) {
     return null;
   }
-  
+
   // For complex elements, we'd need to calculate positions relative to text content
   // This is a simplified implementation
   return {
@@ -400,10 +421,10 @@ export function applyTextChangeWithPosition(
   if (change.start < 0 || change.end > originalText.length || change.start > change.end) {
     throw new Error('Invalid text change positions');
   }
-  
-  return originalText.substring(0, change.start) + 
-         change.newText + 
-         originalText.substring(change.end);
+
+  return originalText.substring(0, change.start) +
+    change.newText +
+    originalText.substring(change.end);
 }
 
 /**
@@ -414,11 +435,11 @@ export function findTextPosition(content: string, searchText: string, startFrom:
   end: number;
 } | null {
   const index = content.indexOf(searchText, startFrom);
-  
+
   if (index === -1) {
     return null;
   }
-  
+
   return {
     start: index,
     end: index + searchText.length
