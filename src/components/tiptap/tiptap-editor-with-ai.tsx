@@ -73,7 +73,10 @@ function Toolbar({ editor }: ToolbarProps) {
       <Button
         variant={editor.isActive('bold') ? 'default' : 'ghost'}
         size="sm"
-        onClick={() => editor.chain().focus().toggleBold().run()}
+        onClick={() => {
+          console.log('Bold clicked, editor available:', !!editor);
+          editor.chain().focus().toggleBold().run();
+        }}
         className="h-8 w-8 p-0"
       >
         <Bold className="h-4 w-4" />
@@ -103,7 +106,11 @@ function Toolbar({ editor }: ToolbarProps) {
       <Button
         variant={editor.isActive('heading', { level: 1 }) ? 'default' : 'ghost'}
         size="sm"
-        onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+        onClick={() => {
+          console.log('H1 clicked, editor available:', !!editor);
+          console.log('Current selection:', editor.state.selection);
+          editor.chain().focus().toggleHeading({ level: 1 }).run();
+        }}
         className="h-8 w-8 p-0"
       >
         <Heading1 className="h-4 w-4" />
@@ -245,7 +252,20 @@ export function TiptapEditorWithAI({
   // Initialize Tiptap editor
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      StarterKit.configure({
+        // Ensure all needed extensions are enabled
+        heading: {
+          levels: [1, 2, 3, 4, 5, 6],
+        },
+        bulletList: {
+          keepMarks: true,
+          keepAttributes: false,
+        },
+        orderedList: {
+          keepMarks: true,
+          keepAttributes: false,
+        },
+      }),
       Placeholder.configure({
         placeholder,
       }),
@@ -372,7 +392,7 @@ export function TiptapEditorWithAI({
           <Toolbar editor={editor} />
           <EditorContent 
             editor={editor} 
-            className="min-h-[400px] w-full max-w-full prose prose-sm max-w-none p-4 [&_.ProseMirror]:outline-none [&_.ProseMirror]:border-none [&_.ProseMirror]:focus:outline-none [&_.ProseMirror]:focus:ring-0"
+            className="min-h-[400px] w-full max-w-full p-4 [&_.ProseMirror]:outline-none [&_.ProseMirror]:border-none [&_.ProseMirror]:focus:outline-none [&_.ProseMirror]:focus:ring-0 [&_.ProseMirror_h1]:text-3xl [&_.ProseMirror_h1]:font-bold [&_.ProseMirror_h1]:mb-4 [&_.ProseMirror_h2]:text-2xl [&_.ProseMirror_h2]:font-bold [&_.ProseMirror_h2]:mb-3 [&_.ProseMirror_h3]:text-xl [&_.ProseMirror_h3]:font-bold [&_.ProseMirror_h3]:mb-2 [&_.ProseMirror_p]:mb-3 [&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ul]:ml-6 [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ol]:ml-6 [&_.ProseMirror_blockquote]:border-l-4 [&_.ProseMirror_blockquote]:border-gray-300 [&_.ProseMirror_blockquote]:pl-4 [&_.ProseMirror_blockquote]:italic [&_.ProseMirror_code]:bg-gray-100 [&_.ProseMirror_code]:px-1 [&_.ProseMirror_code]:rounded [&_.ProseMirror_code]:font-mono [&_.ProseMirror_code]:text-sm"
           />
         </div>
       </div>
@@ -400,7 +420,7 @@ export function TiptapEditorWithAI({
               <div className="flex-1 min-h-[500px] overflow-y-auto">
                 <EditorContent 
                   editor={editor} 
-                  className="h-full w-full max-w-full prose prose-sm max-w-none p-4 [&_.ProseMirror]:outline-none [&_.ProseMirror]:border-none [&_.ProseMirror]:focus:outline-none [&_.ProseMirror]:focus:ring-0"
+                  className="h-full w-full max-w-full p-4 [&_.ProseMirror]:outline-none [&_.ProseMirror]:border-none [&_.ProseMirror]:focus:outline-none [&_.ProseMirror]:focus:ring-0 [&_.ProseMirror_h1]:text-3xl [&_.ProseMirror_h1]:font-bold [&_.ProseMirror_h1]:mb-4 [&_.ProseMirror_h2]:text-2xl [&_.ProseMirror_h2]:font-bold [&_.ProseMirror_h2]:mb-3 [&_.ProseMirror_h3]:text-xl [&_.ProseMirror_h3]:font-bold [&_.ProseMirror_h3]:mb-2 [&_.ProseMirror_p]:mb-3 [&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ul]:ml-6 [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ol]:ml-6 [&_.ProseMirror_blockquote]:border-l-4 [&_.ProseMirror_blockquote]:border-gray-300 [&_.ProseMirror_blockquote]:pl-4 [&_.ProseMirror_blockquote]:italic [&_.ProseMirror_code]:bg-gray-100 [&_.ProseMirror_code]:px-1 [&_.ProseMirror_code]:rounded [&_.ProseMirror_code]:font-mono [&_.ProseMirror_code]:text-sm"
                 />
               </div>
             </div>
