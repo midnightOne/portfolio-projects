@@ -295,7 +295,7 @@ export function ProjectDisplay({
                   <div className="text-sm lg:text-base leading-relaxed">
                     <TiptapDisplayRenderer
                       content={
-                        project.articleContent.contentType === 'json' && project.articleContent.jsonContent
+                        project.articleContent.jsonContent 
                           ? project.articleContent.jsonContent
                           : project.articleContent.content || ''
                       }

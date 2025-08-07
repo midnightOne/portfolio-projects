@@ -86,14 +86,14 @@ export function TiptapDisplayRenderer({
 
       case 'bulletList':
         return (
-          <ul key={index} className="list-disc list-inside mb-4 space-y-1">
+          <ul key={index} className="list-disc list-outside ml-6 mb-4 space-y-1">
             {node.content?.map((child, childIndex) => renderNode(child, childIndex))}
           </ul>
         );
 
       case 'orderedList':
         return (
-          <ol key={index} className="list-decimal list-inside mb-4 space-y-1">
+          <ol key={index} className="list-decimal list-outside ml-6 mb-4 space-y-1">
             {node.content?.map((child, childIndex) => renderNode(child, childIndex))}
           </ol>
         );
@@ -302,11 +302,22 @@ export const tiptapDisplayStyles = `
 .tiptap-display-renderer ul,
 .tiptap-display-renderer ol {
   margin-bottom: 1rem;
+  margin-left: 1.5rem;
+  list-style-position: outside;
+}
+
+.tiptap-display-renderer ul {
+  list-style-type: disc;
+}
+
+.tiptap-display-renderer ol {
+  list-style-type: decimal;
 }
 
 .tiptap-display-renderer li {
   margin-bottom: 0.25rem;
   line-height: 1.6;
+  padding-left: 0.25rem;
 }
 
 .tiptap-display-renderer blockquote {

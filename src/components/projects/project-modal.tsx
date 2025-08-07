@@ -574,7 +574,7 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                             {/* Rich article content with Novel renderer */}
                             <TiptapDisplayRenderer
                               content={
-                                project.articleContent.contentType === 'json' && project.articleContent.jsonContent
+                                project.articleContent.jsonContent 
                                   ? project.articleContent.jsonContent
                                   : project.articleContent.content || ''
                               }

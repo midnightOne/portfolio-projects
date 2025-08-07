@@ -133,6 +133,8 @@ async function projectDetailHandler(request: NextRequest, context: RouteContext)
           select: {
             id: true,
             content: true,
+            jsonContent: true,
+            contentType: true,
             createdAt: true,
             updatedAt: true
           }

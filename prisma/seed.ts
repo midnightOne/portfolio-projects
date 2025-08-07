@@ -7,6 +7,105 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+// Helper function to convert markdown-like text to Tiptap JSON
+function convertToTiptapJSON(text: string) {
+  return {
+    type: 'doc',
+    content: text.split('\n\n').filter(p => p.trim()).map(paragraph => {
+      if (paragraph.startsWith('# ')) {
+        return {
+          type: 'heading',
+          attrs: { level: 1 },
+          content: [{ type: 'text', text: paragraph.replace('# ', '') }]
+        };
+      } else if (paragraph.startsWith('## ')) {
+        return {
+          type: 'heading',
+          attrs: { level: 2 },
+          content: [{ type: 'text', text: paragraph.replace('## ', '') }]
+        };
+      } else if (paragraph.startsWith('### ')) {
+        return {
+          type: 'heading',
+          attrs: { level: 3 },
+          content: [{ type: 'text', text: paragraph.replace('### ', '') }]
+        };
+      } else if (paragraph.startsWith('> ')) {
+        return {
+          type: 'blockquote',
+          content: [{
+            type: 'paragraph',
+            content: [{ type: 'text', text: paragraph.replace('> ', '') }]
+          }]
+        };
+      } else if (paragraph.startsWith('```')) {
+        // Handle code blocks
+        const lines = paragraph.split('\n');
+        const codeContent = lines.slice(1, -1).join('\n');
+        return {
+          type: 'codeBlock',
+          content: [{ type: 'text', text: codeContent }]
+        };
+      } else if (paragraph.startsWith('- ') || paragraph.startsWith('* ')) {
+        // Handle bullet lists
+        const items = paragraph.split('\n').filter(line => line.startsWith('- ') || line.startsWith('* '));
+        return {
+          type: 'bulletList',
+          content: items.map(item => ({
+            type: 'listItem',
+            content: [{
+              type: 'paragraph',
+              content: [{ type: 'text', text: item.replace(/^[*-] /, '') }]
+            }]
+          }))
+        };
+      } else {
+        // Handle basic formatting in paragraphs
+        const content = [];
+        const parts = paragraph.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`|~~.*?~~)/);
+        
+        for (const part of parts) {
+          if (part.startsWith('**') && part.endsWith('**')) {
+            content.push({
+              type: 'text',
+              text: part.slice(2, -2),
+              marks: [{ type: 'bold' }]
+            });
+          } else if (part.startsWith('*') && part.endsWith('*') && !part.startsWith('**')) {
+            content.push({
+              type: 'text',
+              text: part.slice(1, -1),
+              marks: [{ type: 'italic' }]
+            });
+          } else if (part.startsWith('`') && part.endsWith('`')) {
+            content.push({
+              type: 'text',
+              text: part.slice(1, -1),
+              marks: [{ type: 'code' }]
+            });
+          } else if (part.startsWith('~~') && part.endsWith('~~')) {
+            content.push({
+              type: 'text',
+              text: part.slice(2, -2),
+              marks: [{ type: 'strike' }]
+            });
+          } else if (part.trim()) {
+            content.push({
+              type: 'text',
+              text: part
+            });
+          }
+        }
+        
+        return {
+          type: 'paragraph',
+          content: content.length > 0 ? content : [{ type: 'text', text: paragraph }]
+        };
+      }
+    })
+  };
+}
+
 async function main() {
   console.log('🌱 Starting database seed...');
 
@@ -386,7 +485,7 @@ The portfolio has received positive feedback and has helped me connect with pote
     create: {
       projectId: project1.id,
       content: project1ArticleText,
-      jsonContent: undefined, // Will be converted to Tiptap format later
+      jsonContent: convertToTiptapJSON(project1ArticleText),
       contentType: 'json',
     },
   });
@@ -510,7 +609,7 @@ The application continues to evolve based on user feedback, with new features an
     create: {
       projectId: project2.id,
       content: project2ArticleText,
-      jsonContent: undefined, // Will be converted to Tiptap format later
+      jsonContent: convertToTiptapJSON(project2ArticleText),
       contentType: 'json',
     },
   });
@@ -598,7 +697,7 @@ The platform has processed over $2M in transactions in its first year, with 99.9
     create: {
       projectId: project3.id,
       content: project3ArticleText,
-      jsonContent: undefined, // Will be converted to Tiptap format later
+      jsonContent: convertToTiptapJSON(project3ArticleText),
       contentType: 'json',
     },
   });
