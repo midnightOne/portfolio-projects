@@ -7,7 +7,7 @@ import { Calendar, Tag as TagIcon, Eye, Download, ExternalLink } from 'lucide-re
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { ProjectWithRelations, MediaItem, Tag, ExternalLink as ExternalLinkType, DownloadableFile } from '@/lib/types/project';
-import { NovelDisplayRenderer } from '@/components/novel-display-renderer';
+import { TiptapDisplayRenderer } from '@/components/tiptap/tiptap-display-renderer';
 
 interface ProjectDisplayProps {
   project: ProjectWithRelations;
@@ -293,7 +293,7 @@ export function ProjectDisplay({
                   articleContentRenderer
                 ) : (project.articleContent?.jsonContent || project.articleContent?.content) ? (
                   <div className="text-sm lg:text-base leading-relaxed">
-                    <NovelDisplayRenderer
+                    <TiptapDisplayRenderer
                       content={
                         project.articleContent.contentType === 'json' && project.articleContent.jsonContent
                           ? project.articleContent.jsonContent

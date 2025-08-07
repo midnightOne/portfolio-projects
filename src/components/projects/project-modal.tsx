@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import '../../styles/novel-editor.css';
+// Novel editor styles removed - using Tiptap display renderer
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Calendar, Eye, Download, ExternalLink, Tag as TagIcon } from 'lucide-react';
 import {
@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import type { ProjectWithRelations } from '@/lib/types/project';
-import { NovelDisplayRenderer } from '@/components/novel-display-renderer';
+import { TiptapDisplayRenderer } from '@/components/tiptap/tiptap-display-renderer';
 
 interface ProjectModalProps {
   project: ProjectWithRelations | null;
@@ -572,7 +572,7 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                           <h2 className="text-lg lg:text-xl font-semibold">Project Details</h2>
                           <div className="text-sm lg:text-base leading-relaxed">
                             {/* Rich article content with Novel renderer */}
-                            <NovelDisplayRenderer
+                            <TiptapDisplayRenderer
                               content={
                                 project.articleContent.contentType === 'json' && project.articleContent.jsonContent
                                   ? project.articleContent.jsonContent

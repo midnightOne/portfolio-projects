@@ -3,7 +3,7 @@ import {
   TextSelectionManager, 
   TextareaAdapter, 
   TiptapAdapter,
-  NovelAdapter,
+
   createEditorAdapter,
   applyTextChangeWithPosition,
   findTextPosition,
@@ -194,7 +194,7 @@ describe('createEditorAdapter', () => {
 
   it('creates novel adapter', () => {
     const mockEditor = {};
-    const adapter = createEditorAdapter('novel', mockEditor);
+    const adapter = createEditorAdapter('tiptap', mockEditor);
     
     expect(adapter).toBeInstanceOf(NovelAdapter);
   });

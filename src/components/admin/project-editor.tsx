@@ -208,6 +208,7 @@ export function ProjectEditor({ projectId, initialData }: ProjectEditorProps) {
         id: 'article-new',
         projectId: 'new-project',
         content: formData.description,
+        contentType: 'text',
         createdAt: new Date(),
         updatedAt: new Date(),
         embeddedMedia: []

@@ -46,6 +46,7 @@ export function InlineEditableDemo() {
       id: 'article-1',
       projectId: 'demo-project',
       content: articleContent,
+      contentType: 'text',
       createdAt: new Date(),
       updatedAt: new Date(),
       embeddedMedia: []

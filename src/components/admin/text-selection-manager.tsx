@@ -117,54 +117,10 @@ export class TextareaAdapter implements EditorAdapter {
 }
 
 /**
- * Future: Tiptap adapter for rich text editing
- * This is a placeholder for future implementation
+ * Tiptap adapter for rich text editing
+ * Works with Tiptap 3.* editor instances
  */
 export class TiptapAdapter implements EditorAdapter {
-  private editor: any; // Tiptap editor instance
-  private onContentChange?: (content: string) => void;
-
-  constructor(editor: any, onContentChange?: (content: string) => void) {
-    this.editor = editor;
-    this.onContentChange = onContentChange;
-  }
-
-  getSelection(): TextSelection | null {
-    // TODO: Implement Tiptap selection detection
-    // This would work with Tiptap's selection API
-    console.warn('TiptapAdapter.getSelection() not yet implemented');
-    return null;
-  }
-
-  applyChange(change: TextChange): void {
-    // TODO: Implement Tiptap text replacement
-    // This would use Tiptap's transaction API
-    console.warn('TiptapAdapter.applyChange() not yet implemented');
-  }
-
-  getFullContent(): string {
-    // TODO: Return Tiptap content as text or HTML
-    console.warn('TiptapAdapter.getFullContent() not yet implemented');
-    return '';
-  }
-
-  setFullContent(content: string): void {
-    // TODO: Set Tiptap content
-    console.warn('TiptapAdapter.setFullContent() not yet implemented');
-  }
-
-  focus(): void {
-    if (this.editor && this.editor.commands) {
-      this.editor.commands.focus();
-    }
-  }
-}
-
-/**
- * Novel editor adapter for JSON-based content
- * Works with Tiptap editor instances used by Novel
- */
-export class NovelAdapter implements EditorAdapter {
   private editor: any; // Tiptap editor instance
   private onContentChange?: (content: string) => void;
 
@@ -203,7 +159,7 @@ export class NovelAdapter implements EditorAdapter {
         context
       };
     } catch (error) {
-      console.warn('Error getting Novel selection:', error);
+      console.warn('Error getting Tiptap selection:', error);
       return null;
     }
   }
@@ -215,7 +171,7 @@ export class NovelAdapter implements EditorAdapter {
 
     try {
       if (change.fullContent !== undefined) {
-        // Convert plain text to Novel JSON format
+        // Convert plain text to Tiptap JSON format
         const paragraphs = change.fullContent.split('\n').filter((p: string) => p.trim()).map((paragraph: string) => ({
           type: 'paragraph',
           content: [{ type: 'text', text: paragraph }]
@@ -224,7 +180,7 @@ export class NovelAdapter implements EditorAdapter {
         const newContent = {
           type: 'doc',
           content: paragraphs.length > 0 ? paragraphs : [
-            { type: 'paragraph', content: [{ type: 'text', text: change.fullContent }] }
+            { type: 'paragraph', content: [] }
           ]
         };
         
@@ -244,7 +200,7 @@ export class NovelAdapter implements EditorAdapter {
         this.onContentChange(updatedContent);
       }
     } catch (error) {
-      console.warn('Error applying Novel change:', error);
+      console.warn('Error applying Tiptap change:', error);
     }
   }
 
@@ -257,7 +213,7 @@ export class NovelAdapter implements EditorAdapter {
       // Extract plain text from the editor
       return this.editor.state.doc.textContent || '';
     } catch (error) {
-      console.warn('Error getting Novel content:', error);
+      console.warn('Error getting Tiptap content:', error);
       return '';
     }
   }
@@ -268,7 +224,7 @@ export class NovelAdapter implements EditorAdapter {
     }
 
     try {
-      // Convert plain text to Novel JSON format
+      // Convert plain text to Tiptap JSON format
       const paragraphs = content.split('\n').filter((p: string) => p.trim()).map((paragraph: string) => ({
         type: 'paragraph',
         content: [{ type: 'text', text: paragraph }]
@@ -277,7 +233,7 @@ export class NovelAdapter implements EditorAdapter {
       const newContent = {
         type: 'doc',
         content: paragraphs.length > 0 ? paragraphs : [
-          { type: 'paragraph', content: [{ type: 'text', text: content }] }
+          { type: 'paragraph', content: [] }
         ]
       };
       
@@ -288,7 +244,7 @@ export class NovelAdapter implements EditorAdapter {
         this.onContentChange(content);
       }
     } catch (error) {
-      console.warn('Error setting Novel content:', error);
+      console.warn('Error setting Tiptap content:', error);
     }
   }
 
@@ -298,6 +254,8 @@ export class NovelAdapter implements EditorAdapter {
     }
   }
 }
+
+
 
 export interface TextSelectionManagerProps {
   adapter: EditorAdapter;
@@ -475,7 +433,7 @@ export function useTextSelectionManager(): TextSelectionManagerMethods {
  * Utility function to create appropriate adapter based on editor type
  */
 export function createEditorAdapter(
-  editorType: 'textarea' | 'tiptap' | 'novel',
+  editorType: 'textarea' | 'tiptap',
   element: any,
   onContentChange?: (content: string) => void
 ): EditorAdapter {
@@ -484,8 +442,6 @@ export function createEditorAdapter(
       return new TextareaAdapter(element as HTMLTextAreaElement, onContentChange);
     case 'tiptap':
       return new TiptapAdapter(element, onContentChange);
-    case 'novel':
-      return new NovelAdapter(element, onContentChange);
     default:
       throw new Error(`Unsupported editor type: ${editorType}`);
   }

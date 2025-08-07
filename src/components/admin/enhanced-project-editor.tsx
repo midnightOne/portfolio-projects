@@ -23,13 +23,13 @@ import {
 import { 
   TextSelectionManager, 
   TextareaAdapter, 
-  NovelAdapter,
+  TiptapAdapter,
   TextChange 
 } from './text-selection-manager';
 import { SmartTagInput, Tag } from './smart-tag-input';
 import { ClickableMediaUpload } from './clickable-media-upload';
 import { FloatingSaveBar } from './floating-save-bar';
-import { NovelEditorWithAI, NovelContentData } from './novel-editor-with-ai';
+import { TiptapEditorWithAI, TiptapContentData } from '../tiptap/tiptap-editor-with-ai';
 
 interface ProjectFormData {
   title: string;
@@ -40,7 +40,7 @@ interface ProjectFormData {
   visibility: 'PUBLIC' | 'PRIVATE';
   workDate: string;
   articleContent: string;
-  articleContentJson?: NovelContentData;
+  articleContentJson?: TiptapContentData;
   contentType: 'text' | 'json';
 }
 
@@ -67,7 +67,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
   const titleRef = useRef<HTMLInputElement>(null);
   const briefOverviewRef = useRef<HTMLTextAreaElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
-  const novelEditorRef = useRef<any>(null); // Novel editor instance
+  const tiptapEditorRef = useRef<any>(null); // Tiptap editor instance
 
   // Form state
   const [formData, setFormData] = useState<ProjectFormData>({
@@ -112,9 +112,9 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
     return null;
   };
 
-  const getNovelAdapter = () => {
-    if (novelEditorRef.current) {
-      return new NovelAdapter(novelEditorRef.current, (content) => {
+  const getTiptapAdapter = () => {
+    if (tiptapEditorRef.current) {
+      return new TiptapAdapter(tiptapEditorRef.current, (content) => {
         setFormData(prev => ({ ...prev, articleContent: content }));
       });
     }
@@ -127,7 +127,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
       case 'title': return getTitleAdapter();
       case 'briefOverview': return getBriefOverviewAdapter();
       case 'description': return getDescriptionAdapter();
-      case 'articleContent': return getNovelAdapter();
+      case 'articleContent': return getTiptapAdapter();
       default: return null;
     }
   };
@@ -617,13 +617,13 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
                 {/* Right Content Area - Article Content */}
                 <div className="flex-1 flex flex-col">
                   <div className="flex-1 overflow-hidden p-4">
-                    {getNovelAdapter() ? (
+                    {getTiptapAdapter() ? (
                       <TextSelectionManager
-                        adapter={getNovelAdapter()!}
+                        adapter={getTiptapAdapter()!}
                         onSelectionChange={(selection) => handleTextSelection(selection, 'articleContent')}
                       >
-                        <NovelEditorWithAI
-                          initialContent={
+                        <TiptapEditorWithAI
+                          content={
                             formData.contentType === 'json' 
                               ? (formData.articleContentJson || formData.articleContent)
                               : formData.articleContent
@@ -635,44 +635,18 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
                             });
                           }}
                           onEditorReady={(editor) => {
-                            novelEditorRef.current = editor;
+                            tiptapEditorRef.current = editor;
                           }}
                           projectContext={getProjectContext()}
-                          onApplyAIChanges={(result) => {
-                        // Handle AI changes that affect other fields (tags, metadata, etc.)
-                        if (result.changes?.suggestedTags) {
-                          const { add, remove } = result.changes.suggestedTags;
-                          let newTags = [...formData.tags];
-                          
-                          // Remove suggested tags
-                          newTags = newTags.filter(tag => !remove.includes(tag));
-                          
-                          // Add new tags (avoid duplicates)
-                          add.forEach(tag => {
-                            if (!newTags.includes(tag)) {
-                              newTags.push(tag);
-                            }
-                          });
-                          
-                          handleFormDataChange({ tags: newTags });
-                        }
-
-                        // Apply other metadata changes
-                        if (result.changes?.suggestedTitle) {
-                          handleFormDataChange({ title: result.changes.suggestedTitle });
-                        }
-                        if (result.changes?.suggestedDescription) {
-                          handleFormDataChange({ description: result.changes.suggestedDescription });
-                        }
-                      }}
+                          onSelectionChange={(selection) => handleTextSelection(selection, 'articleContent')}
                           placeholder="Start writing your project article with rich formatting. Use / to insert special content blocks like image carousels, interactive embeds, and download buttons."
                           showAIPanel={false} // AI panel is handled separately
                           className="h-full"
                         />
                       </TextSelectionManager>
                     ) : (
-                      <NovelEditorWithAI
-                        initialContent={
+                      <TiptapEditorWithAI
+                        content={
                           formData.contentType === 'json' 
                             ? (formData.articleContentJson || formData.articleContent)
                             : formData.articleContent
@@ -684,36 +658,10 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
                           });
                         }}
                         onEditorReady={(editor) => {
-                          novelEditorRef.current = editor;
+                          tiptapEditorRef.current = editor;
                         }}
                         projectContext={getProjectContext()}
-                        onApplyAIChanges={(result) => {
-                          // Handle AI changes that affect other fields (tags, metadata, etc.)
-                          if (result.changes?.suggestedTags) {
-                            const { add, remove } = result.changes.suggestedTags;
-                            let newTags = [...formData.tags];
-                            
-                            // Remove suggested tags
-                            newTags = newTags.filter(tag => !remove.includes(tag));
-                            
-                            // Add new tags (avoid duplicates)
-                            add.forEach(tag => {
-                              if (!newTags.includes(tag)) {
-                                newTags.push(tag);
-                              }
-                            });
-                            
-                            handleFormDataChange({ tags: newTags });
-                          }
-
-                          // Apply other metadata changes
-                          if (result.changes?.suggestedTitle) {
-                            handleFormDataChange({ title: result.changes.suggestedTitle });
-                          }
-                          if (result.changes?.suggestedDescription) {
-                            handleFormDataChange({ description: result.changes.suggestedDescription });
-                          }
-                        }}
+                        onSelectionChange={(selection) => handleTextSelection(selection, 'articleContent')}
                         placeholder="Start writing your project article with rich formatting. Use / to insert special content blocks like image carousels, interactive embeds, and download buttons."
                         showAIPanel={false} // AI panel is handled separately
                         className="h-full"

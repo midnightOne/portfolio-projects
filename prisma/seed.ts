@@ -3,7 +3,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import { convertTextToNovelJSON } from '../src/lib/utils/novel-content-converter';
+// Novel converter removed - using plain text content for now
 
 const prisma = new PrismaClient();
 
@@ -386,7 +386,7 @@ The portfolio has received positive feedback and has helped me connect with pote
     create: {
       projectId: project1.id,
       content: project1ArticleText,
-      jsonContent: convertTextToNovelJSON(project1ArticleText) as any,
+      jsonContent: undefined, // Will be converted to Tiptap format later
       contentType: 'json',
     },
   });
@@ -510,7 +510,7 @@ The application continues to evolve based on user feedback, with new features an
     create: {
       projectId: project2.id,
       content: project2ArticleText,
-      jsonContent: convertTextToNovelJSON(project2ArticleText) as any,
+      jsonContent: undefined, // Will be converted to Tiptap format later
       contentType: 'json',
     },
   });
@@ -598,7 +598,7 @@ The platform has processed over $2M in transactions in its first year, with 99.9
     create: {
       projectId: project3.id,
       content: project3ArticleText,
-      jsonContent: convertTextToNovelJSON(project3ArticleText) as any,
+      jsonContent: undefined, // Will be converted to Tiptap format later
       contentType: 'json',
     },
   });
