@@ -142,40 +142,7 @@ describe('TiptapAdapter', () => {
   });
 });
 
-describe('NovelAdapter', () => {
-  let mockEditor: any;
-  let adapter: NovelAdapter;
-
-  beforeEach(() => {
-    mockEditor = {
-      focus: jest.fn()
-    };
-    adapter = new NovelAdapter(mockEditor);
-  });
-
-  it('logs warning for unimplemented methods', () => {
-    const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
-
-    expect(adapter.getSelection()).toBeNull();
-    expect(consoleSpy).toHaveBeenCalledWith('NovelAdapter.getSelection() not yet implemented');
-
-    adapter.applyChange({ start: 0, end: 5, newText: 'test' });
-    expect(consoleSpy).toHaveBeenCalledWith('NovelAdapter.applyChange() not yet implemented');
-
-    expect(adapter.getFullContent()).toBe('');
-    expect(consoleSpy).toHaveBeenCalledWith('NovelAdapter.getFullContent() not yet implemented');
-
-    adapter.setFullContent('test');
-    expect(consoleSpy).toHaveBeenCalledWith('NovelAdapter.setFullContent() not yet implemented');
-
-    consoleSpy.mockRestore();
-  });
-
-  it('focuses the editor', () => {
-    adapter.focus();
-    expect(mockEditor.focus).toHaveBeenCalled();
-  });
-});
+// NovelAdapter tests removed as Novel has been replaced with Tiptap
 
 describe('createEditorAdapter', () => {
   it('creates textarea adapter', () => {
@@ -192,12 +159,7 @@ describe('createEditorAdapter', () => {
     expect(adapter).toBeInstanceOf(TiptapAdapter);
   });
 
-  it('creates novel adapter', () => {
-    const mockEditor = {};
-    const adapter = createEditorAdapter('tiptap', mockEditor);
-    
-    expect(adapter).toBeInstanceOf(NovelAdapter);
-  });
+  // Novel adapter test removed as Novel has been replaced with Tiptap
 
   it('throws error for unsupported editor type', () => {
     expect(() => {

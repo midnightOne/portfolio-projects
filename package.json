@@ -18,8 +18,7 @@
     "db:test-adapters": "tsx scripts/test-adapters-only.ts",
     "db:test-adapters-full": "tsx scripts/test-database-adapters.ts",
     "db:switch": "tsx scripts/switch-db-provider.ts",
-    "db:migrate-novel": "tsx scripts/migrate-articles-to-novel.ts",
-    "test:novel": "tsx scripts/test-novel-conversion.ts",
+
     "media:test": "tsx scripts/test-media-upload.ts",
     "media:upload-test": "tsx scripts/test-cloudinary-upload.ts",
     "media:api-test": "tsx scripts/test-api-upload.ts",

@@ -7,6 +7,19 @@ import { Placeholder } from '@tiptap/extension-placeholder';
 import { Typography } from '@tiptap/extension-typography';
 import { Link } from '@tiptap/extension-link';
 import { Image } from '@tiptap/extension-image';
+import { TextStyle } from '@tiptap/extension-text-style';
+import { Color } from '@tiptap/extension-color';
+import { Highlight } from '@tiptap/extension-highlight';
+import { Focus } from '@tiptap/extension-focus';
+import { Dropcursor } from '@tiptap/extension-dropcursor';
+import { Table } from '@tiptap/extension-table';
+import { TableRow } from '@tiptap/extension-table-row';
+import { TableHeader } from '@tiptap/extension-table-header';
+import { TableCell } from '@tiptap/extension-table-cell';
+import { TaskList } from '@tiptap/extension-task-list';
+import { TaskItem } from '@tiptap/extension-task-item';
+import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight';
+import { createLowlight } from 'lowlight';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -16,7 +29,6 @@ import {
   FileText, 
   Bold, 
   Italic, 
-  Underline,
   List,
   ListOrdered,
   Quote,
@@ -25,7 +37,11 @@ import {
   Heading2,
   Heading3,
   Link as LinkIcon,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Highlighter,
+  Table as TableIcon,
+  CheckSquare,
+  Minus
 } from 'lucide-react';
 import { 
   AIQuickActions, 
@@ -166,6 +182,18 @@ function Toolbar({ editor }: ToolbarProps) {
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
+      {/* Text formatting */}
+      <Button
+        variant={editor.isActive('highlight') ? 'default' : 'ghost'}
+        size="sm"
+        onClick={() => editor.chain().focus().toggleHighlight().run()}
+        className="h-8 w-8 p-0"
+      >
+        <Highlighter className="h-4 w-4" />
+      </Button>
+
+      <Separator orientation="vertical" className="h-6 mx-1" />
+
       {/* Links and Images */}
       <Button
         variant={editor.isActive('link') ? 'default' : 'ghost'}
@@ -183,6 +211,39 @@ function Toolbar({ editor }: ToolbarProps) {
         className="h-8 w-8 p-0"
       >
         <ImageIcon className="h-4 w-4" />
+      </Button>
+
+      <Separator orientation="vertical" className="h-6 mx-1" />
+
+      {/* Advanced features */}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+        className="h-8 w-8 p-0"
+        title="Insert Table"
+      >
+        <TableIcon className="h-4 w-4" />
+      </Button>
+
+      <Button
+        variant={editor.isActive('taskList') ? 'default' : 'ghost'}
+        size="sm"
+        onClick={() => editor.chain().focus().toggleTaskList().run()}
+        className="h-8 w-8 p-0"
+        title="Task List"
+      >
+        <CheckSquare className="h-4 w-4" />
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => editor.chain().focus().setHorizontalRule().run()}
+        className="h-8 w-8 p-0"
+        title="Horizontal Rule"
+      >
+        <Minus className="h-4 w-4" />
       </Button>
     </div>
   );
@@ -265,17 +326,73 @@ export function TiptapEditorWithAI({
           keepMarks: true,
           keepAttributes: false,
         },
+        // Disable default code block to use CodeBlockLowlight
+        codeBlock: false,
       }),
       Placeholder.configure({
         placeholder,
       }),
       Typography,
+      TextStyle,
+      Color,
+      Highlight.configure({
+        multicolor: true,
+      }),
+      Focus.configure({
+        className: 'has-focus',
+        mode: 'all',
+      }),
+      Dropcursor,
       Link.configure({
         openOnClick: false,
+        HTMLAttributes: {
+          class: 'text-blue-600 hover:text-blue-800 underline cursor-pointer',
+        },
       }),
       Image.configure({
         inline: true,
         allowBase64: true,
+        HTMLAttributes: {
+          class: 'max-w-full h-auto rounded-lg',
+        },
+      }),
+      CodeBlockLowlight.configure({
+        lowlight: createLowlight(),
+        HTMLAttributes: {
+          class: 'bg-gray-100 dark:bg-gray-800 rounded-lg p-4 font-mono text-sm overflow-x-auto',
+        },
+      }),
+      Table.configure({
+        resizable: true,
+        HTMLAttributes: {
+          class: 'border-collapse table-auto w-full border border-gray-300',
+        },
+      }),
+      TableRow.configure({
+        HTMLAttributes: {
+          class: 'border-b border-gray-300',
+        },
+      }),
+      TableHeader.configure({
+        HTMLAttributes: {
+          class: 'border border-gray-300 px-4 py-2 bg-gray-50 font-semibold text-left',
+        },
+      }),
+      TableCell.configure({
+        HTMLAttributes: {
+          class: 'border border-gray-300 px-4 py-2',
+        },
+      }),
+      TaskList.configure({
+        HTMLAttributes: {
+          class: 'not-prose pl-2',
+        },
+      }),
+      TaskItem.configure({
+        HTMLAttributes: {
+          class: 'flex items-start my-4',
+        },
+        nested: true,
       }),
     ],
     content: getInitialContent(),

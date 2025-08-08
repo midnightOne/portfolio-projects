@@ -127,6 +127,61 @@ export function TiptapDisplayRenderer({
       case 'horizontalRule':
         return <hr key={index} className="my-8 border-gray-300" />;
 
+      case 'table':
+        return (
+          <div key={index} className="overflow-x-auto mb-4">
+            <table className="border-collapse table-auto w-full border border-gray-300">
+              <tbody>
+                {node.content?.map((child, childIndex) => renderNode(child, childIndex))}
+              </tbody>
+            </table>
+          </div>
+        );
+
+      case 'tableRow':
+        return (
+          <tr key={index} className="border-b border-gray-300">
+            {node.content?.map((child, childIndex) => renderNode(child, childIndex))}
+          </tr>
+        );
+
+      case 'tableHeader':
+        return (
+          <th key={index} className="border border-gray-300 px-4 py-2 bg-gray-50 font-semibold text-left">
+            {node.content?.map((child, childIndex) => renderNode(child, childIndex))}
+          </th>
+        );
+
+      case 'tableCell':
+        return (
+          <td key={index} className="border border-gray-300 px-4 py-2">
+            {node.content?.map((child, childIndex) => renderNode(child, childIndex))}
+          </td>
+        );
+
+      case 'taskList':
+        return (
+          <ul key={index} className="not-prose pl-2 mb-4 space-y-1">
+            {node.content?.map((child, childIndex) => renderNode(child, childIndex))}
+          </ul>
+        );
+
+      case 'taskItem':
+        const isChecked = node.attrs?.checked;
+        return (
+          <li key={index} className="flex items-start my-2">
+            <input
+              type="checkbox"
+              checked={isChecked}
+              readOnly
+              className="mr-2 mt-1 cursor-default"
+            />
+            <div className={isChecked ? 'line-through text-gray-500' : ''}>
+              {node.content?.map((child, childIndex) => renderNode(child, childIndex))}
+            </div>
+          </li>
+        );
+
       case 'image':
         return (
           <img
@@ -176,6 +231,28 @@ export function TiptapDisplayRenderer({
                 break;
               case 'underline':
                 textContent = <u key={`underline-${index}`}>{textContent}</u>;
+                break;
+              case 'highlight':
+                const highlightColor = mark.attrs?.color || '#ffff00';
+                textContent = (
+                  <mark 
+                    key={`highlight-${index}`} 
+                    style={{ backgroundColor: highlightColor }}
+                    className="px-1 rounded"
+                  >
+                    {textContent}
+                  </mark>
+                );
+                break;
+              case 'textStyle':
+                const color = mark.attrs?.color;
+                if (color) {
+                  textContent = (
+                    <span key={`color-${index}`} style={{ color }}>
+                      {textContent}
+                    </span>
+                  );
+                }
                 break;
             }
           }
