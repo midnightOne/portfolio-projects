@@ -1,6 +1,7 @@
 "use client";
 
 import React from 'react';
+// Novel editor styles removed - using Tiptap display renderer
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Calendar, Eye, Download, ExternalLink, Tag as TagIcon } from 'lucide-react';
 import {
@@ -14,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import type { ProjectWithRelations } from '@/lib/types/project';
+import { TiptapDisplayRenderer } from '@/components/tiptap/tiptap-display-renderer';
 
 interface ProjectModalProps {
   project: ProjectWithRelations | null;
@@ -559,8 +561,8 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                         </motion.div>
                       )}
 
-                      {/* Enhanced Article Content with Inline Media */}
-                      {project.articleContent?.content && (
+                      {/* Enhanced Article Content with Rich Formatting */}
+                      {(project.articleContent?.content || project.articleContent?.jsonContent) && (
                         <motion.div 
                           className="space-y-4 mt-6"
                           initial={{ opacity: 0 }}
@@ -569,10 +571,44 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                         >
                           <h2 className="text-lg lg:text-xl font-semibold">Project Details</h2>
                           <div className="text-sm lg:text-base leading-relaxed">
-                            {/* Article content with processed formatting */}
-                            <div className="whitespace-pre-wrap">
-                              {processArticleContent(project.articleContent.content)}
-                            </div>
+                            {/* Rich article content with Novel renderer */}
+                            <TiptapDisplayRenderer
+                              content={
+                                project.articleContent.jsonContent 
+                                  ? project.articleContent.jsonContent
+                                  : project.articleContent.content || ''
+                              }
+                              className="prose-sm lg:prose-base"
+                              mediaRenderer={(mediaItems) => (
+                                <div className="my-6 space-y-4">
+                                  {mediaItems.slice(0, 3).map((media, index) => (
+                                    <div key={media.id}>
+                                      {renderInlineMedia(media, "max-w-3xl mx-auto")}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              downloadRenderer={(files) => (
+                                <div className="my-6 flex justify-center">
+                                  <Button
+                                    onClick={() => files[0] && window.open(files[0].downloadUrl, '_blank')}
+                                    className="flex items-center gap-2"
+                                  >
+                                    <Download className="h-4 w-4" />
+                                    Download {files.length > 1 ? `(${files.length} files)` : files[0]?.filename}
+                                  </Button>
+                                </div>
+                              )}
+                              interactiveRenderer={(url) => (
+                                <div className="my-6">
+                                  <iframe
+                                    src={url}
+                                    className="w-full h-96 rounded-lg border"
+                                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                                  />
+                                </div>
+                              )}
+                            />
                             
                             {/* Inline media items embedded within article (Requirement 3.6) */}
                             {mediaItems.length > 0 && mediaItems.slice(0, 3).some(media => 

@@ -5,7 +5,6 @@
 import { EditorFactory } from '../editor-factory';
 import { TextareaAdapter } from '../textarea-adapter';
 import { TiptapAdapter } from '../tiptap-adapter';
-import { NovelAdapter } from '../novel-adapter';
 import { ContentParser } from '../content-parser';
 import { StructuredContentHandler } from '../structured-content-handler';
 import { RichTextProcessor } from '../rich-text-processor';
@@ -65,33 +64,6 @@ class MockTiptapEditor {
   destroy() {}
 }
 
-class MockNovelEditor {
-  private content = { type: 'doc', blocks: [] };
-
-  getJSON() {
-    return this.content;
-  }
-
-  setContent(content: any) {
-    this.content = content;
-  }
-
-  getSelection() {
-    return { from: 0, to: 0, empty: true };
-  }
-
-  replaceRange() {}
-  setSelection() {}
-  insertBlock() {}
-  updateBlock() {}
-  deleteBlock() {}
-  focus() {}
-  blur() {}
-  on() {}
-  off() {}
-  destroy() {}
-}
-
 describe('Editor Abstraction Layer', () => {
   describe('EditorFactory', () => {
     it('should create textarea adapter for textarea element', () => {
@@ -110,14 +82,6 @@ describe('Editor Abstraction Layer', () => {
       expect(adapter.type).toBe('tiptap');
     });
 
-    it('should create novel adapter for novel editor', () => {
-      const editor = new MockNovelEditor();
-      const adapter = EditorFactory.createAdapter(editor, 'novel');
-      
-      expect(adapter).toBeInstanceOf(NovelAdapter);
-      expect(adapter.type).toBe('novel');
-    });
-
     it('should detect editor type automatically', () => {
       const textarea = new MockTextarea() as any;
       const detection = EditorFactory.detectEditorType(textarea);
@@ -128,7 +92,7 @@ describe('Editor Abstraction Layer', () => {
 
     it('should return supported editor types', () => {
       const types = EditorFactory.getSupportedTypes();
-      expect(types).toEqual(['textarea', 'tiptap', 'novel']);
+      expect(types).toEqual(['textarea', 'tiptap']);
     });
   });
 
@@ -491,15 +455,12 @@ describe('Editor Abstraction Layer', () => {
     it('should work with all adapter types', () => {
       const textarea = new MockTextarea() as any;
       const tiptapEditor = new MockTiptapEditor();
-      const novelEditor = new MockNovelEditor();
 
       const textareaAdapter = EditorFactory.createAdapter(textarea, 'textarea');
       const tiptapAdapter = EditorFactory.createAdapter(tiptapEditor, 'tiptap');
-      const novelAdapter = EditorFactory.createAdapter(novelEditor, 'novel');
 
       expect(textareaAdapter.type).toBe('textarea');
       expect(tiptapAdapter.type).toBe('tiptap');
-      expect(novelAdapter.type).toBe('novel');
 
       // Test basic operations
       textareaAdapter.setContent('Test');
@@ -508,7 +469,6 @@ describe('Editor Abstraction Layer', () => {
       // Clean up
       textareaAdapter.destroy();
       tiptapAdapter.destroy();
-      novelAdapter.destroy();
     });
 
     it('should handle content conversion between formats', () => {

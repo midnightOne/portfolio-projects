@@ -7,6 +7,7 @@ import { Calendar, Tag as TagIcon, Eye, Download, ExternalLink } from 'lucide-re
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { ProjectWithRelations, MediaItem, Tag, ExternalLink as ExternalLinkType, DownloadableFile } from '@/lib/types/project';
+import { TiptapDisplayRenderer } from '@/components/tiptap/tiptap-display-renderer';
 
 interface ProjectDisplayProps {
   project: ProjectWithRelations;
@@ -285,16 +286,21 @@ export function ProjectDisplay({
             )}
 
             {/* Article Content */}
-            {(project.articleContent?.content || mode === 'edit') && (
+            {(project.articleContent?.content || project.articleContent?.jsonContent || mode === 'edit') && (
               <div className="space-y-4 mt-6">
                 <h2 className="text-lg lg:text-xl font-semibold">Project Details</h2>
                 {mode === 'edit' && articleContentRenderer ? (
                   articleContentRenderer
-                ) : project.articleContent?.content ? (
+                ) : (project.articleContent?.jsonContent || project.articleContent?.content) ? (
                   <div className="text-sm lg:text-base leading-relaxed">
-                    <div className="whitespace-pre-wrap">
-                      {project.articleContent.content}
-                    </div>
+                    <TiptapDisplayRenderer
+                      content={
+                        project.articleContent.jsonContent 
+                          ? project.articleContent.jsonContent
+                          : project.articleContent.content || ''
+                      }
+                      className="prose-sm lg:prose-base max-w-none"
+                    />
                   </div>
                 ) : mode === 'edit' ? (
                   <div className="text-sm text-gray-400 italic">

@@ -99,7 +99,10 @@ export async function POST(request: NextRequest) {
       tags,
       status = 'DRAFT',
       visibility = 'PRIVATE',
-      workDate
+      workDate,
+      articleContent,
+      articleContentJson,
+      contentType = 'json'
     } = body;
 
     // Validate required fields
@@ -155,6 +158,18 @@ export async function POST(request: NextRequest) {
         }
       }
     });
+
+    // Create article content if provided
+    if (articleContent !== undefined || articleContentJson !== undefined) {
+      await prisma.articleContent.create({
+        data: {
+          projectId: project.id,
+          content: articleContent || '',
+          jsonContent: articleContentJson || null,
+          contentType: contentType
+        }
+      });
+    }
 
     return NextResponse.json({
       project: {

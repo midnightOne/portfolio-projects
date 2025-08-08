@@ -6,12 +6,20 @@ export interface TextSelection {
   text: string;
   start: number;
   end: number;
+  context?: string;
+  field?: string;
 }
 
 export interface TextChange {
-  start: number;
-  end: number;
-  newText: string;
+  start?: number;
+  end?: number;
+  newText?: string;
+  fullContent?: string;
+  partialUpdate?: {
+    start: number;
+    end: number;
+    newText: string;
+  };
   reasoning?: string;
 }
 
@@ -55,16 +63,26 @@ export class TextareaAdapter implements EditorAdapter {
   }
 
   applyChange(change: TextChange): void {
-    const currentValue = this.element.value;
-    const newValue = currentValue.substring(0, change.start) +
-      change.newText +
-      currentValue.substring(change.end);
+    if (change.fullContent !== undefined) {
+      // Full content replacement
+      this.element.value = change.fullContent;
+      // Position cursor at end
+      this.element.setSelectionRange(change.fullContent.length, change.fullContent.length);
+    } else if (change.start !== undefined && change.end !== undefined && change.newText !== undefined) {
+      // Partial text replacement
+      const currentValue = this.element.value;
+      const newValue = currentValue.substring(0, change.start) +
+        change.newText +
+        currentValue.substring(change.end);
 
-    this.element.value = newValue;
+      this.element.value = newValue;
 
-    // Update cursor position to end of inserted text
-    const newCursorPosition = change.start + change.newText.length;
-    this.element.setSelectionRange(newCursorPosition, newCursorPosition);
+      // Update cursor position to end of inserted text
+      const newCursorPosition = change.start + change.newText.length;
+      this.element.setSelectionRange(newCursorPosition, newCursorPosition);
+    } else {
+      return; // Invalid change object
+    }
 
     // Trigger change event
     const event = new Event('input', { bubbles: true });
@@ -72,7 +90,7 @@ export class TextareaAdapter implements EditorAdapter {
 
     // Call content change callback
     if (this.onContentChange) {
-      this.onContentChange(newValue);
+      this.onContentChange(this.element.value);
     }
   }
 
@@ -99,8 +117,8 @@ export class TextareaAdapter implements EditorAdapter {
 }
 
 /**
- * Future: Tiptap adapter for rich text editing
- * This is a placeholder for future implementation
+ * Tiptap adapter for rich text editing
+ * Works with Tiptap 3.* editor instances
  */
 export class TiptapAdapter implements EditorAdapter {
   private editor: any; // Tiptap editor instance
@@ -112,27 +130,122 @@ export class TiptapAdapter implements EditorAdapter {
   }
 
   getSelection(): TextSelection | null {
-    // TODO: Implement Tiptap selection detection
-    // This would work with Tiptap's selection API
-    console.warn('TiptapAdapter.getSelection() not yet implemented');
-    return null;
+    if (!this.editor || !this.editor.state) {
+      return null;
+    }
+
+    try {
+      const { from, to } = this.editor.state.selection;
+      if (from === undefined || to === undefined || from === to) {
+        return null;
+      }
+
+      const selectedText = this.editor.state.doc.textBetween(from, to);
+      if (!selectedText.trim()) {
+        return null;
+      }
+
+      // Get context around selection (200 chars before and after)
+      const docText = this.editor.state.doc.textContent;
+      const contextLength = 200;
+      const contextStart = Math.max(0, from - contextLength);
+      const contextEnd = Math.min(docText.length, to + contextLength);
+      const context = docText.substring(contextStart, contextEnd);
+
+      return {
+        start: from,
+        end: to,
+        text: selectedText,
+        context
+      };
+    } catch (error) {
+      console.warn('Error getting Tiptap selection:', error);
+      return null;
+    }
   }
 
   applyChange(change: TextChange): void {
-    // TODO: Implement Tiptap text replacement
-    // This would use Tiptap's transaction API
-    console.warn('TiptapAdapter.applyChange() not yet implemented');
+    if (!this.editor || !this.editor.commands) {
+      return;
+    }
+
+    try {
+      if (change.fullContent !== undefined) {
+        // Convert plain text to Tiptap JSON format
+        const paragraphs = change.fullContent.split('\n').filter((p: string) => p.trim()).map((paragraph: string) => ({
+          type: 'paragraph',
+          content: [{ type: 'text', text: paragraph }]
+        }));
+        
+        const newContent = {
+          type: 'doc',
+          content: paragraphs.length > 0 ? paragraphs : [
+            { type: 'paragraph', content: [] }
+          ]
+        };
+        
+        this.editor.commands.setContent(newContent);
+      } else if (change.partialUpdate) {
+        const { start, end, newText } = change.partialUpdate;
+        this.editor.chain()
+          .focus()
+          .setTextSelection({ from: start, to: end })
+          .insertContent(newText)
+          .run();
+      }
+
+      // Trigger content change callback
+      if (this.onContentChange) {
+        const updatedContent = this.getFullContent();
+        this.onContentChange(updatedContent);
+      }
+    } catch (error) {
+      console.warn('Error applying Tiptap change:', error);
+    }
   }
 
   getFullContent(): string {
-    // TODO: Return Tiptap content as text or HTML
-    console.warn('TiptapAdapter.getFullContent() not yet implemented');
-    return '';
+    if (!this.editor || !this.editor.state) {
+      return '';
+    }
+
+    try {
+      // Extract plain text from the editor
+      return this.editor.state.doc.textContent || '';
+    } catch (error) {
+      console.warn('Error getting Tiptap content:', error);
+      return '';
+    }
   }
 
   setFullContent(content: string): void {
-    // TODO: Set Tiptap content
-    console.warn('TiptapAdapter.setFullContent() not yet implemented');
+    if (!this.editor || !this.editor.commands) {
+      return;
+    }
+
+    try {
+      // Convert plain text to Tiptap JSON format
+      const paragraphs = content.split('\n').filter((p: string) => p.trim()).map((paragraph: string) => ({
+        type: 'paragraph',
+        content: [{ type: 'text', text: paragraph }]
+      }));
+      
+      const newContent = {
+        type: 'doc',
+        content: paragraphs.length > 0 ? paragraphs : [
+          { type: 'paragraph', content: [] }
+        ]
+      };
+      
+      this.editor.commands.setContent(newContent);
+
+      // Trigger content change callback
+      if (this.onContentChange) {
+        this.onContentChange(content);
+      }
+    } catch (error) {
+      console.warn('Error setting Tiptap content:', error);
+    }
   }
 
   focus(): void {
@@ -142,49 +255,7 @@ export class TiptapAdapter implements EditorAdapter {
   }
 }
 
-/**
- * Future: Novel editor adapter for JSON-based content
- * This is a placeholder for future implementation
- */
-export class NovelAdapter implements EditorAdapter {
-  private editor: any; // Novel editor instance
-  private onContentChange?: (content: string) => void;
 
-  constructor(editor: any, onContentChange?: (content: string) => void) {
-    this.editor = editor;
-    this.onContentChange = onContentChange;
-  }
-
-  getSelection(): TextSelection | null {
-    // TODO: Implement Novel selection detection
-    // This would work with Novel's JSON structure
-    console.warn('NovelAdapter.getSelection() not yet implemented');
-    return null;
-  }
-
-  applyChange(change: TextChange): void {
-    // TODO: Implement Novel text replacement
-    // This would modify the JSON structure
-    console.warn('NovelAdapter.applyChange() not yet implemented');
-  }
-
-  getFullContent(): string {
-    // TODO: Extract text content from Novel's JSON structure
-    console.warn('NovelAdapter.getFullContent() not yet implemented');
-    return '';
-  }
-
-  setFullContent(content: string): void {
-    // TODO: Convert text to Novel's JSON structure
-    console.warn('NovelAdapter.setFullContent() not yet implemented');
-  }
-
-  focus(): void {
-    if (this.editor && this.editor.focus) {
-      this.editor.focus();
-    }
-  }
-}
 
 export interface TextSelectionManagerProps {
   adapter: EditorAdapter;
@@ -362,7 +433,7 @@ export function useTextSelectionManager(): TextSelectionManagerMethods {
  * Utility function to create appropriate adapter based on editor type
  */
 export function createEditorAdapter(
-  editorType: 'textarea' | 'tiptap' | 'novel',
+  editorType: 'textarea' | 'tiptap',
   element: any,
   onContentChange?: (content: string) => void
 ): EditorAdapter {
@@ -371,8 +442,6 @@ export function createEditorAdapter(
       return new TextareaAdapter(element as HTMLTextAreaElement, onContentChange);
     case 'tiptap':
       return new TiptapAdapter(element, onContentChange);
-    case 'novel':
-      return new NovelAdapter(element, onContentChange);
     default:
       throw new Error(`Unsupported editor type: ${editorType}`);
   }
@@ -417,6 +486,16 @@ export function applyTextChangeWithPosition(
   originalText: string,
   change: TextChange
 ): string {
+  // Handle full content replacement
+  if (change.fullContent !== undefined) {
+    return change.fullContent;
+  }
+
+  // Handle partial update
+  if (change.start === undefined || change.end === undefined || change.newText === undefined) {
+    throw new Error('Invalid text change: missing start, end, or newText');
+  }
+
   // Validate change positions
   if (change.start < 0 || change.end > originalText.length || change.start > change.end) {
     throw new Error('Invalid text change positions');
