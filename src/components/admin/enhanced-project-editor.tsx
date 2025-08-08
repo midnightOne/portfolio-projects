@@ -642,7 +642,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="w-full mx-auto px-4 sm:px-6 lg:px-8 py-4" style={{ maxWidth: '96rem' }}>
+      <div className="w-full mx-auto px-4 sm:px-6 lg:px-8 py-4" style={{ maxWidth: '105rem' }}>
         {/* Save Bar */}
         <div className="mb-3 flex justify-center">
           <div className="w-full">

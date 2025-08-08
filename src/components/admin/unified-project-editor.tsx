@@ -354,7 +354,7 @@ export function UnifiedProjectEditor({ projectId, mode }: UnifiedProjectEditorPr
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Main Content Container - Centered with proper spacing */}
-      <div className="w-full mx-auto px-4 sm:px-6 lg:px-8 py-4" style={{ maxWidth: '96rem' }}>
+      <div className="w-full mx-auto px-4 sm:px-6 lg:px-8 py-4" style={{ maxWidth: '105rem' }}>
         {/* Save Bar - Positioned in allocated space */}
         <div className="mb-3 flex justify-center">
           <div className="w-full">
