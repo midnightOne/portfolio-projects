@@ -20,6 +20,14 @@ import { TaskList } from '@tiptap/extension-task-list';
 import { TaskItem } from '@tiptap/extension-task-item';
 import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight';
 import { createLowlight } from 'lowlight';
+import { 
+  ImageCarousel, 
+  InteractiveEmbed, 
+  DownloadButton, 
+  ProjectReference,
+  SlashCommands,
+  SlashCommand
+} from './extensions';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -41,7 +49,10 @@ import {
   Highlighter,
   Table as TableIcon,
   CheckSquare,
-  Minus
+  Minus,
+  Images,
+  Monitor,
+  Download
 } from 'lucide-react';
 import { 
   AIQuickActions, 
@@ -310,6 +321,92 @@ export function TiptapEditorWithAI({
     return content;
   }, [content]);
 
+  // Get portfolio-specific slash commands
+  const getPortfolioCommands = useCallback((): SlashCommand[] => {
+    return [
+      {
+        title: 'Image Carousel',
+        description: 'Insert a carousel with multiple images.',
+        searchTerms: ['gallery', 'slideshow', 'images', 'carousel'],
+        icon: ({ className }) => <Images className={className} />,
+        command: ({ editor, range }) => {
+          editor
+            .chain()
+            .focus()
+            .deleteRange(range)
+            .insertImageCarousel({
+              images: [],
+              autoPlay: false,
+              showThumbnails: true,
+            })
+            .run();
+        },
+      },
+      {
+        title: 'Interactive Embed',
+        description: 'Embed interactive content, WebXR, or iframe.',
+        searchTerms: ['iframe', 'webxr', 'interactive', 'embed'],
+        icon: ({ className }) => <Monitor className={className} />,
+        command: ({ editor, range }) => {
+          const url = prompt('Enter URL for interactive content:');
+          if (url) {
+            editor
+              .chain()
+              .focus()
+              .deleteRange(range)
+              .insertInteractiveEmbed({
+                url,
+                type: 'iframe',
+                width: 800,
+                height: 600,
+                allowFullscreen: true,
+              })
+              .run();
+          }
+        },
+      },
+      {
+        title: 'Download Button',
+        description: 'Add a download button for files.',
+        searchTerms: ['file', 'attachment', 'download'],
+        icon: ({ className }) => <Download className={className} />,
+        command: ({ editor, range }) => {
+          editor
+            .chain()
+            .focus()
+            .deleteRange(range)
+            .insertDownloadButton({
+              files: [],
+              label: 'Download',
+              variant: 'single',
+              style: 'primary',
+            })
+            .run();
+        },
+      },
+      {
+        title: 'Project Reference',
+        description: 'Link to another project in your portfolio.',
+        searchTerms: ['project', 'reference', 'link'],
+        icon: ({ className }) => <LinkIcon className={className} />,
+        command: ({ editor, range }) => {
+          const projectId = prompt('Enter project ID or slug:');
+          if (projectId) {
+            editor
+              .chain()
+              .focus()
+              .deleteRange(range)
+              .insertProjectReference({
+                projectId,
+                style: 'card',
+              })
+              .run();
+          }
+        },
+      },
+    ];
+  }, []);
+
   // Initialize Tiptap editor
   const editor = useEditor({
     extensions: [
@@ -393,6 +490,36 @@ export function TiptapEditorWithAI({
           class: 'flex items-start my-4',
         },
         nested: true,
+      }),
+      // Portfolio-specific extensions
+      ImageCarousel,
+      InteractiveEmbed,
+      DownloadButton,
+      ProjectReference.configure({
+        validateProject: async (projectId: string) => {
+          // TODO: Implement project validation
+          try {
+            const response = await fetch(`/api/projects/${projectId}`);
+            return response.ok;
+          } catch {
+            return false;
+          }
+        },
+      }),
+      // Slash commands for portfolio content
+      SlashCommands.configure({
+        suggestion: {
+          items: ({ query }) => {
+            const commands = getPortfolioCommands();
+            return commands.filter(command =>
+              command.title.toLowerCase().includes(query.toLowerCase()) ||
+              command.description.toLowerCase().includes(query.toLowerCase()) ||
+              command.searchTerms.some(term => 
+                term.toLowerCase().includes(query.toLowerCase())
+              )
+            );
+          },
+        },
       }),
     ],
     content: getInitialContent(),

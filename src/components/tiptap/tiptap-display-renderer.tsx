@@ -260,12 +260,36 @@ export function TiptapDisplayRenderer({
         
         return textContent;
 
-      // Future: Portfolio-specific extensions
+      // Portfolio-specific extensions
       case 'imageCarousel':
         if (mediaRenderer && node.attrs?.images) {
           return (
             <div key={index} className="mb-6">
               {mediaRenderer(node.attrs.images)}
+            </div>
+          );
+        }
+        // Fallback rendering for image carousel
+        const images = node.attrs?.images || [];
+        if (images.length > 0) {
+          return (
+            <div key={index} className="mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {images.map((image: any, imgIndex: number) => (
+                  <div key={imgIndex} className="space-y-2">
+                    <img
+                      src={image.url}
+                      alt={image.alt || `Image ${imgIndex + 1}`}
+                      className="w-full h-48 object-cover rounded-lg"
+                    />
+                    {image.caption && (
+                      <p className="text-sm text-gray-600 text-center">
+                        {image.caption}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           );
         }
@@ -279,6 +303,51 @@ export function TiptapDisplayRenderer({
             </div>
           );
         }
+        // Fallback rendering for interactive embed
+        const { url, title, description, type, width, height } = node.attrs || {};
+        if (url) {
+          return (
+            <div key={index} className="mb-6 border rounded-lg overflow-hidden">
+              {title && (
+                <div className="p-4 bg-gray-50 border-b">
+                  <h3 className="font-semibold">{title}</h3>
+                  {description && (
+                    <p className="text-sm text-gray-600 mt-1">{description}</p>
+                  )}
+                </div>
+              )}
+              {type === 'iframe' ? (
+                <iframe
+                  src={url}
+                  title={title || 'Interactive Content'}
+                  width={width || 800}
+                  height={height || 600}
+                  className="w-full"
+                  style={{ height: `${height || 600}px` }}
+                />
+              ) : (
+                <div 
+                  className="flex items-center justify-center bg-gray-100"
+                  style={{ height: `${height || 400}px` }}
+                >
+                  <div className="text-center">
+                    <p className="text-lg font-semibold mb-2">
+                      {type === 'webxr' ? 'WebXR Experience' : 'Interactive Content'}
+                    </p>
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:text-blue-800 underline"
+                    >
+                      Open in new tab
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        }
         return null;
 
       case 'downloadButton':
@@ -286,6 +355,87 @@ export function TiptapDisplayRenderer({
           return (
             <div key={index} className="mb-4">
               {downloadRenderer(node.attrs.files)}
+            </div>
+          );
+        }
+        // Fallback rendering for download button
+        const files = node.attrs?.files || [];
+        const label = node.attrs?.label || 'Download';
+        if (files.length > 0) {
+          return (
+            <div key={index} className="mb-4">
+              {files.length === 1 ? (
+                <a
+                  href={files[0].url}
+                  download={files[0].name}
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  {label}
+                </a>
+              ) : (
+                <div className="space-y-2">
+                  <p className="font-medium">{label}:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {files.map((file: any, fileIndex: number) => (
+                      <a
+                        key={fileIndex}
+                        href={file.url}
+                        download={file.name}
+                        className="inline-flex items-center gap-2 px-3 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors text-sm"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        {file.name}
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        }
+        return null;
+
+      case 'projectReference':
+        const { projectId, projectSlug, title: refTitle, description: refDescription, style: refStyle } = node.attrs || {};
+        if (projectId) {
+          const projectUrl = projectSlug ? `/projects/${projectSlug}` : `/projects/${projectId}`;
+          
+          if (refStyle === 'minimal') {
+            return (
+              <a
+                key={index}
+                href={projectUrl}
+                className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800 underline"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                </svg>
+                {refTitle || `Project ${projectId}`}
+              </a>
+            );
+          }
+          
+          return (
+            <div key={index} className="mb-4">
+              <a
+                href={projectUrl}
+                className="block p-4 border rounded-lg hover:shadow-md transition-shadow"
+              >
+                <h3 className="font-semibold text-lg mb-2">
+                  {refTitle || `Project ${projectId}`}
+                </h3>
+                {refDescription && (
+                  <p className="text-gray-600 text-sm">{refDescription}</p>
+                )}
+                <p className="text-xs text-gray-500 mt-2">
+                  → View project details
+                </p>
+              </a>
             </div>
           );
         }
