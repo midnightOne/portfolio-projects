@@ -252,7 +252,7 @@ export interface ArticleContent {
   id: string;
   projectId: string;
   content: string;
-  jsonContent?: any; // JSON content for Novel editor
+  jsonContent?: any; // JSON content for rich text editor
   contentType: string; // 'text' or 'json'
   createdAt: Date;
   updatedAt: Date;

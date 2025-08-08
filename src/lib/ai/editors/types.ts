@@ -51,7 +51,7 @@ export interface EditorCapabilities {
   supportedFormats: string[];
 }
 
-export type EditorType = 'textarea' | 'tiptap' | 'novel';
+export type EditorType = 'textarea' | 'tiptap';
 
 export interface EditorAdapter {
   readonly type: EditorType;

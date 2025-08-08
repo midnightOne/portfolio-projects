@@ -268,6 +268,7 @@ interface TiptapEditorWithAIProps {
   // AI integration
   projectContext: ProjectContext;
   onSelectionChange?: (selection: TextSelection | null) => void;
+  onApplyAIChanges?: (result: AIQuickActionResult | AIPromptResult) => void;
   
   // Editor instance
   onEditorReady?: (editor: any) => void;
@@ -287,6 +288,7 @@ export function TiptapEditorWithAI({
   onChange,
   projectContext,
   onSelectionChange,
+  onApplyAIChanges,
   onEditorReady,
   placeholder = "Start writing your project article...",
   className = "",
@@ -575,6 +577,12 @@ export function TiptapEditorWithAI({
 
   // Apply AI changes to the editor
   const handleApplyAIChanges = useCallback((result: AIQuickActionResult | AIPromptResult) => {
+    // If parent provides a callback, use that instead
+    if (onApplyAIChanges) {
+      onApplyAIChanges(result);
+      return;
+    }
+
     if (!editor || !result.changes) return;
 
     try {
@@ -613,7 +621,7 @@ export function TiptapEditorWithAI({
     } catch (error) {
       console.error('Failed to apply AI changes:', error);
     }
-  }, [editor, selectedText]);
+  }, [editor, selectedText, onApplyAIChanges]);
 
   // Update content when prop changes
   useEffect(() => {

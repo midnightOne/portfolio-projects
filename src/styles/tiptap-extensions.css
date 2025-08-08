@@ -50,10 +50,9 @@
   display: inline;
 }
 
-/* Node selection styling */
+/* Node selection styling - removed blue outline */
 .ProseMirror .has-focus {
-  border-radius: 0.375rem;
-  box-shadow: 0 0 0 2px #3b82f6;
+  /* Removed blue box-shadow to eliminate focus outlines */
 }
 
 /* Custom node hover effects */

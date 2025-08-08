@@ -26,6 +26,7 @@ import {
   TiptapAdapter,
   TextChange 
 } from './text-selection-manager';
+import { tiptapToMarkdown, markdownToTiptap } from '@/lib/tiptap-markdown-converter';
 import { SmartTagInput, Tag } from './smart-tag-input';
 import { ClickableMediaUpload } from './clickable-media-upload';
 import { FloatingSaveBar } from './floating-save-bar';
@@ -115,7 +116,12 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
   const getTiptapAdapter = () => {
     if (tiptapEditorRef.current) {
       return new TiptapAdapter(tiptapEditorRef.current, (content) => {
-        setFormData(prev => ({ ...prev, articleContent: content }));
+        // Update both plain text and JSON content to keep them in sync
+        setFormData(prev => ({ 
+          ...prev, 
+          articleContent: content,
+          // The JSON content will be updated by the TiptapEditorWithAI component's onChange
+        }));
       });
     }
     return null;
@@ -272,32 +278,142 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
   };
 
   const handleTextSelection = (selection: TextSelection | null, fieldName: string) => {
-    setSelectedText(selection || undefined);
+    // For Tiptap editor, we need to convert selected content to Markdown for better AI understanding
+    if (selection && fieldName === 'articleContent' && tiptapEditorRef.current) {
+      try {
+        // Get the selected content as JSON from Tiptap
+        const { from, to } = tiptapEditorRef.current.state.selection;
+        const selectedDoc = tiptapEditorRef.current.state.doc.slice(from, to);
+        
+        // Convert the selected JSON to Markdown
+        const selectedJson = selectedDoc.toJSON();
+        const markdownText = tiptapToMarkdown({ type: 'doc', content: selectedJson.content || [] });
+        
+        // Update the selection with Markdown text for AI processing
+        const enhancedSelection: TextSelection = {
+          ...selection,
+          text: markdownText || selection.text, // Fallback to original text if conversion fails
+        };
+        
+        setSelectedText(enhancedSelection);
+      } catch (error) {
+        console.warn('Failed to convert selected Tiptap content to Markdown:', error);
+        setSelectedText(selection);
+      }
+    } else {
+      setSelectedText(selection || undefined);
+    }
+    
     setActiveField(fieldName);
   };
 
   const handleApplyAIChanges = (result: AIQuickActionResult) => {
     console.log('handleApplyAIChanges called with:', result);
+    console.log('Current activeField:', activeField);
     
-    const adapter = getCurrentAdapter();
-    console.log('Current adapter:', adapter);
-    
-    if (!adapter || !result.changes) {
-      console.log('Early return: no adapter or no changes');
+    if (!result.changes) {
+      console.log('Early return: no changes');
       return;
     }
 
-    // Apply full content replacement
-    if (result.changes.fullContent) {
-      console.log('Applying full content:', result.changes.fullContent);
-      adapter.setFullContent(result.changes.fullContent);
-    }
+    // Handle content changes based on active field
+    if (activeField === 'articleContent' && tiptapEditorRef.current) {
+      console.log('Applying AI changes to Tiptap editor');
+      
+      // Apply full content replacement
+      if (result.changes.fullContent) {
+        console.log('Applying full content to Tiptap:', result.changes.fullContent);
+        try {
+          // Convert Markdown response to Tiptap JSON format
+          const tiptapContent = markdownToTiptap(result.changes.fullContent);
+          tiptapEditorRef.current.commands.setContent(tiptapContent);
+        } catch (error) {
+          console.warn('Failed to convert Markdown to Tiptap, using plain text fallback:', error);
+          // Fallback to plain text conversion
+          const paragraphs = result.changes.fullContent.split('\n').filter(p => p.trim()).map(paragraph => ({
+            type: 'paragraph',
+            content: [{ type: 'text', text: paragraph }]
+          }));
+          
+          const newContent = {
+            type: 'doc',
+            content: paragraphs.length > 0 ? paragraphs : [
+              { type: 'paragraph', content: [] }
+            ]
+          };
+          
+          tiptapEditorRef.current.commands.setContent(newContent);
+        }
+      }
 
-    // Apply partial text replacement
-    if (result.changes.partialUpdate) {
-      const { start, end, newText } = result.changes.partialUpdate;
-      console.log('Applying partial update:', { start, end, newText });
-      adapter.applyChange({ start, end, newText });
+      // Apply partial text replacement
+      if (result.changes.partialUpdate) {
+        const { start, end, newText } = result.changes.partialUpdate;
+        console.log('Applying partial update to Tiptap:', { start, end, newText });
+        
+        try {
+          // For partial updates, we can try to parse the new text as Markdown
+          // and insert it as formatted content
+          const tiptapContent = markdownToTiptap(newText);
+          
+          // If the markdown conversion resulted in multiple nodes, insert them
+          if (tiptapContent.content.length > 1) {
+            // Replace the selection with the new content
+            tiptapEditorRef.current.chain()
+              .focus()
+              .setTextSelection({ from: start, to: end })
+              .deleteSelection()
+              .run();
+            
+            // Insert each node
+            tiptapContent.content.forEach(node => {
+              tiptapEditorRef.current.commands.insertContent(node);
+            });
+          } else if (tiptapContent.content.length === 1) {
+            // Single node - insert its content
+            const node = tiptapContent.content[0];
+            tiptapEditorRef.current.chain()
+              .focus()
+              .setTextSelection({ from: start, to: end })
+              .insertContent(node)
+              .run();
+          } else {
+            // Fallback to plain text
+            tiptapEditorRef.current.chain()
+              .focus()
+              .setTextSelection({ from: start, to: end })
+              .insertContent(newText)
+              .run();
+          }
+        } catch (error) {
+          console.warn('Failed to convert partial Markdown to Tiptap, using plain text:', error);
+          // Fallback to plain text insertion
+          tiptapEditorRef.current.chain()
+            .focus()
+            .setTextSelection({ from: start, to: end })
+            .insertContent(newText)
+            .run();
+        }
+      }
+    } else {
+      // Handle other fields using the adapter approach
+      const adapter = getCurrentAdapter();
+      console.log('Current adapter:', adapter);
+      
+      if (adapter) {
+        // Apply full content replacement
+        if (result.changes.fullContent) {
+          console.log('Applying full content via adapter:', result.changes.fullContent);
+          adapter.setFullContent(result.changes.fullContent);
+        }
+
+        // Apply partial text replacement
+        if (result.changes.partialUpdate) {
+          const { start, end, newText } = result.changes.partialUpdate;
+          console.log('Applying partial update via adapter:', { start, end, newText });
+          adapter.applyChange({ start, end, newText });
+        }
+      }
     }
 
     // Apply tag suggestions
@@ -328,18 +444,112 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
   };
 
   const handleApplyPromptChanges = (result: AIPromptResult) => {
-    const adapter = getCurrentAdapter();
-    if (!adapter || !result.changes) return;
-
-    // Apply full content replacement
-    if (result.changes.fullContent) {
-      adapter.setFullContent(result.changes.fullContent);
+    console.log('handleApplyPromptChanges called with:', result);
+    console.log('Current activeField:', activeField);
+    
+    if (!result.changes) {
+      console.log('Early return: no changes');
+      return;
     }
 
-    // Apply partial text replacement
-    if (result.changes.partialUpdate) {
-      const { start, end, newText } = result.changes.partialUpdate;
-      adapter.applyChange({ start, end, newText });
+    // Handle content changes based on active field
+    if (activeField === 'articleContent' && tiptapEditorRef.current) {
+      console.log('Applying AI prompt changes to Tiptap editor');
+      
+      // Apply full content replacement
+      if (result.changes.fullContent) {
+        console.log('Applying full content to Tiptap:', result.changes.fullContent);
+        try {
+          // Convert Markdown response to Tiptap JSON format
+          const tiptapContent = markdownToTiptap(result.changes.fullContent);
+          tiptapEditorRef.current.commands.setContent(tiptapContent);
+        } catch (error) {
+          console.warn('Failed to convert Markdown to Tiptap, using plain text fallback:', error);
+          // Fallback to plain text conversion
+          const paragraphs = result.changes.fullContent.split('\n').filter(p => p.trim()).map(paragraph => ({
+            type: 'paragraph',
+            content: [{ type: 'text', text: paragraph }]
+          }));
+          
+          const newContent = {
+            type: 'doc',
+            content: paragraphs.length > 0 ? paragraphs : [
+              { type: 'paragraph', content: [] }
+            ]
+          };
+          
+          tiptapEditorRef.current.commands.setContent(newContent);
+        }
+      }
+
+      // Apply partial text replacement
+      if (result.changes.partialUpdate) {
+        const { start, end, newText } = result.changes.partialUpdate;
+        console.log('Applying partial update to Tiptap:', { start, end, newText });
+        
+        try {
+          // For partial updates, we can try to parse the new text as Markdown
+          // and insert it as formatted content
+          const tiptapContent = markdownToTiptap(newText);
+          
+          // If the markdown conversion resulted in multiple nodes, insert them
+          if (tiptapContent.content.length > 1) {
+            // Replace the selection with the new content
+            tiptapEditorRef.current.chain()
+              .focus()
+              .setTextSelection({ from: start, to: end })
+              .deleteSelection()
+              .run();
+            
+            // Insert each node
+            tiptapContent.content.forEach(node => {
+              tiptapEditorRef.current.commands.insertContent(node);
+            });
+          } else if (tiptapContent.content.length === 1) {
+            // Single node - insert its content
+            const node = tiptapContent.content[0];
+            tiptapEditorRef.current.chain()
+              .focus()
+              .setTextSelection({ from: start, to: end })
+              .insertContent(node)
+              .run();
+          } else {
+            // Fallback to plain text
+            tiptapEditorRef.current.chain()
+              .focus()
+              .setTextSelection({ from: start, to: end })
+              .insertContent(newText)
+              .run();
+          }
+        } catch (error) {
+          console.warn('Failed to convert partial Markdown to Tiptap, using plain text:', error);
+          // Fallback to plain text insertion
+          tiptapEditorRef.current.chain()
+            .focus()
+            .setTextSelection({ from: start, to: end })
+            .insertContent(newText)
+            .run();
+        }
+      }
+    } else {
+      // Handle other fields using the adapter approach
+      const adapter = getCurrentAdapter();
+      console.log('Current adapter:', adapter);
+      
+      if (adapter) {
+        // Apply full content replacement
+        if (result.changes.fullContent) {
+          console.log('Applying full content via adapter:', result.changes.fullContent);
+          adapter.setFullContent(result.changes.fullContent);
+        }
+
+        // Apply partial text replacement
+        if (result.changes.partialUpdate) {
+          const { start, end, newText } = result.changes.partialUpdate;
+          console.log('Applying partial update via adapter:', { start, end, newText });
+          adapter.applyChange({ start, end, newText });
+        }
+      }
     }
 
     // Apply tag suggestions
@@ -385,12 +595,25 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
   };
 
   // Create project context for AI
-  const getProjectContext = (): ProjectContext => ({
-    title: formData.title,
-    description: formData.description,
-    existingTags: formData.tags,
-    fullContent: `${formData.title}\n\n${formData.briefOverview}\n\n${formData.description}\n\n${formData.articleContent}`
-  });
+  const getProjectContext = (): ProjectContext => {
+    // Convert Tiptap JSON content to Markdown for better AI understanding
+    let articleContentForAI = formData.articleContent;
+    if (formData.contentType === 'json' && formData.articleContentJson) {
+      try {
+        articleContentForAI = tiptapToMarkdown(formData.articleContentJson);
+      } catch (error) {
+        console.warn('Failed to convert Tiptap content to Markdown, using plain text:', error);
+        articleContentForAI = formData.articleContent;
+      }
+    }
+
+    return {
+      title: formData.title,
+      description: formData.description,
+      existingTags: formData.tags,
+      fullContent: `${formData.title}\n\n${formData.briefOverview}\n\n${formData.description}\n\n${articleContentForAI}`
+    };
+  };
 
   if (loading) {
     return (

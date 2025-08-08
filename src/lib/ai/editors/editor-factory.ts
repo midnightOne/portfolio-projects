@@ -6,7 +6,6 @@
 import { EditorAdapter, EditorType, EditorDetectionResult } from './types';
 import { TextareaAdapter } from './textarea-adapter';
 import { TiptapAdapter } from './tiptap-adapter';
-import { NovelAdapter } from './novel-adapter';
 
 export class EditorFactory {
   /**
@@ -49,15 +48,6 @@ export class EditorFactory {
         };
       }
 
-      // Look for Novel editor indicators
-      if (this.isNovelElement(elementOrEditor)) {
-        return {
-          type: 'novel',
-          element: elementOrEditor,
-          instance: this.extractNovelInstance(elementOrEditor)
-        };
-      }
-
       // Check for textarea children
       const textarea = elementOrEditor.querySelector('textarea');
       if (textarea) {
@@ -79,15 +69,6 @@ export class EditorFactory {
       return {
         type: 'tiptap',
         element: elementOrEditor.view?.dom,
-        instance: elementOrEditor
-      };
-    }
-
-    // Check if it's a Novel editor instance
-    if (this.isNovelInstance(elementOrEditor)) {
-      return {
-        type: 'novel',
-        element: elementOrEditor.dom,
         instance: elementOrEditor
       };
     }
@@ -118,9 +99,6 @@ export class EditorFactory {
       case 'tiptap':
         return new TiptapAdapter(elementOrInstance);
 
-      case 'novel':
-        return new NovelAdapter(elementOrInstance);
-
       default:
         throw new Error(`Unsupported editor type: ${type}`);
     }
@@ -144,23 +122,6 @@ export class EditorFactory {
   }
 
   /**
-   * Check if element contains a Novel editor
-   */
-  private static isNovelElement(element: HTMLElement): boolean {
-    // Look for Novel-specific classes or attributes
-    const novelIndicators = [
-      '.novel-editor',
-      '[data-novel]',
-      '.bn-editor',
-      '.block-editor'
-    ];
-
-    return novelIndicators.some(selector => {
-      return element.matches(selector) || element.querySelector(selector) !== null;
-    });
-  }
-
-  /**
    * Check if object is a Tiptap editor instance
    */
   private static isTiptapInstance(obj: any): boolean {
@@ -170,18 +131,6 @@ export class EditorFactory {
            obj.state &&
            obj.commands &&
            typeof obj.getJSON === 'function';
-  }
-
-  /**
-   * Check if object is a Novel editor instance
-   */
-  private static isNovelInstance(obj: any): boolean {
-    return obj &&
-           typeof obj === 'object' &&
-           obj.dom &&
-           typeof obj.getJSON === 'function' &&
-           typeof obj.setContent === 'function' &&
-           (obj.constructor.name === 'NovelEditor' || obj._isNovelEditor);
   }
 
   /**
@@ -204,29 +153,10 @@ export class EditorFactory {
   }
 
   /**
-   * Extract Novel instance from DOM element
-   */
-  private static extractNovelInstance(element: HTMLElement): any {
-    // Try to find Novel instance attached to the element
-    const novelElement = element.matches('.novel-editor') 
-      ? element 
-      : element.querySelector('.novel-editor');
-
-    if (novelElement) {
-      // Novel usually attaches the editor instance to the DOM element
-      return (novelElement as any).__novelEditor || 
-             (novelElement as any).editor ||
-             null;
-    }
-
-    return null;
-  }
-
-  /**
    * Get supported editor types
    */
   static getSupportedTypes(): EditorType[] {
-    return ['textarea', 'tiptap', 'novel'];
+    return ['textarea', 'tiptap'];
   }
 
   /**
@@ -254,15 +184,6 @@ export class EditorFactory {
       const instance = this.extractTiptapInstance(element as HTMLElement);
       if (instance) {
         adapters.push(new TiptapAdapter(instance));
-      }
-    });
-
-    // Find all Novel editors
-    const novelElements = container.querySelectorAll('.novel-editor, [data-novel]');
-    novelElements.forEach(element => {
-      const instance = this.extractNovelInstance(element as HTMLElement);
-      if (instance) {
-        adapters.push(new NovelAdapter(instance));
       }
     });
 
