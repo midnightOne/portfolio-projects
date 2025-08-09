@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
 import { ArrowLeft, Loader2, Calendar, Tag as TagIcon, Save, Bot } from 'lucide-react';
 import { ProjectWithRelations } from '@/lib/types/project';
+import { CONTAINERS, SPACING, COMPONENTS, FLEX, MAX_WIDTHS } from '@/lib/constants';
 import { 
   AIQuickActions, 
   TextSelection, 
@@ -642,9 +643,9 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="w-full mx-auto px-4 sm:px-6 lg:px-8 py-4" style={{ maxWidth: '105rem' }}>
+      <div className={`${CONTAINERS.wide} ${SPACING.section.sm}`} style={{ maxWidth: MAX_WIDTHS.editor }}>
         {/* Save Bar */}
-        <div className="mb-3 flex justify-center">
+        <div className={`mb-3 ${FLEX.center}`}>
           <div className="w-full">
             <FloatingSaveBar
               visible={true}
@@ -661,17 +662,17 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
           </div>
         </div>
 
-        <div className="flex gap-3 min-h-[calc(100vh-7rem)]">
+        <div className={`flex ${SPACING.gap.sm} min-h-[calc(100vh-7rem)]`}>
           {/* Project Editor - 65% */}
           <div className="flex-1" style={{ flexBasis: '65%' }}>
             <Card className="h-full overflow-hidden">
               <div className="flex h-full">
                 {/* Left Sidebar - Metadata */}
                 <div className="w-1/3 border-r bg-muted/30 flex flex-col">
-                  <div className="flex-1 overflow-y-auto p-4">
-                    <div className="space-y-4">
+                  <div className={`flex-1 overflow-y-auto ${COMPONENTS.card.sm}`}>
+                    <div className={SPACING.stack.md}>
                       {/* Project Title */}
-                      <div className="space-y-2">
+                      <div className={COMPONENTS.form.field}>
                         <label className="text-sm font-medium text-gray-700">
                           Project Title *
                         </label>
@@ -703,7 +704,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
 
                       {/* Project Image Upload */}
                       {isEditing && (
-                        <div className="space-y-2">
+                        <div className={COMPONENTS.form.field}>
                           <label className="text-sm font-medium text-gray-700">
                             Project Image
                           </label>
@@ -732,7 +733,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
                       )}
 
                       {/* Brief Overview */}
-                      <div className="space-y-2">
+                      <div className={COMPONENTS.form.field}>
                         <label className="text-sm font-medium text-gray-700">
                           Brief Overview
                         </label>

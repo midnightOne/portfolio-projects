@@ -43,3 +43,6 @@ export const TAGS = {
     '#ec4899', // pink
   ],
 } as const;
+
+// Re-export layout constants for convenience
+export * from './constants/layout';

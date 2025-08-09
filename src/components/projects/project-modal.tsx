@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import type { ProjectWithRelations } from '@/lib/types/project';
 import { TiptapDisplayRenderer } from '@/components/tiptap/tiptap-display-renderer';
+import { MODAL, SPACING, COMPONENTS, FLEX } from '@/lib/constants';
 
 interface ProjectModalProps {
   project: ProjectWithRelations | null;
@@ -232,7 +233,7 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="!w-[95vw] !max-w-none sm:!max-w-[95vw] md:!max-w-6xl lg:!max-w-7xl !h-[85vh] p-0 overflow-hidden">
+      <DialogContent className={`!w-[95vw] !max-w-none sm:!max-w-[95vw] md:!${MODAL.xl} lg:!${MODAL.full} !${MODAL.height.lg} p-0 overflow-hidden`}>
         <motion.div
           className="h-full"
           variants={modalVariants}
@@ -336,9 +337,9 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                   animate="visible"
                 >
                   {/* Scrollable content within fixed sidebar */}
-                  <div className="flex-1 overflow-y-auto p-4 lg:p-6">
+                  <div className={`flex-1 overflow-y-auto ${COMPONENTS.card.sm} lg:${COMPONENTS.card.md}`}>
                     {project ? (
-                      <div className="space-y-4">
+                      <div className={SPACING.stack.md}>
                         {/* Project Title - Visible */}
                       <motion.h2 
                         className="text-xl lg:text-2xl font-bold leading-tight"
@@ -380,16 +381,16 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                       {/* Tags */}
                       {tags.length > 0 && (
                         <motion.div 
-                          className="space-y-2"
+                          className={COMPONENTS.form.field}
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: 0.6, duration: 0.3 }}
                         >
-                          <div className="flex items-center gap-2 text-sm font-medium">
+                          <div className={`${FLEX.start} ${SPACING.gap.xs} text-sm font-medium`}>
                             <TagIcon className="h-4 w-4" />
                             Tags
                           </div>
-                          <div className="flex flex-wrap gap-2">
+                          <div className={`flex flex-wrap ${SPACING.gap.xs}`}>
                             {tags.map((tag, index) => (
                               <motion.div
                                 key={tag.id}
@@ -416,13 +417,13 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
 
                       {/* Metadata */}
                       <motion.div 
-                        className="space-y-3 pt-2"
+                        className={`${SPACING.stack.sm} pt-2`}
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         transition={{ delay: 0.8, duration: 0.3 }}
                       >
                         {project.workDate && (
-                          <div className="flex items-center gap-2 text-sm">
+                          <div className={`${FLEX.start} ${SPACING.gap.xs} text-sm`}>
                             <Calendar className="h-4 w-4 text-muted-foreground" />
                             <span className="font-medium">Work Date:</span>
                             <span className="text-muted-foreground">{formatDate(project.workDate)}</span>
@@ -430,7 +431,7 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                         )}
 
                         {project.viewCount > 0 && (
-                          <div className="flex items-center gap-2 text-sm">
+                          <div className={`${FLEX.start} ${SPACING.gap.xs} text-sm`}>
                             <Eye className="h-4 w-4 text-muted-foreground" />
                             <span className="font-medium">Views:</span>
                             <span className="text-muted-foreground">{project.viewCount}</span>
@@ -452,16 +453,16 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                       {/* External Links */}
                       {externalLinks.length > 0 && (
                         <motion.div 
-                          className="space-y-3 pt-2"
+                          className={`${SPACING.stack.sm} pt-2`}
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: 0.9, duration: 0.3 }}
                         >
-                          <h3 className="text-sm font-medium flex items-center gap-2">
+                          <h3 className={`text-sm font-medium ${FLEX.start} ${SPACING.gap.xs}`}>
                             <ExternalLink className="h-4 w-4" />
                             External Links
                           </h3>
-                          <div className="space-y-2">
+                          <div className={SPACING.stack.xs}>
                             {externalLinks.map((link, index) => (
                               <motion.div
                                 key={link.id}
@@ -487,16 +488,16 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                       {/* Download Files */}
                       {downloadableFiles.length > 0 && (
                         <motion.div 
-                          className="space-y-3 pt-2"
+                          className={`${SPACING.stack.sm} pt-2`}
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: 1.1, duration: 0.3 }}
                         >
-                          <h3 className="text-sm font-medium flex items-center gap-2">
+                          <h3 className={`text-sm font-medium ${FLEX.start} ${SPACING.gap.xs}`}>
                             <Download className="h-4 w-4" />
                             Downloads
                           </h3>
-                          <div className="space-y-2">
+                          <div className={SPACING.stack.xs}>
                             {downloadableFiles.map((file, index) => (
                               <motion.div
                                 key={file.id}
@@ -543,13 +544,13 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                   initial="hidden" 
                   animate="visible"
                 >
-                  <div className="flex-1 overflow-y-auto p-4 lg:p-6" style={{ maxHeight: 'calc(85vh - 2rem)' }}>
+                  <div className={`flex-1 overflow-y-auto ${COMPONENTS.card.sm} lg:${COMPONENTS.card.md}`} style={{ maxHeight: 'calc(85vh - 2rem)' }}>
                     {project ? (
-                      <div className="max-w-none prose prose-gray dark:prose-invert lg:prose-lg space-y-6">
+                      <div className={`max-w-none prose prose-gray dark:prose-invert lg:prose-lg ${SPACING.stack.lg}`}>
                         {/* Main Description */}
                         {project.description && (
                         <motion.div 
-                          className="space-y-4"
+                          className={SPACING.stack.md}
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
                           transition={{ delay: 0.4, duration: 0.4 }}
@@ -564,7 +565,7 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                       {/* Enhanced Article Content with Rich Formatting */}
                       {(project.articleContent?.content || project.articleContent?.jsonContent) && (
                         <motion.div 
-                          className="space-y-4 mt-6"
+                          className={`${SPACING.stack.md} mt-6`}
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
                           transition={{ delay: 0.5, duration: 0.4 }}
@@ -614,7 +615,7 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                             {mediaItems.length > 0 && mediaItems.slice(0, 3).some(media => 
                               ['IMAGE', 'GIF', 'VIDEO', 'WEBM'].includes(media.type)
                             ) && (
-                              <div className="my-6 space-y-4">
+                              <div className={`my-6 ${SPACING.stack.md}`}>
                                 {mediaItems
                                   .filter(media => ['IMAGE', 'GIF', 'VIDEO', 'WEBM'].includes(media.type))
                                   .slice(0, 3)
@@ -638,13 +639,13 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                       {/* Enhanced Media Gallery - Remaining Items */}
                       {mediaItems.length > 3 && (
                         <motion.div 
-                          className="space-y-6 mt-8"
+                          className={`${SPACING.stack.lg} mt-8`}
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
                           transition={{ delay: 0.8, duration: 0.4 }}
                         >
                           <h2 className="text-lg lg:text-xl font-semibold">Additional Media</h2>
-                          <div className="space-y-6">
+                          <div className={SPACING.stack.lg}>
                             {/* Show remaining media items not displayed inline */}
                             {mediaItems.slice(3, 15).map((media, index) => (
                               <motion.div

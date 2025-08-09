@@ -3,6 +3,7 @@
 import React from 'react';
 import { NavigationBar, type SortOption, type ViewMode, type TimelineGroupBy } from './navigation-bar';
 import type { Tag } from '@/lib/types/project';
+import { CONTAINERS, SPACING, COMPONENTS } from '@/lib/constants';
 
 interface ProjectsLayoutProps {
   children: React.ReactNode;
@@ -55,7 +56,7 @@ export function ProjectsLayout({
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container mx-auto px-4 py-6">
+        <div className={`${CONTAINERS.default} ${SPACING.section.md}`}>
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold tracking-tight">Portfolio Projects</h1>
@@ -94,13 +95,13 @@ export function ProjectsLayout({
       )}
 
       {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
+      <main className={`${CONTAINERS.default} ${SPACING.section.lg}`}>
         {children}
       </main>
 
       {/* Footer */}
       <footer className="border-t bg-muted/30 mt-16">
-        <div className="container mx-auto px-4 py-8">
+        <div className={`${CONTAINERS.default} ${SPACING.section.lg}`}>
           <div className="text-center text-sm text-muted-foreground">
             <p>&copy; {new Date().getFullYear()} Portfolio Projects. All rights reserved.</p>
           </div>

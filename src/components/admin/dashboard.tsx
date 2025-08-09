@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Upload, BarChart3, Edit, Trash2, Eye, Brain } from "lucide-react";
+import { SPACING, GRID, FLEX, COMPONENTS } from '@/lib/constants';
 
 interface DashboardStats {
   totalProjects: number;
@@ -94,10 +95,10 @@ export function AdminDashboard() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className={SPACING.stack.lg}>
       {/* Header with user info and sign out */}
-      <div className="flex justify-between items-center">
-        <div className="flex items-center space-x-4">
+      <div className={FLEX.between}>
+        <div className={`${FLEX.start} ${SPACING.inline.md}`}>
           <span className="text-sm text-muted-foreground">
             Welcome, {session?.user?.name}
           </span>
@@ -107,7 +108,7 @@ export function AdminDashboard() {
         </Button>
       </div>
       {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+      <div className={`${GRID.stats} ${SPACING.gap.lg}`}>
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-gray-600">Total Projects</CardTitle>
@@ -171,23 +172,23 @@ export function AdminDashboard() {
                   Common administrative tasks
                 </CardDescription>
               </CardHeader>
-              <CardContent className="flex flex-wrap gap-4">
-                <Button onClick={handleCreateProject} className="flex items-center gap-2">
+              <CardContent className={`flex flex-wrap ${SPACING.gap.md}`}>
+                <Button onClick={handleCreateProject} className={`${FLEX.start} ${COMPONENTS.button.gap}`}>
                   <Plus size={16} />
                   Create New Project
                 </Button>
-                <Button onClick={handleUploadMedia} variant="outline" className="flex items-center gap-2">
+                <Button onClick={handleUploadMedia} variant="outline" className={`${FLEX.start} ${COMPONENTS.button.gap}`}>
                   <Upload size={16} />
                   Upload Media
                 </Button>
-                <Button variant="outline" className="flex items-center gap-2">
+                <Button variant="outline" className={`${FLEX.start} ${COMPONENTS.button.gap}`}>
                   <BarChart3 size={16} />
                   View Analytics
                 </Button>
                 <Button 
                   onClick={() => router.push('/admin/performance')} 
                   variant="outline" 
-                  className="flex items-center gap-2"
+                  className={`${FLEX.start} ${COMPONENTS.button.gap}`}
                 >
                   <BarChart3 size={16} />
                   Performance Dashboard
@@ -195,7 +196,7 @@ export function AdminDashboard() {
                 <Button 
                   onClick={() => router.push('/admin/ai')} 
                   variant="outline" 
-                  className="flex items-center gap-2"
+                  className={`${FLEX.start} ${COMPONENTS.button.gap}`}
                 >
                   <Brain size={16} />
                   AI Settings
@@ -230,14 +231,14 @@ export function AdminDashboard() {
                   </Button>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className={SPACING.stack.md}>
                   {projects.map((project) => (
                     <div 
                       key={project.id} 
-                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
+                      className={`${FLEX.between} ${COMPONENTS.card.sm} border rounded-lg hover:bg-gray-50`}
                     >
                       <div className="flex-1">
-                        <div className="flex items-center gap-3 mb-2">
+                        <div className={`${FLEX.start} ${SPACING.gap.sm} mb-2`}>
                           <h3 className="font-medium">{project.title}</h3>
                           <Badge 
                             variant={project.status === 'PUBLISHED' ? 'default' : 'secondary'}
@@ -248,8 +249,8 @@ export function AdminDashboard() {
                             <Badge variant="outline">Private</Badge>
                           )}
                         </div>
-                        <div className="flex items-center gap-4 text-sm text-gray-600">
-                          <span className="flex items-center gap-1">
+                        <div className={`${FLEX.start} ${SPACING.gap.md} text-sm text-gray-600`}>
+                          <span className={`${FLEX.start} gap-1`}>
                             <Eye size={14} />
                             {project.viewCount} views
                           </span>
@@ -257,7 +258,7 @@ export function AdminDashboard() {
                           <span>Updated {formatDate(project.updatedAt)}</span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className={`${FLEX.start} ${SPACING.gap.xs}`}>
                         <Button 
                           size="sm" 
                           variant="outline"
