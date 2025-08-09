@@ -31,6 +31,7 @@ export const AIStatusIndicator: React.FC<AIStatusIndicatorProps> = ({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [cacheInfo, setCacheInfo] = useState<any>(null);
 
   const checker = AIAvailabilityChecker.getInstance();
 
@@ -56,8 +57,38 @@ export const AIStatusIndicator: React.FC<AIStatusIndicatorProps> = ({
     loadStatus();
   }, []);
 
-  const handleRefresh = () => {
-    loadStatus(true);
+  const handleRefresh = async () => {
+    try {
+      setRefreshing(true);
+      
+      // Call the refresh endpoint to force fresh connection tests
+      const response = await fetch('/api/admin/ai/providers/refresh', {
+        method: 'POST',
+        credentials: 'include', // Include session cookies
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          // Update status with fresh data
+          await loadStatus(true);
+          setCacheInfo(data.meta?.cacheStats);
+        }
+      } else {
+        console.error('Failed to refresh AI status');
+        // Fallback to regular status check
+        await loadStatus(true);
+      }
+    } catch (error) {
+      console.error('Error refreshing AI status:', error);
+      // Fallback to regular status check
+      await loadStatus(true);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   if (loading && !status) {
@@ -246,6 +277,24 @@ export const AIStatusIndicator: React.FC<AIStatusIndicatorProps> = ({
                     </li>
                   ))}
                 </ul>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Cache Information (Development Only) */}
+        {process.env.NODE_ENV === 'development' && cacheInfo && (
+          <div className="pt-3 border-t">
+            <div className="text-sm font-medium mb-2">Cache Statistics:</div>
+            <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+              <div>Hit Rate: {(cacheInfo.hitRate * 100).toFixed(1)}%</div>
+              <div>Total Requests: {cacheInfo.totalRequests}</div>
+              <div>Cache Hits: {cacheInfo.cacheHits}</div>
+              <div>Cache Misses: {cacheInfo.cacheMisses}</div>
+            </div>
+            {cacheInfo.lastRefresh && (
+              <div className="text-xs text-muted-foreground mt-1">
+                Last Refresh: {new Date(cacheInfo.lastRefresh).toLocaleTimeString()}
               </div>
             )}
           </div>

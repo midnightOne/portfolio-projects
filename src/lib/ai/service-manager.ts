@@ -13,6 +13,7 @@ import {
   ProviderChatResponse
 } from './types';
 import { AIErrorHandler, AIError, AIErrorType } from './error-handler';
+import { AIStatusCache } from './status-cache';
 
 const prisma = new PrismaClient();
 
@@ -164,9 +165,11 @@ export interface AICustomPromptResponse {
 export class AIServiceManager {
   private providers: Map<AIProviderType, AIProvider> = new Map();
   private modelConfigs: Map<AIProviderType, string[]> = new Map();
+  private statusCache: AIStatusCache;
 
   constructor() {
     this.initializeProviders();
+    this.statusCache = AIStatusCache.getInstance();
     // Note: Model configurations are initialized on-demand in API routes
     // to avoid Prisma client issues on the client side
   }
@@ -181,50 +184,81 @@ export class AIServiceManager {
 
   /**
    * Get status of all available providers with connection information
+   * Uses caching to avoid redundant connection tests
    */
-  async getAvailableProviders(): Promise<AIProviderStatus[]> {
+  async getAvailableProviders(forceRefresh = false): Promise<AIProviderStatus[]> {
     const statuses: AIProviderStatus[] = [];
 
     // Check all possible provider types, not just configured ones
     const allProviderTypes: AIProviderType[] = ['openai', 'anthropic'];
 
+    // If not forcing refresh, try to get cached statuses first
+    if (!forceRefresh) {
+      const cachedStatuses = this.statusCache.getAll();
+      const cachedProviders = Array.from(cachedStatuses.keys());
+      
+      // If we have all providers cached, return cached results
+      if (cachedProviders.length === allProviderTypes.length && 
+          allProviderTypes.every(type => cachedProviders.includes(type))) {
+        return Array.from(cachedStatuses.values());
+      }
+    }
+
+    // Mark user as active for background refresh decisions
+    this.statusCache.markUserActive();
+
     for (const providerType of allProviderTypes) {
+      // Check cache first (unless forcing refresh)
+      if (!forceRefresh) {
+        const cachedStatus = this.statusCache.get(providerType);
+        if (cachedStatus) {
+          statuses.push(cachedStatus);
+          continue;
+        }
+      }
+
+      // Cache miss or force refresh - perform actual status check
       const provider = this.providers.get(providerType);
       const models = this.modelConfigs.get(providerType) || [];
 
+      let status: AIProviderStatus;
+
       if (!provider) {
         // Provider not configured (no API key)
-        statuses.push({
+        status = {
           name: providerType,
           configured: false,
           connected: false,
           error: `${providerType.toUpperCase()}_API_KEY environment variable not set`,
           models: [],
           lastTested: new Date()
-        });
-        continue;
+        };
+      } else {
+        try {
+          const testResult = await this.testConnection(providerType);
+          status = {
+            name: providerType,
+            configured: true,
+            connected: testResult.success,
+            error: testResult.success ? undefined : testResult.message,
+            models,
+            lastTested: new Date()
+          };
+        } catch (error) {
+          status = {
+            name: providerType,
+            configured: true,
+            connected: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+            models,
+            lastTested: new Date()
+          };
+        }
       }
 
-      try {
-        const testResult = await this.testConnection(providerType);
-        statuses.push({
-          name: providerType,
-          configured: true,
-          connected: testResult.success,
-          error: testResult.success ? undefined : testResult.message,
-          models,
-          lastTested: new Date()
-        });
-      } catch (error) {
-        statuses.push({
-          name: providerType,
-          configured: true,
-          connected: false,
-          error: error instanceof Error ? error.message : 'Unknown error',
-          models,
-          lastTested: new Date()
-        });
-      }
+      // Cache the result
+      this.statusCache.set(providerType, status);
+      statuses.push(status);
     }
 
     return statuses;
@@ -232,6 +266,7 @@ export class AIServiceManager {
 
   /**
    * Test connection to a specific provider
+   * This method performs actual API calls and should be used sparingly
    */
   async testConnection(providerType: AIProviderType): Promise<ConnectionTestResult> {
     const provider = this.providers.get(providerType);
@@ -297,6 +332,35 @@ export class AIServiceManager {
         }
       };
     }
+  }
+
+  /**
+   * Force refresh of provider status (bypasses cache)
+   */
+  async refreshProviderStatus(providerType?: AIProviderType): Promise<AIProviderStatus[]> {
+    if (providerType) {
+      // Refresh specific provider
+      this.statusCache.delete(providerType);
+      return this.getAvailableProviders(true);
+    } else {
+      // Refresh all providers
+      this.statusCache.clear();
+      return this.getAvailableProviders(true);
+    }
+  }
+
+  /**
+   * Get cache statistics for monitoring
+   */
+  getCacheStats() {
+    return this.statusCache.getStats();
+  }
+
+  /**
+   * Get cache configuration
+   */
+  getCacheConfig() {
+    return this.statusCache.getConfig();
   }
 
 
