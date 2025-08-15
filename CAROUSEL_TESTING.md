@@ -43,10 +43,18 @@ npm run dev
 3. Scroll down to the "Article Content" section
 
 ### Step 4: Insert an Image Carousel
-1. Click in the article content editor
-2. Type `/carousel` or `/Image Carousel`
-3. Select "Image Carousel" from the dropdown
-4. An empty carousel will be inserted
+1. Click in the article content editor to focus it
+2. Press Enter to create a new paragraph if needed
+3. Type `/` at the beginning of an empty line
+4. You should see a dropdown with commands including "Image Carousel"
+5. Type `carousel` to filter to the carousel command
+6. Click "Image Carousel" or press Enter to select it
+7. An empty carousel will be inserted
+
+**Troubleshooting Slash Commands:**
+- Make sure you're at the beginning of an empty paragraph
+- Check the browser console for any error messages
+- Try refreshing the page and logging in again
 
 ### Step 5: Add Images to the Carousel
 1. Click the "Add Images" button on the empty carousel
@@ -57,11 +65,14 @@ npm run dev
 
 ### Step 6: Test Carousel Features
 - **Navigation**: Use arrow buttons or dot indicators to navigate
+- **Drag/Swipe**: Drag left or right on the image to navigate (works with mouse and touch)
 - **Thumbnails**: Scroll through thumbnail strip at the bottom
 - **Auto-play**: Click the play/pause button to toggle auto-play
 - **Remove Images**: Hover over thumbnails and click the × button
 - **Edit**: Click the edit button to add more images
 - **Delete**: Click the trash button to remove the entire carousel
+
+**Note**: Fullscreen/lightbox viewing has been disabled for carousels to prevent unexpected behavior.
 
 ### Step 7: Test Frontend Display
 1. Save the project

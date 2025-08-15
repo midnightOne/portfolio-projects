@@ -567,7 +567,6 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                                       images={mediaItems}
                                       className="max-w-3xl mx-auto"
                                       showThumbnails={true}
-                                      onImageClick={handleImageClick}
                                     />
                                   ) : (
                                     mediaItems.slice(0, 3).map((media, index) => (
@@ -640,7 +639,6 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                               images={mediaItems.filter(m => m.type === 'IMAGE' || m.type === 'GIF')}
                               className="max-w-4xl mx-auto"
                               showThumbnails={true}
-                              onImageClick={handleImageClick}
                             />
                           ) : (
                             /* Single image or mixed media display */

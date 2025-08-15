@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence, PanInfo } from 'framer-motion';
-import { ChevronLeft, ChevronRight, Maximize2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { MediaItem } from '@/lib/types/project';
@@ -13,7 +13,6 @@ interface ImageCarouselProps {
   showThumbnails?: boolean;
   autoPlay?: boolean;
   autoPlayInterval?: number;
-  onImageClick?: (image: MediaItem, index: number) => void;
 }
 
 interface CarouselImage extends MediaItem {
@@ -28,8 +27,7 @@ export function ImageCarousel({
   className,
   showThumbnails = true,
   autoPlay = false,
-  autoPlayInterval = 5000,
-  onImageClick
+  autoPlayInterval = 5000
 }: ImageCarouselProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [direction, setDirection] = useState(0);
@@ -49,19 +47,8 @@ export function ImageCarousel({
           <img
             src={singleImage.url}
             alt={singleImage.altText || singleImage.description || 'Project image'}
-            className="w-full h-full object-cover cursor-pointer transition-transform hover:scale-[1.02]"
-            onClick={() => onImageClick?.(singleImage, 0)}
+            className="w-full h-full object-cover"
           />
-          {onImageClick && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute top-2 right-2 bg-black/20 hover:bg-black/40 text-white"
-              onClick={() => onImageClick(singleImage, 0)}
-            >
-              <Maximize2 className="h-4 w-4" />
-            </Button>
-          )}
         </div>
         {singleImage.description && (
           <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
@@ -105,20 +92,22 @@ export function ImageCarousel({
     setCurrentIndex(index);
   }, [currentIndex]);
 
-  // Swipe detection
-  const swipeConfidenceThreshold = (offset: number, velocity: number) => {
-    return Math.abs(offset) * velocity > SWIPE_CONFIDENCE_THRESHOLD;
-  };
-
+  // Drag/Swipe detection - improved to work with both touch and mouse
   const handleDragEnd = (event: any, { offset, velocity }: PanInfo) => {
-    const swipe = swipeConfidenceThreshold(offset.x, velocity.x);
+    const dragDistance = Math.abs(offset.x);
+    const dragVelocity = Math.abs(velocity.x);
+    
+    // Lower threshold for better responsiveness
+    const isSignificantDrag = dragDistance > 50 || dragVelocity > 500;
 
-    if (swipe && offset.x > SWIPE_POWER_THRESHOLD) {
-      // Swiped right - go to previous
-      goToPrevious();
-    } else if (swipe && offset.x < -SWIPE_POWER_THRESHOLD) {
-      // Swiped left - go to next
-      goToNext();
+    if (isSignificantDrag) {
+      if (offset.x > 0) {
+        // Dragged right - go to previous
+        goToPrevious();
+      } else {
+        // Dragged left - go to next
+        goToNext();
+      }
     }
   };
 
@@ -174,9 +163,10 @@ export function ImageCarousel({
             exit="exit"
             transition={swipeTransition}
             drag="x"
-            dragConstraints={{ left: 0, right: 0 }}
-            dragElastic={1}
+            dragConstraints={{ left: -100, right: 100 }}
+            dragElastic={0.2}
             onDragEnd={handleDragEnd}
+            whileDrag={{ scale: 0.95 }}
             className="absolute inset-0 cursor-grab active:cursor-grabbing"
           >
             <img
@@ -184,23 +174,7 @@ export function ImageCarousel({
               alt={currentImage.altText || currentImage.description || 'Project image'}
               className="w-full h-full object-cover select-none"
               draggable={false}
-              onClick={() => onImageClick?.(currentImage, currentIndex)}
             />
-            
-            {/* Expand button overlay */}
-            {onImageClick && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="absolute top-2 right-2 bg-black/20 hover:bg-black/40 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onImageClick(currentImage, currentIndex);
-                }}
-              >
-                <Maximize2 className="h-4 w-4" />
-              </Button>
-            )}
           </motion.div>
         </AnimatePresence>
 
@@ -318,10 +292,6 @@ export function ArticleImageCarousel({
       <ImageCarousel
         images={images}
         showThumbnails={false}
-        onImageClick={(image) => {
-          // Open in new tab for now - could be enhanced with lightbox
-          window.open(image.url, '_blank');
-        }}
       />
     </div>
   );
