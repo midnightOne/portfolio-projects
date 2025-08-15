@@ -4,6 +4,7 @@ import React, { useState, useCallback } from 'react';
 import { NodeViewWrapper, NodeViewProps } from '@tiptap/react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { MediaSelectionModal } from '@/components/admin/media-selection-modal';
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -32,18 +33,23 @@ interface ImageCarouselNodeViewProps {
   updateAttributes: (attrs: any) => void;
   deleteNode: () => void;
   selected: boolean;
+  // Add project context for media selection
+  getPos?: () => number;
+  editor?: any;
 }
 
 export function ImageCarouselNodeView({ 
   node, 
   updateAttributes, 
   deleteNode,
-  selected 
+  selected,
+  editor
 }: ImageCarouselNodeViewProps) {
   const { images, autoPlay, showThumbnails } = node.attrs;
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(autoPlay);
-  const [isEditing, setIsEditing] = useState(false);
+  const [isMediaModalOpen, setIsMediaModalOpen] = useState(false);
+  const [selectedImages, setSelectedImages] = useState<CarouselImage[]>(images || []);
 
   // Auto-play functionality
   React.useEffect(() => {
@@ -75,10 +81,60 @@ export function ImageCarouselNodeView({
   }, [isPlaying, updateAttributes]);
 
   const handleEdit = useCallback(() => {
-    // TODO: Open media selection modal
-    setIsEditing(true);
-    console.log('Edit carousel - open media selection modal');
+    setIsMediaModalOpen(true);
   }, []);
+
+  const handleMediaSelect = useCallback((media: any) => {
+    // Convert MediaItem to CarouselImage format
+    const carouselImage: CarouselImage = {
+      id: media.id,
+      url: media.url,
+      alt: media.altText || media.description || '',
+      caption: media.description || ''
+    };
+
+    // Add to selected images if not already present
+    const newImages = [...selectedImages];
+    const existingIndex = newImages.findIndex(img => img.id === carouselImage.id);
+    
+    if (existingIndex === -1) {
+      newImages.push(carouselImage);
+      setSelectedImages(newImages);
+      updateAttributes({ images: newImages });
+    }
+  }, [selectedImages, updateAttributes]);
+
+  const handleRemoveImage = useCallback((imageId: string) => {
+    const newImages = selectedImages.filter(img => img.id !== imageId);
+    setSelectedImages(newImages);
+    updateAttributes({ images: newImages });
+    
+    // Adjust current index if needed
+    if (currentIndex >= newImages.length && newImages.length > 0) {
+      setCurrentIndex(newImages.length - 1);
+    } else if (newImages.length === 0) {
+      setCurrentIndex(0);
+    }
+  }, [selectedImages, updateAttributes, currentIndex]);
+
+  // Get project ID from editor context (if available)
+  const getProjectId = useCallback(() => {
+    // Try to get project ID from editor storage or context
+    if (editor?.storage?.projectContext?.projectId) {
+      return editor.storage.projectContext.projectId;
+    }
+    
+    // Fallback: try to extract from URL or other context
+    if (typeof window !== 'undefined') {
+      const pathParts = window.location.pathname.split('/');
+      const editIndex = pathParts.indexOf('edit');
+      if (editIndex !== -1 && pathParts[editIndex + 1]) {
+        return pathParts[editIndex + 1];
+      }
+    }
+    
+    return null;
+  }, [editor]);
 
   const handleDelete = useCallback(() => {
     if (confirm('Are you sure you want to delete this image carousel?')) {
@@ -211,19 +267,31 @@ export function ImageCarouselNodeView({
             <div className="p-3 bg-gray-50 border-t">
               <div className="flex gap-2 overflow-x-auto">
                 {images.map((image, index) => (
-                  <button
-                    key={image.id}
-                    className={`flex-shrink-0 w-16 h-12 rounded overflow-hidden border-2 transition-colors ${
-                      index === currentIndex ? 'border-blue-500' : 'border-gray-200'
-                    }`}
-                    onClick={() => goToSlide(index)}
-                  >
-                    <img
-                      src={image.url}
-                      alt={image.alt || `Thumbnail ${index + 1}`}
-                      className="w-full h-full object-cover"
-                    />
-                  </button>
+                  <div key={image.id} className="relative flex-shrink-0 group">
+                    <button
+                      className={`w-16 h-12 rounded overflow-hidden border-2 transition-colors ${
+                        index === currentIndex ? 'border-blue-500' : 'border-gray-200'
+                      }`}
+                      onClick={() => goToSlide(index)}
+                    >
+                      <img
+                        src={image.url}
+                        alt={image.alt || `Thumbnail ${index + 1}`}
+                        className="w-full h-full object-cover"
+                      />
+                    </button>
+                    {/* Remove button */}
+                    <button
+                      className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-xs"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveImage(image.id);
+                      }}
+                      title="Remove image"
+                    >
+                      ×
+                    </button>
+                  </div>
                 ))}
               </div>
             </div>
@@ -237,6 +305,16 @@ export function ImageCarouselNodeView({
           </div>
         </CardContent>
       </Card>
+
+      {/* Media Selection Modal */}
+      {isMediaModalOpen && getProjectId() && (
+        <MediaSelectionModal
+          isOpen={isMediaModalOpen}
+          onClose={() => setIsMediaModalOpen(false)}
+          projectId={getProjectId()!}
+          onMediaSelect={handleMediaSelect}
+        />
+      )}
     </NodeViewWrapper>
   );
 }

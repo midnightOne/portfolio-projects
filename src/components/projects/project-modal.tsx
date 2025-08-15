@@ -16,6 +16,10 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import type { ProjectWithRelations } from '@/lib/types/project';
 import { TiptapDisplayRenderer } from '@/components/tiptap/tiptap-display-renderer';
+import { ImageCarousel } from '@/components/media/image-carousel';
+import { ImageLightbox } from '@/components/media/image-lightbox';
+import { DownloadButton } from '@/components/media/download-button';
+import { ExternalLinks } from '@/components/media/external-links';
 import { MODAL, SPACING, COMPONENTS, FLEX } from '@/lib/constants';
 
 interface ProjectModalProps {
@@ -107,6 +111,9 @@ const loadingTransitionVariants = {
 };
 
 export function ProjectModal({ project, isOpen, onClose, loading = false }: ProjectModalProps) {
+  const [lightboxOpen, setLightboxOpen] = React.useState(false);
+  const [lightboxIndex, setLightboxIndex] = React.useState(0);
+
   const formatDate = (date: Date | null) => {
     if (!date) return null;
     return new Intl.DateTimeFormat('en-US', {
@@ -118,6 +125,11 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
 
   const handleExternalLinkClick = (url: string) => {
     window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleImageClick = (image: any, index: number) => {
+    setLightboxIndex(index);
+    setLightboxOpen(true);
   };
 
   // Helper function to render inline media component (Requirement 3.6)
@@ -462,26 +474,13 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                             <ExternalLink className="h-4 w-4" />
                             External Links
                           </h3>
-                          <div className={SPACING.stack.xs}>
-                            {externalLinks.map((link, index) => (
-                              <motion.div
-                                key={link.id}
-                                initial={{ opacity: 0, x: -10 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                transition={{ delay: 1.0 + index * 0.1, duration: 0.2 }}
-                              >
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="w-full justify-start transition-transform hover:scale-[1.02]"
-                                  onClick={() => handleExternalLinkClick(link.url)}
-                                >
-                                  <ExternalLink className="h-4 w-4 mr-2" />
-                                  {link.label}
-                                </Button>
-                              </motion.div>
-                            ))}
-                          </div>
+                          <ExternalLinks
+                            links={externalLinks}
+                            variant="outline"
+                            size="sm"
+                            layout="vertical"
+                            showDescription={false}
+                          />
                         </motion.div>
                       )}
 
@@ -497,31 +496,12 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                             <Download className="h-4 w-4" />
                             Downloads
                           </h3>
-                          <div className={SPACING.stack.xs}>
-                            {downloadableFiles.map((file, index) => (
-                              <motion.div
-                                key={file.id}
-                                initial={{ opacity: 0, x: -10 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                transition={{ delay: 1.2 + index * 0.1, duration: 0.2 }}
-                              >
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="w-full justify-start transition-transform hover:scale-[1.02]"
-                                  onClick={() => window.open(file.downloadUrl, '_blank')}
-                                >
-                                  <Download className="h-4 w-4 mr-2" />
-                                  <div className="flex flex-col items-start text-left">
-                                    <span className="text-xs">{file.originalName}</span>
-                                    <span className="text-xs text-muted-foreground">
-                                      {file.fileType} • {(Number(file.fileSize) / 1024 / 1024).toFixed(1)}MB
-                                    </span>
-                                  </div>
-                                </Button>
-                              </motion.div>
-                            ))}
-                          </div>
+                          <DownloadButton
+                            files={downloadableFiles}
+                            variant="outline"
+                            size="sm"
+                            showMetadata={false}
+                          />
                         </motion.div>
                       )}
                       </div>
@@ -582,22 +562,30 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                               className="prose-sm lg:prose-base"
                               mediaRenderer={(mediaItems) => (
                                 <div className="my-6 space-y-4">
-                                  {mediaItems.slice(0, 3).map((media, index) => (
-                                    <div key={media.id}>
-                                      {renderInlineMedia(media, "max-w-3xl mx-auto")}
-                                    </div>
-                                  ))}
+                                  {mediaItems.length > 1 ? (
+                                    <ImageCarousel
+                                      images={mediaItems}
+                                      className="max-w-3xl mx-auto"
+                                      showThumbnails={true}
+                                      onImageClick={handleImageClick}
+                                    />
+                                  ) : (
+                                    mediaItems.slice(0, 3).map((media, index) => (
+                                      <div key={media.id}>
+                                        {renderInlineMedia(media, "max-w-3xl mx-auto")}
+                                      </div>
+                                    ))
+                                  )}
                                 </div>
                               )}
                               downloadRenderer={(files) => (
                                 <div className="my-6 flex justify-center">
-                                  <Button
-                                    onClick={() => files[0] && window.open(files[0].downloadUrl, '_blank')}
-                                    className="flex items-center gap-2"
-                                  >
-                                    <Download className="h-4 w-4" />
-                                    Download {files.length > 1 ? `(${files.length} files)` : files[0]?.filename}
-                                  </Button>
+                                  <DownloadButton
+                                    files={files}
+                                    variant="default"
+                                    size="default"
+                                    inline={true}
+                                  />
                                 </div>
                               )}
                               interactiveRenderer={(url) => (
@@ -636,186 +624,205 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
                         </motion.div>
                       )}
 
-                      {/* Enhanced Media Gallery - Remaining Items */}
-                      {mediaItems.length > 3 && (
+                      {/* Enhanced Media Gallery with Carousel */}
+                      {mediaItems.length > 0 && (
                         <motion.div 
                           className={`${SPACING.stack.lg} mt-8`}
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
                           transition={{ delay: 0.8, duration: 0.4 }}
                         >
-                          <h2 className="text-lg lg:text-xl font-semibold">Additional Media</h2>
-                          <div className={SPACING.stack.lg}>
-                            {/* Show remaining media items not displayed inline */}
-                            {mediaItems.slice(3, 15).map((media, index) => (
-                              <motion.div
-                                key={media.id}
-                                className="w-full"
-                                initial={{ opacity: 0, y: 20 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ delay: 0.7 + index * 0.1, duration: 0.3 }}
-                              >
-                                {/* Media Container with proper responsive sizing */}
-                                <div className="w-full max-w-4xl mx-auto">
-                                  {media.type === 'IMAGE' && (
-                                    <div className="relative w-full">
-                                      <img
-                                        src={media.url}
-                                        alt={media.altText || media.description || 'Project media'}
-                                        className="w-full h-auto rounded-lg shadow-sm transition-transform hover:scale-[1.02] cursor-pointer"
-                                        loading="lazy"
-                                        style={{
-                                          aspectRatio: media.width && media.height 
-                                            ? `${media.width} / ${media.height}` 
-                                            : 'auto'
-                                        }}
-                                        onClick={() => {
-                                          // TODO: Open in lightbox/fullscreen view
-                                          window.open(media.url, '_blank');
-                                        }}
-                                      />
-                                      {/* Image description matching image width (Requirement 3.10) */}
-                                      {media.description && (
-                                        <div className="mt-2">
-                                          <p className="text-sm text-muted-foreground leading-relaxed">
-                                            {media.description}
-                                          </p>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-
-                                  {media.type === 'GIF' && (
-                                    <div className="relative w-full">
-                                      <img
-                                        src={media.url}
-                                        alt={media.altText || media.description || 'Project GIF'}
-                                        className="w-full h-auto rounded-lg shadow-sm"
-                                        loading="lazy"
-                                        style={{
-                                          aspectRatio: media.width && media.height 
-                                            ? `${media.width} / ${media.height}` 
-                                            : 'auto'
-                                        }}
-                                      />
-                                      {/* GIF description matching image width (Requirement 3.10) */}
-                                      {media.description && (
-                                        <div className="mt-2">
-                                          <p className="text-sm text-muted-foreground leading-relaxed">
-                                            {media.description}
-                                          </p>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-
-                                  {(media.type === 'VIDEO' || media.type === 'WEBM') && (
-                                    <div className="relative w-full">
-                                      <video
-                                        src={media.url}
-                                        poster={media.thumbnailUrl || undefined}
-                                        controls
-                                        className="w-full h-auto rounded-lg shadow-sm"
-                                        style={{
-                                          aspectRatio: media.width && media.height 
-                                            ? `${media.width} / ${media.height}` 
-                                            : '16 / 9'
-                                        }}
-                                      >
-                                        <source src={media.url} type={media.type === 'WEBM' ? 'video/webm' : 'video/mp4'} />
-                                        Your browser does not support the video tag.
-                                      </video>
-                                      {/* Video description matching video width (Requirement 3.10) */}
-                                      {media.description && (
-                                        <div className="mt-2">
-                                          <p className="text-sm text-muted-foreground leading-relaxed">
-                                            {media.description}
-                                          </p>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-
-                                  {media.type === 'AUDIO' && (
-                                    <div className="relative w-full">
-                                      <div className="bg-muted/50 rounded-lg p-4 border">
-                                        <audio
-                                          src={media.url}
-                                          controls
-                                          className="w-full"
-                                        >
-                                          Your browser does not support the audio tag.
-                                        </audio>
-                                      </div>
-                                      {/* Audio description */}
-                                      {media.description && (
-                                        <div className="mt-2">
-                                          <p className="text-sm text-muted-foreground leading-relaxed">
-                                            {media.description}
-                                          </p>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-
-                                  {media.type === 'DOCUMENT' && (
-                                    <div className="relative w-full">
-                                      <Card className="transition-transform hover:scale-[1.01]">
-                                        <CardContent className="p-4">
-                                          <div className="flex items-center gap-3">
-                                            <div className="p-2 bg-muted rounded">
-                                              <Download className="h-5 w-5" />
-                                            </div>
-                                            <div className="flex-1">
-                                              <h4 className="font-medium">
-                                                {media.altText || 'Document'}
-                                              </h4>
-                                              {media.description && (
-                                                <p className="text-sm text-muted-foreground mt-1">
-                                                  {media.description}
-                                                </p>
-                                              )}
-                                            </div>
-                                            <Button
-                                              variant="outline"
-                                              size="sm"
-                                              onClick={() => window.open(media.url, '_blank')}
-                                            >
-                                              View
-                                            </Button>
-                                          </div>
-                                        </CardContent>
-                                      </Card>
-                                    </div>
-                                  )}
-                                </div>
-                              </motion.div>
-                            ))}
-                            {mediaItems.length > 15 && (
-                              <motion.div 
-                                className="text-center py-4"
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                transition={{ delay: 1.5, duration: 0.3 }}
-                              >
-                                <p className="text-sm text-muted-foreground">
-                                  And {mediaItems.length - 15} more media item{mediaItems.length - 15 !== 1 ? 's' : ''}...
-                                </p>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="mt-2"
-                                  onClick={() => {
-                                    // TODO: Load more media or show all
-                                    console.log('Show more media items');
-                                  }}
+                          <h2 className="text-lg lg:text-xl font-semibold">Project Media</h2>
+                          
+                          {/* Image Carousel for multiple images */}
+                          {mediaItems.filter(m => m.type === 'IMAGE' || m.type === 'GIF').length > 1 ? (
+                            <ImageCarousel
+                              images={mediaItems.filter(m => m.type === 'IMAGE' || m.type === 'GIF')}
+                              className="max-w-4xl mx-auto"
+                              showThumbnails={true}
+                              onImageClick={handleImageClick}
+                            />
+                          ) : (
+                            /* Single image or mixed media display */
+                            <div className={SPACING.stack.lg}>
+                              {mediaItems.slice(0, 15).map((media, index) => (
+                                <motion.div
+                                  key={media.id}
+                                  className="w-full"
+                                  initial={{ opacity: 0, y: 20 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  transition={{ delay: 0.7 + index * 0.1, duration: 0.3 }}
                                 >
-                                  Show All Media
-                                </Button>
-                              </motion.div>
-                            )}
-                          </div>
+                                  {/* Media Container with proper responsive sizing */}
+                                  <div className="w-full max-w-4xl mx-auto">
+                                    {media.type === 'IMAGE' && (
+                                      <div className="relative w-full">
+                                        <img
+                                          src={media.url}
+                                          alt={media.altText || media.description || 'Project media'}
+                                          className="w-full h-auto rounded-lg shadow-sm transition-transform hover:scale-[1.02] cursor-pointer"
+                                          loading="lazy"
+                                          style={{
+                                            aspectRatio: media.width && media.height 
+                                              ? `${media.width} / ${media.height}` 
+                                              : 'auto'
+                                          }}
+                                          onClick={() => handleImageClick(media, index)}
+                                        />
+                                        {/* Image description matching image width (Requirement 3.10) */}
+                                        {media.description && (
+                                          <div className="mt-2">
+                                            <p className="text-sm text-muted-foreground leading-relaxed">
+                                              {media.description}
+                                            </p>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {media.type === 'GIF' && (
+                                      <div className="relative w-full">
+                                        <img
+                                          src={media.url}
+                                          alt={media.altText || media.description || 'Project GIF'}
+                                          className="w-full h-auto rounded-lg shadow-sm cursor-pointer"
+                                          loading="lazy"
+                                          style={{
+                                            aspectRatio: media.width && media.height 
+                                              ? `${media.width} / ${media.height}` 
+                                              : 'auto'
+                                          }}
+                                          onClick={() => handleImageClick(media, index)}
+                                        />
+                                        {/* GIF description matching image width (Requirement 3.10) */}
+                                        {media.description && (
+                                          <div className="mt-2">
+                                            <p className="text-sm text-muted-foreground leading-relaxed">
+                                              {media.description}
+                                            </p>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {(media.type === 'VIDEO' || media.type === 'WEBM') && (
+                                      <div className="relative w-full">
+                                        <video
+                                          src={media.url}
+                                          poster={media.thumbnailUrl || undefined}
+                                          controls
+                                          className="w-full h-auto rounded-lg shadow-sm"
+                                          style={{
+                                            aspectRatio: media.width && media.height 
+                                              ? `${media.width} / ${media.height}` 
+                                              : '16 / 9'
+                                          }}
+                                        >
+                                          <source src={media.url} type={media.type === 'WEBM' ? 'video/webm' : 'video/mp4'} />
+                                          Your browser does not support the video tag.
+                                        </video>
+                                        {/* Video description matching video width (Requirement 3.10) */}
+                                        {media.description && (
+                                          <div className="mt-2">
+                                            <p className="text-sm text-muted-foreground leading-relaxed">
+                                              {media.description}
+                                            </p>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {media.type === 'AUDIO' && (
+                                      <div className="relative w-full">
+                                        <div className="bg-muted/50 rounded-lg p-4 border">
+                                          <audio
+                                            src={media.url}
+                                            controls
+                                            className="w-full"
+                                          >
+                                            Your browser does not support the audio tag.
+                                          </audio>
+                                        </div>
+                                        {/* Audio description */}
+                                        {media.description && (
+                                          <div className="mt-2">
+                                            <p className="text-sm text-muted-foreground leading-relaxed">
+                                              {media.description}
+                                            </p>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {media.type === 'DOCUMENT' && (
+                                      <div className="relative w-full">
+                                        <Card className="transition-transform hover:scale-[1.01]">
+                                          <CardContent className="p-4">
+                                            <div className="flex items-center gap-3">
+                                              <div className="p-2 bg-muted rounded">
+                                                <Download className="h-5 w-5" />
+                                              </div>
+                                              <div className="flex-1">
+                                                <h4 className="font-medium">
+                                                  {media.altText || 'Document'}
+                                                </h4>
+                                                {media.description && (
+                                                  <p className="text-sm text-muted-foreground mt-1">
+                                                    {media.description}
+                                                  </p>
+                                                )}
+                                              </div>
+                                              <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => window.open(media.url, '_blank')}
+                                              >
+                                                View
+                                              </Button>
+                                            </div>
+                                          </CardContent>
+                                        </Card>
+                                      </div>
+                                    )}
+                                  </div>
+                                </motion.div>
+                              ))}
+                              {mediaItems.length > 15 && (
+                                <motion.div 
+                                  className="text-center py-4"
+                                  initial={{ opacity: 0 }}
+                                  animate={{ opacity: 1 }}
+                                  transition={{ delay: 1.5, duration: 0.3 }}
+                                >
+                                  <p className="text-sm text-muted-foreground">
+                                    And {mediaItems.length - 15} more media item{mediaItems.length - 15 !== 1 ? 's' : ''}...
+                                  </p>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="mt-2"
+                                    onClick={() => {
+                                      // TODO: Load more media or show all
+                                      console.log('Show more media items');
+                                    }}
+                                  >
+                                    Show All Media
+                                  </Button>
+                                </motion.div>
+                              )}
+                            </div>
+                          )}
                         </motion.div>
+                      )}
+
+                      {/* Image Lightbox */}
+                      {project && mediaItems.length > 0 && (
+                        <ImageLightbox
+                          images={mediaItems.filter(m => m.type === 'IMAGE' || m.type === 'GIF')}
+                          initialIndex={lightboxIndex}
+                          isOpen={lightboxOpen}
+                          onClose={() => setLightboxOpen(false)}
+                        />
                       )}
 
                       {/* Interactive Examples */}
