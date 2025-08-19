@@ -469,8 +469,16 @@ export function ClickableMediaUpload({
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
           projectId={projectId}
-          onMediaSelect={onMediaSelect}
+          onMediaSelect={(media) => {
+            // Handle both single and array returns, but only take the first item
+            const selectedMedia = Array.isArray(media) ? media[0] : media;
+            if (selectedMedia) {
+              onMediaSelect(selectedMedia);
+            }
+          }}
           currentMedia={currentMedia}
+          context="general"
+          multiSelect={false}
         />
       )}
     </div>

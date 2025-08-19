@@ -37,28 +37,6 @@ export function ImageCarousel({
     img.type === 'IMAGE' || img.type === 'GIF'
   ) as CarouselImage[];
 
-  // Don't render if no images or only one image
-  if (carouselImages.length === 0) return null;
-  if (carouselImages.length === 1) {
-    const singleImage = carouselImages[0];
-    return (
-      <div className={cn("relative w-full", className)}>
-        <div className="relative aspect-video rounded-lg overflow-hidden">
-          <img
-            src={singleImage.url}
-            alt={singleImage.altText || singleImage.description || 'Project image'}
-            className="w-full h-full object-cover"
-          />
-        </div>
-        {singleImage.description && (
-          <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-            {singleImage.description}
-          </p>
-        )}
-      </div>
-    );
-  }
-
   // Auto-play functionality
   useEffect(() => {
     if (!autoPlay || carouselImages.length <= 1) return;
@@ -124,6 +102,28 @@ export function ImageCarousel({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [goToPrevious, goToNext]);
+
+  // Don't render if no images or only one image
+  if (carouselImages.length === 0) return null;
+  if (carouselImages.length === 1) {
+    const singleImage = carouselImages[0];
+    return (
+      <div className={cn("relative w-full", className)}>
+        <div className="relative aspect-video rounded-lg overflow-hidden">
+          <img
+            src={singleImage.url}
+            alt={singleImage.altText || singleImage.description || 'Project image'}
+            className="w-full h-full object-cover"
+          />
+        </div>
+        {singleImage.description && (
+          <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
+            {singleImage.description}
+          </p>
+        )}
+      </div>
+    );
+  }
 
   const slideVariants = {
     enter: (direction: number) => ({

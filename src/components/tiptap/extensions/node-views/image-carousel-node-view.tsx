@@ -85,24 +85,21 @@ export function ImageCarouselNodeView({
   }, []);
 
   const handleMediaSelect = useCallback((media: any) => {
-    // Convert MediaItem to CarouselImage format
-    const carouselImage: CarouselImage = {
-      id: media.id,
-      url: media.url,
-      alt: media.altText || media.description || '',
-      caption: media.description || ''
-    };
-
-    // Add to selected images if not already present
-    const newImages = [...selectedImages];
-    const existingIndex = newImages.findIndex(img => img.id === carouselImage.id);
+    // Handle both single media item and array of media items
+    const mediaArray = Array.isArray(media) ? media : [media];
     
-    if (existingIndex === -1) {
-      newImages.push(carouselImage);
-      setSelectedImages(newImages);
-      updateAttributes({ images: newImages });
-    }
-  }, [selectedImages, updateAttributes]);
+    // Convert MediaItems to CarouselImage format
+    const carouselImages: CarouselImage[] = mediaArray.map(item => ({
+      id: item.id,
+      url: item.url,
+      alt: item.altText || item.description || '',
+      caption: item.description || ''
+    }));
+
+    // Replace existing images with selected ones
+    setSelectedImages(carouselImages);
+    updateAttributes({ images: carouselImages });
+  }, [updateAttributes]);
 
   const handleRemoveImage = useCallback((imageId: string) => {
     const newImages = selectedImages.filter(img => img.id !== imageId);
@@ -313,6 +310,18 @@ export function ImageCarouselNodeView({
           onClose={() => setIsMediaModalOpen(false)}
           projectId={getProjectId()!}
           onMediaSelect={handleMediaSelect}
+          context="carousel"
+          multiSelect={true}
+          currentMedia={selectedImages.map(img => ({
+            id: img.id,
+            url: img.url,
+            altText: img.alt,
+            description: img.caption,
+            type: 'IMAGE' as const,
+            projectId: getProjectId()!,
+            displayOrder: 0,
+            createdAt: new Date()
+          }))}
         />
       )}
     </NodeViewWrapper>

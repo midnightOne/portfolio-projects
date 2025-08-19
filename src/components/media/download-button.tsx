@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { 
   Download, 
   ChevronDown, 
@@ -14,7 +14,7 @@ import {
   Smartphone,
   Monitor,
   File,
-  ExternalLink,
+
   Clock,
   HardDrive
 } from 'lucide-react';
@@ -120,7 +120,7 @@ const getFileTypeBadgeColor = (fileType: string): string => {
 };
 
 // Single file download button
-export function SingleDownloadButton({
+function SingleDownloadButton({
   file,
   variant = 'default',
   size = 'default',
@@ -267,7 +267,7 @@ export function SingleDownloadButton({
 }
 
 // Multi-file download dropdown
-export function DownloadButton({
+function DownloadButton({
   files,
   variant = 'default',
   size = 'default',

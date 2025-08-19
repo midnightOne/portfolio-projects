@@ -18,7 +18,7 @@ import type { ProjectWithRelations } from '@/lib/types/project';
 import { TiptapDisplayRenderer } from '@/components/tiptap/tiptap-display-renderer';
 import { ImageCarousel } from '@/components/media/image-carousel';
 import { ImageLightbox } from '@/components/media/image-lightbox';
-import { DownloadButton } from '@/components/media/download-button';
+import DownloadButton from '@/components/media/download-button';
 import { ExternalLinks } from '@/components/media/external-links';
 import { MODAL, SPACING, COMPONENTS, FLEX } from '@/lib/constants';
 
