@@ -15,7 +15,7 @@ const SectionConfigUpdateSchema = z.object({
 // GET /api/admin/homepage/sections/[sectionId] - Get specific section configuration
 export async function GET(
   request: NextRequest,
-  { params }: { params: { sectionId: string } }
+  { params }: { params: Promise<{ sectionId: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -27,7 +27,7 @@ export async function GET(
       );
     }
 
-    const { sectionId } = params;
+    const { sectionId } = await params;
 
     // Get the homepage config and specific section
     const homepageConfig = await prisma.homepageConfig.findFirst({
@@ -74,7 +74,7 @@ export async function GET(
 // PUT /api/admin/homepage/sections/[sectionId] - Update specific section configuration
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { sectionId: string } }
+  { params }: { params: Promise<{ sectionId: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -86,7 +86,7 @@ export async function PUT(
       );
     }
 
-    const { sectionId } = params;
+    const { sectionId } = await params;
     const body = await request.json();
     
     // Validate the request body

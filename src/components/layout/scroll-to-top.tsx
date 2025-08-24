@@ -54,33 +54,18 @@ const buttonVariants = {
   visible: {
     opacity: 1,
     scale: 1,
-    y: 0,
-    transition: {
-      duration: 0.3,
-      ease: [0.25, 0.46, 0.45, 0.94]
-    }
+    y: 0
   },
   exit: {
     opacity: 0,
     scale: 0.8,
-    y: 20,
-    transition: {
-      duration: 0.2,
-      ease: [0.25, 0.46, 0.45, 0.94]
-    }
+    y: 20
   },
   hover: {
-    scale: 1.1,
-    transition: {
-      duration: 0.2,
-      ease: [0.25, 0.46, 0.45, 0.94]
-    }
+    scale: 1.1
   },
   tap: {
-    scale: 0.95,
-    transition: {
-      duration: 0.1
-    }
+    scale: 0.95
   }
 };
 
@@ -135,6 +120,10 @@ export function ScrollToTop({
           exit="exit"
           whileHover="hover"
           whileTap="tap"
+          transition={{
+            duration: 0.3,
+            ease: "easeOut"
+          }}
           className={cn(
             'fixed z-50',
             getPositionClasses(position),
