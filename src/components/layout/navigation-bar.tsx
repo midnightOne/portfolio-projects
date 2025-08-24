@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 import type { Tag } from '@/lib/types/project';
 
 export type SortOption = 'relevance' | 'date' | 'title' | 'popularity';
-export type ViewMode = 'grid' | 'timeline';
+export type ViewMode = 'grid' | 'list' | 'timeline';
 export type TimelineGroupBy = 'year' | 'month';
 
 interface NavigationBarProps {
@@ -352,8 +352,19 @@ export function NavigationBar({
                 onClick={() => canSearch && onViewModeChange('grid')}
                 disabled={isLoading || !canSearch}
                 className="rounded-r-none"
+                title="Grid View"
               >
                 <Grid className="h-4 w-4" />
+              </Button>
+              <Button
+                variant={viewMode === 'list' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => canSearch && onViewModeChange('list')}
+                disabled={isLoading || !canSearch}
+                className="rounded-none border-l"
+                title="List View"
+              >
+                <List className="h-4 w-4" />
               </Button>
               <Button
                 variant={viewMode === 'timeline' ? 'default' : 'ghost'}
@@ -361,8 +372,11 @@ export function NavigationBar({
                 onClick={() => canSearch && onViewModeChange('timeline')}
                 disabled={isLoading || !canSearch}
                 className="rounded-l-none border-l"
+                title="Timeline View"
               >
-                <List className="h-4 w-4" />
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
               </Button>
             </div>
 

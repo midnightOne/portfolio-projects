@@ -655,6 +655,8 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
               lastSaveTime={lastSaveTime}
               onSave={handleSave}
               onBack={() => router.push('/admin/projects')}
+              status={formData.status}
+              onStatusChange={(status) => handleFormDataChange({ status })}
               visibility={formData.visibility}
               onVisibilityChange={(visibility) => handleFormDataChange({ visibility })}
               error={error}

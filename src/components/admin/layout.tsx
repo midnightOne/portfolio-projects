@@ -3,7 +3,7 @@
 import React from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Brain, FolderOpen, Image, BarChart, Settings } from "lucide-react";
+import { Brain, FolderOpen, Image, BarChart, Settings, Home } from "lucide-react";
 
 interface AdminLayoutProps {
   children: React.ReactNode;
@@ -23,6 +23,12 @@ const ADMIN_TABS: AdminTab[] = [
     label: 'Dashboard',
     icon: Settings,
     href: '/admin'
+  },
+  {
+    id: 'homepage',
+    label: 'Homepage',
+    icon: Home,
+    href: '/admin/homepage'
   },
   {
     id: 'ai-settings',
@@ -58,6 +64,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children, currentTab }
   // Determine current tab from pathname if not explicitly provided
   const activeTab = currentTab || (() => {
     if (pathname === '/admin') return 'dashboard';
+    if (pathname.startsWith('/admin/homepage')) return 'homepage';
     if (pathname.startsWith('/admin/ai')) return 'ai-settings';
     if (pathname.startsWith('/admin/projects')) return 'projects';
     if (pathname.startsWith('/admin/media')) return 'media';
@@ -82,7 +89,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children, currentTab }
       </div>
       
       <Tabs value={activeTab} onValueChange={handleTabChange}>
-        <TabsList className="grid w-full grid-cols-2 mb-6">
+        <TabsList className="grid w-full grid-cols-3 mb-6">
           {ADMIN_TABS.map((tab) => {
             const Icon = tab.icon;
             return (

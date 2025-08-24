@@ -71,7 +71,7 @@ jest.mock('../smart-tag-input', () => ({
 }));
 
 jest.mock('../floating-save-bar', () => ({
-  FloatingSaveBar: ({ onSave, onBack, hasUnsavedChanges, saving }: any) => (
+  FloatingSaveBar: ({ onSave, onBack, hasUnsavedChanges, saving, status, onStatusChange, visibility, onVisibilityChange }: any) => (
     <div data-testid="floating-save-bar">
       <button data-testid="save-button" onClick={onSave} disabled={saving}>
         {saving ? 'Saving...' : 'Save'}
@@ -82,6 +82,14 @@ jest.mock('../floating-save-bar', () => ({
       <div data-testid="unsaved-changes">
         {hasUnsavedChanges ? 'Has changes' : 'No changes'}
       </div>
+      <select data-testid="status-select" value={status} onChange={(e) => onStatusChange(e.target.value)}>
+        <option value="DRAFT">Draft</option>
+        <option value="PUBLISHED">Published</option>
+      </select>
+      <select data-testid="visibility-select" value={visibility} onChange={(e) => onVisibilityChange(e.target.value)}>
+        <option value="PRIVATE">Private</option>
+        <option value="PUBLIC">Public</option>
+      </select>
     </div>
   )
 }));

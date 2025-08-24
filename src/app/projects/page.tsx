@@ -2,8 +2,10 @@
 
 import React, { Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { MainNavigation } from '@/components/layout/main-navigation';
 import { ProjectsLayout } from '@/components/layout/projects-layout';
 import { ProjectGrid } from '@/components/projects/project-grid';
+import { ProjectList } from '@/components/projects/project-list';
 import { ProjectTimeline } from '@/components/projects/project-timeline';
 import { ProjectModal } from '@/components/projects/project-modal';
 import { useProjects } from '@/hooks/use-projects';
@@ -180,6 +182,13 @@ function ProjectsPageContent() {
           onProjectClick={(projectSlug) => handleProjectClick(projectSlug)}
           searchQuery={debouncedQuery}
         />
+      ) : viewMode === 'list' ? (
+        <ProjectList
+          projects={projects}
+          loading={progressiveState.showSkeletons}
+          onProjectClick={(projectSlug) => handleProjectClick(projectSlug)}
+          searchQuery={debouncedQuery}
+        />
       ) : (
         <ProjectTimeline
           projects={projects}
@@ -202,15 +211,18 @@ function ProjectsPageContent() {
 
 export default function ProjectsPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading projects...</p>
+    <div className="min-h-screen">
+      <MainNavigation />
+      <Suspense fallback={
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading projects...</p>
+          </div>
         </div>
-      </div>
-    }>
-      <ProjectsPageContent />
-    </Suspense>
+      }>
+        <ProjectsPageContent />
+      </Suspense>
+    </div>
   );
 }
