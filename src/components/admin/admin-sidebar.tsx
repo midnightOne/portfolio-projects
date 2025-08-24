@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Sidebar,
   SidebarContent,
@@ -220,12 +221,11 @@ export function AdminSidebar() {
                 <SidebarMenuButton
                   asChild
                   isActive={isItemActive('/admin/projects/editor') && !pathname.includes('/admin/projects/editor/')}
-                  onClick={() => router.push('/admin/projects/editor')}
                 >
-                  <a href="/admin/projects/editor" className="flex items-center gap-2">
+                  <Link href="/admin/projects/editor" className="flex items-center gap-2">
                     <Plus className="size-4" />
                     <span>New Project</span>
-                  </a>
+                  </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
@@ -271,16 +271,15 @@ export function AdminSidebar() {
                             <SidebarMenuSubButton
                               asChild
                               isActive={pathname === `/admin/projects/editor/${project.id}`}
-                              onClick={() => handleProjectClick(project.id)}
                             >
-                              <a 
+                              <Link 
                                 href={`/admin/projects/editor/${project.id}`}
                                 className="flex items-center gap-2"
                                 title={project.title}
                               >
                                 <FileText className="size-3" />
                                 <span className="truncate text-xs">{project.title}</span>
-                              </a>
+                              </Link>
                             </SidebarMenuSubButton>
                           </SidebarMenuSubItem>
                         ))
