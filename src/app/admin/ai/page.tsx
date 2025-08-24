@@ -11,7 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { AlertCircle, CheckCircle, Brain, ExternalLink, Loader2 } from 'lucide-react';
-import { AdminLayout } from '@/components/admin/layout';
+import { AdminLayout } from '@/components/admin/admin-layout';
+import { AdminPageLayout } from '@/components/admin/admin-page-layout';
 import { AIStatusIndicator } from '@/components/admin/ai-status-indicator';
 import { useToast } from '@/components/ui/toast';
 import { StatusBadge, ConnectionStatus, ConfigurationStatus } from '@/components/ui/status-badge';
@@ -268,16 +269,6 @@ function AISettingsContent() {
 
   return (
     <div className="space-y-6">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold flex items-center gap-2">
-          <Brain className="h-8 w-8" />
-          AI Settings
-        </h1>
-        <p className="text-muted-foreground mt-2">
-          Configure AI providers and models for content assistance
-        </p>
-      </div>
-
       {/* AI Status Overview */}
       <AIStatusIndicator variant="detailed" showActions={true} />
 
@@ -637,8 +628,13 @@ function AISettingsContent() {
 
 export default function AISettingsPage() {
   return (
-    <AdminLayout currentTab="ai-settings">
-      <AISettingsContent />
+    <AdminLayout>
+      <AdminPageLayout
+        title="AI Settings"
+        description="Configure AI providers and models for content assistance"
+      >
+        <AISettingsContent />
+      </AdminPageLayout>
     </AdminLayout>
   );
 }
