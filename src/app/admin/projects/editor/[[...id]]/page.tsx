@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { EnhancedProjectEditor } from '@/components/admin/enhanced-project-editor';
+import { AdminLayout } from '@/components/admin/admin-layout';
 import { Loader2 } from 'lucide-react';
 
 interface UnifiedProjectEditorPageProps {
@@ -38,21 +39,23 @@ export default function UnifiedProjectEditorPage({ params: paramsPromise }: Unif
 
   if (loading || status === 'loading') {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-          <p>Loading editor...</p>
+      <AdminLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
+            <p>Loading editor...</p>
+          </div>
         </div>
-      </div>
+      </AdminLayout>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <AdminLayout>
       <EnhancedProjectEditor 
         projectId={projectId}
         mode={isEditing ? 'edit' : 'create'}
       />
-    </div>
+    </AdminLayout>
   );
 }

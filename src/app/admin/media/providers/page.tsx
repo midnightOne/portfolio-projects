@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth-utils";
-import { MediaUploadInterface } from "@/components/admin/media-upload";
+import { MediaProvidersInterface } from "@/components/admin/media-providers";
 import { AdminLayout } from "@/components/admin/admin-layout";
 import { AdminPageLayout } from "@/components/admin/admin-page-layout";
 
-export default async function MediaUploadPage() {
+export default async function MediaProvidersPage() {
   const session = await getSession();
   
   if (!session?.user || (session.user as any)?.role !== "admin") {
@@ -14,11 +14,11 @@ export default async function MediaUploadPage() {
   return (
     <AdminLayout>
       <AdminPageLayout
-        title="Manage Media"
-        description="Upload and manage media files for your projects"
+        title="Media Storage Providers"
+        description="Configure and manage media storage providers"
       >
-        <MediaUploadInterface />
+        <MediaProvidersInterface />
       </AdminPageLayout>
     </AdminLayout>
   );
-} 
+}
