@@ -3,10 +3,12 @@ import { getServerSession } from 'next-auth';
 import { redirect } from 'next/navigation';
 import { authOptions } from '@/lib/auth';
 import { HomepageEditor } from '@/components/admin/homepage-editor';
+import { AdminLayout } from '@/components/admin/admin-layout';
+import { AdminPageLayout } from '@/components/admin/admin-page-layout';
 
 export const metadata: Metadata = {
-  title: 'Homepage Configuration - Admin',
-  description: 'Configure homepage sections and layout',
+  title: 'Homepage Config - Admin',
+  description: 'Configure homepage sections and global settings',
 };
 
 export default async function HomepageConfigPage() {
@@ -17,8 +19,13 @@ export default async function HomepageConfigPage() {
   }
 
   return (
-    <div className="container mx-auto py-8 px-4 max-w-7xl">
-      <HomepageEditor />
-    </div>
+    <AdminLayout>
+      <AdminPageLayout
+        title="Homepage Config"
+        description="Configure homepage sections and global settings"
+      >
+        <HomepageEditor />
+      </AdminPageLayout>
+    </AdminLayout>
   );
 }

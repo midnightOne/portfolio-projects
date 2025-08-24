@@ -43,6 +43,13 @@ export interface MediaResult {
 export interface DeleteResult {
   publicId: string;
   result: 'ok' | 'not found';
+  details?: {
+    deleted?: Record<string, string>;
+    notFound?: string[];
+    partial?: boolean;
+    fallback?: boolean;
+    originalError?: string;
+  };
 }
 
 // Core media provider interface that all providers must implement
@@ -51,6 +58,7 @@ export interface MediaProvider {
   upload(file: File | Buffer, options: UploadOptions): Promise<MediaResult>;
   uploadFromPath(filePath: string, options: UploadOptions): Promise<MediaResult>;
   delete(publicId: string): Promise<DeleteResult>;
+  deleteMultiple?(publicIds: string[]): Promise<{ deleted: string[]; notFound: string[]; errors: string[] }>;
   transform(url: string, transformations: Transformation[]): string;
   getUrl(publicId: string, options?: UrlOptions): string;
   getUploadUrl?(options: UploadOptions): Promise<{ url: string; fields: Record<string, string> }>;

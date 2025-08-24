@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
   Eye, 
   Save, 
@@ -381,13 +380,7 @@ export function HomepageEditor({ className }: HomepageEditorProps) {
   return (
     <div className={className}>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">Homepage Configuration</h1>
-          <p className="text-muted-foreground">
-            Manage your homepage sections and layout
-          </p>
-        </div>
+      <div className="flex items-center justify-end mb-6">
         {renderActionButtons()}
       </div>
 
@@ -415,96 +408,87 @@ export function HomepageEditor({ className }: HomepageEditorProps) {
         )}
       </AnimatePresence>
 
-      {/* Main Editor */}
-      <Tabs defaultValue="sections" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="sections">Sections</TabsTrigger>
-          <TabsTrigger value="settings">Global Settings</TabsTrigger>
-        </TabsList>
+      {/* Main Editor - Bento Grid Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Section Order Manager - Large Card */}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Section Order & Visibility</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Drag to reorder sections and toggle their visibility
+            </p>
+          </CardHeader>
+          <CardContent>
+            <SectionOrderManager
+              sections={state.config.sections}
+              onReorder={handleSectionReorder}
+              onToggleSection={handleSectionToggle}
+              onSelectSection={(sectionId) => 
+                setState(prev => ({ ...prev, selectedSectionId: sectionId }))
+              }
+              selectedSectionId={state.selectedSectionId}
+            />
+          </CardContent>
+        </Card>
 
-        <TabsContent value="sections" className="space-y-6">
-          {/* Section Order Manager */}
-          <Card>
+        {/* Global Settings - Compact Card */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Global Settings</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Configure global theme and layout options
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <label className="text-sm font-medium">Global Theme</label>
+              <select
+                value={state.config.globalTheme}
+                onChange={(e) => handleGlobalThemeChange(e.target.value)}
+                className="w-full mt-1 p-2 border rounded-md"
+              >
+                <option value="default">Default</option>
+                <option value="dark">Dark</option>
+                <option value="minimal">Minimal</option>
+                <option value="colorful">Colorful</option>
+              </select>
+            </div>
+            
+            <div>
+              <label className="text-sm font-medium">Layout</label>
+              <select
+                value={state.config.layout}
+                onChange={(e) => handleLayoutChange(e.target.value as any)}
+                className="w-full mt-1 p-2 border rounded-md"
+              >
+                <option value="standard">Standard</option>
+                <option value="single-page">Single Page</option>
+                <option value="multi-page">Multi Page</option>
+              </select>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Section Configuration Editor - Full Width */}
+        {state.selectedSectionId && (
+          <Card className="lg:col-span-3">
             <CardHeader>
-              <CardTitle>Section Order & Visibility</CardTitle>
+              <CardTitle>Section Configuration</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Drag to reorder sections and toggle their visibility
+                Configure the selected section's content and appearance
               </p>
             </CardHeader>
             <CardContent>
-              <SectionOrderManager
-                sections={state.config.sections}
-                onReorder={handleSectionReorder}
-                onToggleSection={handleSectionToggle}
-                onSelectSection={(sectionId) => 
-                  setState(prev => ({ ...prev, selectedSectionId: sectionId }))
+              <SectionConfigEditor
+                section={state.config.sections.find(s => s.id === state.selectedSectionId)!}
+                onConfigChange={(config) => 
+                  handleSectionConfigChange(state.selectedSectionId!, config)
                 }
-                selectedSectionId={state.selectedSectionId}
               />
             </CardContent>
           </Card>
-
-          {/* Section Configuration Editor */}
-          {state.selectedSectionId && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Section Configuration</CardTitle>
-                <p className="text-sm text-muted-foreground">
-                  Configure the selected section's content and appearance
-                </p>
-              </CardHeader>
-              <CardContent>
-                <SectionConfigEditor
-                  section={state.config.sections.find(s => s.id === state.selectedSectionId)!}
-                  onConfigChange={(config) => 
-                    handleSectionConfigChange(state.selectedSectionId!, config)
-                  }
-                />
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        <TabsContent value="settings" className="space-y-6">
-          {/* Global Settings */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Global Settings</CardTitle>
-              <p className="text-sm text-muted-foreground">
-                Configure global theme and layout options
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <label className="text-sm font-medium">Global Theme</label>
-                <select
-                  value={state.config.globalTheme}
-                  onChange={(e) => handleGlobalThemeChange(e.target.value)}
-                  className="w-full mt-1 p-2 border rounded-md"
-                >
-                  <option value="default">Default</option>
-                  <option value="dark">Dark</option>
-                  <option value="minimal">Minimal</option>
-                  <option value="colorful">Colorful</option>
-                </select>
-              </div>
-              
-              <div>
-                <label className="text-sm font-medium">Layout</label>
-                <select
-                  value={state.config.layout}
-                  onChange={(e) => handleLayoutChange(e.target.value as any)}
-                  className="w-full mt-1 p-2 border rounded-md"
-                >
-                  <option value="standard">Standard</option>
-                  <option value="single-page">Single Page</option>
-                  <option value="multi-page">Multi Page</option>
-                </select>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+        )}
+      </div>
     </div>
   );
 }

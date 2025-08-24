@@ -176,9 +176,9 @@ export const AIStatusIndicator: React.FC<AIStatusIndicatorProps> = ({
     );
   }
 
-  // Detailed variant - full status card
+  // Detailed variant - medium status card with debug info
   return (
-    <Card className={className}>
+    <Card className={`max-w-2xl ${className}`}>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -191,17 +191,14 @@ export const AIStatusIndicator: React.FC<AIStatusIndicatorProps> = ({
               {status.available ? 'AI Features Active' : 'AI Features Disabled'}
             </CardTitle>
           </div>
-          
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleRefresh}
-              disabled={refreshing}
-            >
-              <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-            </Button>
-          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={refreshing}
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+          </Button>
         </div>
         
         <CardDescription>
@@ -300,32 +297,21 @@ export const AIStatusIndicator: React.FC<AIStatusIndicatorProps> = ({
           </div>
         )}
 
-        {/* Actions */}
-        {showActions && (
+        {/* External Links Only */}
+        {showActions && !status.hasConfiguredProviders && (
           <div className="flex gap-2 pt-2 border-t">
-            <Button variant="outline" asChild>
-              <a href="/admin/ai">
-                <Settings className="h-4 w-4 mr-2" />
-                AI Settings
+            <Button variant="outline" size="sm" asChild>
+              <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="h-4 w-4 mr-2" />
+                OpenAI Keys
               </a>
             </Button>
-            
-            {!status.hasConfiguredProviders && (
-              <>
-                <Button variant="outline" asChild>
-                  <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    OpenAI Keys
-                  </a>
-                </Button>
-                <Button variant="outline" asChild>
-                  <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    Anthropic Keys
-                  </a>
-                </Button>
-              </>
-            )}
+            <Button variant="outline" size="sm" asChild>
+              <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="h-4 w-4 mr-2" />
+                Anthropic Keys
+              </a>
+            </Button>
           </div>
         )}
       </CardContent>
