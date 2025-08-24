@@ -286,6 +286,7 @@ export function SectionRenderer({
       className="relative"
       data-section-id={section.id}
       data-section-type={section.type}
+      id={section.type} // Add ID for smooth scrolling
     >
       {renderSection()}
       
