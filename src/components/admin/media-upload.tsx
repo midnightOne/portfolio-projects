@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { 
@@ -78,6 +79,9 @@ export function MediaUploadInterface() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<MediaItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [batchDeleteDialogOpen, setBatchDeleteDialogOpen] = useState(false);
+  const [isBatchDeleting, setIsBatchDeleting] = useState(false);
 
 
 
@@ -291,6 +295,95 @@ export function MediaUploadInterface() {
     setIsDeleting(false);
   };
 
+  const toggleItemSelection = (itemId: string) => {
+    setSelectedItems(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(itemId)) {
+        newSet.delete(itemId);
+      } else {
+        newSet.add(itemId);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAllItems = () => {
+    setSelectedItems(new Set(mediaItems.map(item => item.id)));
+  };
+
+  const clearSelection = () => {
+    setSelectedItems(new Set());
+  };
+
+  const openBatchDeleteDialog = () => {
+    setBatchDeleteDialogOpen(true);
+  };
+
+  const closeBatchDeleteDialog = () => {
+    setBatchDeleteDialogOpen(false);
+    setIsBatchDeleting(false);
+  };
+
+  const batchDeleteItems = async (deleteFromCloudinary: boolean = true) => {
+    if (selectedItems.size === 0) return;
+
+    try {
+      setIsBatchDeleting(true);
+      
+      const response = await fetch('/api/media/batch-delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          mediaIds: Array.from(selectedItems),
+          deleteFromCloudinary
+        })
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        
+        // Show detailed feedback
+        let title = "Batch Delete Complete";
+        let description = result.message;
+        let variant: "default" | "destructive" = "default";
+        
+        if (result.results.errors.length > 0 || result.results.cloudinaryErrors.length > 0) {
+          title = "Batch Delete Completed with Issues";
+          variant = "destructive";
+        }
+        
+        toast({
+          title,
+          description,
+          variant
+        });
+        
+        // Remove deleted items from local state
+        setMediaItems(prev => prev.filter(item => !selectedItems.has(item.id)));
+        clearSelection();
+        await checkSyncStatus();
+        closeBatchDeleteDialog();
+      } else {
+        const errorData = await response.json();
+        toast({
+          title: "Batch Delete Failed",
+          description: errorData.error || "Failed to delete selected items",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Batch Delete Failed",
+        description: "Failed to delete selected items",
+        variant: "destructive"
+      });
+    } finally {
+      setIsBatchDeleting(false);
+    }
+  };
+
   const deleteMediaItem = async (deleteFromCloudinary: boolean = true) => {
     if (!itemToDelete) return;
 
@@ -447,62 +540,120 @@ export function MediaUploadInterface() {
                   <p className="text-sm">Upload some files or sync with Cloudinary to see them here</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                  {mediaItems.map((item) => {
-                    const isImage = item.type === 'IMAGE';
-                    const isVideo = item.type === 'VIDEO';
-                    
-                    return (
-                      <div key={item.id} className="group relative border rounded-lg overflow-hidden hover:shadow-md transition-shadow">
-                        {/* Media Preview */}
-                        <div className="aspect-square bg-gray-100 flex items-center justify-center">
-                          {isImage ? (
-                            <img
-                              src={item.thumbnailUrl}
-                              alt={item.altText}
-                              className="w-full h-full object-cover"
-                            />
-                          ) : isVideo ? (
-                            <div className="relative w-full h-full bg-black flex items-center justify-center">
-                              <Video size={24} className="text-white" />
-                            </div>
-                          ) : (
-                            <File size={24} className="text-gray-400" />
-                          )}
+                <div>
+                  {/* Selection Controls */}
+                  {mediaItems.length > 0 && (
+                    <div className="flex items-center justify-between mb-4 p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            checked={selectedItems.size === mediaItems.length && mediaItems.length > 0}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                selectAllItems();
+                              } else {
+                                clearSelection();
+                              }
+                            }}
+                          />
+                          <span className="text-sm font-medium">
+                            Select All ({mediaItems.length})
+                          </span>
                         </div>
-                        
-                        {/* Media Info */}
-                        <div className="p-2">
-                          <p className="text-xs font-medium truncate" title={item.altText}>
-                            {item.altText}
-                          </p>
-                          <div className="flex items-center justify-between mt-1">
-                            <Badge variant="secondary" className="text-xs">
-                              {item.type.toLowerCase()}
-                            </Badge>
-                            <span className="text-xs text-gray-500">
-                              {formatFileSize(parseInt(item.fileSize))}
-                            </span>
-                          </div>
-                          {item.project && (
-                            <p className="text-xs text-blue-600 truncate mt-1" title={item.project.title}>
-                              {item.project.title}
-                            </p>
-                          )}
-                        </div>
-                        
-                        {/* Delete Button */}
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0"
-                          onClick={() => openDeleteDialog(item)}
-                        >
-                          <X size={12} />
-                        </Button>
+                        {selectedItems.size > 0 && (
+                          <span className="text-sm text-blue-600">
+                            {selectedItems.size} selected
+                          </span>
+                        )}
                       </div>
-                    );
-                  })}
+                      {selectedItems.size > 0 && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={clearSelection}
+                        >
+                          Clear Selection
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                    {mediaItems.map((item) => {
+                      const isImage = item.type === 'IMAGE';
+                      const isVideo = item.type === 'VIDEO';
+                      const isSelected = selectedItems.has(item.id);
+                      
+                      return (
+                        <div 
+                          key={item.id} 
+                          className={`group relative border rounded-lg overflow-hidden hover:shadow-md transition-all cursor-pointer ${
+                            isSelected ? 'ring-2 ring-blue-500 border-blue-500' : ''
+                          }`}
+                          onClick={() => toggleItemSelection(item.id)}
+                        >
+                          {/* Selection Checkbox */}
+                          <div className="absolute top-2 left-2 z-10">
+                            <Checkbox
+                              checked={isSelected}
+                              onCheckedChange={() => toggleItemSelection(item.id)}
+                              className="bg-white shadow-sm"
+                            />
+                          </div>
+
+                          {/* Media Preview */}
+                          <div className="aspect-square bg-gray-100 flex items-center justify-center">
+                            {isImage ? (
+                              <img
+                                src={item.thumbnailUrl}
+                                alt={item.altText}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : isVideo ? (
+                              <div className="relative w-full h-full bg-black flex items-center justify-center">
+                                <Video size={24} className="text-white" />
+                              </div>
+                            ) : (
+                              <File size={24} className="text-gray-400" />
+                            )}
+                          </div>
+                          
+                          {/* Media Info */}
+                          <div className="p-2">
+                            <p className="text-xs font-medium truncate" title={item.altText}>
+                              {item.altText}
+                            </p>
+                            <div className="flex items-center justify-between mt-1">
+                              <Badge variant="secondary" className="text-xs">
+                                {item.type.toLowerCase()}
+                              </Badge>
+                              <span className="text-xs text-gray-500">
+                                {formatFileSize(parseInt(item.fileSize))}
+                              </span>
+                            </div>
+                            {item.project && (
+                              <p className="text-xs text-blue-600 truncate mt-1" title={item.project.title}>
+                                {item.project.title}
+                              </p>
+                            )}
+                          </div>
+                          
+                          {/* Delete Button */}
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0 z-10"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openDeleteDialog(item);
+                            }}
+                          >
+                            <Trash2 size={12} />
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -719,6 +870,32 @@ export function MediaUploadInterface() {
                 </div>
               )}
 
+              {/* Batch Operations Section */}
+              {selectedItems.size > 0 && (
+                <div className="space-y-3 border-t pt-4">
+                  <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                    <Trash2 size={14} />
+                    Batch Operations
+                  </h3>
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span>Selected Items:</span>
+                      <span className="font-medium text-blue-600">{selectedItems.size}</span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={openBatchDeleteDialog}
+                      disabled={isBatchDeleting}
+                      className="w-full text-xs"
+                    >
+                      <Trash2 size={12} className="mr-1" />
+                      {isBatchDeleting ? 'Deleting...' : `Delete ${selectedItems.size} Items`}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* Active Provider Section */}
               <div className="space-y-3 border-t pt-4">
                 <h3 className="text-sm font-semibold text-gray-900">Active Provider</h3>
@@ -819,6 +996,104 @@ export function MediaUploadInterface() {
             >
               <Trash2 size={14} />
               {isDeleting ? 'Deleting...' : 'Database + Cloudinary'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Batch Delete Confirmation Dialog */}
+      <Dialog open={batchDeleteDialogOpen} onOpenChange={setBatchDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-lg max-w-[90vw]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-orange-500" />
+              Batch Delete Media Items
+            </DialogTitle>
+            <DialogDescription className="text-left">
+              You are about to delete <span className="font-medium">{selectedItems.size} media items</span>. Choose how you want to delete these items:
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-orange-500 mt-0.5 flex-shrink-0" />
+                <div className="text-sm min-w-0">
+                  <p className="font-medium text-orange-800">Warning</p>
+                  <p className="text-orange-700 break-words">
+                    Batch deletion from Cloudinary will permanently remove all selected files from cloud storage. 
+                    This action cannot be undone and may break existing links to these files.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="border rounded-lg p-3">
+                <div className="flex items-start gap-3">
+                  <Database className="h-4 w-4 text-blue-500 mt-1 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <h4 className="font-medium text-sm">Database Only</h4>
+                    <p className="text-xs text-gray-600 mt-1 break-words">
+                      Remove all selected items from your media library but keep the files in Cloudinary. 
+                      The files will still be accessible via their URLs.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border rounded-lg p-3">
+                <div className="flex items-start gap-3">
+                  <Cloud className="h-4 w-4 text-red-500 mt-1 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <h4 className="font-medium text-sm">Database + Cloudinary</h4>
+                    <p className="text-xs text-gray-600 mt-1 break-words">
+                      Permanently delete all selected items from both your media library and Cloudinary storage. 
+                      This will break any existing links to these files.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <Database className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" />
+                <div className="text-sm min-w-0">
+                  <p className="font-medium text-blue-800">Batch Operation</p>
+                  <p className="text-blue-700 break-words">
+                    This operation uses Cloudinary's Admin API for efficient batch deletion of up to 100 files at once.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              onClick={closeBatchDeleteDialog}
+              disabled={isBatchDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => batchDeleteItems(false)}
+              disabled={isBatchDeleting}
+              className="flex items-center gap-2"
+            >
+              <Database size={14} />
+              {isBatchDeleting ? 'Deleting...' : 'Database Only'}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => batchDeleteItems(true)}
+              disabled={isBatchDeleting}
+              className="flex items-center gap-2"
+            >
+              <Trash2 size={14} />
+              {isBatchDeleting ? 'Deleting...' : 'Database + Cloudinary'}
             </Button>
           </DialogFooter>
         </DialogContent>
