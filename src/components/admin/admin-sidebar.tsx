@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Sidebar,
@@ -18,6 +18,11 @@ import {
   SidebarMenuSubButton,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   LayoutDashboard,
   Home,
@@ -41,8 +46,11 @@ import {
   Terminal,
   BarChart3,
   User,
+  ChevronRight,
+  Loader2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { useAdminProjects } from "@/hooks/use-admin-projects";
 
 interface AdminSectionItem {
   id: string;
@@ -66,8 +74,7 @@ const ADMIN_NAVIGATION: AdminSection[] = [
     title: 'Overview',
     icon: LayoutDashboard,
     items: [
-      { id: 'dashboard', title: 'Dashboard', href: '/admin', icon: Home },
-      { id: 'analytics', title: 'Analytics', href: '/admin/analytics', icon: BarChart3 }
+      { id: 'dashboard', title: 'Dashboard', href: '/admin', icon: Home }
     ]
   },
   {
@@ -76,19 +83,7 @@ const ADMIN_NAVIGATION: AdminSection[] = [
     icon: Globe,
     defaultExpanded: true,
     items: [
-      { id: 'sections', title: 'Sections', href: '/admin/homepage', icon: Globe },
-      { id: 'global-settings', title: 'Global Settings', href: '/admin/homepage/settings', icon: Settings }
-    ]
-  },
-  {
-    id: 'projects',
-    title: 'Projects',
-    icon: FolderOpen,
-    items: [
-      { id: 'all-projects', title: 'All Projects', href: '/admin/projects', icon: FileText },
-      { id: 'new-project', title: 'New Project', href: '/admin/projects/editor', icon: Plus },
-      { id: 'categories', title: 'Categories', href: '/admin/projects/categories', icon: Tag },
-      { id: 'tags', title: 'Tags', href: '/admin/projects/tags', icon: Hash }
+      { id: 'sections', title: 'Sections', href: '/admin/homepage', icon: Globe }
     ]
   },
   {
@@ -96,9 +91,7 @@ const ADMIN_NAVIGATION: AdminSection[] = [
     title: 'AI Assistant',
     icon: Bot,
     items: [
-      { id: 'ai-settings', title: 'AI Settings', href: '/admin/ai', icon: Settings },
-      { id: 'ai-usage', title: 'Usage & Costs', href: '/admin/ai/usage', icon: DollarSign },
-      { id: 'ai-prompts', title: 'Custom Prompts', href: '/admin/ai/prompts', icon: MessageSquare }
+      { id: 'ai-settings', title: 'AI Settings', href: '/admin/ai', icon: Settings }
     ]
   },
   {
@@ -107,19 +100,7 @@ const ADMIN_NAVIGATION: AdminSection[] = [
     icon: Image,
     items: [
       { id: 'all-media', title: 'All Media', href: '/admin/media', icon: Grid3X3 },
-      { id: 'upload', title: 'Upload', href: '/admin/media/upload', icon: Upload },
-      { id: 'unused', title: 'Unused Media', href: '/admin/media/unused', icon: Trash2, badge: 'cleanup' }
-    ]
-  },
-  {
-    id: 'settings',
-    title: 'Settings',
-    icon: Settings,
-    items: [
-      { id: 'general', title: 'General', href: '/admin/settings/general', icon: Sliders },
-      { id: 'seo', title: 'SEO & Meta', href: '/admin/settings/seo', icon: Search },
-      { id: 'theme', title: 'Theme & UI', href: '/admin/settings/theme', icon: Palette },
-      { id: 'advanced', title: 'Advanced', href: '/admin/settings/advanced', icon: Terminal }
+      { id: 'upload', title: 'Upload', href: '/admin/media/upload', icon: Upload }
     ]
   }
 ];
@@ -127,6 +108,8 @@ const ADMIN_NAVIGATION: AdminSection[] = [
 export function AdminSidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const { projects, loading: projectsLoading } = useAdminProjects();
+  const [projectsExpanded, setProjectsExpanded] = useState(false);
 
   const isItemActive = (href: string) => {
     if (href === '/admin') {
@@ -137,6 +120,14 @@ export function AdminSidebar() {
 
   const isSectionActive = (section: AdminSection) => {
     return section.items.some(item => isItemActive(item.href));
+  };
+
+  const isProjectsActive = () => {
+    return pathname.startsWith('/admin/projects');
+  };
+
+  const handleProjectClick = (projectId: string) => {
+    router.push(`/admin/projects/editor/${projectId}`);
   };
 
   return (
@@ -154,37 +145,213 @@ export function AdminSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        {ADMIN_NAVIGATION.map((section) => (
-          <SidebarGroup key={section.id}>
-            <SidebarGroupLabel className="flex items-center gap-2">
-              <section.icon className="size-4" />
-              {section.title}
-            </SidebarGroupLabel>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {section.items.map((item) => (
-                  <SidebarMenuItem key={item.id}>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={isItemActive(item.href)}
-                      onClick={() => router.push(item.href)}
-                    >
-                      <a href={item.href} className="flex items-center gap-2">
-                        {item.icon && <item.icon className="size-4" />}
-                        <span>{item.title}</span>
-                        {item.badge && (
-                          <Badge variant="secondary" className="ml-auto text-xs">
-                            {item.badge}
+        {/* Overview section */}
+        <SidebarGroup>
+          <SidebarGroupLabel className="flex items-center gap-2">
+            <LayoutDashboard className="size-4" />
+            Overview
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin')}
+                  onClick={() => router.push('/admin')}
+                >
+                  <a href="/admin" className="flex items-center gap-2">
+                    <Home className="size-4" />
+                    <span>Dashboard</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Homepage section */}
+        <SidebarGroup>
+          <SidebarGroupLabel className="flex items-center gap-2">
+            <Globe className="size-4" />
+            Homepage
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/homepage')}
+                  onClick={() => router.push('/admin/homepage')}
+                >
+                  <a href="/admin/homepage" className="flex items-center gap-2">
+                    <Globe className="size-4" />
+                    <span>Sections</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Projects section with special design - 3rd position */}
+        <SidebarGroup>
+          <SidebarGroupLabel className="flex items-center gap-2">
+            <FolderOpen className="size-4" />
+            Projects
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {/* Project Dashboard - always visible */}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/projects') && !pathname.includes('/admin/projects/editor')}
+                  onClick={() => router.push('/admin/projects')}
+                >
+                  <a href="/admin/projects" className="flex items-center gap-2">
+                    <LayoutDashboard className="size-4" />
+                    <span>Project Dashboard</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              {/* New Project - always visible */}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/projects/editor') && !pathname.includes('/admin/projects/editor/')}
+                  onClick={() => router.push('/admin/projects/editor')}
+                >
+                  <a href="/admin/projects/editor" className="flex items-center gap-2">
+                    <Plus className="size-4" />
+                    <span>New Project</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              {/* Collapsible Projects List - only expands/collapses */}
+              <SidebarMenuItem>
+                <Collapsible open={projectsExpanded} onOpenChange={setProjectsExpanded}>
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton className="w-full">
+                      <div className="flex items-center gap-2 w-full">
+                        <FileText className="size-4" />
+                        <span>All Projects</span>
+                        {!projectsLoading && projects.length > 0 && (
+                          <Badge variant="secondary" className="ml-auto mr-1 text-xs">
+                            {projects.length}
                           </Badge>
                         )}
-                      </a>
+                        <ChevronRight 
+                          className={`size-4 ${projects.length > 0 ? '' : 'ml-auto'} transition-transform ${
+                            projectsExpanded ? 'rotate-90' : ''
+                          }`} 
+                        />
+                      </div>
                     </SidebarMenuButton>
-                  </SidebarMenuItem>
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        ))}
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <SidebarMenuSub>
+                      {projectsLoading ? (
+                        <SidebarMenuSubItem>
+                          <SidebarMenuSubButton className="flex items-center gap-2">
+                            <Loader2 className="size-3 animate-spin" />
+                            <span className="text-xs">Loading projects...</span>
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                      ) : projects.length === 0 ? (
+                        <SidebarMenuSubItem>
+                          <SidebarMenuSubButton className="text-xs text-muted-foreground">
+                            No projects yet
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                      ) : (
+                        projects.map((project) => (
+                          <SidebarMenuSubItem key={project.id}>
+                            <SidebarMenuSubButton
+                              asChild
+                              isActive={pathname === `/admin/projects/editor/${project.id}`}
+                              onClick={() => handleProjectClick(project.id)}
+                            >
+                              <a 
+                                href={`/admin/projects/editor/${project.id}`}
+                                className="flex items-center gap-2"
+                                title={project.title}
+                              >
+                                <FileText className="size-3" />
+                                <span className="truncate text-xs">{project.title}</span>
+                              </a>
+                            </SidebarMenuSubButton>
+                          </SidebarMenuSubItem>
+                        ))
+                      )}
+                    </SidebarMenuSub>
+                  </CollapsibleContent>
+                </Collapsible>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* AI Assistant section */}
+        <SidebarGroup>
+          <SidebarGroupLabel className="flex items-center gap-2">
+            <Bot className="size-4" />
+            AI Assistant
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai')}
+                  onClick={() => router.push('/admin/ai')}
+                >
+                  <a href="/admin/ai" className="flex items-center gap-2">
+                    <Settings className="size-4" />
+                    <span>AI Settings</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Media Library section */}
+        <SidebarGroup>
+          <SidebarGroupLabel className="flex items-center gap-2">
+            <Image className="size-4" />
+            Media Library
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/media') && !pathname.includes('/admin/media/upload')}
+                  onClick={() => router.push('/admin/media')}
+                >
+                  <a href="/admin/media" className="flex items-center gap-2">
+                    <Grid3X3 className="size-4" />
+                    <span>All Media</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/media/upload')}
+                  onClick={() => router.push('/admin/media/upload')}
+                >
+                  <a href="/admin/media/upload" className="flex items-center gap-2">
+                    <Upload className="size-4" />
+                    <span>Upload</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border">

@@ -92,37 +92,28 @@ function MyTable() {
 
 ## Navigation Structure
 
-The sidebar includes the following sections:
+The sidebar includes the following sections in order:
 
 ### Overview
 - Dashboard
-- Analytics
 
 ### Homepage
 - Sections (homepage configuration)
-- Global Settings
 
 ### Projects
-- All Projects
-- New Project
-- Categories
-- Tags
+- Project Dashboard (projects overview and management)
+- New Project (always visible for quick access)
+- All Projects (collapsible list)
+  - Pure expand/collapse functionality - no navigation
+  - Individual projects shown when expanded
+  - Click project name to edit that project
 
 ### AI Assistant
 - AI Settings
-- Usage & Costs
-- Custom Prompts
 
 ### Media Library
 - All Media
 - Upload
-- Unused Media
-
-### Settings
-- General
-- SEO & Meta
-- Theme & UI
-- Advanced
 
 ## Features
 
@@ -145,6 +136,16 @@ The sidebar includes the following sections:
 - Automatic breadcrumb generation based on URL
 - Proper page hierarchy indication
 - Current page highlighting
+
+### Smart Projects Navigation
+- **Project Dashboard** dedicated page for project overview and management
+- **New Project** always visible for quick access
+- **All Projects** collapsible section that:
+  - Pure expand/collapse functionality (no unwanted navigation)
+  - Shows individual projects when expanded
+  - Allows direct navigation to edit specific projects
+  - Loads projects dynamically with loading states
+  - Shows project count badge when collapsed
 
 ## Migration from Old System
 
