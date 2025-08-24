@@ -147,9 +147,9 @@ export function ProjectCard({
         willChange: "transform, opacity"
       }}
     >
-      {/* Thumbnail Image */}
-      {thumbnailUrl && (
-        <div className="relative aspect-video overflow-hidden rounded-t-xl">
+      {/* Thumbnail Image or Placeholder */}
+      <div className="relative aspect-video overflow-hidden rounded-t-xl">
+        {thumbnailUrl ? (
           <motion.img
             src={thumbnailUrl}
             alt={project.thumbnailImage?.altText || project.title}
@@ -159,53 +159,79 @@ export function ProjectCard({
             initial="initial"
             whileHover="hover"
           />
-          
-          {/* Overlay with quick actions */}
-          <motion.div 
-            className="absolute inset-0 bg-black/20 flex items-center justify-center"
-            variants={overlayVariants}
+        ) : (
+          <motion.div
+            className="w-full h-full bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center"
+            variants={imageVariants}
             initial="initial"
             whileHover="hover"
           >
-            <motion.div 
-              className="flex gap-2"
-              initial={{ scale: 0.8, opacity: 0 }}
-              whileHover={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.1 }}
-            >
-              {project.externalLinks?.length > 0 && (
-                <motion.div
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
+            <div className="text-center text-muted-foreground">
+              <div className="w-12 h-12 mx-auto mb-2 rounded-lg bg-muted-foreground/10 flex items-center justify-center">
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
                 >
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={(e) => handleExternalLinkClick(e, project.externalLinks[0].url)}
-                    className="bg-white/90 hover:bg-white text-black"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                  </Button>
-                </motion.div>
-              )}
-              {project.downloadableFiles?.length > 0 && (
-                <motion.div
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="bg-white/90 hover:bg-white text-black"
-                  >
-                    <Download className="h-4 w-4" />
-                  </Button>
-                </motion.div>
-              )}
-            </motion.div>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+                  />
+                </svg>
+              </div>
+              <p className="text-xs font-medium">No Image</p>
+            </div>
           </motion.div>
-        </div>
-      )}
+        )}
+        
+        {/* Overlay with quick actions */}
+        <motion.div 
+          className="absolute inset-0 bg-black/20 flex items-center justify-center"
+          variants={overlayVariants}
+          initial="initial"
+          whileHover="hover"
+        >
+          <motion.div 
+            className="flex gap-2"
+            initial={{ scale: 0.8, opacity: 0 }}
+            whileHover={{ scale: 1, opacity: 1 }}
+            transition={{ delay: 0.1 }}
+          >
+            {project.externalLinks?.length > 0 && (
+              <motion.div
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={(e) => handleExternalLinkClick(e, project.externalLinks[0].url)}
+                  className="bg-white/90 hover:bg-white text-black"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+              </motion.div>
+            )}
+            {project.downloadableFiles?.length > 0 && (
+              <motion.div
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="bg-white/90 hover:bg-white text-black"
+                >
+                  <Download className="h-4 w-4" />
+                </Button>
+              </motion.div>
+            )}
+          </motion.div>
+        </motion.div>
+      </div>
 
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card } from '@/components/ui/card';
-import { ArrowLeft, Save, Loader2, Eye, EyeOff, ChevronUp, ChevronDown, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Eye, EyeOff, ChevronUp, ChevronDown, AlertCircle, FileText, Globe } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 interface FloatingSaveBarProps {
@@ -15,6 +15,8 @@ interface FloatingSaveBarProps {
   lastSaveTime: Date | null;
   onSave: () => void;
   onBack: () => void;
+  status: 'DRAFT' | 'PUBLISHED';
+  onStatusChange: (status: 'DRAFT' | 'PUBLISHED') => void;
   visibility: 'PUBLIC' | 'PRIVATE';
   onVisibilityChange: (visibility: 'PUBLIC' | 'PRIVATE') => void;
   error?: string | null;
@@ -28,6 +30,8 @@ export function FloatingSaveBar({
   lastSaveTime,
   onSave,
   onBack,
+  status,
+  onStatusChange,
   visibility,
   onVisibilityChange,
   error
@@ -81,6 +85,31 @@ export function FloatingSaveBar({
                     {error}
                   </div>
                 )}
+              </div>
+
+              {/* Status control */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 text-sm text-gray-600">
+                  {status === 'PUBLISHED' ? (
+                    <Globe className="h-4 w-4" />
+                  ) : (
+                    <FileText className="h-4 w-4" />
+                  )}
+                  <span className="hidden sm:inline">Status:</span>
+                </div>
+                <Select
+                  value={status}
+                  onValueChange={onStatusChange}
+                  disabled={saving}
+                >
+                  <SelectTrigger className="w-24 h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="DRAFT">Draft</SelectItem>
+                    <SelectItem value="PUBLISHED">Published</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* Visibility control */}
