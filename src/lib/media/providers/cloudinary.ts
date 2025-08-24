@@ -92,14 +92,81 @@ export class CloudinaryProvider implements MediaProvider {
 
   async delete(publicId: string): Promise<DeleteResult> {
     try {
-      const result = await cloudinary.uploader.destroy(publicId);
+      // Use Admin API for more robust deletion
+      const result = await cloudinary.api.delete_resources([publicId], {
+        invalidate: true // Invalidate CDN cache
+      });
+      
+      const deletedStatus = result.deleted?.[publicId];
       
       return {
         publicId,
-        result: result.result === 'ok' ? 'ok' : 'not found'
+        result: deletedStatus === 'deleted' ? 'ok' : 'not found',
+        details: {
+          deleted: result.deleted,
+          notFound: result.not_found,
+          partial: result.partial || false
+        }
       };
     } catch (error) {
-      throw new Error(`Cloudinary delete failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Fallback to uploader.destroy for backward compatibility
+      try {
+        console.warn('Admin API delete failed, falling back to uploader.destroy:', error);
+        const fallbackResult = await cloudinary.uploader.destroy(publicId);
+        
+        return {
+          publicId,
+          result: fallbackResult.result === 'ok' ? 'ok' : 'not found',
+          details: {
+            fallback: true,
+            originalError: error instanceof Error ? error.message : 'Unknown error'
+          }
+        };
+      } catch (fallbackError) {
+        throw new Error(`Cloudinary delete failed: ${fallbackError instanceof Error ? fallbackError.message : 'Unknown error'}`);
+      }
+    }
+  }
+
+  /**
+   * Delete multiple resources using Admin API
+   */
+  async deleteMultiple(publicIds: string[]): Promise<{ deleted: string[]; notFound: string[]; errors: string[] }> {
+    try {
+      // Cloudinary Admin API supports up to 100 public_ids per request
+      const batchSize = 100;
+      const results = {
+        deleted: [] as string[],
+        notFound: [] as string[],
+        errors: [] as string[]
+      };
+
+      for (let i = 0; i < publicIds.length; i += batchSize) {
+        const batch = publicIds.slice(i, i + batchSize);
+        
+        try {
+          const result = await cloudinary.api.delete_resources(batch, {
+            invalidate: true // Invalidate CDN cache
+          });
+          
+          // Process results
+          if (result.deleted) {
+            results.deleted.push(...Object.keys(result.deleted));
+          }
+          
+          if (result.not_found) {
+            results.notFound.push(...result.not_found);
+          }
+          
+        } catch (batchError) {
+          console.error(`Batch delete failed for batch ${i / batchSize + 1}:`, batchError);
+          results.errors.push(`Batch ${i / batchSize + 1}: ${batchError instanceof Error ? batchError.message : 'Unknown error'}`);
+        }
+      }
+
+      return results;
+    } catch (error) {
+      throw new Error(`Cloudinary batch delete failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 

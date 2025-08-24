@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { 
   Upload, 
@@ -21,7 +22,8 @@ import {
   RefreshCw,
   Trash2,
   Database,
-  RotateCcw
+  RotateCcw,
+  AlertTriangle
 } from "lucide-react";
 
 interface UploadFile {
@@ -73,6 +75,9 @@ export function MediaUploadInterface() {
   const [isLoadingMedia, setIsLoadingMedia] = useState(true);
   const [syncSummary, setSyncSummary] = useState<SyncSummary | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<MediaItem | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
 
 
@@ -275,26 +280,62 @@ export function MediaUploadInterface() {
     }
   };
 
-  const deleteMediaItem = async (mediaId: string) => {
+  const openDeleteDialog = (item: MediaItem) => {
+    setItemToDelete(item);
+    setDeleteDialogOpen(true);
+  };
+
+  const closeDeleteDialog = () => {
+    setDeleteDialogOpen(false);
+    setItemToDelete(null);
+    setIsDeleting(false);
+  };
+
+  const deleteMediaItem = async (deleteFromCloudinary: boolean = true) => {
+    if (!itemToDelete) return;
+
     try {
-      const response = await fetch(`/api/media/${mediaId}`, {
-        method: 'DELETE'
+      setIsDeleting(true);
+      
+      const response = await fetch(`/api/media/${itemToDelete.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          deleteFromCloudinary
+        })
       });
       
       if (response.ok) {
+        const result = await response.json();
+        
+        // Show detailed feedback based on what actually happened
+        let title = "Success";
+        let description = result.message;
+        let variant: "default" | "destructive" = "default";
+        
+        if (deleteFromCloudinary && !result.deletedFromCloudinary) {
+          title = "Partial Success";
+          description = `${result.message}${result.cloudinaryError ? `: ${result.cloudinaryError}` : ''}`;
+          variant = "destructive";
+        }
+        
         toast({
-          title: "Success",
-          description: "Media item deleted successfully",
-          variant: "default"
+          title,
+          description,
+          variant
         });
         
         // Remove from local state
-        setMediaItems(prev => prev.filter(item => item.id !== mediaId));
+        setMediaItems(prev => prev.filter(item => item.id !== itemToDelete.id));
         await checkSyncStatus();
+        closeDeleteDialog();
       } else {
+        const errorData = await response.json();
         toast({
           title: "Error",
-          description: "Failed to delete media item",
+          description: errorData.error || "Failed to delete media item",
           variant: "destructive"
         });
       }
@@ -304,6 +345,8 @@ export function MediaUploadInterface() {
         description: "Failed to delete media item",
         variant: "destructive"
       });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -453,7 +496,7 @@ export function MediaUploadInterface() {
                           size="sm"
                           variant="destructive"
                           className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0"
-                          onClick={() => deleteMediaItem(item.id)}
+                          onClick={() => openDeleteDialog(item)}
                         >
                           <X size={12} />
                         </Button>
@@ -694,6 +737,92 @@ export function MediaUploadInterface() {
           </Card>
         </div>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-lg max-w-[90vw]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-orange-500" />
+              Delete Media Item
+            </DialogTitle>
+            <DialogDescription className="text-left">
+              You are about to delete <span className="font-medium">"{itemToDelete?.altText}"</span>. Choose how you want to delete this media item:
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="h-4 w-4 text-orange-500 mt-0.5 flex-shrink-0" />
+                <div className="text-sm min-w-0">
+                  <p className="font-medium text-orange-800">Warning</p>
+                  <p className="text-orange-700 break-words">
+                    Deleting from Cloudinary will permanently remove the file from cloud storage. 
+                    This action cannot be undone and may break existing links.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="border rounded-lg p-3">
+                <div className="flex items-start gap-3">
+                  <Database className="h-4 w-4 text-blue-500 mt-1 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <h4 className="font-medium text-sm">Database Only</h4>
+                    <p className="text-xs text-gray-600 mt-1 break-words">
+                      Remove from your media library but keep the file in Cloudinary. 
+                      The file will still be accessible via its URL.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border rounded-lg p-3">
+                <div className="flex items-start gap-3">
+                  <Cloud className="h-4 w-4 text-red-500 mt-1 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <h4 className="font-medium text-sm">Database + Cloudinary</h4>
+                    <p className="text-xs text-gray-600 mt-1 break-words">
+                      Permanently delete from both your media library and Cloudinary storage. 
+                      This will break any existing links to this file.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="outline"
+              onClick={closeDeleteDialog}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => deleteMediaItem(false)}
+              disabled={isDeleting}
+              className="flex items-center gap-2"
+            >
+              <Database size={14} />
+              {isDeleting ? 'Deleting...' : 'Database Only'}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteMediaItem(true)}
+              disabled={isDeleting}
+              className="flex items-center gap-2"
+            >
+              <Trash2 size={14} />
+              {isDeleting ? 'Deleting...' : 'Database + Cloudinary'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 } 
