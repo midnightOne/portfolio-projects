@@ -16,13 +16,8 @@ import {
   File, 
   Check, 
   AlertCircle, 
-  Settings,
   ArrowLeft,
-  Cloud,
-  Zap,
-  HardDrive,
-  Database,
-  Github
+  Cloud
 } from "lucide-react";
 
 interface UploadFile {
@@ -35,14 +30,7 @@ interface UploadFile {
   preview?: string;
 }
 
-interface MediaProvider {
-  id: string;
-  name: string;
-  icon: any;
-  description: string;
-  status: 'configured' | 'not-configured';
-  features: string[];
-}
+
 
 export function MediaUploadInterface() {
   const router = useRouter();
@@ -50,52 +38,9 @@ export function MediaUploadInterface() {
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [selectedProject, setSelectedProject] = useState<string>('');
   const [isUploading, setIsUploading] = useState(false);
-  const [showProviderInfo, setShowProviderInfo] = useState(false);
-  const [currentProvider, setCurrentProvider] = useState<string>('');
 
-  // Mock provider data (in a real app, this would come from an API)
-  const providers: MediaProvider[] = [
-    {
-      id: 'cloudinary',
-      name: 'Cloudinary',
-      icon: Cloud,
-      description: 'Auto-optimization, transformations, global CDN',
-      status: 'configured',
-      features: ['Auto WebP/AVIF', 'Real-time transforms', '25GB free/month', 'Global CDN']
-    },
-    {
-      id: 's3',
-      name: 'AWS S3',
-      icon: HardDrive,
-      description: 'Cost-effective storage with CloudFront CDN',
-      status: 'not-configured',
-      features: ['99.999999999% durability', 'CloudFront CDN', 'Very cost-effective', 'Enterprise scale']
-    },
-    {
-      id: 'vercel',
-      name: 'Vercel Blob',
-      icon: Zap,
-      description: 'Seamless Vercel integration, global edge',
-      status: 'not-configured',
-      features: ['Vercel integration', 'Global edge', 'Simple setup', '1GB free']
-    },
-    {
-      id: 'supabase',
-      name: 'Supabase Storage',
-      icon: Database,
-      description: 'Database-integrated, auth-aware storage',
-      status: 'not-configured',
-      features: ['Database integration', 'Row Level Security', 'Auth-aware', '1GB free']
-    },
-    {
-      id: 'github',
-      name: 'GitHub + jsDelivr',
-      icon: Github,
-      description: 'Free CDN for open source projects',
-      status: 'not-configured',
-      features: ['Completely free', 'Version controlled', 'Global CDN', 'Git workflow']
-    }
-  ];
+
+
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.target.files || []);
@@ -205,7 +150,7 @@ export function MediaUploadInterface() {
   return (
     <div className="space-y-6">
       {/* Header Actions */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-start">
         <Button 
           variant="outline" 
           onClick={() => router.push('/admin')}
@@ -214,63 +159,9 @@ export function MediaUploadInterface() {
           <ArrowLeft size={16} />
           Back to Dashboard
         </Button>
-        <Button 
-          variant="outline"
-          onClick={() => setShowProviderInfo(!showProviderInfo)}
-          className="flex items-center gap-2"
-        >
-          <Settings size={16} />
-          Provider Info
-        </Button>
       </div>
 
-      {/* Provider Information */}
-      {showProviderInfo && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Media Storage Providers</CardTitle>
-            <CardDescription>
-              Your portfolio supports multiple storage providers. Current provider: <strong>Cloudinary</strong>
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {providers.map((provider) => {
-                const Icon = provider.icon;
-                return (
-                  <div 
-                    key={provider.id} 
-                    className={`p-4 border rounded-lg ${
-                      provider.status === 'configured' 
-                        ? 'border-green-200 bg-green-50' 
-                        : 'border-gray-200'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 mb-3">
-                      <Icon size={20} />
-                      <div>
-                        <h4 className="font-medium">{provider.name}</h4>
-                        <Badge variant={provider.status === 'configured' ? 'default' : 'secondary'}>
-                          {provider.status === 'configured' ? 'Active' : 'Available'}
-                        </Badge>
-                      </div>
-                    </div>
-                    <p className="text-sm text-gray-600 mb-3">{provider.description}</p>
-                    <div className="space-y-1">
-                      {provider.features.map((feature, index) => (
-                        <div key={index} className="flex items-center gap-2 text-xs text-gray-500">
-                          <div className="w-1 h-1 bg-gray-400 rounded-full" />
-                          {feature}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Upload Section */}

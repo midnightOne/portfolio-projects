@@ -98,7 +98,7 @@ The sidebar includes the following sections in order:
 - Dashboard
 
 ### Homepage
-- Sections (homepage configuration)
+- Homepage Config (sections and global settings)
 
 ### Projects
 - Project Dashboard (projects overview and management)
@@ -112,8 +112,8 @@ The sidebar includes the following sections in order:
 - AI Settings
 
 ### Media Library
-- All Media
-- Upload
+- Manage Media (upload and manage media files)
+- Media Storage Providers (configure storage providers)
 
 ## Features
 
@@ -121,6 +121,7 @@ The sidebar includes the following sections in order:
 - Sidebar collapses to hamburger menu on mobile
 - Desktop sidebar can be toggled for more workspace
 - Touch-friendly navigation and form controls
+- Bento grid layouts adapt to different screen sizes
 
 ### Accessibility
 - Proper ARIA labels and roles
@@ -131,6 +132,7 @@ The sidebar includes the following sections in order:
 - Uses shadcn/ui components throughout
 - Consistent spacing, typography, and colors
 - Professional design language
+- Bento grid layouts for optimal space utilization
 
 ### Breadcrumb Navigation
 - Automatic breadcrumb generation based on URL
@@ -146,6 +148,11 @@ The sidebar includes the following sections in order:
   - Allows direct navigation to edit specific projects
   - Loads projects dynamically with loading states
   - Shows project count badge when collapsed
+
+### Bento Grid Layouts
+- **AI Settings**: Environment configuration, model settings, and general settings arranged in a responsive bento grid
+- **Homepage Config**: Section management and global settings combined in a unified bento grid layout
+- Eliminates redundant navigation and maximizes screen real estate
 
 ## Migration from Old System
 

@@ -7,8 +7,8 @@ import { AdminLayout } from '@/components/admin/admin-layout';
 import { AdminPageLayout } from '@/components/admin/admin-page-layout';
 
 export const metadata: Metadata = {
-  title: 'Homepage Configuration - Admin',
-  description: 'Configure homepage sections and layout',
+  title: 'Homepage Config - Admin',
+  description: 'Configure homepage sections and global settings',
 };
 
 export default async function HomepageConfigPage() {
@@ -21,8 +21,8 @@ export default async function HomepageConfigPage() {
   return (
     <AdminLayout>
       <AdminPageLayout
-        title="Homepage Sections"
-        description="Configure homepage sections, layout, and content"
+        title="Homepage Config"
+        description="Configure homepage sections and global settings"
       >
         <HomepageEditor />
       </AdminPageLayout>

@@ -185,7 +185,7 @@ export function AdminSidebar() {
                 >
                   <a href="/admin/homepage" className="flex items-center gap-2">
                     <Globe className="size-4" />
-                    <span>Sections</span>
+                    <span>Homepage Config</span>
                   </a>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -328,24 +328,24 @@ export function AdminSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
-                  isActive={isItemActive('/admin/media') && !pathname.includes('/admin/media/upload')}
-                  onClick={() => router.push('/admin/media')}
+                  isActive={isItemActive('/admin/media/upload')}
+                  onClick={() => router.push('/admin/media/upload')}
                 >
-                  <a href="/admin/media" className="flex items-center gap-2">
+                  <a href="/admin/media/upload" className="flex items-center gap-2">
                     <Grid3X3 className="size-4" />
-                    <span>All Media</span>
+                    <span>Manage Media</span>
                   </a>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
-                  isActive={isItemActive('/admin/media/upload')}
-                  onClick={() => router.push('/admin/media/upload')}
+                  isActive={isItemActive('/admin/media/providers')}
+                  onClick={() => router.push('/admin/media/providers')}
                 >
-                  <a href="/admin/media/upload" className="flex items-center gap-2">
-                    <Upload className="size-4" />
-                    <span>Upload</span>
+                  <a href="/admin/media/providers" className="flex items-center gap-2">
+                    <Settings className="size-4" />
+                    <span>Media Storage Providers</span>
                   </a>
                 </SidebarMenuButton>
               </SidebarMenuItem>
