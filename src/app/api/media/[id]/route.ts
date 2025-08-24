@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
-import { prisma } from '@/lib/database';
+import { prisma } from '@/lib/prisma';
 import { getMediaProvider } from '@/lib/media';
 
 export async function GET(

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
 import { 
   Upload, 
   X, 
@@ -17,7 +18,11 @@ import {
   Check, 
   AlertCircle, 
   ArrowLeft,
-  Cloud
+  Cloud,
+  RefreshCw,
+  Trash2,
+  Database,
+  RotateCcw
 } from "lucide-react";
 
 interface UploadFile {
@@ -30,14 +35,45 @@ interface UploadFile {
   preview?: string;
 }
 
+interface MediaItem {
+  id: string;
+  type: 'IMAGE' | 'VIDEO' | 'DOCUMENT';
+  url: string;
+  thumbnailUrl: string;
+  altText: string;
+  description?: string;
+  width?: number;
+  height?: number;
+  fileSize: string;
+  displayOrder: number;
+  createdAt: string;
+  project?: {
+    id: string;
+    title: string;
+    slug: string;
+  };
+}
+
+interface SyncSummary {
+  cloudinaryTotal: number;
+  databaseTotal: number;
+  missingInDatabase: number;
+  orphanedInDatabase: number;
+}
+
 
 
 export function MediaUploadInterface() {
   const router = useRouter();
+  const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<UploadFile[]>([]);
   const [selectedProject, setSelectedProject] = useState<string>('');
   const [isUploading, setIsUploading] = useState(false);
+  const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
+  const [isLoadingMedia, setIsLoadingMedia] = useState(true);
+  const [syncSummary, setSyncSummary] = useState<SyncSummary | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
 
 
@@ -146,6 +182,173 @@ export function MediaUploadInterface() {
       default: return null;
     }
   };
+
+  const loadMediaItems = async () => {
+    try {
+      setIsLoadingMedia(true);
+      console.log('Loading media items...');
+      const response = await fetch('/api/media');
+      const data = await response.json();
+      
+      console.log('Media API response:', data);
+      
+      if (data.success) {
+        console.log('Media items loaded:', data.data.mediaItems.length);
+        setMediaItems(data.data.mediaItems);
+      } else {
+        console.error('Media API error:', data.error);
+        toast({
+          title: "Error",
+          description: data.error?.message || "Failed to load media items",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      console.error('Media loading error:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load media items",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoadingMedia(false);
+    }
+  };
+
+  const checkSyncStatus = async () => {
+    try {
+      const response = await fetch('/api/media/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'preview' })
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        setSyncSummary(data.data.summary);
+      }
+    } catch (error) {
+      console.error('Failed to check sync status:', error);
+    }
+  };
+
+  const handleSync = async (action: 'restore' | 'cleanup') => {
+    try {
+      setIsSyncing(true);
+      const response = await fetch('/api/media/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      });
+      
+      const data = await response.json();
+      if (data.success) {
+        const message = action === 'restore' 
+          ? `Restored ${data.data.restored || 0} media items from Cloudinary`
+          : `Cleaned up ${data.data.deleted || 0} orphaned database records`;
+          
+        toast({
+          title: "Success",
+          description: message,
+          variant: "default"
+        });
+        
+        console.log('Sync completed:', data.data);
+        
+        // Reload media items and sync status
+        await loadMediaItems();
+        await checkSyncStatus();
+      } else {
+        toast({
+          title: "Error",
+          description: `Failed to ${action} media items`,
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: `Failed to ${action} media items`,
+        variant: "destructive"
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const deleteMediaItem = async (mediaId: string) => {
+    try {
+      const response = await fetch(`/api/media/${mediaId}`, {
+        method: 'DELETE'
+      });
+      
+      if (response.ok) {
+        toast({
+          title: "Success",
+          description: "Media item deleted successfully",
+          variant: "default"
+        });
+        
+        // Remove from local state
+        setMediaItems(prev => prev.filter(item => item.id !== mediaId));
+        await checkSyncStatus();
+      } else {
+        toast({
+          title: "Error",
+          description: "Failed to delete media item",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete media item",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const testCloudinaryConnection = async () => {
+    try {
+      setIsSyncing(true);
+      const response = await fetch('/api/media/test-cloudinary');
+      const data = await response.json();
+      
+      if (data.success) {
+        toast({
+          title: "Cloudinary Connection Test",
+          description: `Success! Found ${data.data.sampleResources.totalCount} total files in Cloudinary`,
+          variant: "default"
+        });
+        
+        // Refresh sync status after successful test
+        await checkSyncStatus();
+      } else {
+        toast({
+          title: "Cloudinary Connection Failed",
+          description: data.error.message || "Failed to connect to Cloudinary",
+          variant: "destructive"
+        });
+        
+        // Log detailed error for debugging
+        console.error('Cloudinary test failed:', data.error);
+      }
+    } catch (error) {
+      toast({
+        title: "Connection Test Failed",
+        description: "Failed to test Cloudinary connection",
+        variant: "destructive"
+      });
+      console.error('Cloudinary test error:', error);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    loadMediaItems();
+    checkSyncStatus();
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -315,6 +518,78 @@ export function MediaUploadInterface() {
             </CardContent>
           </Card>
 
+          {/* Sync Status */}
+          {syncSummary && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Database size={16} />
+                  Sync Status
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex justify-between text-sm">
+                  <span>Cloudinary Files:</span>
+                  <span>{syncSummary.cloudinaryTotal}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span>Database Records:</span>
+                  <span>{syncSummary.databaseTotal}</span>
+                </div>
+                {syncSummary.missingInDatabase > 0 && (
+                  <div className="flex justify-between text-sm text-orange-600">
+                    <span>Missing in DB:</span>
+                    <span>{syncSummary.missingInDatabase}</span>
+                  </div>
+                )}
+                {syncSummary.orphanedInDatabase > 0 && (
+                  <div className="flex justify-between text-sm text-red-600">
+                    <span>Orphaned Records:</span>
+                    <span>{syncSummary.orphanedInDatabase}</span>
+                  </div>
+                )}
+                
+                <div className="space-y-2 pt-2 border-t">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={testCloudinaryConnection}
+                    disabled={isSyncing}
+                    className="w-full"
+                  >
+                    <Database size={14} className="mr-1" />
+                    Test Cloudinary Connection
+                  </Button>
+                  
+                  {/* Always show Force Sync button */}
+                  <Button
+                    size="sm"
+                    onClick={() => handleSync('restore')}
+                    disabled={isSyncing}
+                    className="w-full"
+                    variant={syncSummary.missingInDatabase > 0 ? "default" : "outline"}
+                  >
+                    <RotateCcw size={14} className="mr-1" />
+                    {syncSummary.missingInDatabase > 0 ? 'Restore Missing Files' : 'Force Sync from Cloudinary'}
+                  </Button>
+                  
+                  {syncSummary.orphanedInDatabase > 0 && (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => handleSync('cleanup')}
+                      disabled={isSyncing}
+                      className="w-full"
+                    >
+                      <Trash2 size={14} className="mr-1" />
+                      Clean Orphaned Records
+                    </Button>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {/* Current Provider */}
           <Card>
             <CardHeader>
@@ -335,6 +610,104 @@ export function MediaUploadInterface() {
           </Card>
         </div>
       </div>
+
+      {/* Media Library */}
+      <Card className="mt-6">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Media Library</CardTitle>
+              <CardDescription>
+                All uploaded media files ({mediaItems.length} items)
+              </CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                loadMediaItems();
+                checkSyncStatus();
+              }}
+              disabled={isLoadingMedia}
+            >
+              <RefreshCw size={14} className={`mr-1 ${isLoadingMedia ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoadingMedia ? (
+            <div className="flex items-center justify-center py-8">
+              <RefreshCw className="animate-spin mr-2" size={20} />
+              Loading media items...
+            </div>
+          ) : mediaItems.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <Image size={48} className="mx-auto mb-4 text-gray-300" />
+              <p>No media files found</p>
+              <p className="text-sm">Upload some files or sync with Cloudinary to see them here</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+              {mediaItems.map((item) => {
+                const isImage = item.type === 'IMAGE';
+                const isVideo = item.type === 'VIDEO';
+                
+                return (
+                  <div key={item.id} className="group relative border rounded-lg overflow-hidden hover:shadow-md transition-shadow">
+                    {/* Media Preview */}
+                    <div className="aspect-square bg-gray-100 flex items-center justify-center">
+                      {isImage ? (
+                        <img
+                          src={item.thumbnailUrl}
+                          alt={item.altText}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : isVideo ? (
+                        <div className="relative w-full h-full bg-black flex items-center justify-center">
+                          <Video size={24} className="text-white" />
+                        </div>
+                      ) : (
+                        <File size={24} className="text-gray-400" />
+                      )}
+                    </div>
+                    
+                    {/* Media Info */}
+                    <div className="p-2">
+                      <p className="text-xs font-medium truncate" title={item.altText}>
+                        {item.altText}
+                      </p>
+                      <div className="flex items-center justify-between mt-1">
+                        <Badge variant="secondary" className="text-xs">
+                          {item.type.toLowerCase()}
+                        </Badge>
+                        <span className="text-xs text-gray-500">
+                          {formatFileSize(parseInt(item.fileSize))}
+                        </span>
+                      </div>
+                      {item.project && (
+                        <p className="text-xs text-blue-600 truncate mt-1" title={item.project.title}>
+                          {item.project.title}
+                        </p>
+                      )}
+                    </div>
+                    
+                    {/* Delete Button */}
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 p-0"
+                      onClick={() => deleteMediaItem(item.id)}
+                    >
+                      <X size={12} />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 } 
