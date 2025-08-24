@@ -29,61 +29,42 @@ interface ProjectModalProps {
   loading?: boolean;
 }
 
-// Modal animation variants with smoother transitions
+// Modal animation variants with crisp text rendering
 const modalVariants = {
   hidden: {
     opacity: 0,
-    scale: 0.95,
-    y: 20,
+    scale: 0.98,
+    y: 10,
   },
   visible: {
     opacity: 1,
     scale: 1,
     y: 0,
     transition: {
-      type: "spring" as const,
-      duration: 0.4,
-      bounce: 0.1,
+      type: "tween" as const,
+      duration: 0.3,
+      ease: [0.4, 0, 0.2, 1] as const,
       staggerChildren: 0.05,
     },
   },
   exit: {
     opacity: 0,
-    scale: 0.95,
-    y: 20,
+    scale: 0.98,
+    y: 10,
     transition: {
-      duration: 0.25,
+      duration: 0.2,
       ease: [0.4, 0, 0.2, 1] as const,
     },
   },
 };
 
-// Sidebar animation variants
+// Sidebar animation variants - opacity only for crisp text
 const sidebarVariants = {
   hidden: {
     opacity: 0,
-    x: -30,
   },
   visible: {
     opacity: 1,
-    x: 0,
-    transition: {
-      delay: 0.1,
-      duration: 0.4,
-      ease: [0.4, 0, 0.2, 1] as const,
-    },
-  },
-};
-
-// Content animation variants  
-const contentVariants = {
-  hidden: {
-    opacity: 0,
-    x: 30,
-  },
-  visible: {
-    opacity: 1,
-    x: 0,
     transition: {
       delay: 0.1,
       duration: 0.3,
@@ -92,19 +73,30 @@ const contentVariants = {
   },
 };
 
-// Loading to content transition variants
+// Content animation variants - opacity only for crisp text
+const contentVariants = {
+  hidden: {
+    opacity: 0,
+  },
+  visible: {
+    opacity: 1,
+    transition: {
+      delay: 0.15,
+      duration: 0.3,
+      ease: [0.4, 0, 0.2, 1] as const,
+    },
+  },
+};
+
+// Loading to content transition variants - no blur or scale
 const loadingTransitionVariants = {
   loading: {
-    opacity: 0.3,
-    scale: 0.98,
-    filter: "blur(1px)",
+    opacity: 0.5,
   },
   loaded: {
     opacity: 1,
-    scale: 1,
-    filter: "blur(0px)",
     transition: {
-      duration: 0.4,
+      duration: 0.3,
       ease: [0.4, 0, 0.2, 1] as const,
     },
   },
@@ -252,6 +244,13 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
           initial="hidden"
           animate="visible"
           exit="exit"
+          style={{
+            backfaceVisibility: 'hidden',
+            perspective: 1000,
+            transform: 'translateZ(0)',
+            WebkitFontSmoothing: 'antialiased',
+            MozOsxFontSmoothing: 'grayscale',
+          }}
         >
             {/* Loading State Overlay with seamless transition */}
             <AnimatePresence>
