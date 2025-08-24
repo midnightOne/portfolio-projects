@@ -4,6 +4,7 @@ import React, { Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ProjectsLayout } from '@/components/layout/projects-layout';
 import { ProjectGrid } from '@/components/projects/project-grid';
+import { ProjectList } from '@/components/projects/project-list';
 import { ProjectTimeline } from '@/components/projects/project-timeline';
 import { ProjectModal } from '@/components/projects/project-modal';
 import { useProjects } from '@/hooks/use-projects';
@@ -175,6 +176,13 @@ function ProjectsPageContent() {
     >
       {viewMode === 'grid' ? (
         <ProjectGrid
+          projects={projects}
+          loading={progressiveState.showSkeletons}
+          onProjectClick={(projectSlug) => handleProjectClick(projectSlug)}
+          searchQuery={debouncedQuery}
+        />
+      ) : viewMode === 'list' ? (
+        <ProjectList
           projects={projects}
           loading={progressiveState.showSkeletons}
           onProjectClick={(projectSlug) => handleProjectClick(projectSlug)}

@@ -28,13 +28,22 @@ interface TimelineGroup {
 // Helper function to group projects by time period
 function groupProjectsByPeriod(projects: ProjectWithRelations[], groupBy: 'year' | 'month'): TimelineGroup[] {
   const groups = new Map<string, ProjectWithRelations[]>();
-  
+
   projects.forEach(project => {
-    const date = project.workDate || project.createdAt;
-    const period = groupBy === 'year' 
+    // Convert string dates to Date objects
+    const dateValue = project.workDate || project.createdAt;
+    const date = new Date(dateValue);
+
+    // Check if date is valid
+    if (isNaN(date.getTime())) {
+      console.warn('Invalid date for project:', project.title, dateValue);
+      return; // Skip this project if date is invalid
+    }
+
+    const period = groupBy === 'year'
       ? date.getFullYear().toString()
       : `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-    
+
     if (!groups.has(period)) {
       groups.set(period, []);
     }
@@ -44,12 +53,12 @@ function groupProjectsByPeriod(projects: ProjectWithRelations[], groupBy: 'year'
   // Convert to array and sort by date (newest first)
   return Array.from(groups.entries())
     .map(([period, projects]) => ({
-      period: groupBy === 'year' 
+      period: groupBy === 'year'
         ? period
         : new Date(period + '-01').toLocaleDateString('en-US', { year: 'numeric', month: 'long' }),
       projects: projects.sort((a, b) => {
-        const dateA = a.workDate || a.createdAt;
-        const dateB = b.workDate || b.createdAt;
+        const dateA = new Date(a.workDate || a.createdAt);
+        const dateB = new Date(b.workDate || b.createdAt);
         return dateB.getTime() - dateA.getTime();
       }),
       date: new Date(period + (groupBy === 'year' ? '-01-01' : '-01'))
@@ -60,15 +69,15 @@ function groupProjectsByPeriod(projects: ProjectWithRelations[], groupBy: 'year'
 // Helper function to highlight search terms
 function highlightSearchTerms(text: string, searchQuery: string): React.ReactNode {
   if (!searchQuery.trim()) return text;
-  
+
   const terms = searchQuery.trim().split(/\s+/);
   let highlightedText = text;
-  
+
   terms.forEach(term => {
     const regex = new RegExp(`(${term})`, 'gi');
     highlightedText = highlightedText.replace(regex, '<mark class="bg-yellow-200 dark:bg-yellow-800 px-1 rounded">$1</mark>');
   });
-  
+
   return <span dangerouslySetInnerHTML={{ __html: highlightedText }} />;
 }
 
@@ -83,15 +92,15 @@ interface TimelineItemProps {
 
 function TimelineItem({ project, onProjectClick, showViewCount, searchQuery, index }: TimelineItemProps) {
   const shouldReduceMotion = useReducedMotion();
-  
+
   const itemVariants: Variants = {
-    hidden: { 
-      opacity: 0, 
+    hidden: {
+      opacity: 0,
       x: -30,
       scale: 0.95
     },
-    visible: { 
-      opacity: 1, 
+    visible: {
+      opacity: 1,
       x: 0,
       scale: 1,
       transition: {
@@ -110,7 +119,7 @@ function TimelineItem({ project, onProjectClick, showViewCount, searchQuery, ind
     }
   };
 
-  const workDate = project.workDate || project.createdAt;
+  const workDate = new Date(project.workDate || project.createdAt);
   const thumbnailImage = project.thumbnailImage || project.mediaItems?.[0];
 
   return (
@@ -124,10 +133,10 @@ function TimelineItem({ project, onProjectClick, showViewCount, searchQuery, ind
     >
       {/* Timeline connector line */}
       <div className="absolute left-6 top-16 bottom-0 w-0.5 bg-border" />
-      
+
       {/* Timeline dot */}
       <div className="absolute left-4 top-8 w-4 h-4 bg-primary rounded-full border-2 border-background shadow-sm z-10" />
-      
+
       {/* Content card */}
       <div className="ml-12 pb-8">
         <Card className="group cursor-pointer transition-all duration-300 hover:shadow-lg hover:scale-[1.02] border-l-4 border-l-primary/20 hover:border-l-primary">
@@ -145,97 +154,117 @@ function TimelineItem({ project, onProjectClick, showViewCount, searchQuery, ind
                   </div>
                 </div>
               )}
-              
+
               {/* Project details */}
               <div className="flex-1 min-w-0">
-                {/* Header with date */}
-                <div className="flex items-start justify-between gap-4 mb-2">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-lg font-semibold text-foreground group-hover:text-primary transition-colors line-clamp-2">
-                      {highlightSearchTerms(project.title, searchQuery)}
-                    </h3>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-                      <Calendar className="h-3 w-3" />
-                      <time dateTime={workDate.toISOString()}>
-                        {workDate.toLocaleDateString('en-US', { 
-                          year: 'numeric', 
-                          month: 'long',
-                          day: 'numeric'
-                        })}
-                      </time>
-                      {showViewCount && (
-                        <>
-                          <span>•</span>
-                          <div className="flex items-center gap-1">
-                            <Eye className="h-3 w-3" />
-                            <span>{project.viewCount.toLocaleString()} views</span>
-                          </div>
-                        </>
+                <div className="flex flex-col lg:flex-row gap-4">
+                  {/* Left Content */}
+                  <div className="flex-1 lg:w-2/5">
+                    {/* Header with date */}
+                    <div className="flex items-start justify-between gap-4 mb-2">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-lg font-semibold text-foreground group-hover:text-primary transition-colors line-clamp-2">
+                          {highlightSearchTerms(project.title, searchQuery)}
+                        </h3>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                          <Calendar className="h-3 w-3" />
+                          <time dateTime={workDate.toISOString()}>
+                            {workDate.toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric'
+                            })}
+                          </time>
+                          {showViewCount && (
+                            <>
+                              <span>•</span>
+                              <div className="flex items-center gap-1">
+                                <Eye className="h-3 w-3" />
+                                <span>{project.viewCount.toLocaleString()} views</span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Brief Overview */}
+                    {project.briefOverview && (
+                      <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
+                        {highlightSearchTerms(project.briefOverview, searchQuery)}
+                      </p>
+                    )}
+
+                    {/* Tags */}
+                    {project.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mb-3">
+                        {project.tags.slice(0, 4).map((tag) => (
+                          <Badge
+                            key={tag.id}
+                            variant="secondary"
+                            className="text-xs"
+                            style={
+                              tag.color
+                                ? {
+                                  backgroundColor: tag.color + '20',
+                                  borderColor: tag.color,
+                                  color: tag.color
+                                }
+                                : undefined
+                            }
+                          >
+                            {tag.name}
+                          </Badge>
+                        ))}
+                        {project.tags.length > 4 && (
+                          <Badge variant="outline" className="text-xs">
+                            +{project.tags.length - 4} more
+                          </Badge>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Quick actions */}
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      {project._count?.mediaItems && project._count.mediaItems > 0 && (
+                        <div className="flex items-center gap-1">
+                          <div className="w-2 h-2 bg-blue-500 rounded-full" />
+                          <span>{project._count.mediaItems} media</span>
+                        </div>
+                      )}
+                      {project._count?.downloadableFiles && project._count.downloadableFiles > 0 && (
+                        <div className="flex items-center gap-1">
+                          <Download className="h-3 w-3" />
+                          <span>{project._count.downloadableFiles} downloads</span>
+                        </div>
+                      )}
+                      {project._count?.externalLinks && project._count.externalLinks > 0 && (
+                        <div className="flex items-center gap-1">
+                          <ExternalLink className="h-3 w-3" />
+                          <span>{project._count.externalLinks} links</span>
+                        </div>
                       )}
                     </div>
                   </div>
+
+                  {/* Right Content - Project Description */}
+                  {project.description && (
+                    <div className="hidden lg:block lg:w-3/5 lg:pl-6 lg:border-l lg:border-border/50">
+                      <div className="text-sm text-muted-foreground line-clamp-4">
+                        {highlightSearchTerms(project.description, searchQuery)}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                {/* Description */}
-                {(project.briefOverview || project.description) && (
-                  <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
-                    {highlightSearchTerms(
-                      project.briefOverview || project.description || '', 
-                      searchQuery
-                    )}
-                  </p>
-                )}
-
-                {/* Tags */}
-                {project.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mb-3">
-                    {project.tags.slice(0, 4).map((tag) => (
-                      <Badge
-                        key={tag.id}
-                        variant="secondary"
-                        className="text-xs"
-                        style={
-                          tag.color
-                            ? { 
-                                backgroundColor: tag.color + '20', 
-                                borderColor: tag.color,
-                                color: tag.color
-                              }
-                            : undefined
-                        }
-                      >
-                        {tag.name}
-                      </Badge>
-                    ))}
-                    {project.tags.length > 4 && (
-                      <Badge variant="outline" className="text-xs">
-                        +{project.tags.length - 4} more
-                      </Badge>
-                    )}
+                {/* Mobile Description - Show below on small screens */}
+                {project.description && (
+                  <div className="lg:hidden mt-3 pt-3 border-t border-border/50">
+                    <div className="text-sm text-muted-foreground line-clamp-3">
+                      {highlightSearchTerms(project.description, searchQuery)}
+                    </div>
                   </div>
                 )}
-
-                {/* Quick actions */}
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  {project._count?.mediaItems && project._count.mediaItems > 0 && (
-                    <div className="flex items-center gap-1">
-                      <div className="w-2 h-2 bg-blue-500 rounded-full" />
-                      <span>{project._count.mediaItems} media</span>
-                    </div>
-                  )}
-                  {project._count?.downloadableFiles && project._count.downloadableFiles > 0 && (
-                    <div className="flex items-center gap-1">
-                      <Download className="h-3 w-3" />
-                      <span>{project._count.downloadableFiles} downloads</span>
-                    </div>
-                  )}
-                  {project._count?.externalLinks && project._count.externalLinks > 0 && (
-                    <div className="flex items-center gap-1">
-                      <ExternalLink className="h-3 w-3" />
-                      <span>{project._count.externalLinks} links</span>
-                    </div>
-                  )}
-                </div>
               </div>
             </div>
           </CardContent>
@@ -254,15 +283,15 @@ interface TimelineGroupHeaderProps {
 
 function TimelineGroupHeader({ period, projectCount, index }: TimelineGroupHeaderProps) {
   const shouldReduceMotion = useReducedMotion();
-  
+
   const headerVariants: Variants = {
-    hidden: { 
-      opacity: 0, 
+    hidden: {
+      opacity: 0,
       y: -20,
       scale: 0.95
     },
-    visible: { 
-      opacity: 1, 
+    visible: {
+      opacity: 1,
       y: 0,
       scale: 1,
       transition: {
@@ -282,12 +311,12 @@ function TimelineGroupHeader({ period, projectCount, index }: TimelineGroupHeade
     >
       {/* Timeline connector for group header */}
       <div className="absolute left-6 top-8 bottom-0 w-0.5 bg-border" />
-      
+
       {/* Group header dot */}
       <div className="absolute left-3 top-4 w-6 h-6 bg-primary rounded-full border-4 border-background shadow-md z-10 flex items-center justify-center">
         <Clock className="h-3 w-3 text-primary-foreground" />
       </div>
-      
+
       {/* Header content */}
       <div className="ml-12">
         <div className="bg-muted/50 rounded-lg px-4 py-3 border">
@@ -301,10 +330,10 @@ function TimelineGroupHeader({ period, projectCount, index }: TimelineGroupHeade
   );
 }
 
-export function ProjectTimeline({ 
-  projects, 
-  loading, 
-  onProjectClick, 
+export function ProjectTimeline({
+  projects,
+  loading,
+  onProjectClick,
   showViewCount = true,
   className,
   searchQuery = '',
@@ -325,8 +354,8 @@ export function ProjectTimeline({
 
   const emptyStateVariants: Variants = {
     hidden: { opacity: 0, y: 20 },
-    visible: { 
-      opacity: 1, 
+    visible: {
+      opacity: 1,
       y: 0,
       transition: {
         duration: 0.5,
@@ -350,7 +379,7 @@ export function ProjectTimeline({
                 </div>
               </div>
             </div>
-            
+
             {/* Project items skeleton */}
             {Array.from({ length: 2 }).map((_, itemIndex) => (
               <div key={itemIndex} className="relative">
@@ -383,26 +412,26 @@ export function ProjectTimeline({
 
   if (projects.length === 0) {
     return (
-      <motion.div 
+      <motion.div
         className="flex flex-col items-center justify-center py-16 text-center"
         variants={emptyStateVariants}
         initial="hidden"
         animate="visible"
       >
-        <motion.div 
+        <motion.div
           className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4"
           initial={{ scale: 0, rotate: -180 }}
           animate={{ scale: 1, rotate: 0 }}
-          transition={{ 
-            type: "spring", 
-            stiffness: 200, 
+          transition={{
+            type: "spring",
+            stiffness: 200,
             damping: 15,
-            delay: 0.2 
+            delay: 0.2
           }}
         >
           <Clock className="w-8 h-8 text-muted-foreground" />
         </motion.div>
-        <motion.h3 
+        <motion.h3
           className="text-lg font-semibold mb-2"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -410,7 +439,7 @@ export function ProjectTimeline({
         >
           No projects found
         </motion.h3>
-        <motion.p 
+        <motion.p
           className="text-muted-foreground max-w-md"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -426,7 +455,7 @@ export function ProjectTimeline({
   const timelineGroups = groupProjectsByPeriod(projects, groupBy);
 
   return (
-    <motion.div 
+    <motion.div
       className={cn("relative", className)}
       variants={containerVariants}
       initial="hidden"
@@ -435,12 +464,12 @@ export function ProjectTimeline({
       <AnimatePresence mode="popLayout">
         {timelineGroups.map((group, groupIndex) => (
           <div key={group.period} className="relative">
-            <TimelineGroupHeader 
+            <TimelineGroupHeader
               period={group.period}
               projectCount={group.projects.length}
               index={groupIndex}
             />
-            
+
             {group.projects.map((project, projectIndex) => (
               <TimelineItem
                 key={project.id}
