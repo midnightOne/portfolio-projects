@@ -7,6 +7,7 @@ import { SectionRenderer, type HomepageConfig, type SectionConfig, sortSectionsB
 import { ProjectModal } from '@/components/projects/project-modal';
 import { ScrollToTop } from '@/components/layout/scroll-to-top';
 import { useProjects } from '@/hooks/use-projects';
+import { useHomepageConfig } from '@/hooks/use-homepage-config';
 import { cn } from '@/lib/utils';
 import type { ProjectWithRelations } from '@/lib/types/project';
 
@@ -17,6 +18,7 @@ import type { ProjectWithRelations } from '@/lib/types/project';
 export interface HomepageProps {
   config?: HomepageConfig;
   className?: string;
+  enableDynamicConfig?: boolean; // Allow disabling dynamic config for preview mode
 }
 
 // ============================================================================
@@ -122,7 +124,7 @@ function smoothScrollToSection(sectionId: string) {
 // MAIN COMPONENT
 // ============================================================================
 
-export function Homepage({ config = DEFAULT_HOMEPAGE_CONFIG, className }: HomepageProps) {
+export function Homepage({ config, className, enableDynamicConfig = true }: HomepageProps) {
   const router = useRouter();
   const [selectedProject, setSelectedProject] = useState<ProjectWithRelations | null>(null);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
@@ -130,9 +132,15 @@ export function Homepage({ config = DEFAULT_HOMEPAGE_CONFIG, className }: Homepa
 
   // Get projects data for the projects section
   const { projects, tags, loading: projectsLoading } = useProjects();
+  
+  // Get dynamic homepage configuration if enabled
+  const { config: dynamicConfig, loading: configLoading, error: configError } = useHomepageConfig();
+  
+  // Use provided config, dynamic config, or default config in that order
+  const activeConfig = config || (enableDynamicConfig ? dynamicConfig : null) || DEFAULT_HOMEPAGE_CONFIG;
 
   // Sort and filter enabled sections
-  const enabledSections = getEnabledSections(config.sections);
+  const enabledSections = getEnabledSections(activeConfig.sections);
   const sortedSections = sortSectionsByOrder(enabledSections);
 
   // ============================================================================
@@ -239,6 +247,30 @@ export function Homepage({ config = DEFAULT_HOMEPAGE_CONFIG, className }: Homepa
   // ============================================================================
   // RENDER
   // ============================================================================
+
+  // Show loading state when fetching dynamic configuration
+  if (enableDynamicConfig && !config && configLoading) {
+    return (
+      <div className={cn('min-h-screen flex items-center justify-center', className)}>
+        <div className="flex items-center gap-3">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          <span className="text-lg text-muted-foreground">Loading homepage...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state if configuration failed to load
+  if (enableDynamicConfig && !config && configError) {
+    return (
+      <div className={cn('min-h-screen flex items-center justify-center', className)}>
+        <div className="text-center">
+          <div className="text-destructive mb-2">Failed to load homepage configuration</div>
+          <div className="text-sm text-muted-foreground">Using default configuration</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={cn('min-h-screen', className)}>
