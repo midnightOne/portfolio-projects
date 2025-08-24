@@ -272,14 +272,14 @@ function AISettingsContent() {
       {/* AI Status Overview */}
       <AIStatusIndicator variant="detailed" showActions={true} />
 
-      {/* Bento Grid Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-        {/* Environment Configuration - Large Card */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Environment Configuration</CardTitle>
-            <CardDescription>
-              API keys are read from environment variables for security
+      {/* Individual Panels Layout */}
+      <div className="flex flex-wrap gap-4">
+        {/* Environment Configuration - Medium Width */}
+        <Card className="flex-1 min-w-[500px] max-w-2xl">
+          <CardHeader className="pb-4">
+            <CardTitle className="text-lg">Environment Configuration</CardTitle>
+            <CardDescription className="text-sm">
+              API keys from environment variables
             </CardDescription>
             <HelpText variant="card">
               <HelpSection
@@ -290,22 +290,21 @@ function AISettingsContent() {
                   { label: 'Environment Variables Guide', href: '/docs/environment-setup' }
                 ]}
               >
-                Set your API keys as environment variables (OPENAI_API_KEY, ANTHROPIC_API_KEY) 
-                in your deployment environment. Never commit API keys to your repository.
+                Set OPENAI_API_KEY and ANTHROPIC_API_KEY environment variables. Never commit API keys to your repository.
               </HelpSection>
             </HelpText>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-3">
             {environmentStatus && (
               <>
-                {/* OpenAI Status */}
-                <div className="flex items-center justify-between p-3 border rounded-lg">
-                  <div>
-                    <div className="font-medium">OpenAI</div>
-                    <div className="text-sm text-muted-foreground">
+                {/* OpenAI Status - Compact */}
+                <div className="flex items-center justify-between p-2 border rounded">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-sm">OpenAI</div>
+                    <div className="text-xs text-muted-foreground truncate">
                       {environmentStatus.openai.configured 
-                        ? `Configured: ${environmentStatus.openai.keyPreview}`
-                        : 'Not configured - set OPENAI_API_KEY environment variable'
+                        ? `${environmentStatus.openai.keyPreview}`
+                        : 'OPENAI_API_KEY not set'
                       }
                     </div>
                     {environmentStatus.setupInstructions.openai && (
@@ -316,20 +315,20 @@ function AISettingsContent() {
                           rel="noopener noreferrer"
                           className="underline flex items-center gap-1"
                         >
-                          Get API key <ExternalLink className="h-3 w-3" />
+                          Get key <ExternalLink className="h-3 w-3" />
                         </a>
                       </div>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 ml-2">
                     <ConfigurationStatus 
                       isConfigured={environmentStatus.openai.configured}
-                      label={environmentStatus.openai.configured ? 'Configured' : 'Not Set'}
+                      label={environmentStatus.openai.configured ? 'Set' : 'Missing'}
                     />
                     {connectionStatus.get('openai') && (
                       <ConnectionStatus
                         isConnected={connectionStatus.get('openai')?.success || false}
-                        label={connectionStatus.get('openai')?.success ? 'Connected' : 'Failed'}
+                        label={connectionStatus.get('openai')?.success ? 'OK' : 'Failed'}
                       />
                     )}
                     <Button
@@ -337,10 +336,11 @@ function AISettingsContent() {
                       size="sm"
                       onClick={() => testConnection('openai')}
                       disabled={!environmentStatus.openai.configured || testingProvider === 'openai'}
+                      className="text-xs px-2 py-1"
                     >
                       <ButtonLoadingState
                         isLoading={testingProvider === 'openai'}
-                        loadingText="Testing..."
+                        loadingText="..."
                       >
                         Test
                       </ButtonLoadingState>
@@ -348,49 +348,14 @@ function AISettingsContent() {
                   </div>
                 </div>
                 
-                {/* Connection test status for OpenAI */}
-                <AsyncOperationIndicator
-                  isLoading={testingProvider === 'openai'}
-                  operation="Testing OpenAI connection"
-                  success={connectionStatus.get('openai')?.success}
-                  error={connectionStatus.get('openai') && !connectionStatus.get('openai')?.success 
-                    ? connectionStatus.get('openai')?.data?.message 
-                    : undefined}
-                  className="ml-3"
-                />
-                
-                {/* Detailed error guidance for OpenAI */}
-                {connectionStatus.get('openai') && !connectionStatus.get('openai')?.success && (
-                  <div className="ml-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm">
-                    {connectionStatus.get('openai')?.data?.error?.guidance && (
-                      <div className="space-y-2">
-                        <div className="font-medium text-red-900">
-                          {connectionStatus.get('openai')?.data?.error?.guidance?.message}
-                        </div>
-                        <div className="text-red-700">
-                          {connectionStatus.get('openai')?.data?.error?.guidance?.action}
-                        </div>
-                        {connectionStatus.get('openai')?.data?.error?.guidance?.documentation && (
-                          <DocumentationLink 
-                            href={connectionStatus.get('openai')?.data?.error?.guidance?.documentation || ''}
-                            className="text-red-600"
-                          >
-                            View documentation
-                          </DocumentationLink>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-                
-                {/* Anthropic Status */}
-                <div className="flex items-center justify-between p-3 border rounded-lg">
-                  <div>
-                    <div className="font-medium">Anthropic</div>
-                    <div className="text-sm text-muted-foreground">
+                {/* Anthropic Status - Compact */}
+                <div className="flex items-center justify-between p-2 border rounded">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-sm">Anthropic</div>
+                    <div className="text-xs text-muted-foreground truncate">
                       {environmentStatus.anthropic.configured 
-                        ? `Configured: ${environmentStatus.anthropic.keyPreview}`
-                        : 'Not configured - set ANTHROPIC_API_KEY environment variable'
+                        ? `${environmentStatus.anthropic.keyPreview}`
+                        : 'ANTHROPIC_API_KEY not set'
                       }
                     </div>
                     {environmentStatus.setupInstructions.anthropic && (
@@ -401,20 +366,20 @@ function AISettingsContent() {
                           rel="noopener noreferrer"
                           className="underline flex items-center gap-1"
                         >
-                          Get API key <ExternalLink className="h-3 w-3" />
+                          Get key <ExternalLink className="h-3 w-3" />
                         </a>
                       </div>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1 ml-2">
                     <ConfigurationStatus 
                       isConfigured={environmentStatus.anthropic.configured}
-                      label={environmentStatus.anthropic.configured ? 'Configured' : 'Not Set'}
+                      label={environmentStatus.anthropic.configured ? 'Set' : 'Missing'}
                     />
                     {connectionStatus.get('anthropic') && (
                       <ConnectionStatus
                         isConnected={connectionStatus.get('anthropic')?.success || false}
-                        label={connectionStatus.get('anthropic')?.success ? 'Connected' : 'Failed'}
+                        label={connectionStatus.get('anthropic')?.success ? 'OK' : 'Failed'}
                       />
                     )}
                     <Button
@@ -422,10 +387,11 @@ function AISettingsContent() {
                       size="sm"
                       onClick={() => testConnection('anthropic')}
                       disabled={!environmentStatus.anthropic.configured || testingProvider === 'anthropic'}
+                      className="text-xs px-2 py-1"
                     >
                       <ButtonLoadingState
                         isLoading={testingProvider === 'anthropic'}
-                        loadingText="Testing..."
+                        loadingText="..."
                       >
                         Test
                       </ButtonLoadingState>
@@ -433,38 +399,16 @@ function AISettingsContent() {
                   </div>
                 </div>
                 
-                {/* Connection test status for Anthropic */}
-                <AsyncOperationIndicator
-                  isLoading={testingProvider === 'anthropic'}
-                  operation="Testing Anthropic connection"
-                  success={connectionStatus.get('anthropic')?.success}
-                  error={connectionStatus.get('anthropic') && !connectionStatus.get('anthropic')?.success 
-                    ? connectionStatus.get('anthropic')?.data?.message 
-                    : undefined}
-                  className="ml-3"
-                />
+                {/* Error Messages - Compact */}
+                {connectionStatus.get('openai') && !connectionStatus.get('openai')?.success && (
+                  <div className="text-xs text-red-600 bg-red-50 p-2 rounded border">
+                    OpenAI: {connectionStatus.get('openai')?.data?.message}
+                  </div>
+                )}
                 
-                {/* Detailed error guidance for Anthropic */}
                 {connectionStatus.get('anthropic') && !connectionStatus.get('anthropic')?.success && (
-                  <div className="ml-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm">
-                    {connectionStatus.get('anthropic')?.data?.error?.guidance && (
-                      <div className="space-y-2">
-                        <div className="font-medium text-red-900">
-                          {connectionStatus.get('anthropic')?.data?.error?.guidance?.message}
-                        </div>
-                        <div className="text-red-700">
-                          {connectionStatus.get('anthropic')?.data?.error?.guidance?.action}
-                        </div>
-                        {connectionStatus.get('anthropic')?.data?.error?.guidance?.documentation && (
-                          <DocumentationLink 
-                            href={connectionStatus.get('anthropic')?.data?.error?.guidance?.documentation || ''}
-                            className="text-red-600"
-                          >
-                            View documentation
-                          </DocumentationLink>
-                        )}
-                      </div>
-                    )}
+                  <div className="text-xs text-red-600 bg-red-50 p-2 rounded border">
+                    Anthropic: {connectionStatus.get('anthropic')?.data?.message}
                   </div>
                 )}
               </>
@@ -472,12 +416,12 @@ function AISettingsContent() {
           </CardContent>
         </Card>
 
-        {/* Model Configuration - Medium Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Model Configuration</CardTitle>
-            <CardDescription>
-              Configure available models
+        {/* Model Configuration - Compact Width */}
+        <Card className="w-80">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Model Configuration</CardTitle>
+            <CardDescription className="text-sm">
+              Available models
             </CardDescription>
             <HelpText variant="expandable">
               <HelpSection
@@ -487,42 +431,43 @@ function AISettingsContent() {
                   { label: 'Anthropic Models', href: 'https://docs.anthropic.com/claude/docs/models-overview' }
                 ]}
               >
-                Enter comma-separated model IDs for each provider. Models will be validated 
-                when you save the configuration.
+                Comma-separated model IDs. Models validated on save.
               </HelpSection>
             </HelpText>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="openai-models">OpenAI Models</Label>
+          <CardContent className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="openai-models" className="text-sm">OpenAI Models</Label>
               <Input
                 id="openai-models"
                 placeholder="gpt-4o, gpt-4o-mini"
                 value={modelConfig.openai}
                 onChange={(e) => setModelConfig(prev => ({ ...prev, openai: e.target.value }))}
                 disabled={!environmentStatus?.openai.configured}
+                className="text-sm"
               />
             </div>
             
-            <div className="space-y-2">
-              <Label htmlFor="anthropic-models">Anthropic Models</Label>
+            <div className="space-y-1">
+              <Label htmlFor="anthropic-models" className="text-sm">Anthropic Models</Label>
               <Input
                 id="anthropic-models"
                 placeholder="claude-3-5-sonnet-20241022"
                 value={modelConfig.anthropic}
                 onChange={(e) => setModelConfig(prev => ({ ...prev, anthropic: e.target.value }))}
                 disabled={!environmentStatus?.anthropic.configured}
+                className="text-sm"
               />
             </div>
           </CardContent>
         </Card>
 
-        {/* General Settings - Large Card */}
-        <Card className="lg:col-span-2 xl:col-span-3">
-          <CardHeader>
-            <CardTitle>General Settings</CardTitle>
-            <CardDescription>
-              Configure AI behavior and default parameters
+        {/* General Settings - Compact Width */}
+        <Card className="w-80">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">General Settings</CardTitle>
+            <CardDescription className="text-sm">
+              AI behavior parameters
             </CardDescription>
             <HelpText variant="expandable">
               <HelpSection
@@ -532,86 +477,80 @@ function AISettingsContent() {
                   { label: 'Token Limits', href: 'https://platform.openai.com/docs/models' }
                 ]}
               >
-                <div className="space-y-2">
-                  <div><strong>Temperature:</strong> Controls randomness (0 = deterministic, 1 = creative)</div>
-                  <div><strong>Max Tokens:</strong> Maximum response length (varies by model)</div>
-                  <div><strong>System Prompt:</strong> Instructions that guide AI behavior</div>
-                </div>
+                Temperature: randomness (0-1), Max Tokens: response length, System Prompt: AI instructions
               </HelpSection>
             </HelpText>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="default-provider">Default Provider</Label>
-                <Select
-                  value={generalSettings.defaultProvider}
-                  onValueChange={(value: 'openai' | 'anthropic') => 
-                    setGeneralSettings(prev => ({ ...prev, defaultProvider: value }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="openai" disabled={!environmentStatus?.openai.configured}>
-                      OpenAI {!environmentStatus?.openai.configured && '(Not configured)'}
-                    </SelectItem>
-                    <SelectItem value="anthropic" disabled={!environmentStatus?.anthropic.configured}>
-                      Anthropic {!environmentStatus?.anthropic.configured && '(Not configured)'}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="temperature">Temperature ({generalSettings.temperature})</Label>
-                <input
-                  id="temperature"
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  value={generalSettings.temperature}
-                  onChange={(e) => setGeneralSettings(prev => ({ ...prev, temperature: parseFloat(e.target.value) }))}
-                  className="w-full"
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="max-tokens">Max Tokens</Label>
-                <Input
-                  id="max-tokens"
-                  type="number"
-                  min="100"
-                  max="8000"
-                  value={generalSettings.maxTokens}
-                  onChange={(e) => setGeneralSettings(prev => ({ ...prev, maxTokens: parseInt(e.target.value) }))}
-                />
-              </div>
-
-              <div className="flex items-end">
-                <Button onClick={saveConfiguration} disabled={saving} className="w-full">
-                  <ButtonLoadingState
-                    isLoading={saving}
-                    loadingText="Saving..."
-                  >
-                    Save Configuration
-                  </ButtonLoadingState>
-                </Button>
-              </div>
+          <CardContent className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="default-provider" className="text-sm">Default Provider</Label>
+              <Select
+                value={generalSettings.defaultProvider}
+                onValueChange={(value: 'openai' | 'anthropic') => 
+                  setGeneralSettings(prev => ({ ...prev, defaultProvider: value }))
+                }
+              >
+                <SelectTrigger className="text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="openai" disabled={!environmentStatus?.openai.configured}>
+                    OpenAI {!environmentStatus?.openai.configured && '(Not set)'}
+                  </SelectItem>
+                  <SelectItem value="anthropic" disabled={!environmentStatus?.anthropic.configured}>
+                    Anthropic {!environmentStatus?.anthropic.configured && '(Not set)'}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-1">
+              <Label htmlFor="temperature" className="text-sm">Temperature ({generalSettings.temperature})</Label>
+              <input
+                id="temperature"
+                type="range"
+                min="0"
+                max="1"
+                step="0.1"
+                value={generalSettings.temperature}
+                onChange={(e) => setGeneralSettings(prev => ({ ...prev, temperature: parseFloat(e.target.value) }))}
+                className="w-full"
+              />
+            </div>
+            
+            <div className="space-y-1">
+              <Label htmlFor="max-tokens" className="text-sm">Max Tokens</Label>
+              <Input
+                id="max-tokens"
+                type="number"
+                min="100"
+                max="8000"
+                value={generalSettings.maxTokens}
+                onChange={(e) => setGeneralSettings(prev => ({ ...prev, maxTokens: parseInt(e.target.value) }))}
+                className="text-sm"
+              />
             </div>
 
-            <div className="mt-4 space-y-2">
-              <Label htmlFor="system-prompt">System Prompt</Label>
+            <div className="space-y-1">
+              <Label htmlFor="system-prompt" className="text-sm">System Prompt</Label>
               <Textarea
                 id="system-prompt"
                 placeholder="You are an expert content editor..."
                 value={generalSettings.systemPrompt}
                 onChange={(e) => setGeneralSettings(prev => ({ ...prev, systemPrompt: e.target.value }))}
-                rows={3}
+                rows={2}
+                className="text-sm"
               />
             </div>
+
+            <Button onClick={saveConfiguration} disabled={saving} className="w-full" size="sm">
+              <ButtonLoadingState
+                isLoading={saving}
+                loadingText="Saving..."
+              >
+                Save Configuration
+              </ButtonLoadingState>
+            </Button>
           </CardContent>
         </Card>
       </div>
