@@ -6,6 +6,7 @@
  */
 
 import { AIProviderType } from './types';
+import { AIStatusCache, markUserActiveForAICache } from './status-cache';
 
 export interface AIAvailabilityStatus {
   available: boolean;
@@ -28,10 +29,12 @@ export class AIAvailabilityChecker {
   private static instance: AIAvailabilityChecker;
   private lastCheck: Date | null = null;
   private cachedStatus: AIAvailabilityStatus | null = null;
-  private cacheTimeout = 30000; // 30 seconds
+  private cacheTimeout = 30000; // 30 seconds (for overall availability status)
+  private statusCache: AIStatusCache;
   
   private constructor() {
     // No service manager instantiation on client side
+    this.statusCache = AIStatusCache.getInstance();
   }
   
   /**
@@ -46,6 +49,7 @@ export class AIAvailabilityChecker {
   
   /**
    * Check overall AI availability status
+   * Uses cached provider statuses to avoid redundant API calls
    */
   async checkAvailability(forceRefresh = false): Promise<AIAvailabilityStatus> {
     // Return cached result if still valid
@@ -56,9 +60,18 @@ export class AIAvailabilityChecker {
       }
     }
     
+    // Mark user as active for background refresh decisions
+    markUserActiveForAICache();
+    
     try {
-      // Make API call to get provider statuses
-      const response = await fetch('/api/admin/ai/providers');
+      // Make API call to get provider statuses (this will use caching internally)
+      const url = forceRefresh ? '/api/admin/ai/providers?refresh=true' : '/api/admin/ai/providers';
+      const response = await fetch(url, {
+        credentials: 'include', // Include session cookies
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
       if (!response.ok) {
         throw new Error(`API call failed: ${response.status}`);
       }
@@ -149,7 +162,12 @@ export class AIAvailabilityChecker {
    */
   async getProviderAvailability(providerType: AIProviderType): Promise<ProviderAvailability> {
     try {
-      const response = await fetch('/api/admin/ai/providers');
+      const response = await fetch('/api/admin/ai/providers', {
+        credentials: 'include', // Include session cookies
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
       if (!response.ok) {
         throw new Error(`API call failed: ${response.status}`);
       }
@@ -307,6 +325,30 @@ export class AIAvailabilityChecker {
   clearCache(): void {
     this.cachedStatus = null;
     this.lastCheck = null;
+    // Also clear the provider status cache
+    this.statusCache.clear();
+  }
+
+  /**
+   * Force refresh of all cached data
+   */
+  forceRefresh(): void {
+    this.clearCache();
+    this.statusCache.forceRefresh();
+  }
+
+  /**
+   * Get cache statistics for monitoring
+   */
+  getCacheStats() {
+    return {
+      availability: {
+        lastCheck: this.lastCheck,
+        cacheTimeout: this.cacheTimeout,
+        hasCachedStatus: !!this.cachedStatus
+      },
+      providerStatus: this.statusCache.getStats()
+    };
   }
   
   /**

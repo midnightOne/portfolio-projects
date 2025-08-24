@@ -250,6 +250,37 @@ model AIGeneralSettings {
   @@map("ai_general_settings")
 }
 
+model HomepageConfig {
+  id          String          @id @default(cuid())
+  sections    Json
+  globalTheme String          @default("default")
+  layout      String          @default("standard")
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  sectionConfigs SectionConfig[]
+
+  @@map("homepage_config")
+}
+
+model SectionConfig {
+  id               String         @id @default(cuid())
+  homepageConfigId String
+  sectionId        String
+  type             String
+  enabled          Boolean        @default(true)
+  order            Int
+  config           Json
+  className        String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  homepageConfig   HomepageConfig @relation(fields: [homepageConfigId], references: [id], onDelete: Cascade)
+
+  @@unique([homepageConfigId, sectionId])
+  @@index([homepageConfigId])
+  @@index([order])
+  @@map("section_configs")
+}
+
 enum ProjectStatus {
   DRAFT
   PUBLISHED

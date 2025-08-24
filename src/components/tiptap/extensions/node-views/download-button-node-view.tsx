@@ -22,6 +22,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { MediaSelectionModal } from '@/components/admin/media-selection-modal';
 
 interface DownloadFile {
   id: string;
@@ -99,10 +100,42 @@ export function DownloadButtonNodeView({
     document.body.removeChild(link);
   }, []);
 
+  const [isMediaModalOpen, setIsMediaModalOpen] = useState(false);
+
   const handleEdit = useCallback(() => {
-    // TODO: Open file selection/upload modal
-    setIsEditing(true);
-    console.log('Edit download button - open file selection modal');
+    setIsMediaModalOpen(true);
+  }, []);
+
+  const handleMediaSelect = useCallback((media: any) => {
+    // Handle both single media item and array of media items
+    const mediaArray = Array.isArray(media) ? media : [media];
+    
+    // Convert MediaItems to DownloadFile format
+    const downloadFiles: DownloadFile[] = mediaArray.map(item => ({
+      id: item.id,
+      name: item.altText || 'Download File',
+      url: item.url,
+      size: item.fileSize ? Number(item.fileSize) : undefined,
+      type: item.type,
+      description: item.description || undefined
+    }));
+
+    // Update the node attributes
+    updateAttributes({ files: downloadFiles });
+  }, [updateAttributes]);
+
+  // Get project ID from editor context (similar to carousel)
+  const getProjectId = useCallback(() => {
+    // Try to extract from URL or other context
+    if (typeof window !== 'undefined') {
+      const pathParts = window.location.pathname.split('/');
+      const editIndex = pathParts.indexOf('edit');
+      if (editIndex !== -1 && pathParts[editIndex + 1]) {
+        return pathParts[editIndex + 1];
+      }
+    }
+    
+    return null;
   }, []);
 
   const handleDelete = useCallback(() => {
@@ -251,6 +284,29 @@ export function DownloadButtonNodeView({
           </div>
         )}
       </div>
+
+      {/* Media Selection Modal */}
+      {isMediaModalOpen && getProjectId() && (
+        <MediaSelectionModal
+          isOpen={isMediaModalOpen}
+          onClose={() => setIsMediaModalOpen(false)}
+          projectId={getProjectId()!}
+          onMediaSelect={handleMediaSelect}
+          context="download"
+          multiSelect={true}
+          currentMedia={files.map(file => ({
+            id: file.id,
+            url: file.url,
+            altText: file.name,
+            description: file.description,
+            type: 'DOCUMENT' as const,
+            projectId: getProjectId()!,
+            fileSize: file.size ? BigInt(file.size) : undefined,
+            displayOrder: 0,
+            createdAt: new Date()
+          }))}
+        />
+      )}
     </NodeViewWrapper>
   );
 }

@@ -1,5 +1,11 @@
-import { redirect } from 'next/navigation';
+import { Homepage } from '@/components/homepage/homepage';
+import { MainNavigation } from '@/components/layout/main-navigation';
 
 export default function Home() {
-  redirect('/projects');
+  return (
+    <div className="min-h-screen">
+      <MainNavigation />
+      <Homepage />
+    </div>
+  );
 }

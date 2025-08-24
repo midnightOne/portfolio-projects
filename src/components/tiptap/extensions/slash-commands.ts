@@ -31,12 +31,11 @@ export const SlashCommands = Extension.create<SlashCommandsOptions>({
         allow: ({ state, range }) => {
           const $from = state.doc.resolve(range.from);
           const type = state.schema.nodes.paragraph;
-          const isRootDepth = $from.depth === 1;
           const isParagraph = $from.parent.type === type;
           const isStartOfNode = $from.parentOffset === 0;
-          const isEmptyParagraph = $from.parent.nodeSize === 2;
 
-          return isRootDepth && isParagraph && isStartOfNode && isEmptyParagraph;
+          // More permissive: allow slash commands at the start of any paragraph
+          return isParagraph && isStartOfNode;
         },
         items: ({ query }) => {
           // This will be overridden by the configure() call

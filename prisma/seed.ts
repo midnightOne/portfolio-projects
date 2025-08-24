@@ -63,7 +63,7 @@ function convertToTiptapJSON(text: string) {
         // Handle basic formatting in paragraphs
         const content = [];
         const parts = paragraph.split(/(\*\*.*?\*\*|\*.*?\*|`.*?`|~~.*?~~)/);
-        
+
         for (const part of parts) {
           if (part.startsWith('**') && part.endsWith('**')) {
             content.push({
@@ -96,7 +96,7 @@ function convertToTiptapJSON(text: string) {
             });
           }
         }
-        
+
         return {
           type: 'paragraph',
           content: content.length > 0 ? content : [{ type: 'text', text: paragraph }]
@@ -215,7 +215,7 @@ async function main() {
   });
 
   // Create diverse media items for testing inline media functionality
-  
+
   // Project 1 Media Items (Portfolio Website)
   await prisma.mediaItem.create({
     data: {
