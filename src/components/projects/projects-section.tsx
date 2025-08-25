@@ -2,12 +2,8 @@
 
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Filter, SortAsc, Grid, Clock, Eye, EyeOff } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { NavigationBar, type SortOption, type ViewMode, type TimelineGroupBy } from '@/components/layout/navigation-bar';
 import { ProjectGrid } from './project-grid';
 import { ProjectList } from './project-list';
 import { ProjectTimeline } from './project-timeline';
@@ -20,7 +16,7 @@ import type { ProjectWithRelations, Tag } from '@/lib/types/project';
 export interface ProjectsSectionConfig {
   // Display options
   maxItems?: number; // undefined = show all
-  layout: 'grid' | 'timeline' | 'list';
+  layout: ViewMode;
   columns?: 2 | 3 | 4; // for grid layout
   
   // Features
@@ -36,7 +32,8 @@ export interface ProjectsSectionConfig {
   // Behavior
   openMode: 'modal' | 'page'; // how projects open
   filterTags?: string[]; // pre-filter to specific tags
-  sortBy?: 'date' | 'title' | 'popularity';
+  sortBy?: SortOption;
+  timelineGroupBy?: TimelineGroupBy;
   
   // Content
   title?: string;
@@ -54,8 +51,7 @@ export interface ProjectsSectionProps {
   className?: string;
 }
 
-type SortOption = 'date' | 'title' | 'popularity';
-type LayoutMode = 'grid' | 'timeline' | 'list';
+// Remove these type definitions as they're now imported from navigation-bar
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -102,6 +98,9 @@ function sortProjects(
   const sorted = [...projects];
 
   switch (sortBy) {
+    case 'relevance':
+      // For relevance, we'll use the original order (assuming it's already relevance-sorted)
+      return sorted;
     case 'date':
       return sorted.sort((a, b) => {
         const dateA = new Date(a.workDate || a.createdAt);
@@ -156,9 +155,9 @@ export function ProjectsSection({
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>(config.filterTags || []);
-  const [sortBy, setSortBy] = useState<SortOption>(config.sortBy || 'date');
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>(config.layout);
-  const [showFilters, setShowFilters] = useState(false);
+  const [sortBy, setSortBy] = useState<SortOption>(config.sortBy || 'relevance');
+  const [viewMode, setViewMode] = useState<ViewMode>(config.layout);
+  const [timelineGroupBy, setTimelineGroupBy] = useState<TimelineGroupBy>(config.timelineGroupBy || 'year');
 
   // ============================================================================
   // COMPUTED VALUES
@@ -187,25 +186,24 @@ export function ProjectsSection({
   // EVENT HANDLERS
   // ============================================================================
 
-  const handleTagToggle = (tagName: string) => {
-    setSelectedTags(prev => 
-      prev.includes(tagName)
-        ? prev.filter(t => t !== tagName)
-        : [...prev, tagName]
-    );
+  const handleTagSelect = (tags: string[]) => {
+    setSelectedTags(tags);
   };
 
-  const handleClearFilters = () => {
-    setSearchQuery('');
-    setSelectedTags([]);
+  const handleSearchChange = (query: string) => {
+    setSearchQuery(query);
   };
 
-  const handleSortChange = (value: string) => {
-    setSortBy(value as SortOption);
+  const handleSortChange = (sort: SortOption) => {
+    setSortBy(sort);
   };
 
-  const handleLayoutChange = (mode: LayoutMode) => {
-    setLayoutMode(mode);
+  const handleViewModeChange = (mode: ViewMode) => {
+    setViewMode(mode);
+  };
+
+  const handleTimelineGroupByChange = (groupBy: TimelineGroupBy) => {
+    setTimelineGroupBy(groupBy);
   };
 
   // ============================================================================
@@ -227,165 +225,31 @@ export function ProjectsSection({
     );
   };
 
-  const renderControls = () => {
+  const renderNavigationBar = () => {
     const hasAnyControls = config.showSearch || config.showFilters || config.showSorting || config.showViewToggle;
     
     if (!hasAnyControls) return null;
 
     return (
-      <div className="mb-8 space-y-4">
-        {/* Top row: Search and View Toggle */}
-        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-          {/* Search */}
-          {config.showSearch && (
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search projects..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-          )}
-
-          {/* View Toggle and Sort */}
-          <div className="flex items-center gap-2">
-            {config.showViewToggle && (
-              <div className="flex items-center border rounded-lg p-1">
-                <Button
-                  variant={layoutMode === 'grid' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => handleLayoutChange('grid')}
-                  className="h-8 w-8 p-0"
-                >
-                  <Grid className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant={layoutMode === 'list' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => handleLayoutChange('list')}
-                  className="h-8 w-8 p-0"
-                >
-                  <Eye className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant={layoutMode === 'timeline' ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => handleLayoutChange('timeline')}
-                  className="h-8 w-8 p-0"
-                >
-                  <Clock className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
-
-            {config.showSorting && (
-              <Select value={sortBy} onValueChange={handleSortChange}>
-                <SelectTrigger className="w-40">
-                  <SortAsc className="h-4 w-4 mr-2" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="date">Latest First</SelectItem>
-                  <SelectItem value="title">Alphabetical</SelectItem>
-                  <SelectItem value="popularity">Most Popular</SelectItem>
-                </SelectContent>
-              </Select>
-            )}
-
-            {config.showFilters && (
-              <Button
-                variant={showFilters ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setShowFilters(!showFilters)}
-                className="gap-2"
-              >
-                <Filter className="h-4 w-4" />
-                Filters
-                {selectedTags.length > 0 && (
-                  <Badge variant="secondary" className="ml-1">
-                    {selectedTags.length}
-                  </Badge>
-                )}
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* Filters Panel */}
-        <AnimatePresence>
-          {config.showFilters && showFilters && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="border rounded-lg p-4 bg-muted/50"
-            >
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-medium">Filter by Tags</h3>
-                {selectedTags.length > 0 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleClearFilters}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    Clear All
-                  </Button>
-                )}
-              </div>
-              
-              <div className="flex flex-wrap gap-2">
-                {availableTags.map((tag) => (
-                  <Badge
-                    key={tag.id}
-                    variant={selectedTags.includes(tag.name) ? 'default' : 'outline'}
-                    className="cursor-pointer transition-colors hover:bg-primary hover:text-primary-foreground"
-                    onClick={() => handleTagToggle(tag.name)}
-                    style={
-                      tag.color && selectedTags.includes(tag.name)
-                        ? {
-                          backgroundColor: tag.color,
-                          borderColor: tag.color,
-                          color: 'white'
-                        }
-                        : tag.color && !selectedTags.includes(tag.name)
-                        ? {
-                          borderColor: tag.color,
-                          color: tag.color
-                        }
-                        : undefined
-                    }
-                  >
-                    {tag.name}
-                  </Badge>
-                ))}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Active Filters Display */}
-        {selectedTags.length > 0 && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span>Active filters:</span>
-            <div className="flex flex-wrap gap-1">
-              {selectedTags.map((tagName) => (
-                <Badge
-                  key={tagName}
-                  variant="secondary"
-                  className="cursor-pointer"
-                  onClick={() => handleTagToggle(tagName)}
-                >
-                  {tagName}
-                  <button className="ml-1 hover:text-destructive">×</button>
-                </Badge>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
+      <NavigationBar
+        tags={availableTags}
+        selectedTags={selectedTags}
+        onTagSelect={handleTagSelect}
+        searchQuery={searchQuery}
+        onSearchChange={handleSearchChange}
+        sortBy={sortBy}
+        onSortChange={handleSortChange}
+        viewMode={viewMode}
+        onViewModeChange={handleViewModeChange}
+        timelineGroupBy={timelineGroupBy}
+        onTimelineGroupByChange={handleTimelineGroupByChange}
+        isLoading={loading}
+        canSearch={config.showSearch}
+        canFilter={config.showFilters}
+        tagsLoading={loading}
+        searchResultsCount={filteredAndSortedProjects.length}
+        variant="section"
+      />
     );
   };
 
@@ -399,20 +263,20 @@ export function ProjectsSection({
       className: getGridClasses()
     };
 
-    switch (layoutMode) {
+    switch (viewMode) {
       case 'grid':
         return <ProjectGrid {...commonProps} />;
       case 'list':
         return <ProjectList {...commonProps} />;
       case 'timeline':
-        return <ProjectTimeline {...commonProps} groupBy="year" />;
+        return <ProjectTimeline {...commonProps} groupBy={timelineGroupBy} />;
       default:
         return <ProjectGrid {...commonProps} />;
     }
   };
 
   const getGridClasses = () => {
-    if (layoutMode !== 'grid') return '';
+    if (viewMode !== 'grid') return '';
     
     const columnClasses = {
       2: 'grid-cols-1 sm:grid-cols-2',
@@ -455,7 +319,7 @@ export function ProjectsSection({
     <section className={cn(getThemeClasses(config.theme, config.spacing), className)}>
       <div className="container mx-auto max-w-7xl">
         {renderHeader()}
-        {renderControls()}
+        {renderNavigationBar()}
         {renderStats()}
         {renderProjects()}
       </div>
@@ -472,7 +336,7 @@ export const ProjectsSectionPresets = {
     variant: 'homepage' as const,
     config: {
       maxItems: 6,
-      layout: 'grid' as const,
+      layout: 'grid' as ViewMode,
       columns: 3 as const,
       showSearch: false,
       showFilters: false,
@@ -481,7 +345,8 @@ export const ProjectsSectionPresets = {
       theme: 'default',
       spacing: 'normal' as const,
       openMode: 'modal' as const,
-      sortBy: 'date' as const,
+      sortBy: 'relevance' as SortOption,
+      timelineGroupBy: 'year' as TimelineGroupBy,
       title: 'Featured Projects',
       showViewCount: false
     }
@@ -490,7 +355,7 @@ export const ProjectsSectionPresets = {
   fullPage: {
     variant: 'full-page' as const,
     config: {
-      layout: 'grid' as const,
+      layout: 'grid' as ViewMode,
       columns: 3 as const,
       showSearch: true,
       showFilters: true,
@@ -499,7 +364,8 @@ export const ProjectsSectionPresets = {
       theme: 'default',
       spacing: 'normal' as const,
       openMode: 'modal' as const,
-      sortBy: 'date' as const,
+      sortBy: 'relevance' as SortOption,
+      timelineGroupBy: 'year' as TimelineGroupBy,
       title: 'All Projects',
       showViewCount: true
     }
@@ -509,7 +375,7 @@ export const ProjectsSectionPresets = {
     variant: 'featured' as const,
     config: {
       maxItems: 4,
-      layout: 'grid' as const,
+      layout: 'grid' as ViewMode,
       columns: 2 as const,
       showSearch: false,
       showFilters: false,
@@ -518,7 +384,8 @@ export const ProjectsSectionPresets = {
       theme: 'default',
       spacing: 'compact' as const,
       openMode: 'modal' as const,
-      sortBy: 'popularity' as const,
+      sortBy: 'popularity' as SortOption,
+      timelineGroupBy: 'year' as TimelineGroupBy,
       title: 'Featured Work',
       showViewCount: false
     }

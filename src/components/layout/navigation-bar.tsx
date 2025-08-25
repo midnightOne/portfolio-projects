@@ -34,6 +34,8 @@ interface NavigationBarProps {
   // Search state
   isSearching?: boolean;
   searchResultsCount?: number;
+  // Layout variant
+  variant?: 'page' | 'section';
 }
 
 const sortOptions: { value: SortOption; label: string }[] = [
@@ -172,6 +174,7 @@ export function NavigationBar({
   loadingMessage,
   isSearching = false,
   searchResultsCount,
+  variant = 'page',
 }: NavigationBarProps) {
   const [showAllTags, setShowAllTags] = useState(false);
   const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
@@ -226,9 +229,17 @@ export function NavigationBar({
   const visibleTags = showAllTags ? tags : tags.slice(0, 8);
   const hasMoreTags = tags.length > 8;
 
+  const containerClasses = variant === 'page' 
+    ? "sticky top-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b"
+    : "mb-6";
+
+  const innerClasses = variant === 'page'
+    ? "container mx-auto px-4 py-4"
+    : "px-4 py-4";
+
   return (
-    <div className="sticky top-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
-      <div className="container mx-auto px-4 py-4">
+    <div className={containerClasses}>
+      <div className={innerClasses}>
         {/* Search and Controls Row */}
         <div className="flex flex-col sm:flex-row gap-4 mb-4">
           {/* Search Input */}
