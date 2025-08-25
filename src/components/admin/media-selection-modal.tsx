@@ -9,6 +9,7 @@ import { Progress } from '@/components/ui/progress';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { MediaItem } from '@/lib/types/project';
 import {
   Upload,
@@ -27,7 +28,10 @@ import {
   FileVideo,
   FileArchive,
   Smartphone,
-  AlertTriangle
+  AlertTriangle,
+  RefreshCw,
+  Plus,
+  FolderPlus
 } from 'lucide-react';
 
 interface UploadProgress {
@@ -101,38 +105,54 @@ export function MediaSelectionModal({
   const [isUploading, setIsUploading] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
-  
+  const [mediaSource, setMediaSource] = useState<'project' | 'global'>('project');
+  const [isAddingToProject, setIsAddingToProject] = useState(false);
+
   // Context-aware configuration
   const contextConfig = getContextConfig(context);
   const shouldMultiSelect = multiSelect !== undefined ? multiSelect : contextConfig.multiSelect;
   const effectiveAllowedTypes = allowedTypes || [...contextConfig.allowedTypes];
-  
+
   // Selection state - support both single and multi-select
   const [selectedMedia, setSelectedMedia] = useState<MediaItem[]>(() => {
     if (!currentMedia) return [];
     return Array.isArray(currentMedia) ? currentMedia : [currentMedia];
   });
-  
+
   const [activeTab, setActiveTab] = useState<'images' | 'files'>(contextConfig.defaultTab as 'images' | 'files');
   const [unusedMedia, setUnusedMedia] = useState<Set<string>>(new Set());
 
-  // Load existing media when modal opens
+  // Load existing media when modal opens or source changes
   useEffect(() => {
     if (isOpen && projectId) {
       loadMedia();
-      loadUnusedMedia();
+      if (mediaSource === 'project') {
+        loadUnusedMedia();
+      }
     }
-  }, [isOpen, projectId]);
+  }, [isOpen, projectId, mediaSource]);
 
   const loadMedia = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/admin/projects/${projectId}/media`);
+      let response;
+
+      if (mediaSource === 'project') {
+        response = await fetch(`/api/admin/projects/${projectId}/media`);
+      } else {
+        // Load global media
+        response = await fetch(`/api/media?limit=100`);
+      }
 
       if (response.ok) {
         const data = await response.json();
         console.log('Loaded media data:', data);
-        setMedia(data.mediaItems || []);
+
+        if (mediaSource === 'project') {
+          setMedia(data.mediaItems || []);
+        } else {
+          setMedia(data.data?.mediaItems || []);
+        }
       } else {
         console.error('Failed to load media:', response.status, response.statusText);
         const errorText = await response.text();
@@ -154,7 +174,7 @@ export function MediaSelectionModal({
       // This should call an API that analyzes the project's article content
       // and determines which media items are not referenced
       const response = await fetch(`/api/admin/projects/${projectId}/unused-media`);
-      
+
       if (response.ok) {
         const data = await response.json();
         setUnusedMedia(new Set(data.unusedMediaIds || []));
@@ -298,6 +318,34 @@ export function MediaSelectionModal({
     }
   };
 
+  const addGlobalMediaToProject = async (mediaIds: string[]) => {
+    try {
+      setIsAddingToProject(true);
+      const response = await fetch(`/api/admin/projects/${projectId}/media/add-existing`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ mediaIds }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Added media to project:', data);
+        return data.addedMedia || [];
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to add media to project');
+      }
+    } catch (error) {
+      console.error('Failed to add media to project:', error);
+      alert('Failed to add media to project: ' + (error instanceof Error ? error.message : 'Unknown error'));
+      return [];
+    } finally {
+      setIsAddingToProject(false);
+    }
+  };
+
   const handleConfirmSelection = () => {
     if (selectedMedia.length > 0) {
       console.log('MediaSelectionModal: Confirming selection:', selectedMedia);
@@ -307,6 +355,40 @@ export function MediaSelectionModal({
         onMediaSelect(selectedMedia[0]);
       }
       onClose();
+    }
+  };
+
+  const handleAddToProjectOnly = async () => {
+    if (selectedMedia.length > 0 && mediaSource === 'global') {
+      const mediaIds = selectedMedia.map(m => m.id);
+      const addedMedia = await addGlobalMediaToProject(mediaIds);
+
+      if (addedMedia.length > 0) {
+        alert(`Successfully added ${addedMedia.length} media items to the project!`);
+        setSelectedMedia([]);
+        // Optionally switch to project view to see the added media
+        // setMediaSource('project');
+      }
+    }
+  };
+
+  const handleAddToProjectAndUse = async () => {
+    if (selectedMedia.length > 0 && mediaSource === 'global') {
+      const mediaIds = selectedMedia.map(m => m.id);
+      const addedMedia = await addGlobalMediaToProject(mediaIds);
+
+      if (addedMedia.length > 0) {
+        // Use the newly added media items
+        if (shouldMultiSelect) {
+          onMediaSelect(addedMedia);
+        } else {
+          onMediaSelect(addedMedia[0]);
+        }
+        onClose();
+      }
+    } else {
+      // If not global media, just use normally
+      handleConfirmSelection();
     }
   };
 
@@ -336,7 +418,7 @@ export function MediaSelectionModal({
 
   const getDetailedFileIcon = (type: string, url?: string) => {
     const fileExtension = url?.split('.').pop()?.toLowerCase() || '';
-    
+
     switch (type) {
       case 'IMAGE':
         return <FileImage className="h-4 w-4" />;
@@ -374,29 +456,29 @@ export function MediaSelectionModal({
 
   const filteredMedia = media.filter(item => {
     // Filter by search query
-    const matchesSearch = !searchQuery || 
+    const matchesSearch = !searchQuery ||
       item.altText?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.description?.toLowerCase().includes(searchQuery.toLowerCase());
-    
+
     // Filter by tab
-    const matchesTab = activeTab === 'images' 
+    const matchesTab = activeTab === 'images'
       ? ['IMAGE', 'VIDEO'].includes(item.type)
       : item.type === 'DOCUMENT';
-    
+
     // Filter by allowed types for context
     const matchesAllowedTypes = effectiveAllowedTypes.includes(item.type as any);
-    
+
     return matchesSearch && matchesTab && matchesAllowedTypes;
   });
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[95vw] max-w-[95vw] w-[50vw] max-h-[90vh] overflow-hidden flex flex-col">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-[95vw] max-w-[95vw] w-[50vw] h-[90vh] flex flex-col">
+        <DialogHeader className="flex-shrink-0">
           <DialogTitle>{contextConfig.title}</DialogTitle>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'images' | 'files')} className="flex-1 flex flex-col">
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'images' | 'files')} className="flex-1 flex flex-col min-h-0">
           {/* Tab Navigation - only show if not restricted */}
           {!contextConfig.restrictTabs && (
             <TabsList className="grid w-full grid-cols-2">
@@ -412,7 +494,7 @@ export function MediaSelectionModal({
           )}
 
           {/* Images Tab */}
-          <TabsContent value="images" className="flex-1 flex flex-col space-y-4 mt-4">
+          <TabsContent value="images" className="flex-1 flex flex-col space-y-4 mt-4 min-h-0">
             {/* Upload Section */}
             <Card>
               <CardHeader>
@@ -544,13 +626,27 @@ export function MediaSelectionModal({
             </Card>
 
             {/* Existing Media */}
-            <Card className="flex-1 flex flex-col">
-              <CardHeader>
+            <Card className="flex-1 flex flex-col min-h-0">
+              <CardHeader className="flex-shrink-0">
                 <div className="flex justify-between items-center">
-                  <div>
-                    <CardTitle>Select Existing {activeTab === 'images' ? 'Images' : 'Files'}</CardTitle>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-4 mb-2">
+                      <CardTitle>Select Existing {activeTab === 'images' ? 'Images' : 'Files'}</CardTitle>
+                      <Select value={mediaSource} onValueChange={(value: 'project' | 'global') => setMediaSource(value)}>
+                        <SelectTrigger className="w-48">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="project">Project Media</SelectItem>
+                          <SelectItem value="global">Global Media</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <CardDescription>
-                      Choose from {activeTab === 'images' ? 'images and videos' : 'files'} already uploaded to this project
+                      {mediaSource === 'project'
+                        ? `Choose from ${activeTab === 'images' ? 'images and videos' : 'files'} already uploaded to this project`
+                        : `Choose from all ${activeTab === 'images' ? 'images and videos' : 'files'} in the system`
+                      }
                     </CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
@@ -562,6 +658,15 @@ export function MediaSelectionModal({
                     />
                     <Button
                       variant="outline"
+                      onClick={loadMedia}
+                      size="sm"
+                      disabled={loading}
+                      title="Refresh media list"
+                    >
+                      <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                    </Button>
+                    <Button
+                      variant="outline"
                       onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
                       size="sm"
                     >
@@ -570,7 +675,7 @@ export function MediaSelectionModal({
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="flex-1 overflow-y-auto">
+              <CardContent className="flex-1 overflow-y-auto min-h-0">
                 {loading ? (
                   <div className="text-center py-8">
                     <p className="text-gray-500">Loading media...</p>
@@ -592,17 +697,15 @@ export function MediaSelectionModal({
                     {filteredMedia.map((item) => {
                       const isSelected = isMediaSelected(item.id);
                       const isUnused = unusedMedia.has(item.id);
-                      
+
                       return (
                         <div
                           key={item.id}
-                          className={`border rounded-lg p-3 cursor-pointer transition-all relative ${
-                            isSelected
+                          className={`border rounded-lg p-3 cursor-pointer transition-all relative ${isSelected
                               ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
                               : 'hover:bg-gray-50 hover:border-gray-300'
-                          } ${
-                            isUnused ? 'border-orange-200 bg-orange-50' : ''
-                          }`}
+                            } ${isUnused ? 'border-orange-200 bg-orange-50' : ''
+                            }`}
                           onClick={() => handleSelectMedia(item)}
                         >
                           {/* Multi-select checkbox */}
@@ -625,7 +728,7 @@ export function MediaSelectionModal({
 
                           {viewMode === 'grid' ? (
                             <>
-                              {activeTab === 'images' ? (
+                              {activeTab === 'images' && item.type === 'IMAGE' ? (
                                 <img
                                   src={item.url}
                                   alt={item.altText || 'Media'}
@@ -638,6 +741,11 @@ export function MediaSelectionModal({
                               )}
                               <div className="space-y-1">
                                 <p className="text-xs font-medium truncate">{item.altText || 'Untitled'}</p>
+                                {mediaSource === 'global' && (item as any).project && (
+                                  <p className="text-xs text-gray-500 truncate">
+                                    From: {(item as any).project.title}
+                                  </p>
+                                )}
                                 <div className="flex items-center justify-between">
                                   <Badge variant="outline" className="text-xs">
                                     {item.type}
@@ -654,24 +762,26 @@ export function MediaSelectionModal({
                                     >
                                       <Eye size={10} />
                                     </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        deleteMedia(item.id);
-                                      }}
-                                      className="h-6 w-6 p-0 text-red-600"
-                                    >
-                                      <Trash2 size={10} />
-                                    </Button>
+                                    {mediaSource === 'project' && (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          deleteMedia(item.id);
+                                        }}
+                                        className="h-6 w-6 p-0 text-red-600"
+                                      >
+                                        <Trash2 size={10} />
+                                      </Button>
+                                    )}
                                   </div>
                                 </div>
                               </div>
                             </>
                           ) : (
                             <div className="flex items-center gap-3">
-                              {activeTab === 'images' ? (
+                              {activeTab === 'images' && item.type === 'IMAGE' ? (
                                 <img
                                   src={item.url}
                                   alt={item.altText || 'Media'}
@@ -685,6 +795,11 @@ export function MediaSelectionModal({
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium truncate">{item.altText || 'Untitled'}</p>
                                 <p className="text-xs text-gray-600 truncate">{item.description}</p>
+                                {mediaSource === 'global' && (item as any).project && (
+                                  <p className="text-xs text-blue-600 truncate">
+                                    From: {(item as any).project.title}
+                                  </p>
+                                )}
                                 <div className="flex items-center gap-2 mt-1">
                                   <Badge variant="outline" className="text-xs">
                                     {item.type}
@@ -707,17 +822,19 @@ export function MediaSelectionModal({
                                 >
                                   <Eye size={12} />
                                 </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    deleteMedia(item.id);
-                                  }}
-                                  className="text-red-600"
-                                >
-                                  <Trash2 size={12} />
-                                </Button>
+                                {mediaSource === 'project' && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      deleteMedia(item.id);
+                                    }}
+                                    className="text-red-600"
+                                  >
+                                    <Trash2 size={12} />
+                                  </Button>
+                                )}
                               </div>
                             </div>
                           )}
@@ -731,8 +848,8 @@ export function MediaSelectionModal({
           </TabsContent>
 
           {/* Files Tab */}
-          <TabsContent value="files" className="flex-1 flex flex-col space-y-4 mt-4">
-            {/* Same content as Images tab but filtered for files */}
+          <TabsContent value="files" className="flex-1 flex flex-col space-y-4 mt-4 min-h-0">
+            {/* Upload Section */}
             <Card>
               <CardHeader>
                 <CardTitle>Upload New Files</CardTitle>
@@ -853,14 +970,28 @@ export function MediaSelectionModal({
               </CardContent>
             </Card>
 
-            {/* Files Grid/List */}
-            <Card className="flex-1 flex flex-col">
-              <CardHeader>
+            {/* Existing Media - Same as Images tab but for files */}
+            <Card className="flex-1 flex flex-col min-h-0">
+              <CardHeader className="flex-shrink-0">
                 <div className="flex justify-between items-center">
-                  <div>
-                    <CardTitle>Select Existing Files</CardTitle>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-4 mb-2">
+                      <CardTitle>Select Existing Files</CardTitle>
+                      <Select value={mediaSource} onValueChange={(value: 'project' | 'global') => setMediaSource(value)}>
+                        <SelectTrigger className="w-48">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="project">Project Files</SelectItem>
+                          <SelectItem value="global">Global Files</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                     <CardDescription>
-                      Choose from files already uploaded to this project
+                      {mediaSource === 'project'
+                        ? 'Choose from files already uploaded to this project'
+                        : 'Choose from all files in the system'
+                      }
                     </CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
@@ -872,6 +1003,15 @@ export function MediaSelectionModal({
                     />
                     <Button
                       variant="outline"
+                      onClick={loadMedia}
+                      size="sm"
+                      disabled={loading}
+                      title="Refresh media list"
+                    >
+                      <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                    </Button>
+                    <Button
+                      variant="outline"
                       onClick={() => setViewMode(viewMode === 'grid' ? 'list' : 'grid')}
                       size="sm"
                     >
@@ -880,7 +1020,7 @@ export function MediaSelectionModal({
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="flex-1 overflow-y-auto">
+              <CardContent className="flex-1 overflow-y-auto min-h-0">
                 {loading ? (
                   <div className="text-center py-8">
                     <p className="text-gray-500">Loading files...</p>
@@ -902,17 +1042,15 @@ export function MediaSelectionModal({
                     {filteredMedia.map((item) => {
                       const isSelected = isMediaSelected(item.id);
                       const isUnused = unusedMedia.has(item.id);
-                      
+
                       return (
                         <div
                           key={item.id}
-                          className={`border rounded-lg p-3 cursor-pointer transition-all relative ${
-                            isSelected
+                          className={`border rounded-lg p-3 cursor-pointer transition-all relative ${isSelected
                               ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
                               : 'hover:bg-gray-50 hover:border-gray-300'
-                          } ${
-                            isUnused ? 'border-orange-200 bg-orange-50' : ''
-                          }`}
+                            } ${isUnused ? 'border-orange-200 bg-orange-50' : ''
+                            }`}
                           onClick={() => handleSelectMedia(item)}
                         >
                           {/* Multi-select checkbox */}
@@ -940,6 +1078,11 @@ export function MediaSelectionModal({
                               </div>
                               <div className="space-y-1">
                                 <p className="text-xs font-medium truncate">{item.altText || 'Untitled'}</p>
+                                {mediaSource === 'global' && (item as any).project && (
+                                  <p className="text-xs text-gray-500 truncate">
+                                    From: {(item as any).project.title}
+                                  </p>
+                                )}
                                 <div className="flex items-center justify-between">
                                   <Badge variant="outline" className="text-xs">
                                     {item.type}
@@ -956,17 +1099,19 @@ export function MediaSelectionModal({
                                     >
                                       <Eye size={10} />
                                     </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        deleteMedia(item.id);
-                                      }}
-                                      className="h-6 w-6 p-0 text-red-600"
-                                    >
-                                      <Trash2 size={10} />
-                                    </Button>
+                                    {mediaSource === 'project' && (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          deleteMedia(item.id);
+                                        }}
+                                        className="h-6 w-6 p-0 text-red-600"
+                                      >
+                                        <Trash2 size={10} />
+                                      </Button>
+                                    )}
                                   </div>
                                 </div>
                               </div>
@@ -979,6 +1124,11 @@ export function MediaSelectionModal({
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium truncate">{item.altText || 'Untitled'}</p>
                                 <p className="text-xs text-gray-600 truncate">{item.description}</p>
+                                {mediaSource === 'global' && (item as any).project && (
+                                  <p className="text-xs text-blue-600 truncate">
+                                    From: {(item as any).project.title}
+                                  </p>
+                                )}
                                 <div className="flex items-center gap-2 mt-1">
                                   <Badge variant="outline" className="text-xs">
                                     {item.type}
@@ -1001,17 +1151,19 @@ export function MediaSelectionModal({
                                 >
                                   <Eye size={12} />
                                 </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    deleteMedia(item.id);
-                                  }}
-                                  className="text-red-600"
-                                >
-                                  <Trash2 size={12} />
-                                </Button>
+                                {mediaSource === 'project' && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      deleteMedia(item.id);
+                                    }}
+                                    className="text-red-600"
+                                  >
+                                    <Trash2 size={12} />
+                                  </Button>
+                                )}
                               </div>
                             </div>
                           )}
@@ -1025,12 +1177,12 @@ export function MediaSelectionModal({
           </TabsContent>
         </Tabs>
 
-        {/* Footer Actions */}
-        <div className="flex justify-between items-center pt-4 border-t">
+        {/* Footer Actions - Always visible at bottom */}
+        <div className="flex-shrink-0 flex justify-between items-center pt-4 border-t bg-white">
           <div className="text-sm text-gray-600">
-            {selectedMedia.length === 0 
-              ? 'No media selected' 
-              : shouldMultiSelect 
+            {selectedMedia.length === 0
+              ? 'No media selected'
+              : shouldMultiSelect
                 ? `${selectedMedia.length} item${selectedMedia.length !== 1 ? 's' : ''} selected`
                 : `Selected: ${selectedMedia[0]?.altText || 'Untitled'}`
             }
@@ -1039,12 +1191,36 @@ export function MediaSelectionModal({
             <Button variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button
-              onClick={handleConfirmSelection}
-              disabled={selectedMedia.length === 0}
-            >
-              Select {shouldMultiSelect && selectedMedia.length > 1 ? `${selectedMedia.length} Items` : 'Media'}
-            </Button>
+
+            {/* Show different buttons based on media source */}
+            {mediaSource === 'global' && selectedMedia.length > 0 ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={handleAddToProjectOnly}
+                  disabled={isAddingToProject}
+                  className="flex items-center gap-2"
+                >
+                  <FolderPlus size={14} />
+                  {isAddingToProject ? 'Adding...' : 'Add to Project'}
+                </Button>
+                <Button
+                  onClick={handleAddToProjectAndUse}
+                  disabled={isAddingToProject}
+                  className="flex items-center gap-2"
+                >
+                  <Plus size={14} />
+                  {isAddingToProject ? 'Adding...' : 'Add & Use'}
+                </Button>
+              </>
+            ) : (
+              <Button
+                onClick={handleConfirmSelection}
+                disabled={selectedMedia.length === 0}
+              >
+                Select {shouldMultiSelect && selectedMedia.length > 1 ? `${selectedMedia.length} Items` : 'Media'}
+              </Button>
+            )}
           </div>
         </div>
       </DialogContent>
