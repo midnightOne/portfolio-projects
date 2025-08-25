@@ -223,7 +223,7 @@ export function PerformanceDashboard() {
     );
   }
 
-  const performanceStatus = metrics ? getPerformanceStatus(metrics.summary.avgDuration) : null;
+  const performanceStatus = metrics?.summary ? getPerformanceStatus(metrics.summary.avgDuration) : null;
 
   return (
     <div className="space-y-6">
@@ -268,7 +268,7 @@ export function PerformanceDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {metrics ? `${metrics.summary.avgDuration.toFixed(1)}ms` : 'N/A'}
+              {metrics?.summary ? `${metrics.summary.avgDuration.toFixed(1)}ms` : 'N/A'}
             </div>
             {performanceStatus && (
               <div className="flex items-center gap-2 mt-2">
@@ -329,7 +329,7 @@ export function PerformanceDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {metrics ? metrics.summary.totalRequests : 'N/A'}
+              {metrics?.summary ? metrics.summary.totalRequests : 'N/A'}
             </div>
             <p className="text-xs text-muted-foreground">
               {health ? `Uptime: ${formatUptime(health.uptime)}` : 'Since last restart'}
@@ -353,19 +353,27 @@ export function PerformanceDashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {metrics?.summary.slowestRequests.map((request, index) => (
-                <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
-                  <div className="flex-1">
-                    <p className="font-medium text-sm">{request.route}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {request.queryCount} queries • {request.queryTime.toFixed(1)}ms query time
-                    </p>
+              {metrics?.summary?.slowestRequests?.length ? (
+                metrics.summary.slowestRequests.map((request, index) => (
+                  <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div className="flex-1">
+                      <p className="font-medium text-sm">{request.route}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {request.queryCount} queries • {request.queryTime.toFixed(1)}ms query time
+                      </p>
+                    </div>
+                    <Badge variant={request.duration > 200 ? 'destructive' : 'secondary'}>
+                      {request.duration.toFixed(1)}ms
+                    </Badge>
                   </div>
-                  <Badge variant={request.duration > 200 ? 'destructive' : 'secondary'}>
-                    {request.duration.toFixed(1)}ms
-                  </Badge>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Activity className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No performance data available yet</p>
+                  <p className="text-sm">Make some API requests to see metrics</p>
                 </div>
-              ))}
+              )}
             </div>
           </CardContent>
         </Card>
@@ -383,28 +391,36 @@ export function PerformanceDashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {metrics?.summary.routeStats.map((route, index) => (
-                <div key={index} className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="font-medium text-sm">{route.route}</p>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="text-xs">
-                        {route.count} calls
-                      </Badge>
-                      <Badge variant={route.avgDuration > 200 ? 'destructive' : 'default'}>
-                        {route.avgDuration.toFixed(1)}ms
-                      </Badge>
+              {metrics?.summary?.routeStats?.length ? (
+                metrics.summary.routeStats.map((route, index) => (
+                  <div key={index} className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="font-medium text-sm">{route.route}</p>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-xs">
+                          {route.count} calls
+                        </Badge>
+                        <Badge variant={route.avgDuration > 200 ? 'destructive' : 'default'}>
+                          {route.avgDuration.toFixed(1)}ms
+                        </Badge>
+                      </div>
                     </div>
+                    <Progress 
+                      value={Math.min((route.avgDuration / 500) * 100, 100)} 
+                      className="h-2"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Avg query time: {route.avgQueryTime.toFixed(1)}ms
+                    </p>
                   </div>
-                  <Progress 
-                    value={Math.min((route.avgDuration / 500) * 100, 100)} 
-                    className="h-2"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Avg query time: {route.avgQueryTime.toFixed(1)}ms
-                  </p>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Zap className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No route statistics available yet</p>
+                  <p className="text-sm">API requests will populate this data</p>
                 </div>
-              ))}
+              )}
             </div>
           </CardContent>
         </Card>
@@ -494,12 +510,12 @@ export function PerformanceDashboard() {
               <div>
                 <p className="font-medium text-green-800">Excellent Performance</p>
                 <p className="text-sm text-green-600">
-                  Average response time of {metrics ? metrics.summary.avgDuration.toFixed(1) : 'N/A'}ms is well within optimal range
+                  Average response time of {metrics?.summary ? metrics.summary.avgDuration.toFixed(1) : 'N/A'}ms is well within optimal range
                 </p>
               </div>
             </div>
             
-            {metrics && metrics.summary.avgDuration < 100 && (
+            {metrics?.summary && metrics.summary.avgDuration < 100 && (
               <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                 <Zap className="h-5 w-5 text-blue-600" />
                 <div>
