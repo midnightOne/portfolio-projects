@@ -80,21 +80,21 @@ export async function GET() {
             enabled: true,
             order: 3,
             config: {
-              variant: 'homepage',
               config: {
+                title: 'Featured Projects',
+                description: 'A showcase of my recent work and projects',
+                variant: 'homepage',
                 maxItems: 6,
                 layout: 'grid',
-                columns: 3,
+                columns: '3',
                 showSearch: false,
                 showFilters: false,
                 showSorting: false,
                 showViewToggle: false,
-                theme: 'default',
-                spacing: 'normal',
+                showViewCount: false,
                 openMode: 'modal',
-                sortBy: 'date',
-                title: 'Featured Projects',
-                showViewCount: false
+                spacing: 'normal',
+                theme: 'default'
               }
             }
           },

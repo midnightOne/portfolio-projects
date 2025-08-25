@@ -452,13 +452,17 @@ function getNestedValue(obj: any, path: string): any {
 
 function setNestedValue(obj: any, path: string, value: any): any {
   const keys = path.split('.');
-  const lastKey = keys.pop()!;
-  const target = keys.reduce((current, key) => {
+  const result = JSON.parse(JSON.stringify(obj)); // Deep clone
+  
+  let current = result;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const key = keys[i];
     if (!current[key]) current[key] = {};
-    return current[key];
-  }, obj);
-  target[lastKey] = value;
-  return { ...obj };
+    current = current[key];
+  }
+  
+  current[keys[keys.length - 1]] = value;
+  return result;
 }
 
 function getSectionIcon(type: string) {
@@ -950,11 +954,11 @@ export function SectionConfigEditor({
 
   // Apply preset
   const handleApplyPreset = (preset: Record<string, any>) => {
-    const newConfig = { ...localConfig };
+    let newConfig = { ...localConfig };
     
     // Apply preset values
     Object.entries(preset).forEach(([key, value]) => {
-      setNestedValue(newConfig, key, value);
+      newConfig = setNestedValue(newConfig, key, value);
     });
     
     setLocalConfig(newConfig);
