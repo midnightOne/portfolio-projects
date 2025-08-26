@@ -10,11 +10,9 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, MicOff, Settings, Send, X, Sparkles, MessageCircle } from 'lucide-react';
+import { Mic, MicOff, X, Sparkles, MessageCircle, Volume2, VolumeX, Play, Pause } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { useAnimation } from '@/lib/ui/animation';
+import { gsap } from 'gsap';
 
 // Types for the floating AI interface
 export interface QuickAction {
@@ -93,39 +91,45 @@ function useVoiceRecognition({
 }) {
   const [isSupported, setIsSupported] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const recognitionRef = useRef<any>(null);
 
+  // Handle mounting to avoid hydration issues
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        setIsSupported(true);
-        recognitionRef.current = new SpeechRecognition();
-        recognitionRef.current.continuous = continuous;
-        recognitionRef.current.interimResults = false;
-        recognitionRef.current.lang = language;
+    setMounted(true);
+  }, []);
 
-        recognitionRef.current.onstart = () => {
-          setIsListening(true);
-          onStart?.();
-        };
+  useEffect(() => {
+    if (!mounted) return;
+    
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      setIsSupported(true);
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = continuous;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.lang = language;
 
-        recognitionRef.current.onresult = (event: any) => {
-          const transcript = event.results[0][0].transcript;
-          onResult?.(transcript);
-        };
+      recognitionRef.current.onstart = () => {
+        setIsListening(true);
+        onStart?.();
+      };
 
-        recognitionRef.current.onend = () => {
-          setIsListening(false);
-        };
+      recognitionRef.current.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        onResult?.(transcript);
+      };
 
-        recognitionRef.current.onerror = (event: any) => {
-          console.error('Speech recognition error:', event.error);
-          setIsListening(false);
-        };
-      }
+      recognitionRef.current.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        setIsListening(false);
+      };
     }
-  }, [onResult, onStart, continuous, language]);
+  }, [mounted, onResult, onStart, continuous, language]);
 
   const startListening = useCallback(() => {
     if (recognitionRef.current && !isListening) {
@@ -185,11 +189,22 @@ export function FloatingAIInterface({
   const [inputValue, setInputValue] = useState(value);
   const [isVisible, setIsVisible] = useState(true);
   const [hasInteracted, setHasInteracted] = useState(false);
+  const [audioEnabled, setAudioEnabled] = useState(true);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [animationState, setAnimationState] = useState<'pill' | 'expanded' | 'transitioning'>('pill');
   
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const aiPanelRef = useRef<HTMLDivElement>(null);
+  const responseRef = useRef<HTMLDivElement>(null);
   
-  const { animate } = useAnimation();
+  // Animation timeline refs for proper cleanup
+  const edgeEffectsTimelineRef = useRef<GSAPTimeline | null>(null);
+  const pulseTimelineRef = useRef<GSAPTimeline | null>(null);
+  const modeTransitionTimelineRef = useRef<GSAPTimeline | null>(null);
+  const positionTimelineRef = useRef<GSAPTimeline | null>(null);
+  
+
   const {
     startListening,
     stopListening,
@@ -233,6 +248,280 @@ export function FloatingAIInterface({
     setInputValue(value);
   }, [value]);
 
+  // Initial GSAP position setup
+  useEffect(() => {
+    if (!containerRef.current) return;
+    
+    const container = containerRef.current;
+    const initialBottom = position === 'hero' ? '30vh' : '24px';
+    
+    // Set initial position immediately without animation
+    gsap.set(container, {
+      bottom: initialBottom
+    });
+  }, []); // Only run once on mount
+
+  // GSAP position animation - handles hero <-> pinned transitions
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const container = containerRef.current;
+    const targetBottom = position === 'hero' ? '30vh' : '24px';
+    
+    // Kill any existing position timeline
+    if (positionTimelineRef.current) {
+      positionTimelineRef.current.kill();
+      positionTimelineRef.current = null;
+    }
+
+    // Create smooth GSAP animation for position changes
+    const tl = gsap.timeline();
+    positionTimelineRef.current = tl;
+    
+    tl.to(container, {
+      bottom: targetBottom,
+      duration: animationDuration / 1000, // Convert to seconds (0.7s)
+      ease: 'power2.out'
+    });
+
+    return () => {
+      if (positionTimelineRef.current) {
+        positionTimelineRef.current.kill();
+        positionTimelineRef.current = null;
+      }
+    };
+  }, [position, animationDuration]);
+
+
+
+  // Cleanup all animations on unmount
+  useEffect(() => {
+    return () => {
+      // Kill all GSAP timelines
+      if (edgeEffectsTimelineRef.current) {
+        edgeEffectsTimelineRef.current.kill();
+      }
+      if (pulseTimelineRef.current) {
+        pulseTimelineRef.current.kill();
+      }
+      if (modeTransitionTimelineRef.current) {
+        modeTransitionTimelineRef.current.kill();
+      }
+      if (positionTimelineRef.current) {
+        positionTimelineRef.current.kill();
+      }
+    };
+  }, []);
+
+  // Stable edge effects animation with proper cleanup
+  useEffect(() => {
+    if (!aiPanelRef.current || hasInteracted) {
+      // Clean up existing timeline
+      if (edgeEffectsTimelineRef.current) {
+        edgeEffectsTimelineRef.current.kill();
+        edgeEffectsTimelineRef.current = null;
+      }
+      return;
+    }
+
+    const panel = aiPanelRef.current;
+    
+    // Kill any existing timeline first
+    if (edgeEffectsTimelineRef.current) {
+      edgeEffectsTimelineRef.current.kill();
+    }
+    
+    // Create new timeline with stable base shadow
+    const tl = gsap.timeline({ repeat: -1 });
+    edgeEffectsTimelineRef.current = tl;
+    
+    // Set initial stable state
+    gsap.set(panel, {
+      boxShadow: `
+        0 0 20px rgba(59, 130, 246, 0.4),
+        0 0 40px rgba(59, 130, 246, 0.2),
+        0 4px 20px rgba(0, 0, 0, 0.1)
+      `,
+      borderColor: "rgba(59, 130, 246, 0.3)"
+    });
+    
+    // Animate through color cycles while maintaining base shadow
+    tl.to(panel, {
+      duration: 4,
+      ease: "sine.inOut",
+      boxShadow: `
+        0 0 15px rgba(147, 51, 234, 0.3),
+        0 0 30px rgba(147, 51, 234, 0.15),
+        0 4px 20px rgba(0, 0, 0, 0.1)
+      `,
+      borderColor: "rgba(147, 51, 234, 0.2)"
+    })
+    .to(panel, {
+      duration: 4,
+      ease: "sine.inOut",
+      boxShadow: `
+        0 0 25px rgba(16, 185, 129, 0.35),
+        0 0 50px rgba(16, 185, 129, 0.18),
+        0 4px 20px rgba(0, 0, 0, 0.1)
+      `,
+      borderColor: "rgba(16, 185, 129, 0.25)"
+    })
+    .to(panel, {
+      duration: 4,
+      ease: "sine.inOut",
+      boxShadow: `
+        0 0 20px rgba(59, 130, 246, 0.4),
+        0 0 40px rgba(59, 130, 246, 0.2),
+        0 4px 20px rgba(0, 0, 0, 0.1)
+      `,
+      borderColor: "rgba(59, 130, 246, 0.3)"
+    });
+    
+    return () => {
+      if (edgeEffectsTimelineRef.current) {
+        edgeEffectsTimelineRef.current.kill();
+        edgeEffectsTimelineRef.current = null;
+      }
+    };
+  }, [hasInteracted]);
+
+  // Stable pulse animation with proper cleanup
+  useEffect(() => {
+    if (!aiPanelRef.current || hasInteracted) {
+      // Clean up existing timeline
+      if (pulseTimelineRef.current) {
+        pulseTimelineRef.current.kill();
+        pulseTimelineRef.current = null;
+      }
+      return;
+    }
+
+    const panel = aiPanelRef.current;
+    
+    // Kill any existing timeline first
+    if (pulseTimelineRef.current) {
+      pulseTimelineRef.current.kill();
+    }
+    
+    // Create new timeline
+    const pulseTl = gsap.timeline({ repeat: -1, delay: 3 });
+    pulseTimelineRef.current = pulseTl;
+    
+    pulseTl.to(panel, {
+      duration: 0.4,
+      scale: 1.02,
+      ease: "power2.out"
+    })
+    .to(panel, {
+      duration: 0.4,
+      scale: 1,
+      ease: "power2.out"
+    })
+    .to({}, { duration: 5 }); // Wait 5 seconds before next pulse
+    
+    return () => {
+      if (pulseTimelineRef.current) {
+        pulseTimelineRef.current.kill();
+        pulseTimelineRef.current = null;
+      }
+    };
+  }, [hasInteracted]);
+
+  // Stable mode transition animations with state management
+  const expandContainer = useCallback(() => {
+    if (!aiPanelRef.current || !responseRef.current || animationState === 'transitioning') {
+      return;
+    }
+
+    setAnimationState('transitioning');
+    
+    // Kill any existing mode transition timeline
+    if (modeTransitionTimelineRef.current) {
+      modeTransitionTimelineRef.current.kill();
+    }
+    
+    // Create coordinated timeline for expansion
+    const tl = gsap.timeline({
+      onComplete: () => {
+        setAnimationState('expanded');
+        modeTransitionTimelineRef.current = null;
+      }
+    });
+    modeTransitionTimelineRef.current = tl;
+    
+    // Preserve existing shadow while transitioning
+    const currentShadow = getComputedStyle(aiPanelRef.current).boxShadow;
+    
+    tl.to(aiPanelRef.current, {
+      duration: 0.4,
+      borderRadius: '16px',
+      ease: 'power2.out',
+      // Maintain shadow during transition
+      boxShadow: currentShadow
+    })
+    .fromTo(responseRef.current, 
+      { height: 0, opacity: 0 },
+      { 
+        height: 'auto', 
+        opacity: 1, 
+        duration: 0.3, 
+        ease: 'power2.out' 
+      }, 
+      0.1 // Start slightly after border radius change
+    );
+  }, [animationState]);
+
+  const contractContainer = useCallback(() => {
+    if (!aiPanelRef.current || !responseRef.current || animationState === 'transitioning') {
+      return;
+    }
+
+    setAnimationState('transitioning');
+    
+    // Kill any existing mode transition timeline
+    if (modeTransitionTimelineRef.current) {
+      modeTransitionTimelineRef.current.kill();
+    }
+    
+    // Create coordinated timeline for contraction
+    const tl = gsap.timeline({
+      onComplete: () => {
+        setAnimationState('pill');
+        modeTransitionTimelineRef.current = null;
+      }
+    });
+    modeTransitionTimelineRef.current = tl;
+    
+    // Preserve existing shadow while transitioning
+    const currentShadow = getComputedStyle(aiPanelRef.current).boxShadow;
+    
+    tl.to(responseRef.current, {
+      height: 0,
+      opacity: 0,
+      duration: 0.25,
+      ease: 'power2.in'
+    })
+    .to(aiPanelRef.current, {
+      duration: 0.4,
+      borderRadius: '50px',
+      ease: 'power2.out',
+      // Maintain shadow during transition
+      boxShadow: currentShadow
+    }, 0.1); // Start after response starts hiding
+  }, [animationState]);
+
+  // Handle mode changes with stable state management
+  useEffect(() => {
+    // Only trigger animation if we're not already transitioning and mode actually changed
+    if (animationState === 'transitioning') return;
+    
+    if (mode === 'expanded' && animationState !== 'expanded') {
+      expandContainer();
+    } else if (mode === 'pill' && animationState !== 'pill') {
+      contractContainer();
+    }
+  }, [mode, animationState, expandContainer, contractContainer]);
+
   // Handle form submission
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -249,6 +538,26 @@ export function FloatingAIInterface({
 
   // Handle input focus
   const handleInputFocus = () => {
+    // Clean up intro animations when user interacts
+    if (!hasInteracted) {
+      if (edgeEffectsTimelineRef.current) {
+        edgeEffectsTimelineRef.current.kill();
+        edgeEffectsTimelineRef.current = null;
+      }
+      if (pulseTimelineRef.current) {
+        pulseTimelineRef.current.kill();
+        pulseTimelineRef.current = null;
+      }
+      
+      // Set stable shadow for interacted state
+      if (aiPanelRef.current) {
+        gsap.set(aiPanelRef.current, {
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+          scale: 1
+        });
+      }
+    }
+    
     if (expandOnFocus && mode === 'pill') {
       onModeChange?.('expanded');
     }
@@ -257,6 +566,26 @@ export function FloatingAIInterface({
 
   // Handle voice toggle
   const handleVoiceToggle = () => {
+    // Clean up intro animations when user interacts
+    if (!hasInteracted) {
+      if (edgeEffectsTimelineRef.current) {
+        edgeEffectsTimelineRef.current.kill();
+        edgeEffectsTimelineRef.current = null;
+      }
+      if (pulseTimelineRef.current) {
+        pulseTimelineRef.current.kill();
+        pulseTimelineRef.current = null;
+      }
+      
+      // Set stable shadow for interacted state
+      if (aiPanelRef.current) {
+        gsap.set(aiPanelRef.current, {
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+          scale: 1
+        });
+      }
+    }
+    
     if (isListening) {
       stopListening();
     } else {
@@ -274,57 +603,25 @@ export function FloatingAIInterface({
     setHasInteracted(true);
   };
 
-  // Position animation variants for GSAP coordination
-  const positionVariants = {
-    hero: {
-      bottom: '30vh',
-      scale: 1,
-      transition: {
-        duration: animationDuration / 1000,
-        ease: 'easeOut'
-      }
-    },
-    pinned: {
-      bottom: '24px',
-      scale: 1,
-      transition: {
-        duration: animationDuration / 1000,
-        ease: 'easeOut'
-      }
+  // Handle audio controls
+  const toggleAudio = () => {
+    setAudioEnabled(!audioEnabled);
+    if (isPlaying && !audioEnabled) {
+      setIsPlaying(false);
     }
   };
 
-  // Mode animation variants
-  const modeVariants = {
-    pill: {
-      height: 'auto',
-      transition: {
-        duration: 0.3,
-        ease: 'easeOut'
-      }
-    },
-    expanded: {
-      height: 'auto',
-      transition: {
-        duration: 0.3,
-        ease: 'easeOut'
-      }
-    }
+  const togglePlayback = () => {
+    setIsPlaying(!isPlaying);
   };
 
-  // Visibility variants
-  const visibilityVariants = {
-    visible: {
-      opacity: 1,
-      y: 0,
-      transition: { duration: 0.3 }
-    },
-    hidden: {
-      opacity: 0,
-      y: 20,
-      transition: { duration: 0.3 }
-    }
+  const closeResponse = () => {
+    contractContainer();
+    setIsPlaying(false);
+    onModeChange?.('pill');
   };
+
+
 
   // Theme classes
   const themeClasses = {
@@ -333,11 +630,11 @@ export function FloatingAIInterface({
     accent: 'bg-accent/95 backdrop-blur-md border-accent-foreground shadow-xl'
   };
 
-  // Size classes
+  // Size classes - Made wider for better usability
   const sizeClasses = {
-    sm: 'max-w-sm',
-    md: 'max-w-md',
-    lg: 'max-w-lg'
+    sm: 'max-w-lg',      // 512px (was 384px)
+    md: 'max-w-2xl',     // 672px (was 448px) 
+    lg: 'max-w-4xl'      // 896px (was 512px)
   };
 
   // Default quick actions if none provided
@@ -367,15 +664,18 @@ export function FloatingAIInterface({
   return (
     <AnimatePresence>
       {isVisible && (
-        <motion.div
+        <div
           ref={containerRef}
-          variants={positionVariants}
-          animate={position}
           className={cn(
-            'fixed left-1/2 transform -translate-x-1/2 z-50',
+            'fixed left-1/2 z-50',
             'w-full px-4',
             sizeClasses[size]
           )}
+          style={{
+            transform: 'translateX(-50%)',
+            left: '50%'
+            // bottom position will be set by GSAP
+          }}
           role="complementary"
           aria-label={ariaLabel}
         >
@@ -383,6 +683,7 @@ export function FloatingAIInterface({
           <AnimatePresence>
             {currentNarration && (
               <motion.div
+                key="narration-display"
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 10 }}
@@ -396,43 +697,86 @@ export function FloatingAIInterface({
             )}
           </AnimatePresence>
 
-          {/* Main Interface */}
-          <motion.div
-            variants={modeVariants}
-            animate={mode}
+          {/* Main Voice Interface Container - Pill Shape with GSAP animations */}
+          <div 
+            ref={aiPanelRef}
             className={cn(
-              'rounded-full border overflow-hidden transition-all duration-300',
+              'relative overflow-hidden bg-background/95 backdrop-blur-md border-2 border-border/50',
               themeClasses[theme],
-              mode === 'expanded' && 'rounded-lg',
               className
             )}
+            style={{
+              borderRadius: '50px', // Start as pill, GSAP will animate this
+              outline: 'none !important',
+              borderImage: 'none !important',
+              // Ensure stable base shadow that GSAP can enhance
+              boxShadow: hasInteracted 
+                ? '0 4px 20px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.1)'
+                : '0 0 20px rgba(59, 130, 246, 0.4), 0 0 40px rgba(59, 130, 246, 0.2), 0 4px 20px rgba(0, 0, 0, 0.1)'
+            }}
           >
-            {/* Pill Mode */}
-            {mode === 'pill' && (
-              <form onSubmit={handleSubmit} className="flex items-center p-2 gap-2">
-                {/* Voice Button */}
-                {voiceEnabled && voiceSupported && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={handleVoiceToggle}
-                    className={cn(
-                      'rounded-full p-2 h-8 w-8 flex-shrink-0',
-                      isListening && 'bg-red-500 text-white animate-pulse'
-                    )}
-                    disabled={isProcessing}
-                  >
-                    {isListening ? (
-                      <MicOff className="h-4 w-4" />
-                    ) : (
-                      <Mic className="h-4 w-4" />
-                    )}
-                  </Button>
-                )}
+            {/* Integrated Response Section - GSAP Animated (appears first, above input) */}
+            <div ref={responseRef} style={{ height: 0, opacity: 0, overflow: 'hidden' }}>
+              {currentNarration && (
+                <div className="border-b border-border/50">
+                  {/* Response Content - Subtitle Style */}
+                  <div className="px-6 py-4 text-center">
+                    <p className="text-lg text-foreground leading-relaxed font-medium">{currentNarration}</p>
+                  </div>
+                  
+                  {/* Controls bar */}
+                  <div className="bg-card/50 border-b border-border/50 px-6 py-3 flex items-center justify-between">
+                    {/* Quick Action buttons */}
+                    <div className="flex gap-2">
+                      {effectiveQuickActions.slice(0, 3).map((action) => (
+                        <button
+                          key={action.id}
+                          onClick={() => handleQuickAction(action)}
+                          className="bg-card border border-border px-3 py-1 rounded-lg text-xs font-medium hover:scale-105 transition-all duration-200 text-foreground hover:bg-accent/20"
+                        >
+                          {action.label}
+                        </button>
+                      ))}
+                    </div>
 
-                {/* Input */}
-                <Input
+                    {/* Audio and close controls */}
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={toggleAudio}
+                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                        title={audioEnabled ? 'Audio On' : 'Audio Off'}
+                      >
+                        {audioEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
+                      </button>
+                      
+                      {audioEnabled && (
+                        <button
+                          onClick={togglePlayback}
+                          className="text-xs text-primary hover:text-primary/80 transition-colors"
+                          title={isPlaying ? 'Pause' : 'Play'}
+                        >
+                          {isPlaying ? <Pause size={14} /> : <Play size={14} />}
+                        </button>
+                      )}
+                      
+                      <button
+                        onClick={closeResponse}
+                        className="text-muted-foreground hover:text-foreground transition-colors"
+                        aria-label="Close response"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* Main Input Row - Always at bottom */}
+            <div className="flex items-center gap-4 px-6 py-4">
+              {/* Text Input */}
+              <div className="flex-1">
+                <input
                   ref={inputRef}
                   value={inputValue}
                   onChange={(e) => {
@@ -440,162 +784,148 @@ export function FloatingAIInterface({
                     onValueChange?.(e.target.value);
                   }}
                   onFocus={handleInputFocus}
-                  placeholder={placeholder}
-                  className="flex-1 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 text-sm"
-                  disabled={isProcessing}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSubmit(e);
+                    }
+                  }}
+                  placeholder={isListening ? "Listening..." : placeholder}
+                  className="w-full bg-transparent border-none text-lg text-foreground placeholder-muted-foreground focus:outline-none resize-none"
+                  disabled={isProcessing || isListening}
                 />
-
-                {/* Processing indicator */}
-                {isProcessing && (
-                  <div className="flex-shrink-0">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary" />
-                  </div>
-                )}
-
-                {/* Settings Button */}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={onSettingsClick}
-                  className="rounded-full p-2 h-8 w-8 flex-shrink-0"
-                  disabled={isProcessing}
-                >
-                  <Settings className="h-4 w-4" />
-                </Button>
-              </form>
-            )}
-
-            {/* Expanded Mode */}
-            {mode === 'expanded' && (
-              <div className="p-4 space-y-4">
-                {/* Input Area */}
-                <form onSubmit={handleSubmit} className="space-y-3">
-                  <div className="flex items-start gap-2">
-                    <Input
-                      ref={inputRef}
-                      value={inputValue}
-                      onChange={(e) => {
-                        setInputValue(e.target.value);
-                        onValueChange?.(e.target.value);
-                      }}
-                      placeholder={placeholder}
-                      className="flex-1"
-                      disabled={isProcessing}
-                    />
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {/* Voice Button */}
-                      {voiceEnabled && voiceSupported && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={handleVoiceToggle}
-                          className={cn(
-                            'transition-colors',
-                            isListening && 'bg-red-500 text-white animate-pulse'
-                          )}
-                          disabled={isProcessing}
-                        >
-                          {isListening ? (
-                            <MicOff className="h-4 w-4 mr-1" />
-                          ) : (
-                            <Mic className="h-4 w-4 mr-1" />
-                          )}
-                          {isListening ? 'Stop' : 'Voice'}
-                        </Button>
-                      )}
-
-                      {/* Clear Button */}
-                      {inputValue && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setInputValue('');
-                            onClear?.();
-                          }}
-                          disabled={isProcessing}
-                        >
-                          <X className="h-4 w-4 mr-1" />
-                          Clear
-                        </Button>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {/* Settings */}
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={onSettingsClick}
-                        disabled={isProcessing}
-                      >
-                        <Settings className="h-4 w-4" />
-                      </Button>
-
-                      {/* Send */}
-                      <Button
-                        type="submit"
-                        size="sm"
-                        disabled={!inputValue.trim() || isProcessing}
-                      >
-                        {isProcessing ? (
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current" />
-                        ) : (
-                          <Send className="h-4 w-4" />
-                        )}
-                        {isProcessing ? 'Processing...' : 'Send'}
-                      </Button>
-                    </div>
-                  </div>
-                </form>
-
-                {/* Quick Actions */}
-                {showQuickActions && effectiveQuickActions.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="text-xs text-muted-foreground font-medium">
-                      Quick Actions:
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {effectiveQuickActions.map((action) => (
-                        <Button
-                          key={action.id}
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleQuickAction(action)}
-                          className="text-xs h-8"
-                          disabled={isProcessing}
-                        >
-                          {action.icon && <action.icon className="h-3 w-3 mr-1" />}
-                          {action.label}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* AI Typing Indicator */}
-                {isTyping && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <div className="flex gap-1">
-                      <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                    </div>
-                    AI is thinking...
-                  </div>
-                )}
               </div>
+
+              {/* Status Indicators */}
+              <div className="flex items-center gap-3">
+                {isProcessing && (
+                  <div className="flex items-center gap-2 text-primary">
+                    <div key="dot-1" className="w-2 h-2 bg-primary rounded-full animate-bounce"></div>
+                    <div key="dot-2" className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                    <div key="dot-3" className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                  </div>
+                )}
+                
+                {isPlaying && (
+                  <div className="flex items-center gap-2 text-purple-400">
+                    <Play className="text-sm animate-pulse" />
+                    <span className="text-sm">Speaking...</span>
+                  </div>
+                )}
+
+                {/* Audio Control */}
+                <button
+                  onClick={toggleAudio}
+                  className={cn(
+                    'p-2 rounded-full transition-all duration-200',
+                    audioEnabled ? 'text-primary hover:bg-primary/10' : 'text-muted-foreground hover:bg-muted/10'
+                  )}
+                >
+                  {audioEnabled ? <Volume2 className="text-sm" /> : <VolumeX className="text-sm" />}
+                </button>
+              </div>
+
+              {/* Voice Input Button - Now on the right */}
+              <motion.button
+                onClick={handleVoiceToggle}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className={cn(
+                  'relative w-12 h-12 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg',
+                  isListening 
+                    ? 'bg-red-500 hover:bg-red-600 scale-110' 
+                    : 'bg-primary hover:bg-primary/90 hover:scale-105'
+                )}
+                disabled={isProcessing}
+              >
+                {/* Pulse rings when listening */}
+                <AnimatePresence>
+                  {isListening && (
+                    <>
+                      <motion.div
+                        key="pulse-ring-1"
+                        initial={{ scale: 1, opacity: 0.6 }}
+                        animate={{ scale: 2.5, opacity: 0 }}
+                        exit={{ scale: 1, opacity: 0 }}
+                        transition={{ duration: 1, repeat: Infinity }}
+                        className="absolute inset-0 bg-red-400 rounded-full"
+                      />
+                      <motion.div
+                        key="pulse-ring-2"
+                        initial={{ scale: 1, opacity: 0.4 }}
+                        animate={{ scale: 2, opacity: 0 }}
+                        exit={{ scale: 1, opacity: 0 }}
+                        transition={{ duration: 0.8, repeat: Infinity, delay: 0.2 }}
+                        className="absolute inset-0 bg-red-500 rounded-full"
+                      />
+                    </>
+                  )}
+                </AnimatePresence>
+                
+                {isListening ? (
+                  <MicOff className="text-white animate-pulse relative z-10" />
+                ) : (
+                  <Mic className="text-white relative z-10" />
+                )}
+              </motion.button>
+            </div>
+          </div>
+
+          {/* Enticing animation hints */}
+          <AnimatePresence>
+            {!hasInteracted && (
+              <motion.div
+                key="interaction-hint"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                transition={{ delay: 3, duration: 0.8 }}
+                className="absolute -bottom-12 left-1/2 -translate-x-1/2 text-center"
+              >
+                <motion.div
+                  animate={{ y: [0, -5, 0] }}
+                  transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                  className="bg-primary/10 border border-primary/20 rounded-full px-3 py-1 text-xs text-primary font-medium"
+                >
+                  ✨ Try voice navigation
+                </motion.div>
+              </motion.div>
             )}
-          </motion.div>
-        </motion.div>
+          </AnimatePresence>
+
+          {/* Floating indicator */}
+          <AnimatePresence>
+            {!hasInteracted && (
+              <motion.div
+                key="floating-indicator"
+                initial={{ opacity: 0, scale: 0 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0 }}
+                transition={{ delay: 4, duration: 0.5 }}
+                className="absolute -top-2 -right-2"
+              >
+                <motion.div
+                  animate={{ scale: [1, 1.2, 1] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                  className="w-3 h-3 bg-primary rounded-full shadow-lg shadow-primary/50"
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* Listening Indicator Modal */}
+      {isListening && (
+        <div className="fixed inset-0 bg-black/20 z-40 flex items-center justify-center">
+          <div className="bg-background border border-border p-8 rounded-2xl text-center shadow-2xl">
+            <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-red-500 flex items-center justify-center animate-pulse">
+              <Mic className="text-white text-2xl" />
+            </div>
+            <h3 className="text-xl font-semibold text-foreground mb-2">Listening...</h3>
+            <p className="text-muted-foreground">Speak your question or request</p>
+          </div>
+        </div>
       )}
     </AnimatePresence>
   );

@@ -65,7 +65,7 @@ export default function TestFloatingAIInterface() {
   const demoScenarios = [
     {
       title: 'Hero Position - Initial State',
-      description: 'Interface positioned at 30vh from bottom',
+      description: 'Interface positioned at 30vh from bottom with colorful edge effects',
       narration: null,
       position: 'hero' as const,
       mode: 'pill' as const
@@ -78,9 +78,16 @@ export default function TestFloatingAIInterface() {
       mode: 'pill' as const
     },
     {
-      title: 'Expanded Mode',
-      description: 'Interface expands to show full functionality',
-      narration: 'Let me show you what I can do. Try asking about my projects or skills!',
+      title: 'Voice Listening',
+      description: 'Voice input with pulsing animations and listening modal',
+      narration: 'I\'m listening to your voice input...',
+      position: 'hero' as const,
+      mode: 'pill' as const
+    },
+    {
+      title: 'Expanded Response',
+      description: 'Interface expands smoothly to show AI response with controls',
+      narration: 'Here\'s my response with quick actions and audio controls.',
       position: 'hero' as const,
       mode: 'expanded' as const
     },
@@ -90,13 +97,6 @@ export default function TestFloatingAIInterface() {
       narration: 'Now I\'m pinned at the bottom for easy access while you browse.',
       position: 'pinned' as const,
       mode: 'pill' as const
-    },
-    {
-      title: 'Processing State',
-      description: 'Shows processing indicator while AI thinks',
-      narration: 'I\'m processing your request...',
-      position: 'pinned' as const,
-      mode: 'expanded' as const
     }
   ];
 
@@ -109,6 +109,17 @@ export default function TestFloatingAIInterface() {
     aiInterface.setPosition(scenario.position);
     aiInterface.setMode(scenario.mode);
     aiInterface.setNarration(scenario.narration);
+    
+    // Special handling for voice listening demo
+    if (nextStep === 2) {
+      // Simulate voice listening
+      setTimeout(() => {
+        aiInterface.handleVoiceStart();
+        setTimeout(() => {
+          aiInterface.handleVoiceEnd('Show me your best projects');
+        }, 2000);
+      }, 500);
+    }
   };
 
   const resetDemo = () => {
@@ -229,10 +240,11 @@ export default function TestFloatingAIInterface() {
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground mb-3">
-                Smooth GSAP-powered transitions between hero (30vh) and pinned (24px) positions.
+                Smooth GSAP-powered transitions between hero (30vh) and pinned (24px) positions with colorful edge effects.
               </p>
               <ul className="text-xs space-y-1">
                 <li>• 0.7s coordinated animations</li>
+                <li>• Colorful edge glow effects</li>
                 <li>• Auto-pin after interaction</li>
                 <li>• Responsive positioning</li>
               </ul>
@@ -243,17 +255,18 @@ export default function TestFloatingAIInterface() {
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-primary" />
-                Narration Display
+                Voice Interface
               </CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground mb-3">
-                Subtitle-style narration appears above the interface with smooth animations.
+                Advanced voice recognition with pulsing animations, listening modal, and audio controls.
               </p>
               <ul className="text-xs space-y-1">
-                <li>• Contextual messages</li>
-                <li>• Fade in/out animations</li>
-                <li>• Screen reader support</li>
+                <li>• Microphone on the right</li>
+                <li>• Pulsing ring animations</li>
+                <li>• Listening modal overlay</li>
+                <li>• Audio playback controls</li>
               </ul>
             </CardContent>
           </Card>
@@ -262,17 +275,18 @@ export default function TestFloatingAIInterface() {
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <Code className="h-5 w-5 text-primary" />
-                Interactive Features
+                Fluid Animations
               </CardTitle>
             </CardHeader>
             <CardContent>
               <p className="text-sm text-muted-foreground mb-3">
-                Voice input, text input, quick actions, and settings integration.
+                Smooth pill-to-rounded-rectangle transitions with integrated response section and GSAP animations.
               </p>
               <ul className="text-xs space-y-1">
-                <li>• Voice recognition</li>
+                <li>• Fluid shape transitions</li>
+                <li>• Integrated response area</li>
                 <li>• Quick action buttons</li>
-                <li>• Processing states</li>
+                <li>• Processing indicators</li>
               </ul>
             </CardContent>
           </Card>
