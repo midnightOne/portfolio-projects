@@ -52,7 +52,7 @@ const mockProject = {
   downloadableFiles: [],
   interactiveExamples: [],
   carousels: [],
-  _count: { mediaItems: 0, downloadableFiles: 0 },
+  _count: { mediaItems: 0, downloadableFiles: 0, externalLinks: 0, analytics: 0 },
   metadataImage: null,
   thumbnailImage: null,
   articleContent: null,

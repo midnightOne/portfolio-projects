@@ -7,6 +7,7 @@
 
 'use client';
 
+import { useState, useEffect } from 'react';
 import { useTheme } from '@/lib/ui/theme';
 import { useResponsive } from '@/lib/ui/use-responsive';
 import { useUIControl } from '@/lib/ui/ui-control-hooks';
@@ -14,6 +15,28 @@ import { MAX_WIDTHS, CONTAINERS, UI_LAYOUT } from '@/lib/ui/layout-constants';
 import { designTokens } from '@/lib/ui/design-tokens';
 
 export default function UISystemTestPage() {
+  const [mounted, setMounted] = useState(false);
+  
+  // Prevent SSR issues by only rendering after mount
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-background text-foreground p-8 flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold mb-2">Loading UI System...</h1>
+          <p className="text-muted-foreground">Initializing client-side UI features</p>
+        </div>
+      </div>
+    );
+  }
+
+  return <UISystemTestContent />;
+}
+
+function UISystemTestContent() {
   const { theme, toggleTheme, isAnimating } = useTheme();
   const { breakpoint, width, height, isMobile, isDesktop } = useResponsive();
   const { highlight, removeHighlight, isAnimating: uiAnimating } = useUIControl();

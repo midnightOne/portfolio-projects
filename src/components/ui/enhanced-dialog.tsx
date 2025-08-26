@@ -73,6 +73,17 @@ function EnhancedDialogOverlay({
   ...props
 }: EnhancedDialogOverlayProps) {
   if (animated) {
+    // Filter out conflicting props for motion.div
+    const { 
+      onDrag, 
+      onDragStart, 
+      onDragEnd,
+      onAnimationStart,
+      onAnimationEnd,
+      onAnimationIteration,
+      ...motionProps 
+    } = props;
+    
     return (
       <DialogPrimitive.Overlay asChild>
         <motion.div
@@ -85,7 +96,7 @@ function EnhancedDialogOverlay({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
-          {...props}
+          {...motionProps}
         />
       </DialogPrimitive.Overlay>
     );
@@ -164,6 +175,17 @@ function EnhancedDialogContent({
   } : {};
 
   if (animated) {
+    // Filter out conflicting props for motion.div
+    const { 
+      onDrag, 
+      onDragStart, 
+      onDragEnd,
+      onAnimationStart,
+      onAnimationEnd,
+      onAnimationIteration,
+      ...motionProps 
+    } = props;
+    
     return (
       <EnhancedDialogPortal>
         <EnhancedDialogOverlay animated={animated} />
@@ -180,7 +202,7 @@ function EnhancedDialogContent({
             exit="exit"
             transition={{ duration: 0.2, ease: "easeOut" }}
             {...aiAttributes}
-            {...props}
+            {...motionProps}
           >
             {children}
             {showCloseButton && (

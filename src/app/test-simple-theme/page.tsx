@@ -4,6 +4,27 @@ import React from 'react';
 import { useTheme } from '@/lib/ui/theme';
 
 export default function TestSimpleThemePage() {
+  const [mounted, setMounted] = React.useState(false);
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-background text-foreground p-8">
+        <div className="max-w-2xl mx-auto space-y-6">
+          <h1 className="text-3xl font-bold">Simple Theme Test</h1>
+          <p>Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return <TestSimpleThemeContent />;
+}
+
+function TestSimpleThemeContent() {
   const { theme, setTheme, toggleTheme, isAnimating } = useTheme();
 
   return (

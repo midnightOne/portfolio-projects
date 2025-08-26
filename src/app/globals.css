@@ -297,4 +297,90 @@
     pointer-events: auto;
     user-select: auto;
   }
+
+  /* Modal Animation Utilities */
+  .ui-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    pointer-events: none;
+    transition: none; /* GSAP handles transitions */
+  }
+
+  /* Highlight Animation Utilities */
+  .ui-highlight-base {
+    transition: none; /* GSAP handles transitions */
+    transform: translateZ(0); /* Hardware acceleration */
+  }
+
+  .ui-highlight-spotlight-base {
+    position: relative;
+    z-index: 10;
+  }
+
+  .ui-highlight-outline-base {
+    position: relative;
+  }
+
+  .ui-highlight-glow-base {
+    position: relative;
+    z-index: 5;
+  }
+
+  .ui-highlight-color-base {
+    position: relative;
+    transform: translateZ(0);
+  }
+
+  /* Project Card Animation Utilities */
+  .ui-project-card {
+    transform: translateZ(0);
+    will-change: transform, opacity;
+    transition: none; /* GSAP handles transitions */
+  }
+
+  .ui-project-card-animating {
+    z-index: 100;
+    position: relative;
+  }
+
+  /* Performance Optimization Classes */
+  .ui-hardware-accelerated {
+    transform: translateZ(0);
+    will-change: transform, opacity;
+    backface-visibility: hidden;
+  }
+
+  .ui-animation-optimized {
+    contain: layout style paint;
+    transform: translateZ(0);
+  }
+
+  /* Coordinated Animation States */
+  .ui-coordinated-animation {
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .ui-coordinated-animation-complete {
+    pointer-events: auto;
+    user-select: auto;
+  }
+
+  /* Reduced Motion Overrides */
+  @media (prefers-reduced-motion: reduce) {
+    .ui-highlight-spotlight,
+    .ui-highlight-outline,
+    .ui-highlight-glow {
+      transition: none !important;
+      animation: none !important;
+    }
+    
+    .ui-modal-overlay {
+      transition: opacity 0.1s ease !important;
+    }
+  }
 }

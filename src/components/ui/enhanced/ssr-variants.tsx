@@ -35,6 +35,7 @@ interface SSRProjectModalProps extends AIControlProps, SSRCompatibleComponent {
   isOpen: boolean;
   onClose: () => void;
   loading?: boolean;
+  aiId?: string;
 }
 
 export function SSRProjectModal({
@@ -107,6 +108,7 @@ interface SSRProjectGridProps extends AIControlProps, SSRCompatibleComponent {
   showViewCount?: boolean;
   className?: string;
   searchQuery?: string;
+  aiId?: string;
 }
 
 export function SSRProjectGrid({
@@ -196,6 +198,7 @@ interface SSRNavigationBarProps extends AIControlProps, SSRCompatibleComponent {
   canFilter?: boolean;
   tagsLoading?: boolean;
   loadingMessage?: string;
+  aiId?: string;
   isSearching?: boolean;
   searchResultsCount?: number;
   variant?: 'page' | 'section';

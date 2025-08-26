@@ -1,11 +1,33 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTheme, switchThemeWithAICoordination, switchToCustomTheme, getAvailableThemeVariants, customThemeVariants } from '@/lib/ui/theme';
 import { EnhancedButton as Button } from '@/components/ui/enhanced-button';
 import { EnhancedCard as Card } from '@/components/ui/enhanced-card';
 
 export default function TestThemeSystemPage() {
+  const [mounted, setMounted] = useState(false);
+  
+  // Prevent SSR issues by only rendering after mount
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-background text-foreground p-8 flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold mb-2">Loading Theme System...</h1>
+          <p className="text-muted-foreground">Initializing client-side theme features</p>
+        </div>
+      </div>
+    );
+  }
+
+  return <TestThemeSystemContent />;
+}
+
+function TestThemeSystemContent() {
   const { theme, setTheme, toggleTheme, isAnimating } = useTheme();
   const [selectedVariant, setSelectedVariant] = useState<keyof typeof customThemeVariants>('professional');
   const availableVariants = getAvailableThemeVariants();

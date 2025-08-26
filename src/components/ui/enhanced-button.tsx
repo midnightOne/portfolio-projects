@@ -8,7 +8,7 @@
 import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
-import { motion, type HTMLMotionProps } from "framer-motion";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import type { AIControlProps, NavigationCommand } from "@/lib/ui/types";
 
@@ -67,7 +67,6 @@ const EnhancedButton = React.forwardRef<HTMLButtonElement, EnhancedButtonProps>(
     ...props 
   }, ref) => {
     const Comp = asChild ? Slot : "button";
-    const MotionComp = asChild ? motion.div : motion.button;
 
     // Handle AI navigation commands
     const handleAICommand = React.useCallback((command: NavigationCommand) => {
@@ -118,6 +117,17 @@ const EnhancedButton = React.forwardRef<HTMLButtonElement, EnhancedButtonProps>(
     } : {};
 
     if (animated && !asChild) {
+      // Filter out conflicting props for motion.button
+      const { 
+        onAnimationStart, 
+        onAnimationEnd, 
+        onAnimationIteration,
+        onDrag, 
+        onDragStart, 
+        onDragEnd, 
+        ...motionProps 
+      } = props;
+      
       return (
         <motion.button
           ref={ref}
@@ -129,7 +139,7 @@ const EnhancedButton = React.forwardRef<HTMLButtonElement, EnhancedButtonProps>(
           whileTap="tap"
           onClick={handleClick}
           {...aiAttributes}
-          {...props}
+          {...motionProps}
         />
       );
     }

@@ -6,7 +6,7 @@
  */
 
 import * as React from "react";
-import { motion, type HTMLMotionProps } from "framer-motion";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import type { AIControlProps, HighlightOptions, NavigationCommand } from "@/lib/ui/types";
 
@@ -115,6 +115,17 @@ const EnhancedCard = React.forwardRef<HTMLDivElement, EnhancedCardProps>(
     });
 
     if (animated) {
+      // Filter out conflicting props for motion.div
+      const { 
+        onDrag, 
+        onDragStart, 
+        onDragEnd,
+        onAnimationStart,
+        onAnimationEnd,
+        onAnimationIteration,
+        ...motionProps 
+      } = props;
+      
       return (
         <motion.div
           ref={ref}
@@ -131,7 +142,7 @@ const EnhancedCard = React.forwardRef<HTMLDivElement, EnhancedCardProps>(
           animate={isHighlighted ? "highlighted" : "initial"}
           onClick={handleClick}
           {...aiAttributes}
-          {...props}
+          {...motionProps}
         >
           {children}
         </motion.div>

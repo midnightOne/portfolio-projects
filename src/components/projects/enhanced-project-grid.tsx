@@ -313,7 +313,7 @@ export function EnhancedProjectGrid({
                 aiControlEnabled={aiControlEnabled}
                 aiId={`${aiId}-card-${project.id}`}
                 onAINavigate={onAINavigate}
-                onAIHighlight={(options) => handleAIHighlight(project.id, options)}
+                onAIHighlight={(target, options) => handleAIHighlight(target, options)}
                 highlightable={true}
                 animated={animated}
               >

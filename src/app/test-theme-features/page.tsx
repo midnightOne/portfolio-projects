@@ -10,6 +10,28 @@ import {
 } from '@/lib/ui/theme';
 
 export default function TestThemeFeaturesPage() {
+  const [mounted, setMounted] = useState(false);
+  
+  // Prevent SSR issues by only rendering after mount
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-background text-foreground p-8 flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold mb-2">Loading Theme System...</h1>
+          <p className="text-muted-foreground">Initializing client-side theme features</p>
+        </div>
+      </div>
+    );
+  }
+
+  return <TestThemeFeaturesContent />;
+}
+
+function TestThemeFeaturesContent() {
   const { theme, setTheme, toggleTheme, isAnimating, systemTheme } = useTheme();
   const [selectedVariant, setSelectedVariant] = useState<keyof typeof customThemeVariants>('professional');
   const [testResults, setTestResults] = useState<Record<string, boolean>>({});
