@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter, usePathname } from 'next/navigation';
 import { Menu, X, Home, FolderOpen, User, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { SimpleThemeToggle } from '@/components/ui/simple-theme-toggle';
 import { cn } from '@/lib/utils';
 import { CONTAINERS, FLEX, SPACING } from '@/lib/constants/layout';
 
@@ -285,6 +286,17 @@ function MobileNavigation({ items, pathname, isOpen, onItemClick, onClose }: Mob
                     </motion.button>
                   );
                 })}
+                
+                {/* Theme Toggle in Mobile Menu */}
+                <motion.div
+                  variants={itemVariants}
+                  className="px-4 py-3 border-t border-border mt-2 pt-4"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Theme</span>
+                    <SimpleThemeToggle size="sm" />
+                  </div>
+                </motion.div>
               </div>
             </nav>
           </motion.div>
@@ -399,27 +411,42 @@ export function MainNavigation({
           )}
 
           {/* Desktop Navigation */}
-          <DesktopNavigation
-            items={items}
-            pathname={pathname}
-            onItemClick={handleNavigationClick}
-          />
+          <div className="flex items-center gap-4">
+            <DesktopNavigation
+              items={items}
+              pathname={pathname}
+              onItemClick={handleNavigationClick}
+            />
+            
+            {/* Theme Toggle - Desktop */}
+            <motion.div variants={itemVariants} className="hidden md:block">
+              <SimpleThemeToggle size="md" />
+            </motion.div>
+          </div>
 
-          {/* Mobile Menu Button */}
-          <motion.div variants={itemVariants} className="md:hidden">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2"
-            >
-              {mobileMenuOpen ? (
-                <X className="h-5 w-5" />
-              ) : (
-                <Menu className="h-5 w-5" />
-              )}
-            </Button>
-          </motion.div>
+          {/* Mobile Controls */}
+          <div className="flex items-center gap-2 md:hidden">
+            {/* Theme Toggle - Mobile */}
+            <motion.div variants={itemVariants}>
+              <SimpleThemeToggle size="sm" />
+            </motion.div>
+            
+            {/* Mobile Menu Button */}
+            <motion.div variants={itemVariants}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="p-2"
+              >
+                {mobileMenuOpen ? (
+                  <X className="h-5 w-5" />
+                ) : (
+                  <Menu className="h-5 w-5" />
+                )}
+              </Button>
+            </motion.div>
+          </div>
         </div>
       </div>
 

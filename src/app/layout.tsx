@@ -23,7 +23,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-        <UIThemeProvider defaultTheme="light" enableSystem>
+        <UIThemeProvider enableSystem>
           <SessionProvider>
             <ToastProvider>
               {children}
