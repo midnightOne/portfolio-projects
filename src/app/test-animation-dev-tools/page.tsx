@@ -27,7 +27,7 @@ export default function TestAnimationDevToolsPage() {
   const [testResults, setTestResults] = useState<AnimationTestResult[]>([]);
   const [debugSessions, setDebugSessions] = useState<AnimationDebugSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [systemInfo, setSystemInfo] = useState(AnimationDevTools.getSystemInfo());
+  const [systemInfo, setSystemInfo] = useState<any>(null);
 
   const testGridRef = useRef<HTMLDivElement>(null);
   const testTargetRef = useRef<HTMLDivElement>(null);
@@ -35,6 +35,9 @@ export default function TestAnimationDevToolsPage() {
   const availableAnimations = getAvailableAnimations();
 
   useEffect(() => {
+    // Initialize system info on client side
+    setSystemInfo(AnimationDevTools.getSystemInfo());
+    
     // Refresh system info periodically
     const interval = setInterval(() => {
       setSystemInfo(AnimationDevTools.getSystemInfo());
@@ -143,46 +146,53 @@ export default function TestAnimationDevToolsPage() {
             <CardDescription>Current state of the animation system</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
-                <h4 className="font-semibold mb-2">Performance</h4>
-                <div className="text-sm space-y-1">
-                  <div>Registered: {systemInfo.performance.registeredCount}</div>
-                  <div>Executed: {systemInfo.performance.executionCount}</div>
-                  <div>Errors: {systemInfo.performance.errorCount}</div>
+            {!systemInfo ? (
+              <div className="text-center py-8">
+                <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full mx-auto mb-2"></div>
+                <p className="text-sm text-muted-foreground">Loading system information...</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                  <h4 className="font-semibold mb-2">Performance</h4>
+                  <div className="text-sm space-y-1">
+                    <div>Registered: {systemInfo.performance.registeredCount}</div>
+                    <div>Executed: {systemInfo.performance.executionCount}</div>
+                    <div>Errors: {systemInfo.performance.errorCount}</div>
+                  </div>
+                </div>
+                <div>
+                  <h4 className="font-semibold mb-2">Browser Support</h4>
+                  <div className="text-sm space-y-1">
+                    {Object.entries(systemInfo.browserSupport).map(([key, supported]) => (
+                      <div key={key} className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${supported ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                        {key}: {supported ? 'Yes' : 'No'}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <h4 className="font-semibold mb-2">Available Plugins</h4>
+                  <div className="space-y-1">
+                    {systemInfo.availablePlugins.map(plugin => (
+                      <Badge key={plugin} variant="secondary" className="text-xs">{plugin}</Badge>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <h4 className="font-semibold mb-2">Available Animations</h4>
+                  <div className="space-y-1">
+                    {systemInfo.availableAnimations.slice(0, 5).map(animation => (
+                      <Badge key={animation} variant="outline" className="text-xs">{animation}</Badge>
+                    ))}
+                    {systemInfo.availableAnimations.length > 5 && (
+                      <Badge variant="outline" className="text-xs">+{systemInfo.availableAnimations.length - 5} more</Badge>
+                    )}
+                  </div>
                 </div>
               </div>
-              <div>
-                <h4 className="font-semibold mb-2">Browser Support</h4>
-                <div className="text-sm space-y-1">
-                  {Object.entries(systemInfo.browserSupport).map(([key, supported]) => (
-                    <div key={key} className="flex items-center gap-2">
-                      <div className={`w-2 h-2 rounded-full ${supported ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                      {key}: {supported ? 'Yes' : 'No'}
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <h4 className="font-semibold mb-2">Available Plugins</h4>
-                <div className="space-y-1">
-                  {systemInfo.availablePlugins.map(plugin => (
-                    <Badge key={plugin} variant="secondary" className="text-xs">{plugin}</Badge>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <h4 className="font-semibold mb-2">Available Animations</h4>
-                <div className="space-y-1">
-                  {systemInfo.availableAnimations.slice(0, 5).map(animation => (
-                    <Badge key={animation} variant="outline" className="text-xs">{animation}</Badge>
-                  ))}
-                  {systemInfo.availableAnimations.length > 5 && (
-                    <Badge variant="outline" className="text-xs">+{systemInfo.availableAnimations.length - 5} more</Badge>
-                  )}
-                </div>
-              </div>
-            </div>
+            )}
           </CardContent>
         </Card>
 

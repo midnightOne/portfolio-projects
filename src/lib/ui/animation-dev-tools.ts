@@ -113,6 +113,10 @@ class AnimationPreviewSystem {
   private timelineVisualizer: HTMLElement | null = null;
 
   createPreviewContainer(): HTMLElement {
+    if (typeof window === 'undefined') {
+      throw new Error('Preview container can only be created in browser environment');
+    }
+    
     if (this.previewContainer) {
       return this.previewContainer;
     }
@@ -409,6 +413,11 @@ class AnimationPerformanceMonitor {
   private peakMemory?: number;
 
   startMonitoring(): void {
+    if (typeof window === 'undefined' || typeof performance === 'undefined') {
+      console.warn('Performance monitoring not available in server environment');
+      return;
+    }
+    
     if (this.isMonitoring) return;
 
     this.isMonitoring = true;
@@ -758,6 +767,10 @@ class AnimationTestRunner {
     testElement: Element,
     testOptions: Partial<CustomAnimationOptions> = {}
   ): Promise<AnimationTestResult> {
+    if (typeof window === 'undefined' || typeof performance === 'undefined') {
+      throw new Error('Animation testing not available in server environment');
+    }
+    
     const startTime = performance.now();
     const memoryBefore = 'memory' in performance ? (performance as any).memory.usedJSHeapSize : undefined;
     
@@ -857,6 +870,11 @@ class AnimationTestRunner {
   }
 
   async runFullTestSuite(): Promise<AnimationTestResult[]> {
+    if (typeof window === 'undefined') {
+      console.warn('Test suite not available in server environment');
+      return [];
+    }
+    
     const animations = getAvailableAnimations();
     const testElement = document.createElement('div');
     testElement.style.cssText = 'width: 100px; height: 100px; background: red; position: absolute; top: -1000px;';
@@ -937,6 +955,11 @@ class AnimationDebugSessionManager {
   private activeSession: AnimationDebugSession | null = null;
 
   startDebugSession(sessionName?: string): string {
+    if (typeof window === 'undefined' || typeof performance === 'undefined') {
+      console.warn('Debug sessions not available in server environment');
+      return 'server-session';
+    }
+    
     const sessionId = sessionName || `session-${Date.now()}`;
     
     const session: AnimationDebugSession = {
@@ -1050,17 +1073,33 @@ export const AnimationDevTools = {
   clearDebugSessions: () => debugSessionManager.clearSessions(),
 
   // Utility Functions
-  getSystemInfo: () => ({
-    ...getAnimationDebugInfo(),
-    availableAnimations: getAvailableAnimations(),
-    availablePlugins: getAvailablePlugins(),
-    browserSupport: {
-      gsap: typeof gsap !== 'undefined',
-      performance: 'performance' in window,
-      memory: 'memory' in performance,
-      requestAnimationFrame: 'requestAnimationFrame' in window,
-    },
-  }),
+  getSystemInfo: () => {
+    if (typeof window === 'undefined') {
+      return {
+        performance: { registeredCount: 0, executionCount: 0, errorCount: 0 },
+        availableAnimations: [],
+        availablePlugins: [],
+        browserSupport: {
+          gsap: false,
+          performance: false,
+          memory: false,
+          requestAnimationFrame: false,
+        },
+      };
+    }
+    
+    return {
+      ...getAnimationDebugInfo(),
+      availableAnimations: getAvailableAnimations(),
+      availablePlugins: getAvailablePlugins(),
+      browserSupport: {
+        gsap: typeof gsap !== 'undefined',
+        performance: typeof window !== 'undefined' && 'performance' in window,
+        memory: typeof window !== 'undefined' && typeof performance !== 'undefined' && 'memory' in performance,
+        requestAnimationFrame: typeof window !== 'undefined' && 'requestAnimationFrame' in window,
+      },
+    };
+  },
 };
 
 // Initialize development tools in development mode
@@ -1069,14 +1108,6 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   console.log('Animation Development Tools initialized');
 }
 
-// Export types and main API
-export type {
-  AnimationPreviewOptions,
-  AnimationPerformanceMetrics,
-  AnimationConflictInfo,
-  AnimationTestResult,
-  AnimationDebugSession,
-  AnimationExecutionLog,
-};
+// Types are already exported as interfaces above
 
 export default AnimationDevTools;
