@@ -45,6 +45,7 @@
 }
 
 :root {
+  /* Existing shadcn/ui tokens */
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -77,9 +78,49 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* UI System specific tokens */
+  --ui-ai-background: oklch(0.99 0 0);
+  --ui-ai-border: oklch(0.88 0 0);
+  --ui-ai-accent: oklch(0.97 0 0);
+  --ui-highlight-spotlight: oklch(0.97 0 0 / 0.3);
+  --ui-highlight-outline: oklch(0.97 0 0);
+  --ui-highlight-glow: oklch(0.97 0 0 / 0.5);
+  --ui-gradient-primary: linear-gradient(135deg, oklch(0.97 0 0) 0%, oklch(0.94 0 0) 100%);
+  --ui-gradient-accent: linear-gradient(135deg, oklch(0.205 0 0) 0%, oklch(0.145 0 0) 100%);
+  --ui-gradient-background: linear-gradient(180deg, oklch(1 0 0) 0%, oklch(0.99 0 0) 100%);
+  --ui-gradient-ai: linear-gradient(135deg, oklch(0.99 0 0) 0%, oklch(1 0 0) 100%);
+  --ui-duration-fast: 0.2s;
+  --ui-duration-normal: 0.7s;
+  --ui-duration-slow: 1.2s;
+  --ui-easing-smooth: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --ui-easing-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  --ui-easing-elastic: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  --ui-spacing-xs: 0.5rem;
+  --ui-spacing-sm: 0.75rem;
+  --ui-spacing-md: 1rem;
+  --ui-spacing-lg: 1.5rem;
+  --ui-spacing-xl: 2rem;
+  --ui-spacing-xxl: 3rem;
+  --ui-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --ui-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --ui-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --ui-shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --ui-shadow-ai: 0 8px 32px oklch(0.88 0 0);
+  --ui-shadow-highlight: 0 0 0 4px oklch(0.97 0 0 / 0.3);
+  --ui-text-xs: 0.75rem;
+  --ui-text-sm: 0.875rem;
+  --ui-text-base: 1rem;
+  --ui-text-lg: 1.125rem;
+  --ui-text-xl: 1.25rem;
+  --ui-text-xxl: 1.5rem;
+  --ui-leading-tight: 1.25;
+  --ui-leading-normal: 1.5;
+  --ui-leading-relaxed: 1.75;
 }
 
 .dark {
+  /* Existing shadcn/ui dark tokens */
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
@@ -111,6 +152,20 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  /* UI System dark theme tokens */
+  --ui-ai-background: oklch(0.18 0 0);
+  --ui-ai-border: oklch(1 0 0 / 15%);
+  --ui-ai-accent: oklch(0.269 0 0);
+  --ui-highlight-spotlight: oklch(0.269 0 0 / 0.3);
+  --ui-highlight-outline: oklch(0.269 0 0);
+  --ui-highlight-glow: oklch(0.269 0 0 / 0.5);
+  --ui-gradient-primary: linear-gradient(135deg, oklch(0.269 0 0) 0%, oklch(0.32 0 0) 100%);
+  --ui-gradient-accent: linear-gradient(135deg, oklch(0.922 0 0) 0%, oklch(0.985 0 0) 100%);
+  --ui-gradient-background: linear-gradient(180deg, oklch(0.145 0 0) 0%, oklch(0.18 0 0) 100%);
+  --ui-gradient-ai: linear-gradient(135deg, oklch(0.18 0 0) 0%, oklch(0.205 0 0) 100%);
+  --ui-shadow-ai: 0 8px 32px oklch(1 0 0 / 15%);
+  --ui-shadow-highlight: 0 0 0 4px oklch(0.269 0 0 / 0.3);
 }
 
 @layer base {
@@ -142,5 +197,91 @@
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 3;
+  }
+
+  /* UI System Animation Utilities */
+  .ui-animation-safe {
+    transform: translateZ(0);
+    will-change: transform;
+    backface-visibility: hidden;
+  }
+
+  .ui-highlight-spotlight {
+    box-shadow: var(--ui-shadow-highlight);
+    background-color: var(--ui-highlight-spotlight);
+    transition: all var(--ui-duration-fast) var(--ui-easing-smooth);
+  }
+
+  .ui-highlight-outline {
+    outline: 2px solid var(--ui-highlight-outline);
+    outline-offset: 4px;
+    transition: all var(--ui-duration-fast) var(--ui-easing-smooth);
+  }
+
+  .ui-highlight-glow {
+    filter: drop-shadow(0 0 8px var(--ui-highlight-glow));
+    transition: all var(--ui-duration-fast) var(--ui-easing-smooth);
+  }
+
+  /* AI Interface Utilities */
+  .ui-ai-interface {
+    background: var(--ui-ai-background);
+    border: 1px solid var(--ui-ai-border);
+    box-shadow: var(--ui-shadow-ai);
+    backdrop-filter: blur(8px);
+  }
+
+  .ui-ai-interface-pill {
+    border-radius: 9999px;
+    padding: 12px 20px;
+    min-height: 48px;
+  }
+
+  .ui-ai-interface-expanded {
+    border-radius: var(--radius-lg);
+    padding: 16px;
+    min-height: 120px;
+  }
+
+  /* Performance Optimizations */
+  .ui-gpu-accelerated {
+    transform: translateZ(0);
+    will-change: transform;
+  }
+
+  .ui-smooth-scroll {
+    scroll-behavior: smooth;
+  }
+
+  /* Responsive Utilities for Desktop-First */
+  .ui-desktop-first {
+    display: block;
+  }
+
+  @media (max-width: 1024px) {
+    .ui-desktop-first {
+      display: none;
+    }
+  }
+
+  .ui-mobile-fallback {
+    display: none;
+  }
+
+  @media (max-width: 1024px) {
+    .ui-mobile-fallback {
+      display: block;
+    }
+  }
+
+  /* Animation Queue Utilities */
+  .ui-animating {
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .ui-animation-complete {
+    pointer-events: auto;
+    user-select: auto;
   }
 }
