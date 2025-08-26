@@ -645,12 +645,14 @@ const transitionEffectsPlugin: AnimationPlugin = {
 
 
 
-        const initialPosition = {
+        const positionMap: Record<string, { x: number; y: number }> = {
           left: { x: -distance, y: 0 },  // Start from left, slide right
           right: { x: distance, y: 0 },   // Start from right, slide left
-          up: { x: 0, y: -distance },     // Start from above, slide down
-          down: { x: 0, y: distance },    // Start from below, slide up
-        }[direction] || { x: -distance, y: 0 }; // Default to left if direction is invalid
+          down: { x: 0, y: -distance },     // Start from above, slide down
+          up: { x: 0, y: distance },    // Start from below, slide up
+        };
+
+        const initialPosition = positionMap[direction] || positionMap.left;
 
         // Set initial position
         gsap.set(elements, {
