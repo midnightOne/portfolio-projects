@@ -270,6 +270,56 @@ export interface FloatingAIInterfaceProps {
   announceNarration?: boolean;
 }
 
+// Custom Animation Types (re-exported from custom-animations.ts)
+export interface AnimationPlugin {
+  name: string;
+  version: string;
+  description?: string;
+  animations: Record<string, AnimationDefinition>;
+  register: () => void;
+  unregister: () => void;
+  dependencies?: string[];
+}
+
+export interface AnimationDefinition {
+  name: string;
+  description?: string;
+  duration: number;
+  variants?: Record<string, AnimationVariant>;
+  create: (target: Element | Element[], options: CustomAnimationOptions) => GSAPTimeline;
+  preview?: (target: Element | Element[], options: CustomAnimationOptions) => GSAPTimeline;
+  fallback?: (target: Element | Element[], options: CustomAnimationOptions) => GSAPTimeline;
+  compose?: boolean;
+  priority?: number;
+}
+
+export interface AnimationVariant {
+  name: string;
+  description?: string;
+  options: Partial<CustomAnimationOptions>;
+  modifyTimeline?: (timeline: GSAPTimeline, options: CustomAnimationOptions) => GSAPTimeline;
+}
+
+export interface CustomAnimationOptions extends AnimationOptions {
+  variant?: string;
+  intensity?: 'subtle' | 'medium' | 'strong';
+  direction?: 'up' | 'down' | 'left' | 'right' | 'center' | 'random';
+  stagger?: number | { amount: number; from: string | number };
+  selectedIndex?: number;
+  gridColumns?: number;
+  gridRows?: number;
+  composition?: CompositionOptions;
+  fallbackOnError?: boolean;
+  respectReducedMotion?: boolean;
+}
+
+export interface CompositionOptions {
+  combine: string[];
+  sequence?: 'parallel' | 'sequential' | 'staggered';
+  timing?: number[];
+  blend?: 'multiply' | 'add' | 'override';
+}
+
 // Hook Return Types
 export interface UseThemeReturn {
   theme: 'light' | 'dark';
@@ -296,6 +346,13 @@ export interface UseAnimationReturn {
   clearQueue: () => void;
   pauseAnimations: () => void;
   resumeAnimations: () => void;
+  // Custom animation functions
+  executeCustom: (name: string, target: Element | Element[], options?: CustomAnimationOptions) => GSAPTimeline | null;
+  composeAnimations: (names: string[], target: Element | Element[], options?: CustomAnimationOptions) => GSAPTimeline | null;
+  setVariant: (animationName: string, variantName: string) => void;
+  getAvailableAnimations: () => string[];
+  executeIPadGrid: (container: Element, selectedIndex: number, options?: Partial<CustomAnimationOptions>) => GSAPTimeline | null;
+  resetIPadGrid: (container: Element, options?: Partial<CustomAnimationOptions>) => GSAPTimeline | null;
 }
 
 export interface UseResponsiveReturn {

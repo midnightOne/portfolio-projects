@@ -409,7 +409,24 @@ class AnimationQueue {
   }
 
   private createCustomAnimation(timeline: any, command: AnimationCommand): any {
-    // Custom animations can be registered via plugins
+    // Try new custom animation system first
+    const customAnimationSystem = (globalThis as any).__uiCustomAnimationSystem;
+    if (customAnimationSystem) {
+      const target = document.querySelector(command.target);
+      if (target) {
+        const customTimeline = customAnimationSystem.execute(
+          command.target.replace(/^#/, '').replace(/^\./, ''), // Remove CSS selectors for animation name
+          target,
+          command.options
+        );
+        
+        if (customTimeline) {
+          return customTimeline;
+        }
+      }
+    }
+    
+    // Fallback to legacy custom animations
     const customAnimations = (globalThis as any).__uiSystemCustomAnimations || {};
     const animationFn = customAnimations[command.target];
     
@@ -916,7 +933,7 @@ export function isAnimating(): boolean {
   return globalAnimationQueue.isAnimating();
 }
 
-// Custom animation registration
+// Custom animation registration (legacy)
 export function registerCustomAnimation(
   name: string,
   animationFn: (timeline: GSAPTimeline, command: AnimationCommand) => GSAPTimeline
@@ -927,6 +944,30 @@ export function registerCustomAnimation(
     (globalThis as any).__uiSystemCustomAnimations = customAnimations;
   }
 }
+
+// New Custom Animation System Integration
+export {
+  registerCustomAnimationPlugin,
+  unregisterCustomAnimationPlugin,
+  executeCustomAnimation,
+  composeCustomAnimations,
+  setAnimationVariant,
+  getAvailableAnimations,
+  getAvailablePlugins,
+  getAnimationDefinition,
+  executeIPadGridAnimation,
+  resetIPadGrid,
+  createComposedEffect,
+  getAnimationDebugInfo,
+} from './custom-animations';
+
+export type {
+  AnimationPlugin,
+  AnimationDefinition,
+  AnimationVariant,
+  CustomAnimationOptions,
+  CompositionOptions,
+} from './custom-animations';
 
 // React hook for animation management
 export function useAnimation(): UseAnimationReturn {
@@ -941,6 +982,13 @@ export function useAnimation(): UseAnimationReturn {
     clearQueue: clearAnimationQueue,
     pauseAnimations,
     resumeAnimations,
+    // Custom animation functions
+    executeCustom: executeCustomAnimation,
+    composeAnimations: composeCustomAnimations,
+    setVariant: setAnimationVariant,
+    getAvailableAnimations,
+    executeIPadGrid: executeIPadGridAnimation,
+    resetIPadGrid,
   };
 }
 
