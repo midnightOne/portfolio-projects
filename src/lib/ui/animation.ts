@@ -492,4 +492,24 @@ export function getAnimationPerformance(): {
 // Initialize animation system on import
 if (typeof window !== 'undefined') {
   initializeAnimationSystem();
+  
+  // Register animation system globally for theme coordination
+  (globalThis as any).__uiAnimationSystem = {
+    isAnimating: () => globalAnimationQueue.isAnimating(),
+    pauseAnimations: () => globalAnimationQueue.pause(),
+    resumeAnimations: () => globalAnimationQueue.resume(),
+    onThemeChange: (theme: 'light' | 'dark') => {
+      // Update animation colors based on theme
+      const root = document.documentElement;
+      const computedStyle = getComputedStyle(root);
+      
+      // Update GSAP defaults with new theme colors
+      gsap.defaults({
+        duration: 0.7,
+        ease: 'power2.out',
+      });
+      
+      console.log(`Animation system updated for ${theme} theme`);
+    },
+  };
 }

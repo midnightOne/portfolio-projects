@@ -206,6 +206,19 @@
     backface-visibility: hidden;
   }
 
+  /* Theme Transition Utilities */
+  .ui-theme-transition {
+    transition: background-color var(--ui-duration-fast) var(--ui-easing-smooth),
+                color var(--ui-duration-fast) var(--ui-easing-smooth),
+                border-color var(--ui-duration-fast) var(--ui-easing-smooth);
+  }
+
+  .ui-theme-transition-slow {
+    transition: background-color var(--ui-duration-normal) var(--ui-easing-smooth),
+                color var(--ui-duration-normal) var(--ui-easing-smooth),
+                border-color var(--ui-duration-normal) var(--ui-easing-smooth);
+  }
+
   .ui-highlight-spotlight {
     box-shadow: var(--ui-shadow-highlight);
     background-color: var(--ui-highlight-spotlight);

@@ -8,7 +8,14 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import type { ThemeConfig, ThemeProviderProps, UseThemeReturn } from './types';
+// Conditional GSAP import with fallback
+let gsap: any = null;
+try {
+  gsap = require('gsap').gsap;
+} catch (error) {
+  console.warn('GSAP not available, using fallback animations');
+}
+import type { ThemeConfig, ThemeProviderProps, UseThemeReturn, ThemeTokens } from './types';
 import { lightThemeTokens, darkThemeTokens, applyThemeTokens } from './design-tokens';
 
 // Theme context
@@ -83,30 +90,53 @@ function setStoredTheme(storageKey: string, theme: 'light' | 'dark'): void {
   }
 }
 
-// Theme application with animation coordination
+// Theme application with GSAP animation coordination
 function applyTheme(theme: 'light' | 'dark', animate: boolean = true): Promise<void> {
   return new Promise((resolve) => {
     const root = document.documentElement;
     
-    if (animate) {
-      // Add transition class for smooth theme switching
+    if (animate && gsap) {
+      // Use GSAP for smooth theme transitions
+      const tl = gsap.timeline({
+        onComplete: () => {
+          resolve();
+        }
+      });
+
+      // Animate theme transition with GSAP
+      tl.to(root, {
+        duration: 0.3,
+        ease: 'power2.out',
+        onStart: () => {
+          // Apply theme class and tokens at start of animation
+          root.classList.remove('light', 'dark');
+          root.classList.add(theme);
+          applyThemeTokens(theme);
+        }
+      });
+
+      // Coordinate with any ongoing animations
+      const animationSystem = (globalThis as any).__uiAnimationSystem;
+      if (animationSystem?.isAnimating?.()) {
+        // Delay theme change if animations are running
+        tl.delay(0.1);
+      }
+    } else if (animate && !gsap) {
+      // Fallback CSS transition animation
       root.style.transition = 'background-color 0.3s ease, color 0.3s ease';
-    }
-    
-    // Apply theme class
-    root.classList.remove('light', 'dark');
-    root.classList.add(theme);
-    
-    // Apply design tokens
-    applyThemeTokens(theme);
-    
-    if (animate) {
-      // Remove transition after animation completes
+      root.classList.remove('light', 'dark');
+      root.classList.add(theme);
+      applyThemeTokens(theme);
+      
       setTimeout(() => {
         root.style.transition = '';
         resolve();
       }, 300);
     } else {
+      // Immediate theme application
+      root.classList.remove('light', 'dark');
+      root.classList.add(theme);
+      applyThemeTokens(theme);
       resolve();
     }
   });
@@ -161,7 +191,7 @@ export function ThemeProvider({
     return () => mediaQuery.removeEventListener('change', handleChange);
   }, [enableSystem, mounted, storageKey]);
 
-  // Theme setter with animation
+  // Theme setter with GSAP animation coordination
   const setTheme = useCallback(async (newTheme: 'light' | 'dark') => {
     if (newTheme === theme || isAnimating) return;
 
@@ -170,7 +200,19 @@ export function ThemeProvider({
     setStoredTheme(storageKey, newTheme);
     
     try {
+      // Coordinate with ongoing animations
+      const animationSystem = (globalThis as any).__uiAnimationSystem;
+      if (animationSystem?.isAnimating?.()) {
+        // Wait for current animations to complete before theme change
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
       await applyTheme(newTheme, true);
+      
+      // Notify animation system of theme change
+      if (animationSystem?.onThemeChange) {
+        animationSystem.onThemeChange(newTheme);
+      }
     } finally {
       setIsAnimating(false);
     }
@@ -239,7 +281,128 @@ export function isValidTheme(value: string): value is 'light' | 'dark' {
   return value === 'light' || value === 'dark';
 }
 
-// AI coordination helpers
+// Custom theme variants (built on shadcn/ui foundation)
+export const customThemeVariants = {
+  // Professional variant with enhanced contrast
+  professional: {
+    light: {
+      ...defaultLightTheme,
+      id: 'professional-light',
+      name: 'Professional Light',
+      tokens: {
+        ...lightThemeTokens,
+        colors: {
+          ...lightThemeTokens.colors,
+          accent: 'oklch(0.94 0 0)',
+          accentHover: 'oklch(0.91 0 0)',
+          ai: {
+            background: 'oklch(0.98 0 0)',
+            border: 'oklch(0.85 0 0)',
+          },
+        },
+      },
+    },
+    dark: {
+      ...defaultDarkTheme,
+      id: 'professional-dark',
+      name: 'Professional Dark',
+      tokens: {
+        ...darkThemeTokens,
+        colors: {
+          ...darkThemeTokens.colors,
+          accent: 'oklch(0.32 0 0)',
+          accentHover: 'oklch(0.35 0 0)',
+          ai: {
+            background: 'oklch(0.16 0 0)',
+            border: 'oklch(1 0 0 / 20%)',
+          },
+        },
+      },
+    },
+  },
+  
+  // Warm variant with subtle color tints
+  warm: {
+    light: {
+      ...defaultLightTheme,
+      id: 'warm-light',
+      name: 'Warm Light',
+      tokens: {
+        ...lightThemeTokens,
+        colors: {
+          ...lightThemeTokens.colors,
+          background: 'oklch(0.99 0.01 85)',
+          accent: 'oklch(0.96 0.02 85)',
+          accentHover: 'oklch(0.93 0.02 85)',
+          ai: {
+            background: 'oklch(0.98 0.01 85)',
+            border: 'oklch(0.87 0.02 85)',
+          },
+        },
+      },
+    },
+    dark: {
+      ...defaultDarkTheme,
+      id: 'warm-dark',
+      name: 'Warm Dark',
+      tokens: {
+        ...darkThemeTokens,
+        colors: {
+          ...darkThemeTokens.colors,
+          background: 'oklch(0.15 0.01 85)',
+          accent: 'oklch(0.28 0.02 85)',
+          accentHover: 'oklch(0.31 0.02 85)',
+          ai: {
+            background: 'oklch(0.19 0.01 85)',
+            border: 'oklch(1 0 0 / 18%)',
+          },
+        },
+      },
+    },
+  },
+  
+  // Cool variant with blue tints
+  cool: {
+    light: {
+      ...defaultLightTheme,
+      id: 'cool-light',
+      name: 'Cool Light',
+      tokens: {
+        ...lightThemeTokens,
+        colors: {
+          ...lightThemeTokens.colors,
+          background: 'oklch(0.99 0.01 240)',
+          accent: 'oklch(0.96 0.02 240)',
+          accentHover: 'oklch(0.93 0.02 240)',
+          ai: {
+            background: 'oklch(0.98 0.01 240)',
+            border: 'oklch(0.87 0.02 240)',
+          },
+        },
+      },
+    },
+    dark: {
+      ...defaultDarkTheme,
+      id: 'cool-dark',
+      name: 'Cool Dark',
+      tokens: {
+        ...darkThemeTokens,
+        colors: {
+          ...darkThemeTokens.colors,
+          background: 'oklch(0.15 0.01 240)',
+          accent: 'oklch(0.28 0.02 240)',
+          accentHover: 'oklch(0.31 0.02 240)',
+          ai: {
+            background: 'oklch(0.19 0.01 240)',
+            border: 'oklch(1 0 0 / 18%)',
+          },
+        },
+      },
+    },
+  },
+} as const;
+
+// AI coordination helpers with enhanced GSAP integration
 export function switchThemeWithAICoordination(
   theme: 'light' | 'dark',
   onAnimationStart?: () => void,
@@ -249,7 +412,22 @@ export function switchThemeWithAICoordination(
     onAnimationStart?.();
     
     try {
+      // Pause any ongoing animations during theme switch
+      const animationSystem = (globalThis as any).__uiAnimationSystem;
+      const wasAnimating = animationSystem?.isAnimating?.();
+      
+      if (wasAnimating) {
+        animationSystem?.pauseAnimations?.();
+      }
+      
+      // Apply theme with GSAP coordination
       await applyTheme(theme, true);
+      
+      // Resume animations after theme change
+      if (wasAnimating) {
+        animationSystem?.resumeAnimations?.();
+      }
+      
       onAnimationComplete?.();
       resolve();
     } catch (error) {
@@ -260,8 +438,89 @@ export function switchThemeWithAICoordination(
   });
 }
 
+// Enhanced theme switching with custom variants
+export function switchToCustomTheme(
+  variant: keyof typeof customThemeVariants,
+  mode: 'light' | 'dark',
+  animate: boolean = true
+): Promise<void> {
+  const themeConfig = customThemeVariants[variant][mode];
+  
+  return new Promise(async (resolve) => {
+    try {
+      // Apply custom theme tokens
+      const root = document.documentElement;
+      
+      if (animate) {
+        const tl = gsap.timeline({
+          onComplete: resolve,
+        });
+
+        tl.to(root, {
+          duration: 0.4,
+          ease: 'power2.out',
+          onStart: () => {
+            root.classList.remove('light', 'dark');
+            root.classList.add(mode);
+            applyThemeTokens(mode);
+            
+            // Apply custom variant tokens
+            const customProperties = generateCustomThemeProperties(themeConfig.tokens);
+            Object.entries(customProperties).forEach(([property, value]) => {
+              root.style.setProperty(property, value);
+            });
+          }
+        });
+      } else {
+        root.classList.remove('light', 'dark');
+        root.classList.add(mode);
+        applyThemeTokens(mode);
+        
+        const customProperties = generateCustomThemeProperties(themeConfig.tokens);
+        Object.entries(customProperties).forEach(([property, value]) => {
+          root.style.setProperty(property, value);
+        });
+        
+        resolve();
+      }
+    } catch (error) {
+      console.error('Custom theme switch failed:', error);
+      resolve();
+    }
+  });
+}
+
+// Generate custom theme properties
+function generateCustomThemeProperties(tokens: ThemeTokens): Record<string, string> {
+  return {
+    '--ui-ai-background': tokens.colors.ai.background,
+    '--ui-ai-border': tokens.colors.ai.border,
+    '--ui-ai-accent': tokens.colors.accent,
+    '--ui-highlight-spotlight': `${tokens.colors.accent} / 0.3`,
+    '--ui-highlight-outline': tokens.colors.accent,
+    '--ui-highlight-glow': `${tokens.colors.accent} / 0.5`,
+    '--ui-gradient-primary': tokens.gradients.primary,
+    '--ui-gradient-accent': tokens.gradients.accent,
+    '--ui-gradient-background': tokens.gradients.background,
+  };
+}
+
 // Export theme configurations for external use
 export const themeConfigs = {
   light: defaultLightTheme,
   dark: defaultDarkTheme,
+  variants: customThemeVariants,
 } as const;
+
+// Theme variant utilities
+export function getAvailableThemeVariants(): string[] {
+  return Object.keys(customThemeVariants);
+}
+
+export function getThemeVariant(variant: keyof typeof customThemeVariants, mode: 'light' | 'dark'): ThemeConfig {
+  return customThemeVariants[variant][mode];
+}
+
+export function isValidThemeVariant(variant: string): variant is keyof typeof customThemeVariants {
+  return variant in customThemeVariants;
+}
