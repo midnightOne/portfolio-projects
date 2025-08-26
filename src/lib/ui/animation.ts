@@ -1130,5 +1130,8 @@ if (typeof window !== 'undefined') {
   console.log('Enhanced animation orchestration system initialized');
 }
 
+// Export development tools in development mode
+export { AnimationDevTools } from './animation-dev-tools';
+
 // Export types for external use
 export type { AnimationCommand, AnimationOptions, HighlightOptions } from './types';
