@@ -702,8 +702,8 @@ export function MediaSelectionModal({
                         <div
                           key={item.id}
                           className={`border rounded-lg p-3 cursor-pointer transition-all relative ${isSelected
-                              ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
-                              : 'hover:bg-gray-50 hover:border-gray-300'
+                            ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                            : 'hover:bg-gray-50 hover:border-gray-300'
                             } ${isUnused ? 'border-orange-200 bg-orange-50' : ''
                             }`}
                           onClick={() => handleSelectMedia(item)}
@@ -1047,8 +1047,8 @@ export function MediaSelectionModal({
                         <div
                           key={item.id}
                           className={`border rounded-lg p-3 cursor-pointer transition-all relative ${isSelected
-                              ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
-                              : 'hover:bg-gray-50 hover:border-gray-300'
+                            ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-200'
+                            : 'hover:bg-gray-50 hover:border-gray-300'
                             } ${isUnused ? 'border-orange-200 bg-orange-50' : ''
                             }`}
                           onClick={() => handleSelectMedia(item)}

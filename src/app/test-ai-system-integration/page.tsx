@@ -253,7 +253,7 @@ export default function AISystemIntegrationTestPage() {
           name,
           success: false,
           duration: Date.now() - Date.now(),
-          error: error.message,
+          error: error instanceof Error ? error.message : String(error),
         });
       }
     }
@@ -275,7 +275,7 @@ export default function AISystemIntegrationTestPage() {
         name: 'Multiple Highlights',
         success: false,
         duration: Date.now() - Date.now(),
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
 
@@ -293,7 +293,7 @@ export default function AISystemIntegrationTestPage() {
         name: 'Clear All Highlights',
         success: false,
         duration: Date.now() - Date.now(),
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
 
@@ -454,7 +454,7 @@ export default function AISystemIntegrationTestPage() {
         name: 'Invalid Target Handling',
         success: true, // Expected to fail
         duration: Date.now() - Date.now(),
-        details: { expectedError: error.message },
+        details: { expectedError: error instanceof Error ? error.message : String(error) },
       });
     }
 
@@ -481,7 +481,7 @@ export default function AISystemIntegrationTestPage() {
         name: 'State Synchronization',
         success: false,
         duration: Date.now() - Date.now(),
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
 
@@ -499,7 +499,7 @@ export default function AISystemIntegrationTestPage() {
         name: 'Animation Interruption',
         success: false,
         duration: Date.now() - Date.now(),
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
 

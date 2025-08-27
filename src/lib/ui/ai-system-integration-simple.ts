@@ -33,12 +33,16 @@ export interface SimpleAISystemAPI {
   
   // Content Highlighting
   highlightElement: (target: string, options: HighlightOptions) => Promise<void>;
+  highlightMultiple: (highlights: Array<{ target: string; options: HighlightOptions }>) => Promise<void>;
   removeHighlight: (target?: string) => Promise<void>;
   clearAllHighlights: () => Promise<void>;
   
   // Focus Management
   setFocus: (target: string) => Promise<void>;
   scrollToElement: (target: string) => Promise<void>;
+  
+  // Animation Control
+  interruptAnimations: () => Promise<void>;
   
   // State Management
   getUIState: () => UIState;
@@ -308,6 +312,27 @@ export class SimpleAISystemIntegration implements SimpleAISystemAPI {
     }
   }
   
+  async highlightMultiple(highlights: Array<{ target: string; options: HighlightOptions }>): Promise<void> {
+    try {
+      // Execute all highlights in parallel
+      await Promise.all(highlights.map(({ target, options }) => 
+        executeHighlight(target, options)
+      ));
+      
+      this.notifyAISystem({
+        type: 'command_executed',
+        source: 'ai_system',
+        data: { command: 'highlightMultiple', highlights },
+        timestamp: Date.now(),
+        sessionId
+      });
+      
+    } catch (error) {
+      console.error('AI System: Multiple element highlighting failed:', error);
+      throw error;
+    }
+  }
+  
   async removeHighlight(target?: string): Promise<void> {
     try {
       await removeHighlight(target);
@@ -391,6 +416,31 @@ export class SimpleAISystemIntegration implements SimpleAISystemAPI {
       
     } catch (error) {
       console.error('AI System: Scrolling failed:', error);
+      throw error;
+    }
+  }
+  
+  // Animation Control
+  async interruptAnimations(): Promise<void> {
+    try {
+      // Clear all running animations
+      const animatedElements = document.querySelectorAll('[data-ai-animated]');
+      animatedElements.forEach(element => {
+        element.removeAttribute('data-ai-animated');
+        // Remove any animation classes
+        element.classList.remove('animate-pulse', 'animate-bounce', 'animate-spin');
+      });
+      
+      this.notifyAISystem({
+        type: 'command_executed',
+        source: 'ai_system',
+        data: { command: 'interruptAnimations' },
+        timestamp: Date.now(),
+        sessionId
+      });
+      
+    } catch (error) {
+      console.error('AI System: Animation interruption failed:', error);
       throw error;
     }
   }

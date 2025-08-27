@@ -69,13 +69,13 @@ export async function POST(request: NextRequest) {
     // Get all resources from Cloudinary
     const cloudinaryResources: CloudinaryResource[] = [];
     const cloudinaryErrors: string[] = [];
-    
+
     for (const resourceType of resourceTypes) {
       try {
         console.log(`Fetching ${resourceType} resources from Cloudinary...`);
         let nextCursor: string | undefined;
         let pageCount = 0;
-        
+
         do {
           const result = await cloudinary.api.resources({
             resource_type: resourceType,
@@ -83,14 +83,14 @@ export async function POST(request: NextRequest) {
             max_results: 500,
             next_cursor: nextCursor
           });
-          
+
           console.log(`Fetched page ${++pageCount} for ${resourceType}: ${result.resources.length} items`);
           cloudinaryResources.push(...result.resources);
           nextCursor = result.next_cursor;
         } while (nextCursor);
-        
+
         console.log(`Total ${resourceType} resources fetched: ${cloudinaryResources.filter(r => r.resource_type === resourceType).length}`);
-        
+
       } catch (error) {
         const errorMessage = `Failed to fetch ${resourceType} resources from Cloudinary: ${error instanceof Error ? error.message : JSON.stringify(error)}`;
         console.error(errorMessage);
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`Total Cloudinary resources fetched: ${cloudinaryResources.length}`);
-    
+
     // If we have errors but no resources, return the errors for debugging
     if (cloudinaryResources.length === 0 && cloudinaryErrors.length > 0) {
       return NextResponse.json({
@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
     const existingUrls = new Set(existingMediaItems.map(item => item.url));
 
     // Find missing resources (in Cloudinary but not in database)
-    const missingResources = cloudinaryResources.filter(resource => 
+    const missingResources = cloudinaryResources.filter(resource =>
       !existingUrls.has(resource.secure_url) && !existingUrls.has(resource.url)
     );
 
@@ -140,8 +140,8 @@ export async function POST(request: NextRequest) {
       ...cloudinaryResources.map(r => r.secure_url),
       ...cloudinaryResources.map(r => r.url)
     ]);
-    
-    const orphanedRecords = existingMediaItems.filter(item => 
+
+    const orphanedRecords = existingMediaItems.filter(item =>
       !cloudinaryUrls.has(item.url)
     );
 
@@ -167,11 +167,11 @@ export async function POST(request: NextRequest) {
 
     if (action === 'restore') {
       const restoredItems = [];
-      
+
       for (const resource of missingResources) {
         try {
           const mediaType = mapResourceTypeToDbType(resource.resource_type);
-          
+
           const mediaItem = await prisma.mediaItem.create({
             data: {
               type: mediaType,
@@ -217,7 +217,7 @@ export async function POST(request: NextRequest) {
 
     if (action === 'cleanup') {
       const deletedIds = [];
-      
+
       for (const record of orphanedRecords) {
         try {
           await prisma.mediaItem.delete({
@@ -252,13 +252,13 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Media sync error:', error);
     return NextResponse.json(
-      { 
-        success: false, 
-        error: { 
-          code: 'SYNC_FAILED', 
+      {
+        success: false,
+        error: {
+          code: 'SYNC_FAILED',
           message: 'Failed to sync media',
           details: error instanceof Error ? error.message : 'Unknown error'
-        } 
+        }
       },
       { status: 500 }
     );
