@@ -363,3 +363,116 @@ export interface UseResponsiveReturn {
   width: number;
   height: number;
 }
+
+// AI System Integration Types
+export interface UserActionEvent {
+  type: 'click' | 'scroll' | 'navigation' | 'modal' | 'input' | 'focus' | 'selection';
+  target: string;
+  data?: any;
+  timestamp: number;
+  sessionId: string;
+  metadata?: {
+    elementType?: string;
+    elementText?: string;
+    scrollPosition?: number;
+    inputValue?: string;
+    selectionText?: string;
+  };
+}
+
+export interface AISystemEvent {
+  type: 'command_executed' | 'animation_started' | 'animation_completed' | 'error' | 'state_changed';
+  source: 'ai_system';
+  data?: any;
+  timestamp: number;
+  sessionId: string;
+}
+
+// Additional AI System types
+export interface AISystemAPI {
+  navigateToSection: (target: string, options?: any) => Promise<void>;
+  navigateToProject: (projectSlug: string, options?: any) => Promise<void>;
+  openProjectModal: (projectId: string, data?: any, options?: any) => Promise<void>;
+  closeProjectModal: (modalId?: string) => Promise<void>;
+  highlightElement: (target: string, options: HighlightOptions) => Promise<void>;
+  highlightMultiple: (targets: Array<{ target: string; options: HighlightOptions }>) => Promise<void>;
+  removeHighlight: (target?: string) => Promise<void>;
+  clearAllHighlights: () => Promise<void>;
+  setFocus: (target: string) => Promise<void>;
+  selectText: (target: string, range?: any) => Promise<void>;
+  scrollToElement: (target: string, options?: any) => Promise<void>;
+  executeCoordinatedSequence: (commands: any[]) => Promise<void>;
+  interruptAnimations: (newCommand?: any) => Promise<void>;
+  waitForAnimations: () => Promise<void>;
+  getUIState: () => UIState;
+  updateUIState: (updates: Partial<UIState>) => Promise<void>;
+  subscribeToStateChanges: (callback: (state: UIState) => void) => () => void;
+  onUserAction: (callback: (action: UserActionEvent) => void) => () => void;
+  notifyAISystem: (event: AISystemEvent) => void;
+}
+
+export interface TextRange {
+  start: number;
+  end: number;
+}
+
+export interface AIMessage {
+  id: string;
+  type: 'command' | 'query' | 'notification' | 'response';
+  source: 'ui_system' | 'ai_system';
+  target: 'ui_system' | 'ai_system';
+  data: any;
+  timestamp: number;
+  sessionId: string;
+  correlationId?: string;
+}
+
+export interface CommunicationChannel {
+  send: (message: AIMessage) => Promise<void>;
+  subscribe: (callback: (message: AIMessage) => void) => () => void;
+  close: () => void;
+  isConnected: () => boolean;
+}
+
+export interface NavigationResult {
+  success: boolean;
+  command: any;
+  duration: number;
+  error?: string;
+  fallbackUsed?: boolean;
+  retryCount?: number;
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  suggestions: string[];
+}
+
+export interface CoordinatedNavigationState {
+  aiInterface: {
+    position: 'hero' | 'pinned';
+    mode: 'pill' | 'expanded';
+    isAnimating: boolean;
+    currentNarration: string | null;
+  };
+  mainNavigation: {
+    currentSection: string;
+    currentProject: string | null;
+    modalOpen: boolean;
+    isAnimating: boolean;
+  };
+  coordination: {
+    isCoordinating: boolean;
+    activeSequence: string | null;
+    queuedCommands: any[];
+    lastSyncTime: number;
+  };
+  reliability: {
+    failedCommands: any[];
+    retryAttempts: number;
+    fallbacksUsed: number;
+    successRate: number;
+  };
+}

@@ -55,6 +55,16 @@ export {
 // Responsive Design
 export * from './use-responsive';
 
+// AI System Integration (Simplified)
+export {
+  SimpleAISystemIntegration,
+  getSimpleAISystemIntegration,
+  useSimpleAISystemIntegration,
+  getSimpleAISystemDebugInfo,
+  clearSimpleAISystemDebugData,
+  type SimpleAISystemAPI
+} from './ai-system-integration-simple';
+
 // Types (excluding duplicates)
 export type {
   ThemeTokens,
@@ -76,5 +86,9 @@ export type {
   UseThemeReturn,
   UseUIControlReturn,
   UseAnimationReturn,
-  UseResponsiveReturn
+  UseResponsiveReturn,
+  // AI System Integration Types
+  UserActionEvent,
+  AISystemEvent,
+  SimpleAISystemAPI
 } from './types';
