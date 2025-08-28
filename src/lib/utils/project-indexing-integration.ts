@@ -185,16 +185,16 @@ export async function checkProjectNeedsReindexing(projectId: string): Promise<bo
 
     // Check database for last index time
     try {
-      const indexRecord = await prisma.$queryRaw<Array<{ updated_at: Date }>>`
-        SELECT updated_at FROM project_ai_index WHERE project_id = ${projectId}
-      `;
+      const indexRecord = await prisma.projectAIIndex.findUnique({
+        where: { projectId },
+        select: { updatedAt: true }
+      });
 
-      if (indexRecord.length === 0) {
+      if (!indexRecord) {
         return true; // No index record, needs indexing
       }
 
-      const lastIndexTime = indexRecord[0].updated_at;
-      return project.updatedAt > lastIndexTime;
+      return project.updatedAt > indexRecord.updatedAt;
     } catch (dbError) {
       // If database query fails, assume needs reindexing
       console.warn('Failed to check index timestamp, assuming needs reindexing:', dbError);
@@ -229,19 +229,15 @@ export async function getIndexingStatistics(): Promise<{
     let lastIndexingActivity: Date | null = null;
 
     try {
-      // Try to get indexed projects count
-      const indexedResult = await prisma.$queryRaw<Array<{ count: bigint }>>`
-        SELECT COUNT(*) as count FROM project_ai_index
-      `;
-      indexedProjects = Number(indexedResult[0]?.count || 0);
+      // Use Prisma model instead of raw SQL
+      indexedProjects = await prisma.projectAIIndex.count();
 
-      // Try to get last indexing activity
-      const lastActivityResult = await prisma.$queryRaw<Array<{ updated_at: Date }>>`
-        SELECT updated_at FROM project_ai_index 
-        ORDER BY updated_at DESC 
-        LIMIT 1
-      `;
-      lastIndexingActivity = lastActivityResult[0]?.updated_at || null;
+      // Get last indexing activity
+      const lastActivity = await prisma.projectAIIndex.findFirst({
+        orderBy: { updatedAt: 'desc' },
+        select: { updatedAt: true }
+      });
+      lastIndexingActivity = lastActivity?.updatedAt || null;
 
     } catch (dbError) {
       // Table might not exist yet, that's okay

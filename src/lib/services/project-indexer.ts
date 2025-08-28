@@ -587,41 +587,34 @@ export class ProjectIndexer {
    */
   private async storeIndexInDatabase(index: ProjectIndex): Promise<void> {
     try {
-      // Store in a separate table for AI context (optional)
-      // This could be useful for analytics and debugging
-      await prisma.$executeRaw`
-        INSERT INTO project_ai_index (
-          project_id, 
-          summary, 
-          keywords, 
-          topics, 
-          technologies,
-          sections_count,
-          media_count,
-          content_hash,
-          created_at
-        ) VALUES (
-          ${index.projectId},
-          ${index.summary},
-          ${JSON.stringify(index.keywords)}::jsonb,
-          ${JSON.stringify(index.topics)}::jsonb,
-          ${JSON.stringify(index.technologies)}::jsonb,
-          ${index.sections.length},
-          ${index.mediaContext.length},
-          ${index.contentHash},
-          NOW()
-        )
-        ON CONFLICT (project_id) 
-        DO UPDATE SET
-          summary = EXCLUDED.summary,
-          keywords = EXCLUDED.keywords::jsonb,
-          topics = EXCLUDED.topics::jsonb,
-          technologies = EXCLUDED.technologies::jsonb,
-          sections_count = EXCLUDED.sections_count,
-          media_count = EXCLUDED.media_count,
-          content_hash = EXCLUDED.content_hash,
-          updated_at = NOW()
-      `;
+      // Use Prisma upsert for better type safety and compatibility
+      await prisma.projectAIIndex.upsert({
+        where: {
+          projectId: index.projectId,
+        },
+        update: {
+          summary: index.summary,
+          keywords: index.keywords,
+          topics: index.topics,
+          technologies: index.technologies,
+          sectionsCount: index.sections.length,
+          mediaCount: index.mediaContext.length,
+          contentHash: index.contentHash,
+          updatedAt: new Date(),
+        },
+        create: {
+          projectId: index.projectId,
+          summary: index.summary,
+          keywords: index.keywords,
+          topics: index.topics,
+          technologies: index.technologies,
+          sectionsCount: index.sections.length,
+          mediaCount: index.mediaContext.length,
+          contentHash: index.contentHash,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
     } catch (error) {
       // Don't fail the indexing if database storage fails
       console.warn('Failed to store index in database:', error);

@@ -27,51 +27,40 @@ async function summaryHandler(request: NextRequest) {
       );
     }
 
-    // Get project indexes summary
-    const projectIndexes = await prisma.$queryRaw<Array<{
-      project_id: string;
-      summary: string;
-      keywords: string[] | string;
-      topics: string[] | string;
-      technologies: string[] | string;
-      sections_count: number;
-      media_count: number;
-      content_hash: string;
-      updated_at: Date;
-      title: string;
-      slug: string;
-    }>>`
-      SELECT 
-        pai.project_id,
-        pai.summary,
-        pai.keywords,
-        pai.topics,
-        pai.technologies,
-        pai.sections_count,
-        pai.media_count,
-        pai.content_hash,
-        pai.updated_at,
-        p.title,
-        p.slug
-      FROM project_ai_index pai
-      JOIN projects p ON pai.project_id = p.id
-      WHERE p.status = 'PUBLISHED' AND p.visibility = 'PUBLIC'
-      ORDER BY pai.updated_at DESC
-      LIMIT 50
-    `;
+    // Get project indexes summary using Prisma
+    const projectIndexes = await prisma.projectAIIndex.findMany({
+      where: {
+        project: {
+          status: 'PUBLISHED',
+          visibility: 'PUBLIC'
+        }
+      },
+      include: {
+        project: {
+          select: {
+            title: true,
+            slug: true
+          }
+        }
+      },
+      orderBy: {
+        updatedAt: 'desc'
+      },
+      take: 50
+    });
 
     // Transform the data
     const summary = projectIndexes.map(index => ({
-      projectId: index.project_id,
-      title: (index as any).title,
-      slug: (index as any).slug,
-      lastUpdated: index.updated_at.toISOString(),
-      sectionsCount: index.sections_count,
-      mediaCount: index.media_count,
-      keywords: Array.isArray(index.keywords) ? index.keywords : JSON.parse(index.keywords || '[]'),
-      topics: Array.isArray(index.topics) ? index.topics : JSON.parse(index.topics || '[]'),
-      technologies: Array.isArray(index.technologies) ? index.technologies : JSON.parse(index.technologies || '[]'),
-      contentHash: index.content_hash
+      projectId: index.projectId,
+      title: index.project.title,
+      slug: index.project.slug,
+      lastUpdated: index.updatedAt.toISOString(),
+      sectionsCount: index.sectionsCount,
+      mediaCount: index.mediaCount,
+      keywords: Array.isArray(index.keywords) ? index.keywords : JSON.parse(index.keywords as string || '[]'),
+      topics: Array.isArray(index.topics) ? index.topics : JSON.parse(index.topics as string || '[]'),
+      technologies: Array.isArray(index.technologies) ? index.technologies : JSON.parse(index.technologies as string || '[]'),
+      contentHash: index.contentHash || ''
     }));
 
     const response = NextResponse.json(createApiSuccess(summary));
