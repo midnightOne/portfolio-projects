@@ -744,13 +744,25 @@ export function ReflinksManager() {
                           variant="ghost"
                           size="sm"
                           onClick={() => fetchReflinkUsage(reflink)}
+                          title="View Usage Statistics"
                         >
                           <BarChart3 className="h-4 w-4" />
                         </Button>
+                        {(reflink.spendLimit || reflink.tokenLimit) && (reflink.spendUsed > 0 || reflink.tokensUsed > 0) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => resetReflinkUsage(reflink)}
+                            title="Reset Usage (Refill Budget)"
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => openEditDialog(reflink)}
+                          title="Edit Reflink"
                         >
                           <Edit className="h-4 w-4" />
                         </Button>
@@ -758,6 +770,7 @@ export function ReflinksManager() {
                           variant="ghost"
                           size="sm"
                           onClick={() => deleteReflink(reflink)}
+                          title="Delete Reflink"
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>

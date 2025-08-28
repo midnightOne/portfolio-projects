@@ -122,6 +122,37 @@ export class ReflinkManager {
   }
 
   /**
+   * Reset usage for a reflink (refill budget)
+   */
+  async resetReflinkUsage(id: string): Promise<ReflinkInfo> {
+    try {
+      const existing = await prisma.aIReflink.findUnique({
+        where: { id },
+      });
+
+      if (!existing) {
+        throw new ReflinkError('Reflink not found', undefined, 'not_found');
+      }
+
+      const reflink = await prisma.aIReflink.update({
+        where: { id },
+        data: {
+          tokensUsed: 0,
+          spendUsed: 0,
+        },
+      });
+
+      return this.mapToReflinkInfo(reflink);
+    } catch (error) {
+      if (error instanceof ReflinkError) {
+        throw error;
+      }
+      console.error('Failed to reset reflink usage:', error);
+      throw new ReflinkError('Failed to reset reflink usage');
+    }
+  }
+
+  /**
    * Get a reflink by code
    */
   async getReflinkByCode(code: string): Promise<ReflinkInfo | null> {
@@ -318,7 +349,7 @@ export class ReflinkManager {
         totalRequests,
         blockedRequests,
         uniqueUsers: uniqueUsers.length,
-        requestsByDay: requestsByDay.map((row) => ({
+        requestsByDay: requestsByDay.map((row: any) => ({
           date: row.date.toISOString().split('T')[0],
           requests: Number(row.requests),
           blocked: Number(row.blocked),
@@ -331,111 +362,86 @@ export class ReflinkManager {
   }
 
   /**
-   * Bulk update reflinks
+   * Get enhanced reflink analytics
    */
-  async bulkUpdateReflinks(
-    ids: string[],
-    updates: Pick<UpdateReflinkParams, 'isActive' | 'rateLimitTier'>
-  ): Promise<number> {
+  async getReflinkAnalytics(id: string, days: number = 30): Promise<ReflinkAnalytics> {
     try {
-      const result = await prisma.aIReflink.updateMany({
-        where: {
-          id: { in: ids },
-        },
-        data: updates,
-      });
+      const startDate = new Date(Date.now() - (days * 24 * 60 * 60 * 1000));
 
-      return result.count;
-    } catch (error) {
-      console.error('Failed to bulk update reflinks:', error);
-      throw new ReflinkError('Failed to bulk update reflinks');
-    }
-  }
-
-  /**
-   * Clean up expired reflinks
-   */
-  async cleanupExpiredReflinks(): Promise<number> {
-    try {
-      const result = await prisma.aIReflink.updateMany({
-        where: {
-          expiresAt: {
-            lt: new Date(),
+      const [usageLogs, rateLimitLogs] = await Promise.all([
+        prisma.aIUsageLog.findMany({
+          where: {
+            reflinkId: id,
+            timestamp: { gte: startDate },
           },
-          isActive: true,
-        },
-        data: {
-          isActive: false,
-        },
-      });
-
-      console.log(`Deactivated ${result.count} expired reflinks`);
-      return result.count;
-    } catch (error) {
-      console.error('Failed to cleanup expired reflinks:', error);
-      return 0;
-    }
-  }
-
-  /**
-   * Generate a unique reflink code
-   */
-  async generateUniqueCode(prefix: string = 'ref'): Promise<string> {
-    const maxAttempts = 10;
-    let attempts = 0;
-
-    while (attempts < maxAttempts) {
-      const randomSuffix = Math.random().toString(36).substring(2, 8);
-      const code = `${prefix}-${randomSuffix}`;
-
-      const existing = await prisma.aIReflink.findUnique({
-        where: { code },
-      });
-
-      if (!existing) {
-        return code;
-      }
-
-      attempts++;
-    }
-
-    throw new ReflinkError('Failed to generate unique reflink code');
-  }
-
-  /**
-   * Track usage for a reflink
-   */
-  async trackUsage(reflinkId: string, usage: UsageEvent): Promise<void> {
-    try {
-      // Create usage log entry
-      await prisma.aIUsageLog.create({
-        data: {
-          reflinkId,
-          usageType: usage.type,
-          tokensUsed: usage.tokens,
-          costUsd: usage.cost,
-          modelUsed: usage.modelUsed,
-          endpoint: usage.endpoint,
-          metadata: usage.metadata || {},
-        },
-      });
-
-      // Update reflink usage totals
-      await prisma.aIReflink.update({
-        where: { id: reflinkId },
-        data: {
-          tokensUsed: {
-            increment: usage.tokens || 0,
+        }),
+        prisma.aIRateLimitLog.findMany({
+          where: {
+            reflinkId: id,
+            timestamp: { gte: startDate },
           },
-          spendUsed: {
-            increment: usage.cost,
-          },
-          lastUsedAt: new Date(),
-        },
-      });
+        }),
+      ]);
+
+      const totalCost = usageLogs.reduce((sum: number, log: any) => sum + Number(log.costUsd), 0);
+      const totalRequests = rateLimitLogs.length;
+      const blockedRequests = rateLimitLogs.filter((log: any) => log.wasBlocked).length;
+      const uniqueUsers = new Set(rateLimitLogs.map((log: any) => `${log.identifier}-${log.identifierType}`)).size;
+
+      const costBreakdown = usageLogs.reduce((breakdown: any, log: any) => {
+        switch (log.usageType) {
+          case 'llm_request':
+            breakdown.llmCosts += Number(log.costUsd);
+            break;
+          case 'voice_generation':
+          case 'voice_processing':
+            breakdown.voiceCosts += Number(log.costUsd);
+            break;
+          default:
+            breakdown.processingCosts += Number(log.costUsd);
+        }
+        return breakdown;
+      }, { llmCosts: 0, voiceCosts: 0, processingCosts: 0 });
+
+      const usageByType = usageLogs.reduce((usage: any, log: any) => {
+        usage[log.usageType] = (usage[log.usageType] || 0) + 1;
+        return usage;
+      }, {} as Record<string, number>);
+
+      // Group by day
+      const requestsByDay = Array.from({ length: days }, (_, i) => {
+        const date = new Date(Date.now() - (i * 24 * 60 * 60 * 1000));
+        const dateStr = date.toISOString().split('T')[0];
+        
+        const dayRequests = rateLimitLogs.filter((log: any) => 
+          log.timestamp.toISOString().split('T')[0] === dateStr
+        );
+        
+        const dayCosts = usageLogs.filter((log: any) => 
+          log.timestamp.toISOString().split('T')[0] === dateStr
+        ).reduce((sum: number, log: any) => sum + Number(log.costUsd), 0);
+
+        return {
+          date: dateStr,
+          requests: dayRequests.length,
+          blocked: dayRequests.filter((log: any) => log.wasBlocked).length,
+          cost: dayCosts,
+        };
+      }).reverse();
+
+      return {
+        totalRequests,
+        blockedRequests,
+        uniqueUsers,
+        totalCost,
+        averageCostPerRequest: totalRequests > 0 ? totalCost / totalRequests : 0,
+        costBreakdown,
+        usageByType,
+        requestsByDay,
+      };
     } catch (error) {
-      console.error('Failed to track usage:', error);
-      throw new ReflinkError('Failed to track usage');
+      console.error('Failed to get reflink analytics:', error);
+      throw new ReflinkError('Failed to get reflink analytics');
     }
   }
 
@@ -482,6 +488,43 @@ export class ReflinkManager {
       }
       console.error('Failed to get remaining budget:', error);
       throw new ReflinkError('Failed to get remaining budget');
+    }
+  }
+
+  /**
+   * Track usage for a reflink
+   */
+  async trackUsage(reflinkId: string, usage: UsageEvent): Promise<void> {
+    try {
+      // Create usage log entry
+      await prisma.aIUsageLog.create({
+        data: {
+          reflinkId,
+          usageType: usage.type,
+          tokensUsed: usage.tokens,
+          costUsd: usage.cost,
+          modelUsed: usage.modelUsed,
+          endpoint: usage.endpoint,
+          metadata: usage.metadata || {},
+        },
+      });
+
+      // Update reflink usage totals
+      await prisma.aIReflink.update({
+        where: { id: reflinkId },
+        data: {
+          tokensUsed: {
+            increment: usage.tokens || 0,
+          },
+          spendUsed: {
+            increment: usage.cost,
+          },
+          lastUsedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      console.error('Failed to track usage:', error);
+      throw new ReflinkError('Failed to track usage');
     }
   }
 
@@ -541,86 +584,27 @@ export class ReflinkManager {
   }
 
   /**
-   * Get enhanced reflink analytics
+   * Clean up expired reflinks
    */
-  async getReflinkAnalytics(id: string, days: number = 30): Promise<ReflinkAnalytics> {
+  async cleanupExpiredReflinks(): Promise<number> {
     try {
-      const startDate = new Date(Date.now() - (days * 24 * 60 * 60 * 1000));
-
-      const [usageLogs, rateLimitLogs] = await Promise.all([
-        prisma.aIUsageLog.findMany({
-          where: {
-            reflinkId: id,
-            timestamp: { gte: startDate },
+      const result = await prisma.aIReflink.updateMany({
+        where: {
+          expiresAt: {
+            lt: new Date(),
           },
-        }),
-        prisma.aIRateLimitLog.findMany({
-          where: {
-            reflinkId: id,
-            timestamp: { gte: startDate },
-          },
-        }),
-      ]);
+          isActive: true,
+        },
+        data: {
+          isActive: false,
+        },
+      });
 
-      const totalCost = usageLogs.reduce((sum, log) => sum + Number(log.costUsd), 0);
-      const totalRequests = rateLimitLogs.length;
-      const blockedRequests = rateLimitLogs.filter(log => log.wasBlocked).length;
-      const uniqueUsers = new Set(rateLimitLogs.map(log => `${log.identifier}-${log.identifierType}`)).size;
-
-      const costBreakdown = usageLogs.reduce((breakdown, log) => {
-        switch (log.usageType) {
-          case 'llm_request':
-            breakdown.llmCosts += Number(log.costUsd);
-            break;
-          case 'voice_generation':
-          case 'voice_processing':
-            breakdown.voiceCosts += Number(log.costUsd);
-            break;
-          default:
-            breakdown.processingCosts += Number(log.costUsd);
-        }
-        return breakdown;
-      }, { llmCosts: 0, voiceCosts: 0, processingCosts: 0 });
-
-      const usageByType = usageLogs.reduce((usage, log) => {
-        usage[log.usageType] = (usage[log.usageType] || 0) + 1;
-        return usage;
-      }, {} as Record<string, number>);
-
-      // Group by day
-      const requestsByDay = Array.from({ length: days }, (_, i) => {
-        const date = new Date(Date.now() - (i * 24 * 60 * 60 * 1000));
-        const dateStr = date.toISOString().split('T')[0];
-        
-        const dayRequests = rateLimitLogs.filter(log => 
-          log.timestamp.toISOString().split('T')[0] === dateStr
-        );
-        
-        const dayCosts = usageLogs.filter(log => 
-          log.timestamp.toISOString().split('T')[0] === dateStr
-        ).reduce((sum, log) => sum + Number(log.costUsd), 0);
-
-        return {
-          date: dateStr,
-          requests: dayRequests.length,
-          blocked: dayRequests.filter(log => log.wasBlocked).length,
-          cost: dayCosts,
-        };
-      }).reverse();
-
-      return {
-        totalRequests,
-        blockedRequests,
-        uniqueUsers,
-        totalCost,
-        averageCostPerRequest: totalRequests > 0 ? totalCost / totalRequests : 0,
-        costBreakdown,
-        usageByType,
-        requestsByDay,
-      };
+      console.log(`Deactivated ${result.count} expired reflinks`);
+      return result.count;
     } catch (error) {
-      console.error('Failed to get reflink analytics:', error);
-      throw new ReflinkError('Failed to get reflink analytics');
+      console.error('Failed to cleanup expired reflinks:', error);
+      return 0;
     }
   }
 
