@@ -363,3 +363,88 @@ enum AnalyticsEvent {
 
   @@map("analytics_event")
 }
+
+model AIRateLimit {
+  id             String    @id @default(cuid())
+  identifier     String
+  identifierType String    @map("identifier_type")
+  requestsCount  Int       @default(0) @map("requests_count")
+  windowStart    DateTime  @map("window_start")
+  windowEnd      DateTime  @map("window_end")
+  reflinkId      String?   @map("reflink_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  reflink        AIReflink? @relation(fields: [reflinkId], references: [id], onDelete: SetNull)
+
+  @@unique([identifier, identifierType, windowStart], name: "ai_rate_limits_identifier_window_idx")
+  @@index([windowEnd])
+  @@index([reflinkId])
+  @@map("ai_rate_limits")
+}
+
+model AIReflink {
+  id            String         @id @default(cuid())
+  code          String         @unique
+  name          String?
+  description   String?
+  rateLimitTier String         @default("standard") @map("rate_limit_tier")
+  dailyLimit    Int            @default(50) @map("daily_limit")
+  expiresAt     DateTime?      @map("expires_at")
+  isActive      Boolean        @default(true) @map("is_active")
+  createdBy     String?        @map("created_by")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  rateLimits    AIRateLimit[]
+  usageLogs     AIRateLimitLog[]
+
+  @@index([isActive])
+  @@index([expiresAt])
+  @@map("ai_reflinks")
+}
+
+model AIIPBlacklist {
+  id                String    @id @default(cuid())
+  ipAddress         String    @unique @map("ip_address")
+  reason            String
+  violationCount    Int       @default(1) @map("violation_count")
+  firstViolationAt  DateTime  @default(now()) @map("first_violation_at")
+  lastViolationAt   DateTime  @default(now()) @map("last_violation_at")
+  blockedAt         DateTime  @default(now()) @map("blocked_at")
+  canReinstate      Boolean   @default(true) @map("can_reinstate")
+  reinstatedAt      DateTime? @map("reinstated_at")
+  reinstatedBy      String?   @map("reinstated_by")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([blockedAt])
+  @@map("ai_ip_blacklist")
+}
+
+model AIRateLimitLog {
+  id               String     @id @default(cuid())
+  identifier       String
+  identifierType   String     @map("identifier_type")
+  reflinkId        String?    @map("reflink_id")
+  endpoint         String
+  userAgent        String?    @map("user_agent")
+  ipAddress        String?    @map("ip_address")
+  wasBlocked       Boolean    @default(false) @map("was_blocked")
+  requestsRemaining Int?      @map("requests_remaining")
+  timestamp        DateTime   @default(now())
+  reflink          AIReflink? @relation(fields: [reflinkId], references: [id], onDelete: SetNull)
+
+  @@index([identifier, identifierType])
+  @@index([timestamp])
+  @@index([reflinkId])
+  @@index([wasBlocked])
+  @@map("ai_rate_limit_logs")
+}
+
+enum AIRateLimitTier {
+  BASIC
+  STANDARD
+  PREMIUM
+  UNLIMITED
+
+  @@map("ai_rate_limit_tier")
+}
