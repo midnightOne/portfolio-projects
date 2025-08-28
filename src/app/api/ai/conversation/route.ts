@@ -5,6 +5,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { 
   unifiedConversationManager,
   type ConversationInput,
@@ -15,40 +17,71 @@ import { type ProviderChatRequest } from '@/lib/ai/types';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    // Check admin authentication
+    const session = await getServerSession(authOptions);
     
-    // Check if this is a direct chat request (for internal AI service calls)
-    if (body.messages && body.model && !body.sessionId) {
-      return handleDirectChatRequest(body);
-    }
-    
-    // Validate required fields for conversation processing
-    if (!body.content || !body.sessionId) {
+    if (!session || (session.user as any)?.role !== 'admin') {
       return NextResponse.json(
-        { error: 'Missing required fields: content and sessionId' },
-        { status: 400 }
+        { 
+          success: false,
+          error: { 
+            code: 'UNAUTHORIZED',
+            message: 'Admin access required' 
+          }
+        },
+        { status: 403 }
       );
     }
 
-    // Extract conversation input
-    const input: ConversationInput = {
-      content: body.content,
-      mode: body.mode || 'text',
-      sessionId: body.sessionId,
-      metadata: body.metadata || {}
-    };
-
-    // Extract conversation options
-    const options: ConversationOptions = {
-      model: body.model,
-      maxTokens: body.maxTokens,
-      temperature: body.temperature,
-      includeContext: body.includeContext !== false, // Default to true
-      contextOptions: body.contextOptions || {},
-      enableNavigation: body.enableNavigation !== false, // Default to true
-      enableVoiceResponse: body.enableVoiceResponse || false,
-      systemPrompt: body.systemPrompt
-    };
+    const body = await request.json();
+    
+    // Check if this is a direct chat request (for internal AI service calls)
+    if (body.messages && body.model && !body.sessionId && !body.input) {
+      return handleDirectChatRequest(body);
+    }
+    
+    // Handle both nested format (from transport) and flat format (direct calls)
+    let input: ConversationInput;
+    let options: ConversationOptions;
+    
+    if (body.input && body.options) {
+      // Nested format from transport
+      input = body.input;
+      options = body.options;
+    } else {
+      // Flat format for direct calls
+      input = {
+        content: body.content,
+        mode: body.mode || 'text',
+        sessionId: body.sessionId,
+        metadata: body.metadata || {}
+      };
+      
+      options = {
+        model: body.model,
+        maxTokens: body.maxTokens,
+        temperature: body.temperature,
+        includeContext: body.includeContext !== false, // Default to true
+        contextOptions: body.contextOptions || {},
+        enableNavigation: body.enableNavigation !== false, // Default to true
+        enableVoiceResponse: body.enableVoiceResponse || false,
+        systemPrompt: body.systemPrompt
+      };
+    }
+    
+    // Validate required fields
+    if (!input.content || !input.sessionId) {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: { 
+            code: 'VALIDATION_ERROR',
+            message: 'Missing required fields: content and sessionId' 
+          }
+        },
+        { status: 400 }
+      );
+    }
 
     // Process the conversation input
     const response = await unifiedConversationManager.processInput(input, options);
@@ -65,7 +98,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { 
         success: false,
-        error: error instanceof Error ? error.message : 'Unknown error occurred'
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: error instanceof Error ? error.message : 'Unknown error occurred'
+        }
       },
       { status: 500 }
     );
@@ -127,6 +163,22 @@ async function handleDirectChatRequest(body: any) {
 
 export async function GET(request: NextRequest) {
   try {
+    // Check admin authentication
+    const session = await getServerSession(authOptions);
+    
+    if (!session || (session.user as any)?.role !== 'admin') {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: { 
+            code: 'UNAUTHORIZED',
+            message: 'Admin access required' 
+          }
+        },
+        { status: 403 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const sessionId = searchParams.get('sessionId');
 
@@ -182,6 +234,22 @@ export async function GET(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    // Check admin authentication
+    const session = await getServerSession(authOptions);
+    
+    if (!session || (session.user as any)?.role !== 'admin') {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: { 
+            code: 'UNAUTHORIZED',
+            message: 'Admin access required' 
+          }
+        },
+        { status: 403 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const sessionId = searchParams.get('sessionId');
 
@@ -218,6 +286,22 @@ export async function DELETE(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
+    // Check admin authentication
+    const session = await getServerSession(authOptions);
+    
+    if (!session || (session.user as any)?.role !== 'admin') {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: { 
+            code: 'UNAUTHORIZED',
+            message: 'Admin access required' 
+          }
+        },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json();
     
     if (!body.sessionId || !body.mode) {

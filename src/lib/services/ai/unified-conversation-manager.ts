@@ -309,32 +309,44 @@ export class UnifiedConversationManager {
 
       // Persist messages to database
       try {
-        const existingConversation = await conversationHistoryManager.getConversationBySessionId(conversation.sessionId);
-        if (existingConversation) {
-          // Add user message to database
-          await conversationHistoryManager.addMessage(
-            existingConversation.id,
-            userMessage,
+        let existingConversation = await conversationHistoryManager.getConversationBySessionId(conversation.sessionId);
+        
+        // Create conversation if it doesn't exist
+        if (!existingConversation) {
+          existingConversation = await conversationHistoryManager.createConversation(
+            conversation.sessionId,
+            conversation.metadata.reflinkId,
             {
-              systemPrompt,
-              contextString,
-              aiRequest,
-              aiResponse
-            }
-          );
-
-          // Add assistant message to database
-          await conversationHistoryManager.addMessage(
-            existingConversation.id,
-            assistantMessage,
-            {
-              systemPrompt,
-              contextString,
-              aiRequest,
-              aiResponse
+              conversationMode: conversation.activeMode,
+              averageResponseTime: conversation.metadata.averageResponseTime,
+              userPreferences: conversation.metadata.userPreferences
             }
           );
         }
+
+        // Add user message to database
+        await conversationHistoryManager.addMessage(
+          existingConversation.id,
+          userMessage,
+          {
+            systemPrompt,
+            contextString,
+            aiRequest,
+            aiResponse
+          }
+        );
+
+        // Add assistant message to database
+        await conversationHistoryManager.addMessage(
+          existingConversation.id,
+          assistantMessage,
+          {
+            systemPrompt,
+            contextString,
+            aiRequest,
+            aiResponse
+          }
+        );
       } catch (error) {
         console.error('Failed to persist messages to database:', error);
         // Continue without database persistence
@@ -934,11 +946,11 @@ export class UnifiedConversationManager {
       this.conversations.set(conversation.sessionId, conversation);
 
       // Persist to database through conversation history manager
-      // Check if conversation exists in database
+      // Check if conversation exists in database (it should already exist from message persistence)
       const existingConversation = await conversationHistoryManager.getConversationBySessionId(conversation.sessionId);
       
       if (!existingConversation) {
-        // Create new conversation record
+        // Create new conversation record if it somehow doesn't exist
         await conversationHistoryManager.createConversation(
           conversation.sessionId,
           conversation.metadata.reflinkId,

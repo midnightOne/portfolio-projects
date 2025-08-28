@@ -12,11 +12,8 @@
  * - Proper API separation between client and admin access
  */
 
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
 import { type ConversationMessage, type ConversationInput, type ConversationOptions } from './unified-conversation-manager';
-
-// Initialize Prisma client
-const prisma = new PrismaClient();
 
 // Core conversation history types
 export interface ConversationRecord {
@@ -497,7 +494,7 @@ export class ConversationHistoryManager {
                     }
                 },
                 orderBy: {
-                    [options.sortBy || 'startedAt']: options.sortOrder || 'desc'
+                    [this.mapSortByField(options.sortBy) || 'startedAt']: options.sortOrder || 'desc'
                 },
                 take: options.limit || 50,
                 skip: options.offset || 0
@@ -725,6 +722,21 @@ export class ConversationHistoryManager {
     }
 
     // Private helper methods
+
+    private mapSortByField(sortBy?: string): string {
+        switch (sortBy) {
+            case 'timestamp':
+                return 'startedAt';
+            case 'tokens':
+                return 'totalTokens';
+            case 'cost':
+                return 'totalCost';
+            case 'duration':
+                return 'startedAt'; // We don't have a duration field, so use startedAt
+            default:
+                return sortBy || 'startedAt';
+        }
+    }
 
     private mapPrismaConversationToRecord(conversation: any): ConversationRecord {
         return {

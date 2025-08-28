@@ -8,8 +8,7 @@ import {
   type ConversationInput, 
   type ConversationResponse, 
   type ConversationOptions,
-  type ConversationMessage,
-  unifiedConversationManager 
+  type ConversationMessage
 } from './unified-conversation-manager';
 
 // Transport layer interfaces
@@ -92,9 +91,29 @@ export class HTTPConversationTransport implements ConversationTransport {
     const startTime = Date.now();
 
     try {
-      // Use the unified conversation manager to process the input
-      const response = await unifiedConversationManager.processInput(input, options);
+      // Make HTTP request to the conversation API endpoint
+      const response = await fetch('/api/ai/conversation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include', // Include session cookies for authentication
+        body: JSON.stringify({
+          input,
+          options
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
       
+      if (!data.success) {
+        throw new Error(data.error?.message || 'API request failed');
+      }
+
       // Calculate latency
       const latency = Date.now() - startTime;
       
@@ -107,12 +126,15 @@ export class HTTPConversationTransport implements ConversationTransport {
         lastActivity: new Date()
       });
 
+      // Extract the conversation response from the API response
+      const conversationResponse: ConversationResponse = data.data;
+
       // Notify message callback if set
       if (this.messageCallback) {
-        this.messageCallback(response);
+        this.messageCallback(conversationResponse);
       }
 
-      return response;
+      return conversationResponse;
 
     } catch (error) {
       const transportError: TransportError = {

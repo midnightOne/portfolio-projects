@@ -6,11 +6,26 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { conversationHistoryManager } from '@/lib/services/ai/conversation-history-manager';
 import { headers } from 'next/headers';
 
 export async function GET(request: NextRequest) {
   try {
+    // Check admin authentication
+    const session = await getServerSession(authOptions);
+    
+    if (!session || (session.user as any)?.role !== 'admin') {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: 'Admin access required' 
+        },
+        { status: 403 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const sessionId = searchParams.get('sessionId');
 
@@ -87,6 +102,19 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    // Check admin authentication
+    const session = await getServerSession(authOptions);
+    
+    if (!session || (session.user as any)?.role !== 'admin') {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: 'Admin access required' 
+        },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json();
     const { sessionId, reflinkId, metadata } = body;
 
@@ -142,6 +170,19 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    // Check admin authentication
+    const session = await getServerSession(authOptions);
+    
+    if (!session || (session.user as any)?.role !== 'admin') {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: 'Admin access required' 
+        },
+        { status: 403 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const sessionId = searchParams.get('sessionId');
 

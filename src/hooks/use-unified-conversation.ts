@@ -10,9 +10,9 @@ import {
   type ConversationResponse,
   type ConversationOptions,
   type ConversationMessage,
-  type ConversationState,
-  unifiedConversationManager
+  type ConversationState
 } from '@/lib/services/ai/unified-conversation-manager';
+import { clientConversationManager } from '@/lib/services/ai/client-conversation-manager';
 import {
   type ConversationTransport,
   type TransportError,
@@ -151,7 +151,7 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
     
     const loadHistory = async () => {
       try {
-        const history = await unifiedConversationManager.getConversationHistory(sessionId);
+        const history = await clientConversationManager.getConversationHistory(sessionId);
         setMessages(history);
       } catch (error) {
         console.error('Failed to load conversation history:', error);
@@ -235,7 +235,7 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
     }
     
     try {
-      await unifiedConversationManager.updateConversationMode(sessionId, mode);
+      await clientConversationManager.updateConversationMode(sessionId, mode);
       setCurrentMode(mode);
     } catch (error) {
       console.error('Failed to switch conversation mode:', error);
@@ -269,7 +269,7 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
     }
     
     try {
-      await unifiedConversationManager.clearConversationHistory(sessionId);
+      await clientConversationManager.clearConversationHistory(sessionId);
       setMessages([]);
     } catch (error) {
       console.error('Failed to clear conversation history:', error);
@@ -295,7 +295,7 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
     if (!sessionId) {
       return null;
     }
-    return unifiedConversationManager.getConversationState(sessionId);
+    return clientConversationManager.getConversationState(sessionId);
   }, [sessionId]);
 
   // Refresh messages from conversation manager
@@ -305,7 +305,7 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
     }
     
     try {
-      const history = await unifiedConversationManager.getConversationHistory(sessionId);
+      const history = await clientConversationManager.getConversationHistory(sessionId);
       setMessages(history);
     } catch (error) {
       console.error('Failed to refresh messages:', error);
@@ -322,7 +322,7 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
     if (!sessionId) return; // Wait for session ID to be initialized
     
     const checkProcessing = () => {
-      const processing = unifiedConversationManager.isProcessing(sessionId);
+      const processing = clientConversationManager.isProcessing(sessionId);
       setIsProcessing(processing);
     };
 
@@ -378,7 +378,7 @@ export function useConversationState(sessionId: string) {
   useEffect(() => {
     const loadState = async () => {
       try {
-        const state = await unifiedConversationManager.getConversationState(sessionId);
+        const state = await clientConversationManager.getConversationState(sessionId);
         setConversationState(state);
         if (state) {
           setMessages(state.messages);
