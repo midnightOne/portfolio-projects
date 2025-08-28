@@ -52,6 +52,8 @@ function AIDebugContent() {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['request-info']));
   const [recentSessions, setRecentSessions] = useState<Array<{sessionId: string, timestamp: string, lastInput: string}>>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [autoSync, setAutoSync] = useState<boolean>(true);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   // Conversation tester state
   const [inputText, setInputText] = useState('');
@@ -129,10 +131,26 @@ function AIDebugContent() {
 
   // Update selected session when conversation tester session changes
   useEffect(() => {
-    if (sessionId && sessionId !== selectedSessionId) {
+    if (autoSync && sessionId && sessionId !== selectedSessionId) {
       setSelectedSessionId(sessionId);
+      // Auto-load debug data for the new session
+      loadDebugData(sessionId);
     }
-  }, [sessionId, selectedSessionId]);
+  }, [sessionId, selectedSessionId, autoSync]);
+
+  // Auto-refresh debug data when auto-sync is enabled and we have a current session
+  useEffect(() => {
+    if (!autoSync || !sessionId) return;
+
+    const interval = setInterval(() => {
+      // Only refresh if we're looking at the current session
+      if (selectedSessionId === sessionId) {
+        loadDebugData(sessionId);
+      }
+    }, 5000); // Refresh every 5 seconds
+
+    return () => clearInterval(interval);
+  }, [autoSync, sessionId, selectedSessionId]);
 
   const loadDebugData = async (targetSessionId?: string) => {
     setLoading(true);
@@ -155,6 +173,7 @@ function AIDebugContent() {
       
       if (data.success) {
         setDebugData(data.data);
+        setLastUpdated(new Date());
         if (data.data) {
           toast.success('Debug data loaded', `Debug data for session ${useSessionId ? useSessionId.slice(-8) : 'latest'} retrieved successfully`);
         } else {
@@ -228,7 +247,16 @@ function AIDebugContent() {
       setInputText('');
       // Auto-load debug data after sending message (wait a bit for processing)
       setTimeout(() => {
-        loadDebugData();
+        // Use the current session ID from the conversation hook
+        if (sessionId) {
+          if (autoSync) {
+            setSelectedSessionId(sessionId);
+          }
+          loadDebugData(sessionId);
+          toast.info('Debug data updated', `Loaded debug data for session ${sessionId.slice(-8)}`);
+        } else {
+          loadDebugData();
+        }
         loadRecentSessions();
       }, 1500);
     } catch (error) {
@@ -544,17 +572,61 @@ function AIDebugContent() {
           )}
         </div>
 
+        {/* Session Sync Status */}
+        {sessionId && selectedSessionId && sessionId !== selectedSessionId && !autoSync && (
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="flex items-center justify-between">
+              <div>
+                <div className="font-medium">Session Mismatch</div>
+                <div className="text-xs text-muted-foreground">
+                  Debug: {selectedSessionId.slice(-8)} | Tester: {sessionId.slice(-8)}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedSessionId(sessionId);
+                    loadDebugData(sessionId);
+                  }}
+                >
+                  Sync Sessions
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setAutoSync(true)}
+                >
+                  Enable Auto-sync
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Conversation Selector */}
         <div className="bg-muted/50 rounded-lg p-3">
           <div className="flex items-center justify-between mb-2">
             <h3 className="font-medium text-sm">Select Conversation</h3>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={loadRecentSessions}
-            >
-              <RefreshCw className="h-3 w-3" />
-            </Button>
+            <div className="flex items-center gap-2">
+              {sessionId && selectedSessionId === sessionId && (
+                <Badge variant="default" className="text-xs">Synced</Badge>
+              )}
+              {lastUpdated && (
+                <span className="text-xs text-muted-foreground">
+                  Updated {lastUpdated.toLocaleTimeString()}
+                </span>
+              )}
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={loadRecentSessions}
+              >
+                <RefreshCw className="h-3 w-3" />
+              </Button>
+            </div>
           </div>
           <div className="space-y-2">
             <Select 
@@ -597,31 +669,57 @@ function AIDebugContent() {
                   ))}
               </SelectContent>
             </Select>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => loadDebugData()}
-                disabled={loading}
-                className="flex-1"
-              >
-                <RefreshCw className={`h-3 w-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
-                Load Debug Data
-              </Button>
-              {selectedSessionId && selectedSessionId !== sessionId && (
+            <div className="space-y-2">
+              <div className="flex gap-2">
                 <Button
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
                   onClick={() => {
-                    setSelectedSessionId(sessionId);
-                    if (sessionId) {
-                      loadDebugData(sessionId);
-                    }
+                    // If we have a selected session, load that; otherwise load current session or latest
+                    const targetSessionId = selectedSessionId || sessionId;
+                    loadDebugData(targetSessionId);
                   }}
+                  disabled={loading}
+                  className="flex-1"
                 >
-                  Back to Current
+                  <RefreshCw className={`h-3 w-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
+                  {selectedSessionId ? 'Reload Selected' : 'Load Latest'}
                 </Button>
-              )}
+                {selectedSessionId && selectedSessionId !== sessionId && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedSessionId(sessionId);
+                      if (sessionId) {
+                        loadDebugData(sessionId);
+                      }
+                    }}
+                  >
+                    Back to Current
+                  </Button>
+                )}
+              </div>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="auto-sync"
+                    checked={autoSync}
+                    onChange={(e) => setAutoSync(e.target.checked)}
+                    className="rounded"
+                  />
+                  <label htmlFor="auto-sync" className="text-xs text-muted-foreground">
+                    Auto-sync with conversation tester
+                  </label>
+                </div>
+                {autoSync && selectedSessionId === sessionId && (
+                  <Badge variant="secondary" className="text-xs">
+                    <RefreshCw className="h-2 w-2 mr-1 animate-spin" />
+                    Live
+                  </Badge>
+                )}
+              </div>
             </div>
           </div>
         </div>
