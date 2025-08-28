@@ -7,6 +7,7 @@
 import { contextManager, type ContextSource, type ContextBuildOptions } from './context-manager';
 import { type ChatMessage, type ProviderChatRequest, type ProviderChatResponse } from '@/lib/ai/types';
 import { conversationHistoryManager } from './conversation-history-manager';
+import { AIServiceManager } from '@/lib/ai/service-manager';
 
 // Core conversation types
 export interface ConversationMessage {
@@ -806,7 +807,7 @@ export class UnifiedConversationManager {
   }
 
   /**
-   * Get AI response using API route
+   * Get AI response using AI service manager
    */
   private async getAIResponse(request: ProviderChatRequest, model: string): Promise<ProviderChatResponse> {
     // Check if model is available
@@ -814,38 +815,31 @@ export class UnifiedConversationManager {
       throw new Error(`Model ${model} is not configured. Available models: ${this.availableModels.join(', ')}`);
     }
 
-    // Make API request to conversation endpoint
-    const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
-    const response = await fetch(`${baseUrl}/api/ai/conversation`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        messages: request.messages,
-        temperature: request.temperature,
-        maxTokens: request.maxTokens
-      })
-    });
+    // Use AI service manager directly to avoid recursive calls
+    const aiService = new AIServiceManager();
+    await aiService.initializeModelConfigurations();
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-      throw new Error(errorData.error || `API request failed with status ${response.status}`);
+    // Get the provider for the model
+    const provider = aiService.getProviderForModel(model);
+    if (!provider) {
+      throw new Error(`Model ${model} is not configured`);
     }
 
-    const data = await response.json();
-
-    if (!data.success) {
-      throw new Error(data.error || 'AI request failed');
+    // Get the provider instance
+    const providerInstance = (aiService as any).providers.get(provider);
+    if (!providerInstance) {
+      throw new Error(`Provider ${provider} is not available`);
     }
+
+    // Make the chat request directly
+    const response = await providerInstance.chat(request);
 
     return {
-      content: data.response.content,
-      tokensUsed: data.response.tokensUsed,
-      cost: data.response.cost,
-      model: data.response.model,
-      finishReason: data.response.finishReason || 'stop'
+      content: response.content,
+      tokensUsed: response.tokensUsed,
+      cost: response.cost,
+      model: response.model || model,
+      finishReason: response.finishReason || 'stop'
     };
   }
 
