@@ -24,8 +24,22 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Auto-discover sources first
+    // Load configurations from database first
+    const dbConfigs = await prisma.aIContentSourceConfig.findMany();
+    
+    // Auto-discover sources (this will skip loading configurations to avoid circular dependency)
     await contentSourceManager.autoDiscoverSources();
+    
+    // Load the database configurations into the manager
+    for (const dbConfig of dbConfigs) {
+      contentSourceManager.setSourceConfig(dbConfig.sourceId, {
+        id: dbConfig.sourceId,
+        providerId: dbConfig.providerId,
+        enabled: dbConfig.enabled,
+        priority: dbConfig.priority,
+        config: dbConfig.config as Record<string, any>
+      });
+    }
 
     // Get all available sources
     const sources = await contentSourceManager.getAvailableSources();

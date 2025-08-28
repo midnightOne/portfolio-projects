@@ -224,23 +224,15 @@ export function ContentSourceManager() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Status and Actions */}
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Content Source Management</h2>
-          <p className="text-muted-foreground">
-            Configure which content sources are available for AI context building
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="outline">
-            {enabledCount} of {totalCount} enabled
-          </Badge>
-          <Button onClick={refreshSources} variant="outline" size="sm">
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Refresh
-          </Button>
-        </div>
+        <Badge variant="outline">
+          {enabledCount} of {totalCount} enabled
+        </Badge>
+        <Button onClick={refreshSources} variant="outline" size="sm">
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Refresh
+        </Button>
       </div>
 
       {/* Status Messages */}

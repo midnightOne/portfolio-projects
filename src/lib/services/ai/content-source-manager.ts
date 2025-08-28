@@ -310,6 +310,13 @@ export class ContentSourceManager {
   }
 
   /**
+   * Set source configuration (used for loading from database)
+   */
+  setSourceConfig(sourceId: string, config: ContentSourceConfig): void {
+    this.registry.configs.set(sourceId, config);
+  }
+
+  /**
    * Get source schema for configuration UI
    */
   async getSourceSchema(sourceId: string): Promise<ContentSourceSchema | null> {
@@ -350,6 +357,12 @@ export class ContentSourceManager {
    */
   private async loadConfigurations(): Promise<void> {
     try {
+      // Skip loading configurations if we're in a server context to avoid circular dependency
+      if (typeof window === 'undefined') {
+        console.log('Skipping configuration loading in server context');
+        return;
+      }
+      
       const response = await fetch('/api/admin/ai/content-sources');
       if (response.ok) {
         const data = await response.json();
@@ -417,6 +430,11 @@ class ProjectContentProvider implements ContentSourceProvider {
   version = '1.0.0';
 
   async isAvailable(): Promise<boolean> {
+    // Skip availability check in server context to avoid fetch issues
+    if (typeof window === 'undefined') {
+      return true; // Assume available in server context
+    }
+    
     try {
       const response = await fetch('/api/projects?limit=1');
       return response.ok;
@@ -426,6 +444,17 @@ class ProjectContentProvider implements ContentSourceProvider {
   }
 
   async getMetadata(): Promise<ContentSourceMetadata> {
+    // Return placeholder metadata in server context to avoid fetch issues
+    if (typeof window === 'undefined') {
+      return {
+        lastUpdated: new Date(),
+        itemCount: 0,
+        size: 0,
+        tags: [],
+        summary: 'Projects content source (server context)'
+      };
+    }
+    
     const response = await fetch('/api/projects?status=PUBLISHED&visibility=PUBLIC');
     const data = await response.json();
     const projects = data.data?.projects || [];
@@ -455,6 +484,11 @@ class AboutContentProvider implements ContentSourceProvider {
   version = '1.0.0';
 
   async isAvailable(): Promise<boolean> {
+    // Skip availability check in server context to avoid fetch issues
+    if (typeof window === 'undefined') {
+      return true; // Assume available in server context
+    }
+    
     try {
       const response = await fetch('/api/homepage-config-public');
       const data = await response.json();
@@ -466,6 +500,17 @@ class AboutContentProvider implements ContentSourceProvider {
   }
 
   async getMetadata(): Promise<ContentSourceMetadata> {
+    // Return placeholder metadata in server context to avoid fetch issues
+    if (typeof window === 'undefined') {
+      return {
+        lastUpdated: new Date(),
+        itemCount: 1,
+        size: 0,
+        tags: [],
+        summary: 'About content source (server context)'
+      };
+    }
+    
     const response = await fetch('/api/homepage-config-public');
     const data = await response.json();
     const aboutSection = data.data?.config?.sections?.find((s: any) => s.type === 'about');
@@ -556,6 +601,11 @@ class ExperienceContentProvider implements ContentSourceProvider {
   version = '1.0.0';
 
   async isAvailable(): Promise<boolean> {
+    // Skip availability check in server context to avoid fetch issues
+    if (typeof window === 'undefined') {
+      return true; // Assume available in server context
+    }
+    
     // Check if experience data is available in homepage config
     try {
       const response = await fetch('/api/homepage-config-public');
@@ -568,6 +618,17 @@ class ExperienceContentProvider implements ContentSourceProvider {
   }
 
   async getMetadata(): Promise<ContentSourceMetadata> {
+    // Return placeholder metadata in server context to avoid fetch issues
+    if (typeof window === 'undefined') {
+      return {
+        lastUpdated: new Date(),
+        itemCount: 0,
+        size: 0,
+        tags: [],
+        summary: 'Experience content source (server context)'
+      };
+    }
+    
     const response = await fetch('/api/homepage-config-public');
     const data = await response.json();
     const experienceSection = data.data?.config?.sections?.find((s: any) => s.type === 'experience');
@@ -635,6 +696,11 @@ class SkillsContentProvider implements ContentSourceProvider {
   version = '1.0.0';
 
   async isAvailable(): Promise<boolean> {
+    // Skip availability check in server context to avoid fetch issues
+    if (typeof window === 'undefined') {
+      return true; // Assume available in server context
+    }
+    
     try {
       const response = await fetch('/api/homepage-config-public');
       const data = await response.json();
@@ -646,6 +712,17 @@ class SkillsContentProvider implements ContentSourceProvider {
   }
 
   async getMetadata(): Promise<ContentSourceMetadata> {
+    // Return placeholder metadata in server context to avoid fetch issues
+    if (typeof window === 'undefined') {
+      return {
+        lastUpdated: new Date(),
+        itemCount: 0,
+        size: 0,
+        tags: [],
+        summary: 'Skills content source (server context)'
+      };
+    }
+    
     const response = await fetch('/api/homepage-config-public');
     const data = await response.json();
     const aboutSection = data.data?.config?.sections?.find((s: any) => s.type === 'about');
