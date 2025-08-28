@@ -16,6 +16,8 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { ChevronDown, ChevronRight, Bug, Copy } from 'lucide-react';
 
 
 
@@ -26,6 +28,9 @@ export default function TestUnifiedConversationPage() {
   const [selectedMode, setSelectedMode] = useState<'text' | 'voice' | 'hybrid'>('text');
   const [selectedModel, setSelectedModel] = useState<string>('gpt-4o');
   const [availableModels, setAvailableModels] = useState<Array<{id: string, name: string, provider: string}>>([]);
+  const [debugData, setDebugData] = useState<any>(null);
+  const [debugPanelOpen, setDebugPanelOpen] = useState(false);
+  const [loadingDebugData, setLoadingDebugData] = useState(false);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -132,6 +137,34 @@ export default function TestUnifiedConversationPage() {
       await clearHistory();
     } catch (error) {
       console.error('Failed to clear history:', error);
+    }
+  };
+
+  const loadDebugData = async () => {
+    if (!session) return;
+    
+    setLoadingDebugData(true);
+    try {
+      const response = await fetch('/api/admin/ai/conversation/debug');
+      const data = await response.json();
+      
+      if (data.success) {
+        setDebugData(data.data);
+      } else {
+        console.error('Failed to load debug data:', data.error);
+      }
+    } catch (error) {
+      console.error('Failed to load debug data:', error);
+    } finally {
+      setLoadingDebugData(false);
+    }
+  };
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error);
     }
   };
 
@@ -451,6 +484,204 @@ export default function TestUnifiedConversationPage() {
               ))}
             </div>
           </CardContent>
+        </Card>
+
+        {/* Debug Panel (Admin Only) */}
+        <Card className="border-orange-200 bg-orange-50/50">
+          <Collapsible open={debugPanelOpen} onOpenChange={setDebugPanelOpen}>
+            <CollapsibleTrigger asChild>
+              <CardHeader className="cursor-pointer hover:bg-orange-100/50 transition-colors">
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Bug className="h-5 w-5 text-orange-600" />
+                  Debug Panel (Admin)
+                  {debugPanelOpen ? (
+                    <ChevronDown className="h-4 w-4 text-orange-600" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-orange-600" />
+                  )}
+                </CardTitle>
+              </CardHeader>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Button
+                    onClick={loadDebugData}
+                    disabled={loadingDebugData}
+                    size="sm"
+                    variant="outline"
+                  >
+                    {loadingDebugData ? 'Loading...' : 'Load Latest Debug Data'}
+                  </Button>
+                  <p className="text-sm text-gray-600">
+                    Shows context and system prompt from the most recent conversation request
+                  </p>
+                </div>
+
+                {debugData ? (
+                  <div className="space-y-4">
+                    {/* Request Info */}
+                    <div className="bg-white rounded-lg p-4 border">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-medium text-sm">Request Information</h4>
+                        <Badge variant="outline" className="text-xs">
+                          {new Date(debugData.timestamp).toLocaleString()}
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="font-medium">Session ID:</span>
+                          <p className="font-mono text-xs bg-gray-100 p-1 rounded mt-1">
+                            {debugData.sessionId}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="font-medium">Mode:</span>
+                          <Badge className="ml-2">{debugData.input.mode}</Badge>
+                        </div>
+                        <div>
+                          <span className="font-medium">Model:</span>
+                          <p className="font-mono text-xs">{debugData.aiRequest.model}</p>
+                        </div>
+                        <div>
+                          <span className="font-medium">Temperature:</span>
+                          <p className="font-mono text-xs">{debugData.aiRequest.temperature}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* User Input */}
+                    <div className="bg-white rounded-lg p-4 border">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-medium text-sm">User Input</h4>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => copyToClipboard(debugData.input.content)}
+                        >
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </div>
+                      <pre className="text-xs bg-gray-100 p-3 rounded overflow-x-auto whitespace-pre-wrap">
+                        {debugData.input.content}
+                      </pre>
+                    </div>
+
+                    {/* System Prompt */}
+                    <div className="bg-white rounded-lg p-4 border">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-medium text-sm">System Prompt</h4>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => copyToClipboard(debugData.systemPrompt)}
+                        >
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </div>
+                      <pre className="text-xs bg-gray-100 p-3 rounded overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">
+                        {debugData.systemPrompt}
+                      </pre>
+                    </div>
+
+                    {/* Context String */}
+                    <div className="bg-white rounded-lg p-4 border">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-medium text-sm">Context String</h4>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-xs">
+                            {debugData.contextString.length} chars
+                          </Badge>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => copyToClipboard(debugData.contextString)}
+                          >
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                      {debugData.contextString ? (
+                        <pre className="text-xs bg-gray-100 p-3 rounded overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">
+                          {debugData.contextString}
+                        </pre>
+                      ) : (
+                        <p className="text-xs text-gray-500 italic">No context provided</p>
+                      )}
+                    </div>
+
+                    {/* Full AI Request */}
+                    <div className="bg-white rounded-lg p-4 border">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-medium text-sm">Full AI Request</h4>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-xs">
+                            {debugData.aiRequest.messages.length} messages
+                          </Badge>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => copyToClipboard(JSON.stringify(debugData.aiRequest, null, 2))}
+                          >
+                            <Copy className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </div>
+                      <pre className="text-xs bg-gray-100 p-3 rounded overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">
+                        {JSON.stringify(debugData.aiRequest, null, 2)}
+                      </pre>
+                    </div>
+
+                    {/* AI Response */}
+                    {debugData.aiResponse && (
+                      <div className="bg-white rounded-lg p-4 border">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="font-medium text-sm">AI Response</h4>
+                          <div className="flex items-center gap-2">
+                            {debugData.aiResponse.tokensUsed && (
+                              <Badge variant="outline" className="text-xs">
+                                {debugData.aiResponse.tokensUsed} tokens
+                              </Badge>
+                            )}
+                            {debugData.aiResponse.cost && (
+                              <Badge variant="outline" className="text-xs">
+                                ${debugData.aiResponse.cost.toFixed(4)}
+                              </Badge>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => copyToClipboard(debugData.aiResponse.content)}
+                            >
+                              <Copy className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                        <pre className="text-xs bg-gray-100 p-3 rounded overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">
+                          {debugData.aiResponse.content}
+                        </pre>
+                      </div>
+                    )}
+
+                    {/* Error */}
+                    {debugData.error && (
+                      <div className="bg-red-50 rounded-lg p-4 border border-red-200">
+                        <h4 className="font-medium text-sm text-red-800 mb-2">Error</h4>
+                        <pre className="text-xs bg-red-100 p-3 rounded overflow-x-auto whitespace-pre-wrap text-red-700">
+                          {debugData.error}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <Bug className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                    <p>No debug data loaded. Send a message first, then click "Load Latest Debug Data".</p>
+                  </div>
+                )}
+              </CardContent>
+            </CollapsibleContent>
+          </Collapsible>
         </Card>
       </div>
     </div>

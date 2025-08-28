@@ -107,6 +107,19 @@ export interface ConversationOptions {
   systemPrompt?: string;
 }
 
+// Debug data interface for admin debugging
+export interface ConversationDebugData {
+  sessionId: string;
+  timestamp: Date;
+  input: ConversationInput;
+  options: ConversationOptions;
+  systemPrompt: string;
+  contextString: string;
+  aiRequest: ProviderChatRequest;
+  aiResponse?: ProviderChatResponse;
+  error?: string;
+}
+
 /**
  * Unified Conversation Manager
  * Handles all conversation modes through a single, consistent pipeline
@@ -117,6 +130,7 @@ export class UnifiedConversationManager {
   private readonly DEFAULT_MODEL = 'gpt-4o';
   private readonly SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
   private availableModels: string[] = [];
+  private lastDebugData: ConversationDebugData | null = null;
 
   constructor() {
     this.startSessionCleanup();
@@ -216,8 +230,25 @@ export class UnifiedConversationManager {
         input.metadata?.userPreferences
       );
 
+      // Store debug data before making AI request
+      const systemPrompt = this.buildSystemPrompt(contextString, options.systemPrompt, input.metadata?.userPreferences);
+      this.lastDebugData = {
+        sessionId: input.sessionId,
+        timestamp: new Date(),
+        input,
+        options,
+        systemPrompt,
+        contextString,
+        aiRequest
+      };
+
       // Get AI response
       const aiResponse = await this.getAIResponse(aiRequest, options.model || this.DEFAULT_MODEL);
+
+      // Update debug data with response
+      if (this.lastDebugData) {
+        this.lastDebugData.aiResponse = aiResponse;
+      }
 
       // Parse navigation commands from response
       const navigationCommands = this.parseNavigationCommands(aiResponse.content);
@@ -273,6 +304,11 @@ export class UnifiedConversationManager {
       const conversation = this.conversations.get(input.sessionId);
       if (conversation) {
         conversation.isProcessing = false;
+      }
+
+      // Update debug data with error
+      if (this.lastDebugData) {
+        this.lastDebugData.error = error instanceof Error ? error.message : 'Unknown error occurred';
       }
 
       console.error('Error processing conversation input:', error);
@@ -360,6 +396,13 @@ export class UnifiedConversationManager {
   isProcessing(sessionId: string): boolean {
     const conversation = this.conversations.get(sessionId);
     return conversation?.isProcessing || false;
+  }
+
+  /**
+   * Get the most recent debug data (admin only)
+   */
+  getLastDebugData(): ConversationDebugData | null {
+    return this.lastDebugData;
   }
 
   /**

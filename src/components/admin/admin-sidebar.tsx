@@ -52,6 +52,7 @@ import {
   Database,
   SlidersHorizontal,
   Shield,
+  Bug,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useAdminProjects } from "@/hooks/use-admin-projects";
@@ -389,6 +390,17 @@ export function AdminSidebar() {
                   <Link href="/admin/ai/abuse-detection" className="flex items-center gap-2">
                     <Bot className="size-4" />
                     <span>Abuse Detection</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/debug')}
+                >
+                  <Link href="/admin/ai/debug" className="flex items-center gap-2">
+                    <Bug className="size-4" />
+                    <span>Debug Panel</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
