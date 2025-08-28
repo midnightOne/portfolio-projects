@@ -571,10 +571,4 @@ export class ConversationTransportManager {
   }
 }
 
-// Export transport implementations and manager
-export {
-  HTTPConversationTransport,
-  WebSocketConversationTransport,
-  WebRTCConversationTransport,
-  ConversationTransportManager
-};
+// Classes are already exported above with 'export class' declarations

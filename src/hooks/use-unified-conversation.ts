@@ -74,7 +74,8 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
   } = options;
 
   // Generate session ID if not provided
-  const sessionId = providedSessionId || useRef(`session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`).current;
+  const sessionIdRef = useRef(`session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+  const sessionId = providedSessionId || sessionIdRef.current;
 
   // State
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -86,7 +87,7 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
   const [error, setError] = useState<TransportError | null>(null);
 
   // Transport manager
-  const transportManager = useRef<ConversationTransportManager>();
+  const transportManager = useRef<ConversationTransportManager | undefined>(undefined);
   const messageCallbacks = useRef<Array<(response: ConversationResponse) => void>>([]);
   const errorCallbacks = useRef<Array<(error: TransportError) => void>>([]);
   const stateCallbacks = useRef<Array<(state: TransportState) => void>>([]);
@@ -364,7 +365,7 @@ export function useConversationTransport(defaultTransport: 'http' | 'websocket' 
   const [activeTransport, setActiveTransport] = useState<string | undefined>();
   const [error, setError] = useState<TransportError | null>(null);
 
-  const transportManager = useRef<ConversationTransportManager>();
+  const transportManager = useRef<ConversationTransportManager | undefined>(undefined);
 
   useEffect(() => {
     if (!transportManager.current) {

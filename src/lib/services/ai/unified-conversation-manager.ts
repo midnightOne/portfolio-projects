@@ -410,7 +410,11 @@ export class UnifiedConversationManager {
     conversation: ConversationState,
     context: string,
     options: ConversationOptions,
-    userPreferences?: ConversationInput['metadata']['userPreferences']
+    userPreferences?: {
+      tone?: 'technical' | 'casual' | 'professional';
+      responseLength?: 'concise' | 'detailed' | 'comprehensive';
+      includeNavigation?: boolean;
+    }
   ): Promise<ProviderChatRequest> {
     const messages: ChatMessage[] = [];
 
@@ -444,7 +448,11 @@ export class UnifiedConversationManager {
   private buildSystemPrompt(
     context: string,
     customSystemPrompt?: string,
-    userPreferences?: ConversationInput['metadata']['userPreferences']
+    userPreferences?: {
+      tone?: 'technical' | 'casual' | 'professional';
+      responseLength?: 'concise' | 'detailed' | 'comprehensive';
+      includeNavigation?: boolean;
+    }
   ): string {
     let prompt = customSystemPrompt || `You are an AI assistant for a portfolio website. You help visitors learn about the portfolio owner's background, projects, and expertise. You are helpful, knowledgeable, and professional.`;
 
