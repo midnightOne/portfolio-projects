@@ -65,11 +65,18 @@ export function ReflinksManager() {
   const [usageDialogOpen, setUsageDialogOpen] = useState(false);
   const [selectedReflink, setSelectedReflink] = useState<Reflink | null>(null);
   const [reflinkUsage, setReflinkUsage] = useState<ReflinkUsage | null>(null);
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    code: string;
+    name: string;
+    description: string;
+    rateLimitTier: 'BASIC' | 'STANDARD' | 'PREMIUM' | 'UNLIMITED';
+    dailyLimit: string;
+    expiresAt: string;
+  }>({
     code: '',
     name: '',
     description: '',
-    rateLimitTier: 'STANDARD' as const,
+    rateLimitTier: 'STANDARD',
     dailyLimit: '',
     expiresAt: '',
   });

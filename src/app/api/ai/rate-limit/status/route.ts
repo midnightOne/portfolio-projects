@@ -12,7 +12,7 @@ function getClientIP(req: NextRequest): string | undefined {
   if (forwarded) {
     return forwarded.split(',')[0].trim();
   }
-  return req.headers.get('x-real-ip') || req.ip || undefined;
+  return req.headers.get('x-real-ip') || '127.0.0.1';
 }
 
 function getIdentifier(req: NextRequest, type: IdentifierType): string {

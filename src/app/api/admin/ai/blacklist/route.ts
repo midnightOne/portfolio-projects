@@ -88,7 +88,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const entry = await blacklistManager.blacklistIP(validation.data!);
+    const entry = await blacklistManager.blacklistIP({
+      ...validation.data!,
+      violationCount: validation.data!.violationCount ?? 1
+    });
 
     return NextResponse.json(createApiSuccess(entry), { status: 201 });
 

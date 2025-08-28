@@ -19,7 +19,7 @@ async function checkAdminAuth() {
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const user = await checkAdminAuth();
@@ -30,7 +30,8 @@ export async function GET(
       );
     }
 
-    const reflink = await reflinkManager.getReflinkById(params.id);
+    const { id } = await params;
+    const reflink = await reflinkManager.getReflinkById(id);
 
     if (!reflink) {
       return NextResponse.json(
@@ -40,7 +41,7 @@ export async function GET(
     }
 
     // Get usage statistics
-    const usage = await reflinkManager.getReflinkUsage(params.id, 30); // Last 30 days
+    const usage = await reflinkManager.getReflinkUsage(id, 30); // Last 30 days
 
     return NextResponse.json(createApiSuccess({
       reflink,
@@ -63,7 +64,7 @@ export async function GET(
 
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const user = await checkAdminAuth();
@@ -88,7 +89,8 @@ export async function PUT(
       );
     }
 
-    const reflink = await reflinkManager.updateReflink(params.id, validation.data!);
+    const { id } = await params;
+    const reflink = await reflinkManager.updateReflink(id, validation.data!);
 
     return NextResponse.json(createApiSuccess(reflink));
 
@@ -120,7 +122,7 @@ export async function PUT(
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const user = await checkAdminAuth();
@@ -131,7 +133,8 @@ export async function DELETE(
       );
     }
 
-    await reflinkManager.deleteReflink(params.id);
+    const { id } = await params;
+    await reflinkManager.deleteReflink(id);
 
     return NextResponse.json(createApiSuccess({ deleted: true }));
 

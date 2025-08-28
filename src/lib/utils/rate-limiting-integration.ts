@@ -22,7 +22,7 @@ export function extractClientInfo(req: NextRequest) {
   const forwarded = req.headers.get('x-forwarded-for');
   const ipAddress = forwarded 
     ? forwarded.split(',')[0].trim()
-    : req.headers.get('x-real-ip') || req.ip || undefined;
+    : req.headers.get('x-real-ip') || undefined;
 
   // Get user agent
   const userAgent = req.headers.get('user-agent') || undefined;
@@ -300,7 +300,7 @@ export async function performRateLimitCleanup() {
     return { success: true };
   } catch (error) {
     console.error('Rate limiting cleanup failed:', error);
-    return { success: false, error: error.message };
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
 

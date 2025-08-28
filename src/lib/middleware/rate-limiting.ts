@@ -163,7 +163,7 @@ function getClientIP(req: NextRequest): string | undefined {
   }
 
   // Fallback to connection remote address (may not be available in all environments)
-  return req.ip || undefined;
+  return '127.0.0.1';
 }
 
 /**

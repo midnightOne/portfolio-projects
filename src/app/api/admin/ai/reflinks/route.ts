@@ -91,7 +91,10 @@ export async function POST(req: NextRequest) {
     }
 
     const reflink = await reflinkManager.createReflink(
-      validation.data!,
+      {
+        ...validation.data!,
+        rateLimitTier: validation.data!.rateLimitTier ?? 'STANDARD'
+      },
       (user as any).email || (user as any).id
     );
 

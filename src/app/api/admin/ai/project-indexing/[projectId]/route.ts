@@ -14,9 +14,9 @@ import { handleApiError, addCorsHeaders } from '@/lib/utils/api-utils';
 import { withPerformanceTracking } from '@/lib/utils/performance';
 
 interface RouteParams {
-  params: {
+  params: Promise<{
     projectId: string;
-  };
+  }>;
 }
 
 async function projectIndexingHandler(request: NextRequest, { params }: RouteParams) {
@@ -35,7 +35,7 @@ async function projectIndexingHandler(request: NextRequest, { params }: RoutePar
       );
     }
 
-    const { projectId } = params;
+    const { projectId } = await params;
 
     // Verify project exists and is accessible
     const project = await prisma.project.findUnique({

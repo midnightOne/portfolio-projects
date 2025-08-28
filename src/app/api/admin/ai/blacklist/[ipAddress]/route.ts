@@ -18,7 +18,7 @@ async function checkAdminAuth() {
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { ipAddress: string } }
+  { params }: { params: Promise<{ ipAddress: string }> }
 ) {
   try {
     const user = await checkAdminAuth();
@@ -29,8 +29,9 @@ export async function GET(
       );
     }
 
-    // Decode IP address (in case it was URL encoded)
-    const ipAddress = decodeURIComponent(params.ipAddress);
+    // Await params and decode IP address (in case it was URL encoded)
+    const { ipAddress: rawIpAddress } = await params;
+    const ipAddress = decodeURIComponent(rawIpAddress);
 
     const result = await blacklistManager.isBlacklisted(ipAddress);
 
@@ -63,7 +64,7 @@ export async function GET(
 
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { ipAddress: string } }
+  { params }: { params: Promise<{ ipAddress: string }> }
 ) {
   try {
     const user = await checkAdminAuth();
@@ -77,8 +78,9 @@ export async function PUT(
     const body = await req.json();
     const { action, reason } = body;
 
-    // Decode IP address (in case it was URL encoded)
-    const ipAddress = decodeURIComponent(params.ipAddress);
+    // Await params and decode IP address (in case it was URL encoded)
+    const { ipAddress: rawIpAddress } = await params;
+    const ipAddress = decodeURIComponent(rawIpAddress);
 
     if (action === 'reinstate') {
       const entry = await blacklistManager.reinstateIP(
@@ -130,7 +132,7 @@ export async function PUT(
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { ipAddress: string } }
+  { params }: { params: Promise<{ ipAddress: string }> }
 ) {
   try {
     const user = await checkAdminAuth();
@@ -141,8 +143,9 @@ export async function DELETE(
       );
     }
 
-    // Decode IP address (in case it was URL encoded)
-    const ipAddress = decodeURIComponent(params.ipAddress);
+    // Await params and decode IP address (in case it was URL encoded)
+    const { ipAddress: rawIpAddress } = await params;
+    const ipAddress = decodeURIComponent(rawIpAddress);
 
     await blacklistManager.removeFromBlacklist(ipAddress);
 

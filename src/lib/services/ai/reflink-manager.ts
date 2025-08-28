@@ -278,7 +278,7 @@ export class ReflinkManager {
         }),
 
         // Requests by day
-        prisma.$queryRaw`
+        prisma.$queryRaw<Array<{ date: Date; requests: bigint; blocked: bigint }>>`
           SELECT 
             DATE_TRUNC('day', timestamp) as date,
             COUNT(*) as requests,
@@ -287,7 +287,7 @@ export class ReflinkManager {
           WHERE reflink_id = ${id} AND timestamp >= ${startDate}
           GROUP BY DATE_TRUNC('day', timestamp)
           ORDER BY date
-        ` as Array<{ date: Date; requests: bigint; blocked: bigint }>,
+        `,
       ]);
 
       return {

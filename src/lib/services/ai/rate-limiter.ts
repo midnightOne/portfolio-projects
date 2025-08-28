@@ -405,7 +405,7 @@ export class RateLimiter {
       }),
 
       // Requests by hour
-      prisma.$queryRaw`
+      prisma.$queryRaw<Array<{ hour: Date; requests: bigint; blocked: bigint }>>`
         SELECT 
           DATE_TRUNC('hour', timestamp) as hour,
           COUNT(*) as requests,
@@ -414,7 +414,7 @@ export class RateLimiter {
         WHERE timestamp >= ${startDate}
         GROUP BY DATE_TRUNC('hour', timestamp)
         ORDER BY hour
-      ` as Array<{ hour: Date; requests: bigint; blocked: bigint }>,
+      `,
     ]);
 
     // Process requests by tier
