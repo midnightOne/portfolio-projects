@@ -76,11 +76,18 @@ export function BudgetDrainingTest() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    loadReflinkData();
+    // Only run on client side
+    if (typeof window !== 'undefined') {
+      loadReflinkData();
+    }
   }, [searchParams]);
 
   const loadReflinkData = async () => {
-    const reflinkCode = searchParams?.get('ref');
+    // Get reflink from URL params safely
+    const reflinkCode = typeof window !== 'undefined' ? 
+      new URLSearchParams(window.location.search).get('ref') : 
+      searchParams?.get('ref');
+      
     if (!reflinkCode) {
       setError('No reflink code found in URL');
       return;

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { SessionProvider } from "@/components/providers/session-provider";
 import { UIThemeProvider } from "@/components/providers/ui-theme-provider";
-import { ReflinkSessionProvider } from "@/components/providers/reflink-session-provider";
+// Removed reflink session provider from global layout
 import { ToastProvider } from "@/components/ui/toast";
 import "./globals.css";
 
@@ -26,11 +26,9 @@ export default function RootLayout({
       <body className={inter.className}>
         <UIThemeProvider enableSystem>
           <SessionProvider>
-            <ReflinkSessionProvider>
-              <ToastProvider>
-                {children}
-              </ToastProvider>
-            </ReflinkSessionProvider>
+            <ToastProvider>
+              {children}
+            </ToastProvider>
           </SessionProvider>
         </UIThemeProvider>
       </body>

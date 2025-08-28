@@ -58,7 +58,10 @@ export function ReflinkSessionProvider({ children }: ReflinkSessionProviderProps
 
   // Initialize session on mount and when URL changes
   useEffect(() => {
-    initializeSession();
+    // Only initialize on client side to avoid SSR issues
+    if (typeof window !== 'undefined') {
+      initializeSession();
+    }
   }, [searchParams]);
 
   // Periodic budget checking for premium users
@@ -79,8 +82,10 @@ export function ReflinkSessionProvider({ children }: ReflinkSessionProviderProps
     setIsLoading(true);
     
     try {
-      // Check for reflink in URL
-      const reflinkCode = searchParams?.get('ref');
+      // Check for reflink in URL - handle both SSR and client-side
+      const reflinkCode = typeof window !== 'undefined' ? 
+        new URLSearchParams(window.location.search).get('ref') : 
+        searchParams?.get('ref');
       
       if (reflinkCode) {
         await initializeReflinkSession(reflinkCode);

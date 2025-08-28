@@ -18,7 +18,10 @@ export function SimpleReflinkTest() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    testReflinkFunctionality();
+    // Only run on client side
+    if (typeof window !== 'undefined') {
+      testReflinkFunctionality();
+    }
   }, [searchParams]);
 
   const testReflinkFunctionality = async () => {
@@ -26,7 +29,10 @@ export function SimpleReflinkTest() {
     setError(null);
 
     try {
-      const reflinkCode = searchParams?.get('ref');
+      // Get reflink from URL params safely
+      const reflinkCode = typeof window !== 'undefined' ? 
+        new URLSearchParams(window.location.search).get('ref') : 
+        searchParams?.get('ref');
       const hasReflink = Boolean(reflinkCode);
 
       console.log('Testing reflink functionality:', { hasReflink, reflinkCode });

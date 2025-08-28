@@ -2,12 +2,14 @@ import { SimpleReflinkTest } from '@/components/ai/simple-reflink-test';
 import { SessionPersistenceTest } from '@/components/ai/session-persistence-test';
 import { BudgetDrainingTest } from '@/components/ai/budget-draining-test';
 import { MainNavigation } from '@/components/layout/main-navigation';
+import { ReflinkSessionProvider } from '@/components/providers/reflink-session-wrapper';
 
 export default function TestReflinkPage() {
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <MainNavigation />
-      <div className="container mx-auto px-4 py-8">
+    <ReflinkSessionProvider>
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+        <MainNavigation />
+        <div className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto space-y-8">
           <div className="text-center space-y-4">
             <h1 className="text-3xl font-bold">Reflink Detection Test</h1>
@@ -82,7 +84,8 @@ export default function TestReflinkPage() {
             </div>
           </div>
         </div>
+        </div>
       </div>
-    </div>
+    </ReflinkSessionProvider>
   );
 }
