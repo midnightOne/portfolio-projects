@@ -987,7 +987,7 @@ class AnimationDebugSessionManager {
       }
     }
 
-    return session;
+    return session || null;
   }
 
   logAnimation(log: AnimationExecutionLog): void {

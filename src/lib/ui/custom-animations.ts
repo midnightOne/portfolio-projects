@@ -60,6 +60,7 @@ export interface CustomAnimationOptions extends AnimationOptions {
   composition?: CompositionOptions;
   fallbackOnError?: boolean;
   respectReducedMotion?: boolean;
+  priority?: number | 'high' | 'override';
 }
 
 export interface CompositionOptions {
@@ -828,7 +829,7 @@ export function getAnimationDebugInfo(): AnimationDebugInfo {
 
 // Performance monitoring
 const originalExecute = customAnimationRegistry.executeAnimation.bind(customAnimationRegistry);
-(customAnimationRegistry as any).executeAnimation = function (...args: any[]) {
+(customAnimationRegistry as any).executeAnimation = function (...args: [string, Element | Element[], CustomAnimationOptions?]) {
   executionCount++;
   try {
     return originalExecute(...args);
