@@ -27,6 +27,7 @@ export interface UseUnifiedConversationOptions {
   autoConnect?: boolean;
   defaultTransport?: 'http' | 'websocket' | 'webrtc';
   conversationOptions?: ConversationOptions;
+  defaultModel?: string;
 }
 
 export interface UseUnifiedConversationReturn {
@@ -35,6 +36,7 @@ export interface UseUnifiedConversationReturn {
   isProcessing: boolean;
   currentMode: 'text' | 'voice' | 'hybrid';
   sessionId: string;
+  currentModel: string;
   
   // Transport state
   isConnected: boolean;
@@ -42,9 +44,10 @@ export interface UseUnifiedConversationReturn {
   activeTransport: string | undefined;
   
   // Actions
-  sendMessage: (content: string, mode?: 'text' | 'voice' | 'hybrid') => Promise<ConversationResponse>;
+  sendMessage: (content: string, mode?: 'text' | 'voice' | 'hybrid', model?: string) => Promise<ConversationResponse>;
   switchMode: (mode: 'text' | 'voice' | 'hybrid') => Promise<void>;
   switchTransport: (transport: 'http' | 'websocket' | 'webrtc') => Promise<void>;
+  switchModel: (model: string) => void;
   clearHistory: () => Promise<void>;
   
   // Event handlers
@@ -70,17 +73,25 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
     initialMode = 'text',
     autoConnect = true,
     defaultTransport = 'http',
-    conversationOptions = {}
+    conversationOptions = {},
+    defaultModel = 'gpt-4o'
   } = options;
 
-  // Generate session ID if not provided
-  const sessionIdRef = useRef(`session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
-  const sessionId = providedSessionId || sessionIdRef.current;
+  // Generate session ID if not provided - only on client side to avoid hydration mismatch
+  const [sessionId, setSessionId] = useState<string>(providedSessionId || '');
+  
+  // Initialize session ID on client side only
+  useEffect(() => {
+    if (!providedSessionId && !sessionId) {
+      setSessionId(`session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+    }
+  }, [providedSessionId, sessionId]);
 
   // State
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [currentMode, setCurrentMode] = useState<'text' | 'voice' | 'hybrid'>(initialMode);
+  const [currentModel, setCurrentModel] = useState<string>(defaultModel);
   const [isConnected, setIsConnected] = useState(false);
   const [transportState, setTransportState] = useState<TransportState | null>(null);
   const [activeTransport, setActiveTransport] = useState<string | undefined>();
@@ -136,6 +147,8 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
 
   // Load existing conversation history
   useEffect(() => {
+    if (!sessionId) return; // Wait for session ID to be initialized
+    
     const loadHistory = async () => {
       try {
         const history = await unifiedConversationManager.getConversationHistory(sessionId);
@@ -151,10 +164,15 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
   // Send message function
   const sendMessage = useCallback(async (
     content: string, 
-    mode: 'text' | 'voice' | 'hybrid' = currentMode
+    mode: 'text' | 'voice' | 'hybrid' = currentMode,
+    model: string = currentModel
   ): Promise<ConversationResponse> => {
     if (!transportManager.current) {
       throw new Error('Transport manager not initialized');
+    }
+    
+    if (!sessionId) {
+      throw new Error('Session not initialized');
     }
 
     setIsProcessing(true);
@@ -174,6 +192,12 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
         }
       };
 
+      // Add model to conversation options
+      const optionsWithModel = {
+        ...conversationOptions,
+        model
+      };
+
       // Add user message to state immediately for better UX
       const userMessage: ConversationMessage = {
         id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -186,7 +210,7 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
       setMessages(prev => [...prev, userMessage]);
 
       // Send through transport
-      const response = await transportManager.current.sendMessage(input, conversationOptions);
+      const response = await transportManager.current.sendMessage(input, optionsWithModel);
       
       return response;
 
@@ -202,10 +226,14 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
       setError(transportError);
       throw transportError;
     }
-  }, [currentMode, sessionId, conversationOptions, activeTransport]);
+  }, [currentMode, currentModel, sessionId, conversationOptions, activeTransport]);
 
   // Switch conversation mode
   const switchMode = useCallback(async (mode: 'text' | 'voice' | 'hybrid'): Promise<void> => {
+    if (!sessionId) {
+      throw new Error('Session not initialized');
+    }
+    
     try {
       await unifiedConversationManager.updateConversationMode(sessionId, mode);
       setCurrentMode(mode);
@@ -229,8 +257,17 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
     }
   }, []);
 
+  // Switch model
+  const switchModel = useCallback((model: string): void => {
+    setCurrentModel(model);
+  }, []);
+
   // Clear conversation history
   const clearHistory = useCallback(async (): Promise<void> => {
+    if (!sessionId) {
+      throw new Error('Session not initialized');
+    }
+    
     try {
       await unifiedConversationManager.clearConversationHistory(sessionId);
       setMessages([]);
@@ -255,11 +292,18 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
 
   // Get conversation state
   const getConversationState = useCallback(async (): Promise<ConversationState | null> => {
+    if (!sessionId) {
+      return null;
+    }
     return unifiedConversationManager.getConversationState(sessionId);
   }, [sessionId]);
 
   // Refresh messages from conversation manager
   const refreshMessages = useCallback(async (): Promise<void> => {
+    if (!sessionId) {
+      return;
+    }
+    
     try {
       const history = await unifiedConversationManager.getConversationHistory(sessionId);
       setMessages(history);
@@ -275,6 +319,8 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
 
   // Check if currently processing
   useEffect(() => {
+    if (!sessionId) return; // Wait for session ID to be initialized
+    
     const checkProcessing = () => {
       const processing = unifiedConversationManager.isProcessing(sessionId);
       setIsProcessing(processing);
@@ -294,6 +340,7 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
     messages,
     isProcessing,
     currentMode,
+    currentModel,
     sessionId,
     isConnected,
     transportState,
@@ -304,6 +351,7 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
     sendMessage,
     switchMode,
     switchTransport,
+    switchModel,
     clearHistory,
     
     // Event handlers

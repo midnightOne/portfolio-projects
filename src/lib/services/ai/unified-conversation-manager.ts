@@ -116,12 +116,24 @@ export class UnifiedConversationManager {
   private static instance: UnifiedConversationManager;
   private aiService: AIServiceManager;
   private conversations = new Map<string, ConversationState>();
-  private readonly DEFAULT_MODEL = 'gpt-4';
+  private readonly DEFAULT_MODEL = 'gpt-4o';
   private readonly SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
 
   constructor() {
     this.aiService = new AIServiceManager();
+    this.initializeAIService();
     this.startSessionCleanup();
+  }
+
+  /**
+   * Initialize AI service with model configurations
+   */
+  private async initializeAIService(): Promise<void> {
+    try {
+      await this.aiService.initializeModelConfigurations();
+    } catch (error) {
+      console.error('Failed to initialize AI service model configurations:', error);
+    }
   }
 
   static getInstance(): UnifiedConversationManager {
@@ -503,10 +515,13 @@ export class UnifiedConversationManager {
    * Get AI response using the AI service manager
    */
   private async getAIResponse(request: ProviderChatRequest, model: string): Promise<ProviderChatResponse> {
+    // Ensure AI service is initialized
+    await this.aiService.initializeModelConfigurations();
+    
     // Use the AI service manager's chat functionality
     const provider = this.aiService.getProviderForModel(model);
     if (!provider) {
-      throw new Error(`Model ${model} is not configured`);
+      throw new Error(`Model ${model} is not configured. Available models: ${this.aiService.getProviderModels('openai').concat(this.aiService.getProviderModels('anthropic')).join(', ')}`);
     }
 
     // Get the provider instance and make the request
