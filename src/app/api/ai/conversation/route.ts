@@ -10,12 +10,19 @@ import {
   type ConversationInput,
   type ConversationOptions 
 } from '@/lib/services/ai/unified-conversation-manager';
+import { AIServiceManager } from '@/lib/ai/service-manager';
+import { type ProviderChatRequest } from '@/lib/ai/types';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     
-    // Validate required fields
+    // Check if this is a direct chat request (for internal AI service calls)
+    if (body.messages && body.model && !body.sessionId) {
+      return handleDirectChatRequest(body);
+    }
+    
+    // Validate required fields for conversation processing
     if (!body.content || !body.sessionId) {
       return NextResponse.json(
         { error: 'Missing required fields: content and sessionId' },
@@ -58,11 +65,60 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       { 
         success: false,
-        error: {
-          code: 'CONVERSATION_PROCESSING_ERROR',
-          message: error instanceof Error ? error.message : 'Unknown error occurred',
-          recoverable: true
-        }
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
+      },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * Handle direct chat requests from the unified conversation manager
+ */
+async function handleDirectChatRequest(body: any) {
+  try {
+    const aiService = new AIServiceManager();
+    await aiService.initializeModelConfigurations();
+
+    const chatRequest: ProviderChatRequest = {
+      model: body.model,
+      messages: body.messages,
+      temperature: body.temperature || 0.7,
+      maxTokens: body.maxTokens || 2000
+    };
+
+    // Get the provider for the model
+    const provider = aiService.getProviderForModel(body.model);
+    if (!provider) {
+      throw new Error(`Model ${body.model} is not configured`);
+    }
+
+    // Get the provider instance
+    const providerInstance = (aiService as any).providers.get(provider);
+    if (!providerInstance) {
+      throw new Error(`Provider ${provider} is not available`);
+    }
+
+    // Make the chat request
+    const response = await providerInstance.chat(chatRequest);
+
+    return NextResponse.json({
+      success: true,
+      response: {
+        content: response.content,
+        tokensUsed: response.tokensUsed,
+        cost: response.cost,
+        model: response.model || body.model
+      }
+    });
+
+  } catch (error) {
+    console.error('Direct chat request error:', error);
+    
+    return NextResponse.json(
+      { 
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
       },
       { status: 500 }
     );

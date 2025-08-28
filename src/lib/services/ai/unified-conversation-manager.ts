@@ -4,7 +4,6 @@
  * Maintains single conversation thread with consistent state management across all modes
  */
 
-import { AIServiceManager, type AIContentEditRequest, type AIContentEditResponse } from '@/lib/ai/service-manager';
 import { contextManager, type ContextSource, type ContextBuildOptions } from './context-manager';
 import { type ChatMessage, type ProviderChatRequest, type ProviderChatResponse } from '@/lib/ai/types';
 
@@ -114,25 +113,39 @@ export interface ConversationOptions {
  */
 export class UnifiedConversationManager {
   private static instance: UnifiedConversationManager;
-  private aiService: AIServiceManager;
   private conversations = new Map<string, ConversationState>();
   private readonly DEFAULT_MODEL = 'gpt-4o';
   private readonly SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+  private availableModels: string[] = [];
 
   constructor() {
-    this.aiService = new AIServiceManager();
-    this.initializeAIService();
     this.startSessionCleanup();
+    this.loadAvailableModels();
   }
 
   /**
-   * Initialize AI service with model configurations
+   * Load available models from API
    */
-  private async initializeAIService(): Promise<void> {
+  private async loadAvailableModels(): Promise<void> {
     try {
-      await this.aiService.initializeModelConfigurations();
+      // Only load models on server side or when window is available
+      if (typeof window === 'undefined') {
+        // Server side - use fallback models
+        this.availableModels = ['gpt-4o', 'gpt-4', 'claude-3-sonnet-20240229'];
+        return;
+      }
+
+      const response = await fetch('/api/admin/ai/available-models');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data.unified) {
+          this.availableModels = data.data.unified.map((model: any) => model.id);
+        }
+      }
     } catch (error) {
-      console.error('Failed to initialize AI service model configurations:', error);
+      console.warn('Failed to load available models:', error);
+      // Fallback to common models
+      this.availableModels = ['gpt-4o', 'gpt-4', 'claude-3-sonnet-20240229'];
     }
   }
 
@@ -180,14 +193,19 @@ export class UnifiedConversationManager {
       // Build context if enabled
       let contextString = '';
       if (options.includeContext !== false) {
-        const contextResult = await contextManager.buildContextWithCaching(
-          input.sessionId,
-          conversation.contextSources,
-          input.content,
-          options.contextOptions
-        );
-        contextString = contextResult.context;
-        conversation.currentContext = contextString;
+        try {
+          const contextResult = await contextManager.buildContextWithCaching(
+            input.sessionId,
+            conversation.contextSources,
+            input.content,
+            options.contextOptions
+          );
+          contextString = contextResult.context;
+          conversation.currentContext = contextString;
+        } catch (error) {
+          console.warn('Failed to build context, proceeding without context:', error);
+          // Continue without context rather than failing
+        }
       }
 
       // Prepare AI request
@@ -382,11 +400,13 @@ export class UnifiedConversationManager {
    */
   private async initializeContextSources(): Promise<ContextSource[]> {
     try {
-      // Get available context sources from content source manager
-      const response = await fetch('/api/admin/ai/content-sources');
-      if (response.ok) {
-        const data = await response.json();
-        return data.sources || [];
+      // Only try to load context sources on client side
+      if (typeof window !== 'undefined') {
+        const response = await fetch('/api/admin/ai/content-sources');
+        if (response.ok) {
+          const data = await response.json();
+          return data.sources || [];
+        }
       }
     } catch (error) {
       console.warn('Failed to load context sources:', error);
@@ -512,25 +532,46 @@ export class UnifiedConversationManager {
   }
 
   /**
-   * Get AI response using the AI service manager
+   * Get AI response using API route
    */
   private async getAIResponse(request: ProviderChatRequest, model: string): Promise<ProviderChatResponse> {
-    // Ensure AI service is initialized
-    await this.aiService.initializeModelConfigurations();
+    // Check if model is available
+    if (!this.availableModels.includes(model)) {
+      throw new Error(`Model ${model} is not configured. Available models: ${this.availableModels.join(', ')}`);
+    }
+
+    // Make API request to conversation endpoint
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+    const response = await fetch(`${baseUrl}/api/ai/conversation`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        messages: request.messages,
+        temperature: request.temperature,
+        maxTokens: request.maxTokens
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(errorData.error || `API request failed with status ${response.status}`);
+    }
+
+    const data = await response.json();
     
-    // Use the AI service manager's chat functionality
-    const provider = this.aiService.getProviderForModel(model);
-    if (!provider) {
-      throw new Error(`Model ${model} is not configured. Available models: ${this.aiService.getProviderModels('openai').concat(this.aiService.getProviderModels('anthropic')).join(', ')}`);
+    if (!data.success) {
+      throw new Error(data.error || 'AI request failed');
     }
 
-    // Get the provider instance and make the request
-    const providerInstance = (this.aiService as any).providers.get(provider);
-    if (!providerInstance) {
-      throw new Error(`Provider ${provider} is not available`);
-    }
-
-    return await providerInstance.chat(request);
+    return {
+      content: data.response.content,
+      tokensUsed: data.response.tokensUsed,
+      cost: data.response.cost,
+      model: data.response.model
+    };
   }
 
   /**
@@ -634,14 +675,14 @@ export class UnifiedConversationManager {
    * Generate unique message ID
    */
   private generateMessageId(): string {
-    return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `msg_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
   }
 
   /**
    * Generate unique conversation ID
    */
   private generateConversationId(): string {
-    return `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `conv_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
   }
 
   /**

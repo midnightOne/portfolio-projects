@@ -83,7 +83,7 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
   // Initialize session ID on client side only
   useEffect(() => {
     if (!providedSessionId && !sessionId) {
-      setSessionId(`session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+      setSessionId(`session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`);
     }
   }, [providedSessionId, sessionId]);
 
@@ -200,7 +200,7 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
 
       // Add user message to state immediately for better UX
       const userMessage: ConversationMessage = {
-        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
         role: 'user',
         content,
         timestamp: new Date(),
