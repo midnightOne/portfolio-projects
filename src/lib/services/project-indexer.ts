@@ -32,6 +32,7 @@ export interface IndexedSection {
   importance: number; // 0-1 relevance score
   nodeType: string; // Tiptap node type
   depth: number; // Heading depth for hierarchy
+  projectId?: string; // Track which project this section belongs to
 }
 
 export interface MediaContext {
@@ -152,7 +153,7 @@ export class ProjectIndexer {
       const tiptapContent = project.articleContent?.jsonContent as TiptapContentData | null;
       
       // Generate sections from Tiptap structure
-      const sections = tiptapContent ? this.extractSections(tiptapContent) : [];
+      const sections = tiptapContent ? this.extractSections(tiptapContent, projectId) : [];
       
       // Extract keywords and topics
       const { keywords, topics, technologies } = this.extractKeywordsAndTopics(
@@ -196,7 +197,7 @@ export class ProjectIndexer {
   /**
    * Extract sections from Tiptap content structure
    */
-  private extractSections(content: TiptapContentData): IndexedSection[] {
+  private extractSections(content: TiptapContentData, projectId: string): IndexedSection[] {
     const sections: IndexedSection[] = [];
     let currentOffset = 0;
     let sectionCounter = 0;
@@ -239,7 +240,8 @@ export class ProjectIndexer {
           keywords,
           importance,
           nodeType: node.type,
-          depth
+          depth,
+          projectId
         });
       }
 
@@ -730,7 +732,7 @@ export class ProjectIndexer {
     query: string,
     limit: number = 10
   ): Promise<IndexedSection[]> {
-    const relevantSections: Array<IndexedSection & { projectId: string; relevanceScore: number }> = [];
+    const relevantSections: Array<IndexedSection & { relevanceScore: number }> = [];
 
     // Index all projects if not already cached
     for (const projectId of projectIds) {
@@ -743,7 +745,7 @@ export class ProjectIndexer {
           if (relevanceScore > 0.1) { // Minimum relevance threshold
             relevantSections.push({
               ...section,
-              projectId,
+              projectId, // Ensure projectId is set
               relevanceScore: relevanceScore * section.importance
             });
           }
@@ -757,7 +759,7 @@ export class ProjectIndexer {
     return relevantSections
       .sort((a, b) => b.relevanceScore - a.relevanceScore)
       .slice(0, limit)
-      .map(({ projectId, relevanceScore, ...section }) => section);
+      .map(({ relevanceScore, ...section }) => section);
   }
 
   /**
