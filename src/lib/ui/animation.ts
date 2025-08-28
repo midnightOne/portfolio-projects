@@ -946,7 +946,7 @@ export function registerCustomAnimation(
 }
 
 // New Custom Animation System Integration
-export {
+import {
   registerCustomAnimationPlugin,
   unregisterCustomAnimationPlugin,
   executeCustomAnimation,
@@ -960,6 +960,22 @@ export {
   createComposedEffect,
   getAnimationDebugInfo,
 } from './custom-animations';
+
+// Re-export for external use
+export {
+  registerCustomAnimationPlugin,
+  unregisterCustomAnimationPlugin,
+  executeCustomAnimation,
+  composeCustomAnimations,
+  setAnimationVariant,
+  getAvailableAnimations,
+  getAvailablePlugins,
+  getAnimationDefinition,
+  executeIPadGridAnimation,
+  resetIPadGrid,
+  createComposedEffect,
+  getAnimationDebugInfo,
+};
 
 export type {
   AnimationPlugin,

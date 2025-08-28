@@ -5,6 +5,8 @@
  * theme management, animations, and layout constants.
  */
 
+import type { CustomAnimationOptions } from './custom-animations';
+
 // Theme Types
 export interface ThemeTokens {
   colors: {
@@ -221,50 +223,50 @@ export interface FloatingAIInterfaceProps {
   position: 'hero' | 'pinned';
   onPositionChange?: (position: 'hero' | 'pinned') => void;
   autoPin?: boolean;
-  
+
   // Mode Management
   mode: 'pill' | 'expanded';
   onModeChange?: (mode: 'pill' | 'expanded') => void;
   expandOnFocus?: boolean;
-  
+
   // Content
   currentNarration?: string;
   placeholder?: string;
   value?: string;
   onValueChange?: (value: string) => void;
-  
+
   // Interaction Handlers
   onTextSubmit?: (text: string) => void;
   onVoiceStart?: () => void;
   onVoiceEnd?: (transcript: string) => void;
   onSettingsClick?: () => void;
   onClear?: () => void;
-  
+
   // State
   isListening?: boolean;
   isProcessing?: boolean;
   isTyping?: boolean;
-  
+
   // Voice Features
   voiceEnabled?: boolean;
   voiceLanguage?: string;
   voiceAutoStart?: boolean;
-  
+
   // Quick Actions
   showQuickActions?: boolean;
   quickActions?: QuickAction[];
   onQuickAction?: (action: QuickAction) => void;
-  
+
   // Styling
   theme?: 'default' | 'minimal' | 'accent';
   size?: 'sm' | 'md' | 'lg';
   className?: string;
-  
+
   // Behavior
   hideOnScroll?: boolean;
   persistPosition?: boolean;
   animationDuration?: number;
-  
+
   // Accessibility
   ariaLabel?: string;
   announceNarration?: boolean;
@@ -300,25 +302,7 @@ export interface AnimationVariant {
   modifyTimeline?: (timeline: GSAPTimeline, options: CustomAnimationOptions) => GSAPTimeline;
 }
 
-export interface CustomAnimationOptions extends AnimationOptions {
-  variant?: string;
-  intensity?: 'subtle' | 'medium' | 'strong';
-  direction?: 'up' | 'down' | 'left' | 'right' | 'center' | 'random';
-  stagger?: number | { amount: number; from: string | number };
-  selectedIndex?: number;
-  gridColumns?: number;
-  gridRows?: number;
-  composition?: CompositionOptions;
-  fallbackOnError?: boolean;
-  respectReducedMotion?: boolean;
-}
-
-export interface CompositionOptions {
-  combine: string[];
-  sequence?: 'parallel' | 'sequential' | 'staggered';
-  timing?: number[];
-  blend?: 'multiply' | 'add' | 'override';
-}
+// CustomAnimationOptions and CompositionOptions are defined in custom-animations.ts
 
 // Hook Return Types
 export interface UseThemeReturn {
