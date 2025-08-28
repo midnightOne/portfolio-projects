@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { SessionProvider } from "@/components/providers/session-provider";
 import { UIThemeProvider } from "@/components/providers/ui-theme-provider";
+import { ReflinkSessionProvider } from "@/components/providers/reflink-session-provider";
 import { ToastProvider } from "@/components/ui/toast";
 import "./globals.css";
 
@@ -25,9 +26,11 @@ export default function RootLayout({
       <body className={inter.className}>
         <UIThemeProvider enableSystem>
           <SessionProvider>
-            <ToastProvider>
-              {children}
-            </ToastProvider>
+            <ReflinkSessionProvider>
+              <ToastProvider>
+                {children}
+              </ToastProvider>
+            </ReflinkSessionProvider>
           </SessionProvider>
         </UIThemeProvider>
       </body>

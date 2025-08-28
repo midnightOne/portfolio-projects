@@ -1,9 +1,14 @@
 /**
- * Public access management service
+ * Public access control manager for AI assistant
  * Handles public AI access settings and feature availability
  */
 
-import { AccessLevel, AIFeature } from './reflink-session-manager';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+export type AccessLevel = 'no_access' | 'basic' | 'limited' | 'premium';
+export type AIFeature = 'chat_interface' | 'voice_ai' | 'job_analysis' | 'advanced_navigation' | 'file_upload';
 
 export interface PublicAccessSettings {
   publicAIAccess: 'disabled' | 'basic_only' | 'limited_features';
@@ -45,7 +50,7 @@ export interface UpgradeMessage {
 }
 
 export class PublicAccessManager {
-  private defaultSettings: PublicAccessSettings = {
+  private static readonly DEFAULT_SETTINGS: PublicAccessSettings = {
     publicAIAccess: 'disabled',
     basicAccessDailyLimit: 5,
     limitedAccessDailyLimit: 20,
@@ -53,26 +58,36 @@ export class PublicAccessManager {
     allowPublicJobAnalysis: false,
     allowPublicAdvancedNav: false,
     disabledMessage: 'AI assistant is available by invitation only. Contact me for access.',
-    basicAccessMessage: 'You have basic AI assistant access with limited daily usage.',
-    limitedAccessMessage: 'You have limited AI assistant access. Some premium features require an invitation.',
-    upgradePromptMessage: 'This feature requires premium access. Contact me for an invitation code.',
+    basicAccessMessage: 'You have basic AI access with limited daily usage.',
+    limitedAccessMessage: 'You have limited AI access. Some premium features require an invitation.',
+    upgradePromptMessage: 'Contact me for enhanced AI features and higher usage limits.',
   };
 
   /**
-   * Get public access settings (would normally come from database)
+   * Get current public access settings
    */
   async getPublicAccessSettings(): Promise<PublicAccessSettings> {
-    // In a real implementation, this would fetch from database
-    // For now, return default settings
-    return this.defaultSettings;
+    try {
+      // For now, we'll store settings in a simple JSON config
+      // In a production system, this would be in the database
+      const settings = await this.loadSettingsFromDatabase();
+      return { ...PublicAccessManager.DEFAULT_SETTINGS, ...settings };
+    } catch (error) {
+      console.error('Failed to get public access settings:', error);
+      return PublicAccessManager.DEFAULT_SETTINGS;
+    }
   }
 
   /**
    * Update public access settings
    */
-  async updatePublicAccessSettings(settings: PublicAccessSettings): Promise<void> {
-    // In a real implementation, this would save to database
-    this.defaultSettings = { ...settings };
+  async updatePublicAccessSettings(settings: Partial<PublicAccessSettings>): Promise<void> {
+    try {
+      await this.saveSettingsToDatabase(settings);
+    } catch (error) {
+      console.error('Failed to update public access settings:', error);
+      throw new Error('Failed to update public access settings');
+    }
   }
 
   /**
@@ -83,7 +98,16 @@ export class PublicAccessManager {
       return 'premium';
     }
 
-    const settings = this.defaultSettings;
+    // For public users, check settings
+    // This will be implemented when we have the settings loaded
+    return 'no_access'; // Default for now
+  }
+
+  /**
+   * Determine access level for public users based on settings
+   */
+  async determinePublicAccessLevel(): Promise<AccessLevel> {
+    const settings = await this.getPublicAccessSettings();
     
     switch (settings.publicAIAccess) {
       case 'disabled':
@@ -130,7 +154,7 @@ export class PublicAccessManager {
           voiceAI: settings.allowPublicVoice,
           jobAnalysis: settings.allowPublicJobAnalysis,
           advancedNavigation: settings.allowPublicAdvancedNav,
-          fileUpload: settings.allowPublicJobAnalysis,
+          fileUpload: settings.allowPublicJobAnalysis, // Tied to job analysis
           dailyLimit: settings.limitedAccessDailyLimit,
         };
 
@@ -141,7 +165,7 @@ export class PublicAccessManager {
           jobAnalysis: true,
           advancedNavigation: true,
           fileUpload: true,
-          dailyLimit: -1, // Unlimited (subject to reflink budget)
+          dailyLimit: -1, // Unlimited (budget-based)
         };
 
       default:
@@ -168,20 +192,22 @@ export class PublicAccessManager {
         return {
           title: 'Basic AI Access',
           description: settings.basicAccessMessage,
+          actionText: 'Upgrade Access',
+          actionUrl: '/contact',
         };
 
       case 'limited':
         return {
           title: 'Limited AI Access',
           description: settings.limitedAccessMessage,
-          actionText: 'Get Premium Access',
+          actionText: 'Get Full Access',
           actionUrl: '/contact',
         };
 
       case 'premium':
         return {
           title: 'Premium AI Access',
-          description: 'You have full access to all AI assistant features.',
+          description: 'You have full access to all AI features.',
         };
 
       default:
@@ -194,9 +220,9 @@ export class PublicAccessManager {
    */
   async getUpgradeMessage(requestedFeature: AIFeature): Promise<UpgradeMessage> {
     const settings = await this.getPublicAccessSettings();
-
-    const featureNames = {
-      chat_interface: 'Chat Interface',
+    
+    const featureNames: Record<AIFeature, string> = {
+      chat_interface: 'AI Chat',
       voice_ai: 'Voice AI',
       job_analysis: 'Job Analysis',
       advanced_navigation: 'Advanced Navigation',
@@ -204,9 +230,9 @@ export class PublicAccessManager {
     };
 
     return {
-      feature: featureNames[requestedFeature] || 'Feature',
-      message: settings.upgradePromptMessage,
-      contactInfo: 'Contact me for an invitation code to unlock premium features.',
+      feature: featureNames[requestedFeature],
+      message: `${featureNames[requestedFeature]} requires an invitation code. ${settings.upgradePromptMessage}`,
+      contactInfo: 'Contact me for enhanced AI features and higher usage limits.',
     };
   }
 
@@ -229,6 +255,42 @@ export class PublicAccessManager {
         return availability.fileUpload;
       default:
         return false;
+    }
+  }
+
+  /**
+   * Load settings from database (placeholder implementation)
+   */
+  private async loadSettingsFromDatabase(): Promise<Partial<PublicAccessSettings>> {
+    try {
+      // For now, we'll use a simple approach
+      // In the future, this could be stored in a dedicated settings table
+      const generalSettings = await prisma.aIGeneralSettings.findFirst();
+      
+      if (generalSettings) {
+        // Extract public access settings from general settings if they exist
+        // This is a placeholder - in production we'd have a dedicated table
+        return {};
+      }
+      
+      return {};
+    } catch (error) {
+      console.error('Failed to load settings from database:', error);
+      return {};
+    }
+  }
+
+  /**
+   * Save settings to database (placeholder implementation)
+   */
+  private async saveSettingsToDatabase(settings: Partial<PublicAccessSettings>): Promise<void> {
+    try {
+      // For now, this is a placeholder
+      // In production, we'd save to a dedicated settings table
+      console.log('Saving public access settings:', settings);
+    } catch (error) {
+      console.error('Failed to save settings to database:', error);
+      throw error;
     }
   }
 }

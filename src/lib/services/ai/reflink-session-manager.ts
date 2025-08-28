@@ -6,10 +6,10 @@
 import { reflinkManager } from './reflink-manager';
 import {
   ReflinkValidationResult,
-  PersonalizedContext,
   BudgetStatus,
   ReflinkInfo,
 } from '@/lib/types/rate-limiting';
+import { PersonalizedContext } from '@/lib/types/reflink-session';
 
 export type AccessLevel = 'no_access' | 'basic' | 'limited' | 'premium';
 export type AIFeature = 'chat_interface' | 'voice_ai' | 'job_analysis' | 'advanced_navigation' | 'file_upload';
