@@ -11,6 +11,10 @@ import {
   RateLimitTier,
   ReflinkError,
   RATE_LIMIT_TIERS,
+  BudgetStatus,
+  UsageEvent,
+  ReflinkValidationResult,
+  ReflinkAnalytics,
 } from '@/lib/types/rate-limiting';
 
 const prisma = new PrismaClient();
@@ -42,6 +46,16 @@ export class ReflinkManager {
           dailyLimit: dailyLimit === -1 ? 999999 : dailyLimit, // Handle unlimited
           expiresAt: params.expiresAt ? new Date(params.expiresAt) : null,
           createdBy,
+          
+          // Enhanced features
+          recipientName: params.recipientName,
+          recipientEmail: params.recipientEmail,
+          customContext: params.customContext,
+          tokenLimit: params.tokenLimit,
+          spendLimit: params.spendLimit,
+          enableVoiceAI: params.enableVoiceAI ?? true,
+          enableJobAnalysis: params.enableJobAnalysis ?? true,
+          enableAdvancedNavigation: params.enableAdvancedNavigation ?? true,
         },
       });
 
@@ -84,6 +98,16 @@ export class ReflinkManager {
           dailyLimit: dailyLimit,
           expiresAt: params.expiresAt ? new Date(params.expiresAt) : undefined,
           isActive: params.isActive,
+          
+          // Enhanced features
+          recipientName: params.recipientName,
+          recipientEmail: params.recipientEmail,
+          customContext: params.customContext,
+          tokenLimit: params.tokenLimit,
+          spendLimit: params.spendLimit,
+          enableVoiceAI: params.enableVoiceAI,
+          enableJobAnalysis: params.enableJobAnalysis,
+          enableAdvancedNavigation: params.enableAdvancedNavigation,
         },
       });
 
@@ -379,6 +403,228 @@ export class ReflinkManager {
   }
 
   /**
+   * Track usage for a reflink
+   */
+  async trackUsage(reflinkId: string, usage: UsageEvent): Promise<void> {
+    try {
+      // Create usage log entry
+      await prisma.aIUsageLog.create({
+        data: {
+          reflinkId,
+          usageType: usage.type,
+          tokensUsed: usage.tokens,
+          costUsd: usage.cost,
+          modelUsed: usage.modelUsed,
+          endpoint: usage.endpoint,
+          metadata: usage.metadata || {},
+        },
+      });
+
+      // Update reflink usage totals
+      await prisma.aIReflink.update({
+        where: { id: reflinkId },
+        data: {
+          tokensUsed: {
+            increment: usage.tokens || 0,
+          },
+          spendUsed: {
+            increment: usage.cost,
+          },
+          lastUsedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      console.error('Failed to track usage:', error);
+      throw new ReflinkError('Failed to track usage');
+    }
+  }
+
+  /**
+   * Get remaining budget for a reflink
+   */
+  async getRemainingBudget(reflinkId: string): Promise<BudgetStatus> {
+    try {
+      const reflink = await prisma.aIReflink.findUnique({
+        where: { id: reflinkId },
+      });
+
+      if (!reflink) {
+        throw new ReflinkError('Reflink not found', undefined, 'not_found');
+      }
+
+      const tokensRemaining = reflink.tokenLimit 
+        ? Math.max(0, reflink.tokenLimit - reflink.tokensUsed)
+        : undefined;
+
+      const spendRemaining = reflink.spendLimit 
+        ? Math.max(0, Number(reflink.spendLimit) - Number(reflink.spendUsed))
+        : Infinity;
+
+      const isExhausted = (
+        (reflink.tokenLimit && reflink.tokensUsed >= reflink.tokenLimit) ||
+        (reflink.spendLimit && Number(reflink.spendUsed) >= Number(reflink.spendLimit))
+      );
+
+      // Estimate remaining requests based on average cost
+      const estimatedRequestsRemaining = spendRemaining === Infinity 
+        ? 999999 
+        : Math.floor(spendRemaining / 0.01); // Assume $0.01 per request average
+
+      return {
+        tokensRemaining,
+        spendRemaining,
+        isExhausted,
+        estimatedRequestsRemaining,
+      };
+    } catch (error) {
+      if (error instanceof ReflinkError) {
+        throw error;
+      }
+      console.error('Failed to get remaining budget:', error);
+      throw new ReflinkError('Failed to get remaining budget');
+    }
+  }
+
+  /**
+   * Validate reflink with budget checking
+   */
+  async validateReflinkWithBudget(code: string): Promise<ReflinkValidationResult> {
+    try {
+      const reflink = await this.getReflinkByCode(code);
+
+      if (!reflink) {
+        return { valid: false, reason: 'not_found' };
+      }
+
+      if (!reflink.isActive) {
+        return { valid: false, reflink, reason: 'inactive' };
+      }
+
+      if (reflink.expiresAt && reflink.expiresAt < new Date()) {
+        return { valid: false, reflink, reason: 'expired' };
+      }
+
+      const budgetStatus = await this.getRemainingBudget(reflink.id);
+
+      if (budgetStatus.isExhausted) {
+        return { 
+          valid: false, 
+          reflink, 
+          budgetStatus, 
+          reason: 'budget_exhausted' 
+        };
+      }
+
+      // Generate personalized welcome message
+      const welcomeMessage = this.generateWelcomeMessage(reflink);
+
+      return { 
+        valid: true, 
+        reflink, 
+        budgetStatus, 
+        welcomeMessage 
+      };
+    } catch (error) {
+      console.error('Failed to validate reflink with budget:', error);
+      return { valid: false, reason: 'not_found' };
+    }
+  }
+
+  /**
+   * Generate personalized welcome message
+   */
+  private generateWelcomeMessage(reflink: ReflinkInfo): string {
+    const name = reflink.recipientName || 'there';
+    const context = reflink.customContext ? ` ${reflink.customContext}` : '';
+    
+    return `Hello ${name}! You have special access to enhanced AI features.${context}`;
+  }
+
+  /**
+   * Get enhanced reflink analytics
+   */
+  async getReflinkAnalytics(id: string, days: number = 30): Promise<ReflinkAnalytics> {
+    try {
+      const startDate = new Date(Date.now() - (days * 24 * 60 * 60 * 1000));
+
+      const [usageLogs, rateLimitLogs] = await Promise.all([
+        prisma.aIUsageLog.findMany({
+          where: {
+            reflinkId: id,
+            timestamp: { gte: startDate },
+          },
+        }),
+        prisma.aIRateLimitLog.findMany({
+          where: {
+            reflinkId: id,
+            timestamp: { gte: startDate },
+          },
+        }),
+      ]);
+
+      const totalCost = usageLogs.reduce((sum, log) => sum + Number(log.costUsd), 0);
+      const totalRequests = rateLimitLogs.length;
+      const blockedRequests = rateLimitLogs.filter(log => log.wasBlocked).length;
+      const uniqueUsers = new Set(rateLimitLogs.map(log => `${log.identifier}-${log.identifierType}`)).size;
+
+      const costBreakdown = usageLogs.reduce((breakdown, log) => {
+        switch (log.usageType) {
+          case 'llm_request':
+            breakdown.llmCosts += Number(log.costUsd);
+            break;
+          case 'voice_generation':
+          case 'voice_processing':
+            breakdown.voiceCosts += Number(log.costUsd);
+            break;
+          default:
+            breakdown.processingCosts += Number(log.costUsd);
+        }
+        return breakdown;
+      }, { llmCosts: 0, voiceCosts: 0, processingCosts: 0 });
+
+      const usageByType = usageLogs.reduce((usage, log) => {
+        usage[log.usageType] = (usage[log.usageType] || 0) + 1;
+        return usage;
+      }, {} as Record<string, number>);
+
+      // Group by day
+      const requestsByDay = Array.from({ length: days }, (_, i) => {
+        const date = new Date(Date.now() - (i * 24 * 60 * 60 * 1000));
+        const dateStr = date.toISOString().split('T')[0];
+        
+        const dayRequests = rateLimitLogs.filter(log => 
+          log.timestamp.toISOString().split('T')[0] === dateStr
+        );
+        
+        const dayCosts = usageLogs.filter(log => 
+          log.timestamp.toISOString().split('T')[0] === dateStr
+        ).reduce((sum, log) => sum + Number(log.costUsd), 0);
+
+        return {
+          date: dateStr,
+          requests: dayRequests.length,
+          blocked: dayRequests.filter(log => log.wasBlocked).length,
+          cost: dayCosts,
+        };
+      }).reverse();
+
+      return {
+        totalRequests,
+        blockedRequests,
+        uniqueUsers,
+        totalCost,
+        averageCostPerRequest: totalRequests > 0 ? totalCost / totalRequests : 0,
+        costBreakdown,
+        usageByType,
+        requestsByDay,
+      };
+    } catch (error) {
+      console.error('Failed to get reflink analytics:', error);
+      throw new ReflinkError('Failed to get reflink analytics');
+    }
+  }
+
+  /**
    * Map database record to ReflinkInfo
    */
   private mapToReflinkInfo(reflink: any): ReflinkInfo {
@@ -394,6 +640,19 @@ export class ReflinkManager {
       createdBy: reflink.createdBy,
       createdAt: reflink.createdAt,
       updatedAt: reflink.updatedAt,
+      
+      // Enhanced features
+      recipientName: reflink.recipientName,
+      recipientEmail: reflink.recipientEmail,
+      customContext: reflink.customContext,
+      tokenLimit: reflink.tokenLimit,
+      tokensUsed: reflink.tokensUsed || 0,
+      spendLimit: reflink.spendLimit ? Number(reflink.spendLimit) : undefined,
+      spendUsed: Number(reflink.spendUsed) || 0,
+      enableVoiceAI: reflink.enableVoiceAI ?? true,
+      enableJobAnalysis: reflink.enableJobAnalysis ?? true,
+      enableAdvancedNavigation: reflink.enableAdvancedNavigation ?? true,
+      lastUsedAt: reflink.lastUsedAt,
     };
   }
 }

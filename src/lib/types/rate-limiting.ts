@@ -43,6 +43,16 @@ export const CreateReflinkSchema = z.object({
   rateLimitTier: RateLimitTierSchema.default('STANDARD'),
   dailyLimit: z.number().int().min(1).max(10000).optional(),
   expiresAt: z.string().datetime().optional(),
+  
+  // Enhanced reflink features
+  recipientName: z.string().min(1).max(255).optional(),
+  recipientEmail: z.string().email().optional(),
+  customContext: z.string().max(2000).optional(),
+  tokenLimit: z.number().int().min(1).optional(),
+  spendLimit: z.number().positive().optional(),
+  enableVoiceAI: z.boolean().default(true),
+  enableJobAnalysis: z.boolean().default(true),
+  enableAdvancedNavigation: z.boolean().default(true),
 });
 
 export const UpdateReflinkSchema = z.object({
@@ -52,6 +62,16 @@ export const UpdateReflinkSchema = z.object({
   dailyLimit: z.number().int().min(1).max(10000).optional(),
   expiresAt: z.string().datetime().optional(),
   isActive: z.boolean().optional(),
+  
+  // Enhanced reflink features
+  recipientName: z.string().min(1).max(255).optional(),
+  recipientEmail: z.string().email().optional(),
+  customContext: z.string().max(2000).optional(),
+  tokenLimit: z.number().int().min(1).optional(),
+  spendLimit: z.number().positive().optional(),
+  enableVoiceAI: z.boolean().optional(),
+  enableJobAnalysis: z.boolean().optional(),
+  enableAdvancedNavigation: z.boolean().optional(),
 });
 
 export const RateLimitCheckSchema = z.object({
@@ -112,6 +132,19 @@ export interface ReflinkInfo {
   createdBy?: string;
   createdAt: Date;
   updatedAt: Date;
+  
+  // Enhanced reflink features
+  recipientName?: string;
+  recipientEmail?: string;
+  customContext?: string;
+  tokenLimit?: number;
+  tokensUsed: number;
+  spendLimit?: number;
+  spendUsed: number;
+  enableVoiceAI: boolean;
+  enableJobAnalysis: boolean;
+  enableAdvancedNavigation: boolean;
+  lastUsedAt?: Date;
 }
 
 export interface RateLimitRecord {
@@ -197,6 +230,86 @@ export interface SecurityConfig {
   autoReinstateAfterDays: number;
   suspiciousActivityThreshold: number;
   contentAnalysisEnabled: boolean;
+}
+
+// ============================================================================
+// ENHANCED REFLINK TYPES
+// ============================================================================
+
+export interface BudgetStatus {
+  tokensRemaining?: number;
+  spendRemaining: number;
+  isExhausted: boolean;
+  estimatedRequestsRemaining: number;
+}
+
+export interface UsageEvent {
+  type: 'llm_request' | 'voice_generation' | 'voice_processing';
+  tokens?: number;
+  cost: number;
+  modelUsed?: string;
+  endpoint?: string;
+  metadata?: Record<string, any>;
+}
+
+export interface ReflinkValidationResult {
+  valid: boolean;
+  reflink?: ReflinkInfo;
+  budgetStatus?: BudgetStatus;
+  reason?: 'not_found' | 'expired' | 'budget_exhausted' | 'inactive';
+  welcomeMessage?: string;
+}
+
+export interface PersonalizedContext {
+  recipientName?: string;
+  customNotes?: string;
+  conversationStarters?: string[];
+  emphasizedTopics?: string[];
+}
+
+export interface ReflinkAnalytics {
+  totalRequests: number;
+  blockedRequests: number;
+  uniqueUsers: number;
+  totalCost: number;
+  averageCostPerRequest: number;
+  costBreakdown: {
+    llmCosts: number;
+    voiceCosts: number;
+    processingCosts: number;
+  };
+  usageByType: Record<string, number>;
+  requestsByDay: Array<{
+    date: string;
+    requests: number;
+    blocked: number;
+    cost: number;
+  }>;
+}
+
+export interface ConversationInfo {
+  id: string;
+  reflinkId?: string;
+  sessionId: string;
+  messageCount: number;
+  totalTokens: number;
+  totalCost: number;
+  startedAt: Date;
+  lastMessageAt?: Date;
+  transportModes: string[];
+}
+
+export interface JobAnalysisInfo {
+  id: string;
+  reflinkId?: string;
+  sessionId?: string;
+  jobSpecification: string;
+  companyName?: string;
+  positionTitle?: string;
+  analysisResult: any;
+  tokensUsed?: number;
+  costUsd?: number;
+  createdAt: Date;
 }
 
 // ============================================================================

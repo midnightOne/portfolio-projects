@@ -37,16 +37,38 @@ interface Reflink {
   createdBy?: string;
   createdAt: string;
   updatedAt: string;
+  
+  // Enhanced features
+  recipientName?: string;
+  recipientEmail?: string;
+  customContext?: string;
+  tokenLimit?: number;
+  tokensUsed: number;
+  spendLimit?: number;
+  spendUsed: number;
+  enableVoiceAI: boolean;
+  enableJobAnalysis: boolean;
+  enableAdvancedNavigation: boolean;
+  lastUsedAt?: string;
 }
 
 interface ReflinkUsage {
   totalRequests: number;
   blockedRequests: number;
   uniqueUsers: number;
+  totalCost: number;
+  averageCostPerRequest: number;
+  costBreakdown: {
+    llmCosts: number;
+    voiceCosts: number;
+    processingCosts: number;
+  };
+  usageByType: Record<string, number>;
   requestsByDay: Array<{
     date: string;
     requests: number;
     blocked: number;
+    cost: number;
   }>;
 }
 
@@ -72,6 +94,14 @@ export function ReflinksManager() {
     rateLimitTier: 'BASIC' | 'STANDARD' | 'PREMIUM' | 'UNLIMITED';
     dailyLimit: string;
     expiresAt: string;
+    recipientName: string;
+    recipientEmail: string;
+    customContext: string;
+    tokenLimit: string;
+    spendLimit: string;
+    enableVoiceAI: boolean;
+    enableJobAnalysis: boolean;
+    enableAdvancedNavigation: boolean;
   }>({
     code: '',
     name: '',
@@ -79,6 +109,14 @@ export function ReflinksManager() {
     rateLimitTier: 'STANDARD',
     dailyLimit: '',
     expiresAt: '',
+    recipientName: '',
+    recipientEmail: '',
+    customContext: '',
+    tokenLimit: '',
+    spendLimit: '',
+    enableVoiceAI: true,
+    enableJobAnalysis: true,
+    enableAdvancedNavigation: true,
   });
   const { toast } = useToast();
 
@@ -288,6 +326,14 @@ export function ReflinksManager() {
       rateLimitTier: 'STANDARD',
       dailyLimit: '',
       expiresAt: '',
+      recipientName: '',
+      recipientEmail: '',
+      customContext: '',
+      tokenLimit: '',
+      spendLimit: '',
+      enableVoiceAI: true,
+      enableJobAnalysis: true,
+      enableAdvancedNavigation: true,
     });
   };
 
@@ -300,6 +346,14 @@ export function ReflinksManager() {
       rateLimitTier: reflink.rateLimitTier,
       dailyLimit: reflink.dailyLimit.toString(),
       expiresAt: reflink.expiresAt ? reflink.expiresAt.split('T')[0] : '',
+      recipientName: reflink.recipientName || '',
+      recipientEmail: reflink.recipientEmail || '',
+      customContext: reflink.customContext || '',
+      tokenLimit: reflink.tokenLimit?.toString() || '',
+      spendLimit: reflink.spendLimit?.toString() || '',
+      enableVoiceAI: reflink.enableVoiceAI,
+      enableJobAnalysis: reflink.enableJobAnalysis,
+      enableAdvancedNavigation: reflink.enableAdvancedNavigation,
     });
     setEditDialogOpen(true);
   };
@@ -407,6 +461,99 @@ export function ReflinksManager() {
                     onChange={(e) => setFormData({ ...formData, expiresAt: e.target.value })}
                   />
                 </div>
+                
+                {/* Enhanced Reflink Features */}
+                <div className="border-t pt-4">
+                  <h4 className="font-medium mb-3">Recipient Information</h4>
+                  <div className="space-y-3">
+                    <div>
+                      <Label htmlFor="recipientName">Recipient Name</Label>
+                      <Input
+                        id="recipientName"
+                        value={formData.recipientName}
+                        onChange={(e) => setFormData({ ...formData, recipientName: e.target.value })}
+                        placeholder="e.g., John Smith"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="recipientEmail">Recipient Email (optional)</Label>
+                      <Input
+                        id="recipientEmail"
+                        type="email"
+                        value={formData.recipientEmail}
+                        onChange={(e) => setFormData({ ...formData, recipientEmail: e.target.value })}
+                        placeholder="e.g., john@company.com"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="customContext">Custom Context Notes</Label>
+                      <Textarea
+                        id="customContext"
+                        value={formData.customContext}
+                        onChange={(e) => setFormData({ ...formData, customContext: e.target.value })}
+                        placeholder="Personal notes or context for this recipient..."
+                        rows={3}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t pt-4">
+                  <h4 className="font-medium mb-3">Budget Controls</h4>
+                  <div className="space-y-3">
+                    <div>
+                      <Label htmlFor="tokenLimit">Token Limit (optional)</Label>
+                      <Input
+                        id="tokenLimit"
+                        type="number"
+                        value={formData.tokenLimit}
+                        onChange={(e) => setFormData({ ...formData, tokenLimit: e.target.value })}
+                        placeholder="e.g., 100000"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="spendLimit">Spend Limit (USD, optional)</Label>
+                      <Input
+                        id="spendLimit"
+                        type="number"
+                        step="0.01"
+                        value={formData.spendLimit}
+                        onChange={(e) => setFormData({ ...formData, spendLimit: e.target.value })}
+                        placeholder="e.g., 50.00"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t pt-4">
+                  <h4 className="font-medium mb-3">Feature Access</h4>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="enableVoiceAI">Voice AI</Label>
+                      <Switch
+                        id="enableVoiceAI"
+                        checked={formData.enableVoiceAI}
+                        onCheckedChange={(checked) => setFormData({ ...formData, enableVoiceAI: checked })}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="enableJobAnalysis">Job Analysis</Label>
+                      <Switch
+                        id="enableJobAnalysis"
+                        checked={formData.enableJobAnalysis}
+                        onCheckedChange={(checked) => setFormData({ ...formData, enableJobAnalysis: checked })}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="enableAdvancedNavigation">Advanced Navigation</Label>
+                      <Switch
+                        id="enableAdvancedNavigation"
+                        checked={formData.enableAdvancedNavigation}
+                        onCheckedChange={(checked) => setFormData({ ...formData, enableAdvancedNavigation: checked })}
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
@@ -443,11 +590,11 @@ export function ReflinksManager() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Code</TableHead>
-                  <TableHead>Name</TableHead>
+                  <TableHead>Recipient</TableHead>
                   <TableHead>Tier</TableHead>
-                  <TableHead>Daily Limit</TableHead>
+                  <TableHead>Budget Status</TableHead>
+                  <TableHead>Features</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Expires</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -470,10 +617,17 @@ export function ReflinksManager() {
                     </TableCell>
                     <TableCell>
                       <div>
-                        <div className="font-medium">{reflink.name || 'Unnamed'}</div>
-                        {reflink.description && (
+                        <div className="font-medium">
+                          {reflink.recipientName || reflink.name || 'Unnamed'}
+                        </div>
+                        {reflink.recipientEmail && (
                           <div className="text-sm text-muted-foreground">
-                            {reflink.description}
+                            {reflink.recipientEmail}
+                          </div>
+                        )}
+                        {reflink.customContext && (
+                          <div className="text-xs text-muted-foreground mt-1 max-w-xs truncate">
+                            {reflink.customContext}
                           </div>
                         )}
                       </div>
@@ -484,7 +638,39 @@ export function ReflinksManager() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      {reflink.dailyLimit === -1 ? 'Unlimited' : reflink.dailyLimit.toLocaleString()}
+                      <div className="space-y-1">
+                        {reflink.spendLimit && (
+                          <div className="text-sm">
+                            <span className="font-medium">
+                              ${reflink.spendUsed.toFixed(2)}
+                            </span>
+                            <span className="text-muted-foreground">
+                              / ${reflink.spendLimit.toFixed(2)}
+                            </span>
+                          </div>
+                        )}
+                        {reflink.tokenLimit && (
+                          <div className="text-xs text-muted-foreground">
+                            {reflink.tokensUsed.toLocaleString()} / {reflink.tokenLimit.toLocaleString()} tokens
+                          </div>
+                        )}
+                        {!reflink.spendLimit && !reflink.tokenLimit && (
+                          <span className="text-sm text-muted-foreground">No limits</span>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {reflink.enableVoiceAI && (
+                          <Badge variant="secondary" className="text-xs">Voice</Badge>
+                        )}
+                        {reflink.enableJobAnalysis && (
+                          <Badge variant="secondary" className="text-xs">Jobs</Badge>
+                        )}
+                        {reflink.enableAdvancedNavigation && (
+                          <Badge variant="secondary" className="text-xs">Nav</Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -498,16 +684,12 @@ export function ReflinksManager() {
                             Expired
                           </Badge>
                         )}
+                        {reflink.spendLimit && reflink.spendUsed >= reflink.spendLimit && (
+                          <Badge variant="destructive" className="text-xs">
+                            Budget
+                          </Badge>
+                        )}
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      {reflink.expiresAt ? (
-                        <span className={isExpired(reflink.expiresAt) ? 'text-destructive' : ''}>
-                          {new Date(reflink.expiresAt).toLocaleDateString()}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">Never</span>
-                      )}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
@@ -615,6 +797,99 @@ export function ReflinksManager() {
                 onChange={(e) => setFormData({ ...formData, expiresAt: e.target.value })}
               />
             </div>
+            
+            {/* Enhanced Reflink Features */}
+            <div className="border-t pt-4">
+              <h4 className="font-medium mb-3">Recipient Information</h4>
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="edit-recipientName">Recipient Name</Label>
+                  <Input
+                    id="edit-recipientName"
+                    value={formData.recipientName}
+                    onChange={(e) => setFormData({ ...formData, recipientName: e.target.value })}
+                    placeholder="e.g., John Smith"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-recipientEmail">Recipient Email</Label>
+                  <Input
+                    id="edit-recipientEmail"
+                    type="email"
+                    value={formData.recipientEmail}
+                    onChange={(e) => setFormData({ ...formData, recipientEmail: e.target.value })}
+                    placeholder="e.g., john@company.com"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-customContext">Custom Context Notes</Label>
+                  <Textarea
+                    id="edit-customContext"
+                    value={formData.customContext}
+                    onChange={(e) => setFormData({ ...formData, customContext: e.target.value })}
+                    placeholder="Personal notes or context for this recipient..."
+                    rows={3}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <h4 className="font-medium mb-3">Budget Controls</h4>
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="edit-tokenLimit">Token Limit</Label>
+                  <Input
+                    id="edit-tokenLimit"
+                    type="number"
+                    value={formData.tokenLimit}
+                    onChange={(e) => setFormData({ ...formData, tokenLimit: e.target.value })}
+                    placeholder="Leave empty for no limit"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-spendLimit">Spend Limit (USD)</Label>
+                  <Input
+                    id="edit-spendLimit"
+                    type="number"
+                    step="0.01"
+                    value={formData.spendLimit}
+                    onChange={(e) => setFormData({ ...formData, spendLimit: e.target.value })}
+                    placeholder="Leave empty for no limit"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <h4 className="font-medium mb-3">Feature Access</h4>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="edit-enableVoiceAI">Voice AI</Label>
+                  <Switch
+                    id="edit-enableVoiceAI"
+                    checked={formData.enableVoiceAI}
+                    onCheckedChange={(checked) => setFormData({ ...formData, enableVoiceAI: checked })}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="edit-enableJobAnalysis">Job Analysis</Label>
+                  <Switch
+                    id="edit-enableJobAnalysis"
+                    checked={formData.enableJobAnalysis}
+                    onCheckedChange={(checked) => setFormData({ ...formData, enableJobAnalysis: checked })}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="edit-enableAdvancedNavigation">Advanced Navigation</Label>
+                  <Switch
+                    id="edit-enableAdvancedNavigation"
+                    checked={formData.enableAdvancedNavigation}
+                    onCheckedChange={(checked) => setFormData({ ...formData, enableAdvancedNavigation: checked })}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditDialogOpen(false)}>
@@ -638,7 +913,7 @@ export function ReflinksManager() {
           </DialogHeader>
           {reflinkUsage && (
             <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-4 gap-4">
                 <Card>
                   <CardContent className="pt-4">
                     <div className="text-2xl font-bold">{reflinkUsage.totalRequests}</div>
@@ -657,15 +932,63 @@ export function ReflinksManager() {
                     <p className="text-sm text-muted-foreground">Unique Users</p>
                   </CardContent>
                 </Card>
+                <Card>
+                  <CardContent className="pt-4">
+                    <div className="text-2xl font-bold">${reflinkUsage.totalCost.toFixed(2)}</div>
+                    <p className="text-sm text-muted-foreground">Total Cost</p>
+                  </CardContent>
+                </Card>
               </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm">Cost Breakdown</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span>LLM Costs:</span>
+                        <span>${reflinkUsage.costBreakdown.llmCosts.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Voice Costs:</span>
+                        <span>${reflinkUsage.costBreakdown.voiceCosts.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Processing:</span>
+                        <span>${reflinkUsage.costBreakdown.processingCosts.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+                
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm">Usage by Type</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2 text-sm">
+                      {Object.entries(reflinkUsage.usageByType).map(([type, count]) => (
+                        <div key={type} className="flex justify-between">
+                          <span className="capitalize">{type.replace('_', ' ')}:</span>
+                          <span>{count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+              
               <div>
-                <h4 className="font-medium mb-2">Daily Usage (Last 7 Days)</h4>
-                <div className="space-y-2">
+                <h4 className="font-medium mb-2">Daily Usage & Costs (Last 30 Days)</h4>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
                   {reflinkUsage.requestsByDay.map((day, index) => (
-                    <div key={index} className="flex items-center justify-between text-sm">
+                    <div key={index} className="flex items-center justify-between text-sm p-2 rounded border">
                       <span>{day.date}</span>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-4">
                         <span>{day.requests} requests</span>
+                        <span className="font-medium">${day.cost.toFixed(2)}</span>
                         {day.blocked > 0 && (
                           <Badge variant="destructive" className="text-xs">
                             {day.blocked} blocked

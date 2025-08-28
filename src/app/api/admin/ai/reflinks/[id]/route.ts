@@ -40,8 +40,8 @@ export async function GET(
       );
     }
 
-    // Get usage statistics
-    const usage = await reflinkManager.getReflinkUsage(id, 30); // Last 30 days
+    // Get enhanced analytics
+    const usage = await reflinkManager.getReflinkAnalytics(id, 30); // Last 30 days
 
     return NextResponse.json(createApiSuccess({
       reflink,
