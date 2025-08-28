@@ -5,6 +5,7 @@
  */
 
 import { projectIndexer, ProjectIndex, IndexedSection } from '@/lib/services/project-indexer';
+import { contentSourceManager } from './content-source-manager';
 
 export interface ContextSource {
   id: string;
@@ -18,7 +19,7 @@ export interface ContextSource {
 
 export interface RelevantContent {
   id: string;
-  type: 'project' | 'about' | 'resume' | 'custom';
+  type: 'project' | 'about' | 'resume' | 'experience' | 'skills' | 'custom';
   title: string;
   content: string;
   summary: string;
@@ -96,12 +97,14 @@ export class ContextManager {
         minRelevanceScore = this.MIN_RELEVANCE_THRESHOLD
       } = options;
 
-      // Search for relevant content
-      const relevantContent = await this.searchRelevantContent(query, {
-        includeProjects,
-        includeAbout,
-        includeResume,
-        minRelevanceScore
+      // Auto-discover and initialize content sources
+      await contentSourceManager.autoDiscoverSources();
+
+      // Use the flexible content source system for searching
+      const relevantContent = await contentSourceManager.searchContent(query, {
+        maxResults: 50,
+        minRelevanceScore,
+        sortBy: 'relevance'
       });
 
       // Prioritize content based on relevance and recency
@@ -386,7 +389,14 @@ export class ContextManager {
       }
 
       // Secondary sort by content type priority
-      const typePriority = { about: 3, project: 2, resume: 1, custom: 0 };
+      const typePriority: Record<string, number> = { 
+        about: 5, 
+        project: 4, 
+        experience: 3, 
+        skills: 2, 
+        resume: 1, 
+        custom: 0 
+      };
       const aPriority = typePriority[a.type] || 0;
       const bPriority = typePriority[b.type] || 0;
       

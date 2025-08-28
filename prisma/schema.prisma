@@ -250,6 +250,22 @@ model AIGeneralSettings {
   @@map("ai_general_settings")
 }
 
+model AIContentSourceConfig {
+  id         String   @id @default(cuid())
+  sourceId   String   @unique
+  providerId String
+  enabled    Boolean  @default(true)
+  priority   Int      @default(50)
+  config     Json     @default("{}")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([sourceId])
+  @@index([enabled])
+  @@index([priority])
+  @@map("ai_content_source_config")
+}
+
 model HomepageConfig {
   id          String          @id @default(cuid())
   sections    Json
