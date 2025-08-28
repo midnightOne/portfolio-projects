@@ -21,7 +21,8 @@ import {
   Users,
   BarChart3,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  RotateCcw
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -150,6 +151,14 @@ export function ReflinksManager() {
         rateLimitTier: formData.rateLimitTier,
         dailyLimit: formData.dailyLimit ? parseInt(formData.dailyLimit) : undefined,
         expiresAt: formData.expiresAt || undefined,
+        recipientName: formData.recipientName || undefined,
+        recipientEmail: formData.recipientEmail || undefined,
+        customContext: formData.customContext || undefined,
+        tokenLimit: formData.tokenLimit ? parseInt(formData.tokenLimit) : undefined,
+        spendLimit: formData.spendLimit ? parseFloat(formData.spendLimit) : undefined,
+        enableVoiceAI: formData.enableVoiceAI,
+        enableJobAnalysis: formData.enableJobAnalysis,
+        enableAdvancedNavigation: formData.enableAdvancedNavigation,
       };
 
       const response = await fetch('/api/admin/ai/reflinks', {
@@ -194,6 +203,14 @@ export function ReflinksManager() {
         dailyLimit: formData.dailyLimit ? parseInt(formData.dailyLimit) : undefined,
         expiresAt: formData.expiresAt || undefined,
         isActive: selectedReflink.isActive,
+        recipientName: formData.recipientName || undefined,
+        recipientEmail: formData.recipientEmail || undefined,
+        customContext: formData.customContext || undefined,
+        tokenLimit: formData.tokenLimit ? parseInt(formData.tokenLimit) : undefined,
+        spendLimit: formData.spendLimit ? parseFloat(formData.spendLimit) : undefined,
+        enableVoiceAI: formData.enableVoiceAI,
+        enableJobAnalysis: formData.enableJobAnalysis,
+        enableAdvancedNavigation: formData.enableAdvancedNavigation,
       };
 
       const response = await fetch(`/api/admin/ai/reflinks/${selectedReflink.id}`, {
@@ -316,6 +333,36 @@ export function ReflinksManager() {
       title: "Copied",
       description: "Reflink code copied to clipboard",
     });
+  };
+
+  const resetReflinkUsage = async (reflink: Reflink) => {
+    if (!confirm(`Are you sure you want to reset the usage for reflink "${reflink.code}"? This will set tokens used and spend used back to 0.`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/admin/ai/reflinks/${reflink.id}/reset-usage`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to reset reflink usage');
+      }
+
+      toast({
+        title: "Success",
+        description: "Reflink usage reset successfully",
+      });
+
+      fetchReflinks();
+    } catch (error) {
+      console.error('Failed to reset reflink usage:', error);
+      toast({
+        title: "Error",
+        description: "Failed to reset reflink usage",
+        variant: "destructive",
+      });
+    }
   };
 
   const resetForm = () => {

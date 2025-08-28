@@ -247,7 +247,7 @@ export const RATE_LIMIT_CONFIGS = {
 } as const;
 
 /**
- * Abuse detection middleware
+ * Enhanced abuse detection middleware
  */
 export function withAbuseDetection() {
   return async function abuseDetectionMiddleware(
@@ -261,30 +261,100 @@ export function withAbuseDetection() {
         return handler(req);
       }
 
-      // Check for suspicious patterns in request
+      const userAgent = req.headers.get('user-agent') || '';
+      const endpoint = req.nextUrl.pathname;
+      const queryString = req.nextUrl.searchParams.toString();
+
+      // Enhanced suspicious pattern detection
       const suspiciousPatterns = [
-        // Rapid requests (this would be handled by rate limiting)
         // Malicious user agents
-        /bot|crawler|spider|scraper/i.test(req.headers.get('user-agent') || ''),
+        /bot|crawler|spider|scraper|automated|script/i.test(userAgent),
+        // Programming language user agents
+        /curl|wget|python|java|node|php/i.test(userAgent),
         // Suspicious query parameters
-        req.nextUrl.searchParams.toString().length > 1000,
+        queryString.length > 1000,
         // Missing common headers
         !req.headers.get('accept'),
+        // Unusual accept headers
+        req.headers.get('accept') === '*/*' && !userAgent.includes('curl'),
+        // Missing referer on non-direct requests
+        !req.headers.get('referer') && req.method === 'POST',
+        // Suspicious content-length
+        req.headers.get('content-length') && parseInt(req.headers.get('content-length')!) > 100000,
       ];
 
       const suspiciousScore = suspiciousPatterns.filter(Boolean).length;
+      const reasons: string[] = [];
+
+      if (suspiciousPatterns[0]) reasons.push('Suspicious user agent');
+      if (suspiciousPatterns[1]) reasons.push('Programming language user agent');
+      if (suspiciousPatterns[2]) reasons.push('Excessive query parameters');
+      if (suspiciousPatterns[3]) reasons.push('Missing accept header');
+      if (suspiciousPatterns[4]) reasons.push('Generic accept header');
+      if (suspiciousPatterns[5]) reasons.push('Missing referer on POST');
+      if (suspiciousPatterns[6]) reasons.push('Large content length');
 
       if (suspiciousScore >= 2) {
-        // Record violation but don't block immediately
-        await blacklistManager.recordViolation(
+        const { securityNotifier } = await import('@/lib/services/ai/security-notifier');
+        
+        // Record violation
+        const violationResult = await blacklistManager.recordViolation(
           ipAddress,
           'suspicious_activity',
           {
-            userAgent: req.headers.get('user-agent'),
-            endpoint: req.nextUrl.pathname,
+            userAgent,
+            endpoint,
             suspiciousScore,
+            reasons,
+            queryLength: queryString.length,
+            contentLength: req.headers.get('content-length'),
           }
         );
+
+        // Send notification for high-risk activity
+        if (suspiciousScore >= 3 || violationResult.blacklisted) {
+          await securityNotifier.notifyWarning(
+            ipAddress,
+            `Suspicious activity detected (score: ${suspiciousScore}): ${reasons.join(', ')}`,
+            {
+              endpoint,
+              userAgent,
+              metadata: {
+                suspiciousScore,
+                reasons,
+                violationCount: violationResult.violationCount,
+                blacklisted: violationResult.blacklisted,
+              },
+            }
+          );
+
+          // Send blacklist notification if IP was blacklisted
+          if (violationResult.blacklisted) {
+            const blacklistResult = await blacklistManager.isBlacklisted(ipAddress);
+            if (blacklistResult.entry) {
+              await securityNotifier.notifyBlacklist(ipAddress, blacklistResult.entry, {
+                endpoint,
+                userAgent,
+              });
+            }
+          }
+        }
+
+        // Block if score is very high
+        if (suspiciousScore >= 4) {
+          return NextResponse.json(
+            createApiError(
+              'SUSPICIOUS_ACTIVITY',
+              'Request blocked due to suspicious activity',
+              { 
+                reasons,
+                suspiciousScore,
+              },
+              req.nextUrl.pathname
+            ),
+            { status: 403 }
+          );
+        }
       }
 
       return handler(req);
@@ -297,7 +367,7 @@ export function withAbuseDetection() {
 }
 
 /**
- * Content analysis middleware for detecting inappropriate content
+ * Enhanced content analysis middleware using AI-powered abuse detection
  */
 export function withContentAnalysis() {
   return async function contentAnalysisMiddleware(
@@ -321,44 +391,91 @@ export function withContentAnalysis() {
         return handler(req);
       }
 
-      // Simple content analysis (can be enhanced with AI-based detection)
-      const textContent = JSON.stringify(body).toLowerCase();
-      const inappropriatePatterns = [
-        /spam/g,
-        /advertisement/g,
-        /buy now/g,
-        /click here/g,
-        // Add more patterns as needed
-      ];
+      // Extract text content from request body
+      const textContent = extractTextFromBody(body);
+      if (!textContent || textContent.trim().length === 0) {
+        return handler(req);
+      }
 
-      const violations = inappropriatePatterns.reduce((count, pattern) => {
-        const matches = textContent.match(pattern);
-        return count + (matches ? matches.length : 0);
-      }, 0);
+      // Use enhanced abuse detection
+      const { abuseDetector } = await import('@/lib/services/ai/abuse-detector');
+      const { securityNotifier } = await import('@/lib/services/ai/security-notifier');
+      
+      const ipAddress = getClientIP(req);
+      const userAgent = req.headers.get('user-agent') || undefined;
+      const endpoint = req.nextUrl.pathname;
 
-      if (violations > 3) {
-        const ipAddress = getClientIP(req);
+      const analysisResult = await abuseDetector.analyzeContent(textContent, {
+        ipAddress,
+        userAgent,
+        endpoint,
+      });
+
+      // Handle analysis results
+      if (analysisResult.suggestedAction === 'block') {
         if (ipAddress) {
-          await blacklistManager.recordViolation(
+          const violationResult = await abuseDetector.recordViolation(
             ipAddress,
-            'inappropriate_content',
+            analysisResult,
             {
-              endpoint: req.nextUrl.pathname,
-              violations,
-              contentLength: textContent.length,
+              endpoint,
+              userAgent,
+              content: textContent,
             }
           );
+
+          // Send notification if needed
+          if (violationResult.shouldNotify) {
+            await securityNotifier.notifyViolation(ipAddress, analysisResult, {
+              endpoint,
+              userAgent,
+              violationCount: violationResult.violationCount,
+              content: textContent,
+            });
+
+            // Send blacklist notification if IP was blacklisted
+            if (violationResult.blacklisted) {
+              const blacklistResult = await blacklistManager.isBlacklisted(ipAddress);
+              if (blacklistResult.entry) {
+                await securityNotifier.notifyBlacklist(ipAddress, blacklistResult.entry, {
+                  endpoint,
+                  userAgent,
+                });
+              }
+            }
+          }
         }
 
         return NextResponse.json(
           createApiError(
             'CONTENT_VIOLATION',
             'Content violates usage policies',
-            { violations },
+            { 
+              reasons: analysisResult.reasons,
+              severity: analysisResult.severity,
+              confidence: analysisResult.confidence,
+            },
             req.nextUrl.pathname
           ),
           { status: 400 }
         );
+      } else if (analysisResult.suggestedAction === 'warn') {
+        // Log warning but allow request to proceed
+        if (ipAddress) {
+          await securityNotifier.notifyWarning(
+            ipAddress,
+            `Potentially inappropriate content detected: ${analysisResult.reasons.join(', ')}`,
+            {
+              endpoint,
+              userAgent,
+              metadata: {
+                confidence: analysisResult.confidence,
+                severity: analysisResult.severity,
+                contentLength: textContent.length,
+              },
+            }
+          );
+        }
       }
 
       return handler(req);
@@ -368,4 +485,34 @@ export function withContentAnalysis() {
       return handler(req);
     }
   };
+}
+
+/**
+ * Extract text content from request body for analysis
+ */
+function extractTextFromBody(body: any): string {
+  if (typeof body === 'string') {
+    return body;
+  }
+
+  if (typeof body === 'object' && body !== null) {
+    // Common fields that might contain user content
+    const textFields = ['content', 'message', 'text', 'query', 'prompt', 'description', 'jobSpec'];
+    const textParts: string[] = [];
+
+    for (const field of textFields) {
+      if (body[field] && typeof body[field] === 'string') {
+        textParts.push(body[field]);
+      }
+    }
+
+    // If no specific fields found, stringify the entire body
+    if (textParts.length === 0) {
+      return JSON.stringify(body);
+    }
+
+    return textParts.join(' ');
+  }
+
+  return '';
 }

@@ -381,6 +381,17 @@ export function AdminSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/abuse-detection')}
+                >
+                  <Link href="/admin/ai/abuse-detection" className="flex items-center gap-2">
+                    <Bot className="size-4" />
+                    <span>Abuse Detection</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

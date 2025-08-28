@@ -19,7 +19,8 @@ import {
   RefreshCw,
   Calendar,
   Activity,
-  TrendingUp
+  TrendingUp,
+  Settings
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
@@ -380,6 +381,7 @@ export function SecurityManager() {
         <TabsList>
           <TabsTrigger value="blacklist">IP Blacklist</TabsTrigger>
           <TabsTrigger value="violations">Violation Analysis</TabsTrigger>
+          <TabsTrigger value="detection">Abuse Detection</TabsTrigger>
         </TabsList>
 
         <TabsContent value="blacklist" className="space-y-4">
@@ -537,6 +539,32 @@ export function SecurityManager() {
               </Card>
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="detection" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Abuse Detection Settings</CardTitle>
+              <CardDescription>
+                Configure content analysis and notification settings for enhanced security
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center py-8">
+                <Shield className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <p className="text-muted-foreground mb-4">
+                  Advanced abuse detection and notification settings are available in the dedicated settings page.
+                </p>
+                <Button 
+                  onClick={() => window.open('/admin/ai/abuse-detection', '_blank')}
+                  variant="outline"
+                >
+                  <Settings className="h-4 w-4 mr-2" />
+                  Open Abuse Detection Settings
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
