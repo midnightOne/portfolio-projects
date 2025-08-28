@@ -303,12 +303,24 @@ export function AdminSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
-                  isActive={isItemActive('/admin/ai')}
+                  isActive={isItemActive('/admin/ai') && !pathname.includes('/admin/ai/content-sources')}
                   onClick={() => router.push('/admin/ai')}
                 >
                   <a href="/admin/ai" className="flex items-center gap-2">
                     <Settings className="size-4" />
                     <span>AI Settings</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/content-sources')}
+                  onClick={() => router.push('/admin/ai/content-sources')}
+                >
+                  <a href="/admin/ai/content-sources" className="flex items-center gap-2">
+                    <FileText className="size-4" />
+                    <span>Content Sources</span>
                   </a>
                 </SidebarMenuButton>
               </SidebarMenuItem>

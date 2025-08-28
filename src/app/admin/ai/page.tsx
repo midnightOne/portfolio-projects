@@ -272,6 +272,27 @@ function AISettingsContent() {
       {/* AI Status Overview */}
       <AIStatusIndicator variant="detailed" showActions={true} />
 
+      {/* Quick Actions */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => router.push('/admin/ai/content-sources')}>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Brain className="h-5 w-5" />
+              Content Sources
+            </CardTitle>
+            <CardDescription>
+              Manage AI context sources and enable/disable content types
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Configure content sources</span>
+              <ExternalLink className="h-4 w-4" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Individual Panels Layout */}
       <div className="flex flex-wrap gap-4">
         {/* Environment Configuration - Medium Width */}
