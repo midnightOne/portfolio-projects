@@ -49,6 +49,8 @@ import {
   User,
   ChevronRight,
   Loader2,
+  Database,
+  SlidersHorizontal,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useAdminProjects } from "@/hooks/use-admin-projects";
@@ -303,7 +305,7 @@ export function AdminSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
-                  isActive={isItemActive('/admin/ai') && !pathname.includes('/admin/ai/content-sources')}
+                  isActive={pathname === '/admin/ai'}
                   onClick={() => router.push('/admin/ai')}
                 >
                   <a href="/admin/ai" className="flex items-center gap-2">
@@ -320,6 +322,28 @@ export function AdminSidebar() {
                   <Link href="/admin/ai/content-sources" className="flex items-center gap-2">
                     <FileText className="size-4" />
                     <span>Content Sources</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/project-indexing')}
+                >
+                  <Link href="/admin/ai/project-indexing" className="flex items-center gap-2">
+                    <Database className="size-4" />
+                    <span>Project Indexing</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/context-config')}
+                >
+                  <Link href="/admin/ai/context-config" className="flex items-center gap-2">
+                    <SlidersHorizontal className="size-4" />
+                    <span>Context Config</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
