@@ -37,7 +37,9 @@ export async function GET(request: NextRequest) {
         providerId: dbConfig.providerId,
         enabled: dbConfig.enabled,
         priority: dbConfig.priority,
-        config: dbConfig.config as Record<string, any>
+        config: dbConfig.config as Record<string, any>,
+        createdAt: dbConfig.createdAt,
+        updatedAt: dbConfig.updatedAt
       });
     }
 
