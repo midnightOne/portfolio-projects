@@ -6,6 +6,7 @@
 
 import { contextManager, type ContextSource, type ContextBuildOptions } from './context-manager';
 import { type ChatMessage, type ProviderChatRequest, type ProviderChatResponse } from '@/lib/ai/types';
+import { conversationHistoryManager } from './conversation-history-manager';
 
 // Core conversation types
 export interface ConversationMessage {
@@ -306,6 +307,39 @@ export class UnifiedConversationManager {
       // Update conversation metadata
       this.updateConversationMetadata(conversation, aiResponse, Date.now() - startTime);
 
+      // Persist messages to database
+      try {
+        const existingConversation = await conversationHistoryManager.getConversationBySessionId(conversation.sessionId);
+        if (existingConversation) {
+          // Add user message to database
+          await conversationHistoryManager.addMessage(
+            existingConversation.id,
+            userMessage,
+            {
+              systemPrompt,
+              contextString,
+              aiRequest,
+              aiResponse
+            }
+          );
+
+          // Add assistant message to database
+          await conversationHistoryManager.addMessage(
+            existingConversation.id,
+            assistantMessage,
+            {
+              systemPrompt,
+              contextString,
+              aiRequest,
+              aiResponse
+            }
+          );
+        }
+      } catch (error) {
+        console.error('Failed to persist messages to database:', error);
+        // Continue without database persistence
+      }
+
       // Generate voice response if needed
       let voiceResponse: ConversationResponse['voiceResponse'];
       if (options.enableVoiceResponse && (input.mode === 'voice' || input.mode === 'hybrid')) {
@@ -419,9 +453,61 @@ export class UnifiedConversationManager {
 
   /**
    * Get conversation history in a format suitable for display
+   * Loads from database if not in memory
    */
   async getConversationHistory(sessionId: string): Promise<ConversationMessage[]> {
-    const conversation = await this.getConversationState(sessionId);
+    let conversation = await this.getConversationState(sessionId);
+    
+    // If not in memory, try to load from database
+    if (!conversation) {
+      try {
+        const dbConversation = await conversationHistoryManager.getConversationBySessionId(sessionId);
+        if (dbConversation) {
+          // Convert database messages to conversation messages
+          const messages: ConversationMessage[] = dbConversation.messages.map(msg => ({
+            id: msg.id,
+            role: msg.role as 'user' | 'assistant' | 'system',
+            content: msg.content,
+            timestamp: msg.timestamp,
+            inputMode: (msg.transportMode as 'text' | 'voice' | 'hybrid') || 'text',
+            metadata: {
+              tokensUsed: msg.tokensUsed,
+              cost: msg.costUsd,
+              model: msg.modelUsed,
+              processingTime: msg.metadata.processingTime,
+              voiceData: msg.metadata.voiceData,
+              contextUsed: msg.metadata.contextUsed,
+              navigationCommands: msg.metadata.navigationCommands as any
+            }
+          }));
+
+          // Restore conversation state in memory
+          conversation = {
+            id: dbConversation.id,
+            sessionId: dbConversation.sessionId,
+            messages,
+            currentContext: '',
+            contextSources: await this.initializeContextSources(),
+            activeMode: (dbConversation.metadata.conversationMode as 'text' | 'voice' | 'hybrid') || 'text',
+            isProcessing: false,
+            lastActivity: dbConversation.lastMessageAt || dbConversation.startedAt,
+            metadata: {
+              totalTokensUsed: dbConversation.totalTokens,
+              totalCost: dbConversation.totalCost,
+              messageCount: dbConversation.messageCount,
+              averageResponseTime: dbConversation.metadata.averageResponseTime || 0,
+              reflinkId: dbConversation.reflinkId,
+              userPreferences: dbConversation.metadata.userPreferences as any
+            }
+          };
+
+          this.conversations.set(sessionId, conversation);
+        }
+      } catch (error) {
+        console.error('Failed to load conversation from database:', error);
+      }
+    }
+    
     return conversation?.messages || [];
   }
 
@@ -840,12 +926,33 @@ export class UnifiedConversationManager {
   }
 
   /**
-   * Save conversation state (placeholder for persistence)
+   * Save conversation state with database persistence
    */
   private async saveConversationState(conversation: ConversationState): Promise<void> {
-    // In a full implementation, this would save to database
-    // For now, we keep it in memory
-    this.conversations.set(conversation.sessionId, conversation);
+    try {
+      // Keep in memory for immediate access
+      this.conversations.set(conversation.sessionId, conversation);
+
+      // Persist to database through conversation history manager
+      // Check if conversation exists in database
+      const existingConversation = await conversationHistoryManager.getConversationBySessionId(conversation.sessionId);
+      
+      if (!existingConversation) {
+        // Create new conversation record
+        await conversationHistoryManager.createConversation(
+          conversation.sessionId,
+          conversation.metadata.reflinkId,
+          {
+            conversationMode: conversation.activeMode,
+            averageResponseTime: conversation.metadata.averageResponseTime,
+            userPreferences: conversation.metadata.userPreferences
+          }
+        );
+      }
+    } catch (error) {
+      console.error('Failed to save conversation state to database:', error);
+      // Continue with in-memory storage even if database save fails
+    }
   }
 
   /**
