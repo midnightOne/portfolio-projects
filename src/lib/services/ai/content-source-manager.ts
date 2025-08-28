@@ -197,6 +197,48 @@ export class ContentSourceManager {
   }
 
   /**
+   * Get all registered content sources (for admin interface)
+   * Returns all sources regardless of availability
+   */
+  async getAllSources(): Promise<ContextSource[]> {
+    const sources: ContextSource[] = [];
+
+    for (const [providerId, provider] of this.registry.providers) {
+      try {
+        const config = this.registry.configs.get(providerId);
+        let metadata;
+        
+        try {
+          metadata = await provider.getMetadata();
+        } catch (error) {
+          console.error(`Error getting metadata for ${providerId}:`, error);
+          metadata = {
+            lastUpdated: new Date(),
+            itemCount: 0,
+            size: 0,
+            tags: [],
+            summary: 'Metadata unavailable'
+          };
+        }
+
+        sources.push({
+          id: providerId,
+          type: provider.type as any,
+          title: provider.name,
+          enabled: config?.enabled ?? true,
+          summary: metadata.summary,
+          lastUpdated: metadata.lastUpdated,
+          priority: config?.priority ?? 50
+        });
+      } catch (error) {
+        console.error(`Error getting source ${providerId}:`, error);
+      }
+    }
+
+    return sources.sort((a, b) => b.priority - a.priority);
+  }
+
+  /**
    * Search content across enabled sources
    */
   async searchContent(
@@ -357,12 +399,27 @@ export class ContentSourceManager {
    */
   private async loadConfigurations(): Promise<void> {
     try {
-      // Skip loading configurations if we're in a server context to avoid circular dependency
+      // In server context, load directly from database
       if (typeof window === 'undefined') {
-        console.log('Skipping configuration loading in server context');
+        const { prisma } = await import('@/lib/prisma');
+        const dbConfigs = await prisma.aIContentSourceConfig.findMany();
+        
+        for (const dbConfig of dbConfigs) {
+          this.registry.configs.set(dbConfig.sourceId, {
+            id: dbConfig.sourceId,
+            providerId: dbConfig.providerId,
+            enabled: dbConfig.enabled,
+            priority: dbConfig.priority,
+            config: dbConfig.config as Record<string, any>,
+            createdAt: dbConfig.createdAt,
+            updatedAt: dbConfig.updatedAt
+          });
+        }
+        console.log(`Loaded ${dbConfigs.length} content source configurations from database`);
         return;
       }
       
+      // In client context, use API
       const response = await fetch('/api/admin/ai/content-sources');
       if (response.ok) {
         const data = await response.json();
@@ -407,11 +464,35 @@ export class ContentSourceManager {
    */
   private async saveConfiguration(config: ContentSourceConfig): Promise<void> {
     try {
-      await fetch('/api/admin/ai/content-sources', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config })
-      });
+      // In server context, use Prisma directly to avoid circular HTTP requests
+      if (typeof window === 'undefined') {
+        const { prisma } = await import('@/lib/prisma');
+        await prisma.aIContentSourceConfig.upsert({
+          where: { sourceId: config.id },
+          update: {
+            enabled: config.enabled,
+            priority: config.priority,
+            config: config.config,
+            updatedAt: new Date()
+          },
+          create: {
+            sourceId: config.id,
+            providerId: config.providerId,
+            enabled: config.enabled,
+            priority: config.priority,
+            config: config.config,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          }
+        });
+      } else {
+        // In client context, use API
+        await fetch('/api/admin/ai/content-sources', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config })
+        });
+      }
     } catch (error) {
       console.error('Error saving content source configuration:', error);
     }
@@ -430,11 +511,24 @@ class ProjectContentProvider implements ContentSourceProvider {
   version = '1.0.0';
 
   async isAvailable(): Promise<boolean> {
-    // Skip availability check in server context to avoid fetch issues
+    // In server context, check database directly
     if (typeof window === 'undefined') {
-      return true; // Assume available in server context
+      try {
+        const { prisma } = await import('@/lib/prisma');
+        const projectCount = await prisma.project.count({
+          where: {
+            status: 'PUBLISHED',
+            visibility: 'PUBLIC'
+          }
+        });
+        return projectCount > 0;
+      } catch (error) {
+        console.error('Error checking project availability:', error);
+        return false;
+      }
     }
     
+    // In client context, use API
     try {
       const response = await fetch('/api/projects?limit=1');
       return response.ok;
@@ -484,11 +578,25 @@ class AboutContentProvider implements ContentSourceProvider {
   version = '1.0.0';
 
   async isAvailable(): Promise<boolean> {
-    // Skip availability check in server context to avoid fetch issues
+    // In server context, check database directly
     if (typeof window === 'undefined') {
-      return true; // Assume available in server context
+      try {
+        const { prisma } = await import('@/lib/prisma');
+        const config = await prisma.homepageConfig.findFirst({
+          orderBy: { updatedAt: 'desc' }
+        });
+        if (!config?.sections) return false;
+        
+        const sections = Array.isArray(config.sections) ? config.sections : JSON.parse(config.sections as string);
+        const aboutSection = sections.find((s: any) => s.type === 'about');
+        return !!aboutSection;
+      } catch (error) {
+        console.error('Error checking about availability:', error);
+        return false;
+      }
     }
     
+    // In client context, use API
     try {
       const response = await fetch('/api/homepage-config-public');
       const data = await response.json();
@@ -601,12 +709,25 @@ class ExperienceContentProvider implements ContentSourceProvider {
   version = '1.0.0';
 
   async isAvailable(): Promise<boolean> {
-    // Skip availability check in server context to avoid fetch issues
+    // In server context, check database directly
     if (typeof window === 'undefined') {
-      return true; // Assume available in server context
+      try {
+        const { prisma } = await import('@/lib/prisma');
+        const config = await prisma.homepageConfig.findFirst({
+          orderBy: { updatedAt: 'desc' }
+        });
+        if (!config?.sections) return false;
+        
+        const sections = Array.isArray(config.sections) ? config.sections : JSON.parse(config.sections as string);
+        const experienceSection = sections.find((s: any) => s.type === 'experience');
+        return !!experienceSection;
+      } catch (error) {
+        console.error('Error checking experience availability:', error);
+        return false;
+      }
     }
     
-    // Check if experience data is available in homepage config
+    // In client context, use API
     try {
       const response = await fetch('/api/homepage-config-public');
       const data = await response.json();
@@ -696,11 +817,25 @@ class SkillsContentProvider implements ContentSourceProvider {
   version = '1.0.0';
 
   async isAvailable(): Promise<boolean> {
-    // Skip availability check in server context to avoid fetch issues
+    // In server context, check database directly
     if (typeof window === 'undefined') {
-      return true; // Assume available in server context
+      try {
+        const { prisma } = await import('@/lib/prisma');
+        const config = await prisma.homepageConfig.findFirst({
+          orderBy: { updatedAt: 'desc' }
+        });
+        if (!config?.sections) return false;
+        
+        const sections = Array.isArray(config.sections) ? config.sections : JSON.parse(config.sections as string);
+        const aboutSection = sections.find((s: any) => s.type === 'about');
+        return !!(aboutSection?.config?.skills?.length > 0);
+      } catch (error) {
+        console.error('Error checking skills availability:', error);
+        return false;
+      }
     }
     
+    // In client context, use API
     try {
       const response = await fetch('/api/homepage-config-public');
       const data = await response.json();

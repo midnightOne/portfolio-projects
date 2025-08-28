@@ -43,8 +43,8 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Get all available sources
-    const sources = await contentSourceManager.getAvailableSources();
+    // Get all sources (for admin interface, show all regardless of availability)
+    const sources = await contentSourceManager.getAllSources();
 
     // Get detailed configurations
     const sourcesWithDetails = await Promise.all(
@@ -52,9 +52,21 @@ export async function GET(request: NextRequest) {
         const config = contentSourceManager.getSourceConfig(source.id);
         const schema = await contentSourceManager.getSourceSchema(source.id);
         const provider = contentSourceManager.getProvider(source.id);
+        
+        // Check availability
+        let isAvailable = true;
+        try {
+          if (provider) {
+            isAvailable = await provider.isAvailable();
+          }
+        } catch (error) {
+          console.error(`Error checking availability for ${source.id}:`, error);
+          isAvailable = false;
+        }
 
         return {
           ...source,
+          isAvailable,
           config: config?.config || {},
           schema,
           provider: {
