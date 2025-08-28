@@ -131,8 +131,11 @@ export class UnifiedConversationManager {
   private readonly SESSION_TIMEOUT = 30 * 60 * 1000; // 30 minutes
   private availableModels: string[] = [];
   private lastDebugData: ConversationDebugData | null = null;
+  private recentDebugData: ConversationDebugData[] = [];
+  private readonly MAX_DEBUG_ENTRIES = 20; // Keep last 20 debug entries
 
   constructor() {
+    (this as any)._instanceId = Math.random().toString(36).substring(2, 11);
     this.startSessionCleanup();
     this.loadAvailableModels();
   }
@@ -183,7 +186,7 @@ export class UnifiedConversationManager {
     try {
       // Get or create conversation state
       const conversation = await this.getOrCreateConversation(input.sessionId);
-      
+
       // Update conversation mode and activity
       conversation.activeMode = input.mode;
       conversation.lastActivity = new Date();
@@ -232,7 +235,7 @@ export class UnifiedConversationManager {
 
       // Store debug data before making AI request
       const systemPrompt = this.buildSystemPrompt(contextString, options.systemPrompt, input.metadata?.userPreferences);
-      this.lastDebugData = {
+      const debugData: ConversationDebugData = {
         sessionId: input.sessionId,
         timestamp: new Date(),
         input,
@@ -242,12 +245,39 @@ export class UnifiedConversationManager {
         aiRequest
       };
 
+      // Store debug data
+      this.lastDebugData = debugData;
+
+      // Add to recent debug data
+      this.recentDebugData.unshift(debugData);
+
+      // Keep only the most recent entries
+      if (this.recentDebugData.length > this.MAX_DEBUG_ENTRIES) {
+        this.recentDebugData = this.recentDebugData.slice(0, this.MAX_DEBUG_ENTRIES);
+      }
+
+      // Store in global storage if available (server-side only)
+      if (typeof global !== 'undefined' && global.__unifiedConversationDebugData) {
+        global.__unifiedConversationDebugData.lastDebugData = debugData;
+        global.__unifiedConversationDebugData.recentDebugData.unshift(debugData);
+        if (global.__unifiedConversationDebugData.recentDebugData.length > this.MAX_DEBUG_ENTRIES) {
+          global.__unifiedConversationDebugData.recentDebugData = global.__unifiedConversationDebugData.recentDebugData.slice(0, this.MAX_DEBUG_ENTRIES);
+        }
+      }
+
+
+
       // Get AI response
       const aiResponse = await this.getAIResponse(aiRequest, options.model || this.DEFAULT_MODEL);
 
       // Update debug data with response
       if (this.lastDebugData) {
         this.lastDebugData.aiResponse = aiResponse;
+      }
+
+      // Update global debug data if available (server-side only)
+      if (typeof global !== 'undefined' && global.__unifiedConversationDebugData?.lastDebugData) {
+        global.__unifiedConversationDebugData.lastDebugData.aiResponse = aiResponse;
       }
 
       // Parse navigation commands from response
@@ -311,8 +341,13 @@ export class UnifiedConversationManager {
         this.lastDebugData.error = error instanceof Error ? error.message : 'Unknown error occurred';
       }
 
+      // Update global debug data if available (server-side only)
+      if (typeof global !== 'undefined' && global.__unifiedConversationDebugData?.lastDebugData) {
+        global.__unifiedConversationDebugData.lastDebugData.error = error instanceof Error ? error.message : 'Unknown error occurred';
+      }
+
       console.error('Error processing conversation input:', error);
-      
+
       return {
         message: {
           id: this.generateMessageId(),
@@ -341,7 +376,7 @@ export class UnifiedConversationManager {
    */
   async getConversationState(sessionId: string): Promise<ConversationState | null> {
     const conversation = this.conversations.get(sessionId);
-    
+
     if (!conversation) {
       return null;
     }
@@ -402,7 +437,105 @@ export class UnifiedConversationManager {
    * Get the most recent debug data (admin only)
    */
   getLastDebugData(): ConversationDebugData | null {
-    return this.lastDebugData;
+    if (this.lastDebugData) return this.lastDebugData;
+
+    // Fallback to global data if available (server-side only)
+    if (typeof global !== 'undefined' && global.__unifiedConversationDebugData?.lastDebugData) {
+      return global.__unifiedConversationDebugData.lastDebugData;
+    }
+
+    return null;
+  }
+
+  /**
+   * Get debug data for a specific session (admin only)
+   */
+  getDebugDataForSession(sessionId: string): ConversationDebugData | null {
+    // Search through recent debug data for the session
+    const instanceResult = this.recentDebugData.find(data => data.sessionId === sessionId);
+    if (instanceResult) return instanceResult;
+
+    // Fallback to global data if available (server-side only)
+    if (typeof global !== 'undefined' && global.__unifiedConversationDebugData?.recentDebugData) {
+      const globalResult = global.__unifiedConversationDebugData.recentDebugData.find(data => data.sessionId === sessionId);
+      return globalResult || null;
+    }
+
+    return null;
+  }
+
+  /**
+   * Get recent debug data entries (admin only)
+   */
+  getRecentDebugData(): ConversationDebugData[] {
+    const instanceData = [...this.recentDebugData];
+
+    // Merge with global data if available (server-side only)
+    if (typeof global !== 'undefined' && global.__unifiedConversationDebugData?.recentDebugData) {
+      const globalData = [...global.__unifiedConversationDebugData.recentDebugData];
+      // Return whichever has more data (in case of multiple instances)
+      return instanceData.length > 0 ? instanceData : globalData;
+    }
+
+    return instanceData;
+  }
+
+  /**
+   * Get recent conversation sessions (admin only)
+   */
+  getRecentConversationSessions(): Array<{ sessionId: string, timestamp: Date, lastInput: string }> {
+    const sessions = new Map<string, { timestamp: Date, lastInput: string }>();
+
+    // Get debug data from instance
+    let debugData = this.recentDebugData;
+
+    // Merge with global data if available and instance data is empty (server-side only)
+    if (debugData.length === 0 && typeof global !== 'undefined' && global.__unifiedConversationDebugData?.recentDebugData) {
+      debugData = global.__unifiedConversationDebugData.recentDebugData;
+    }
+
+    // Collect unique sessions from recent debug data
+    debugData.forEach(data => {
+      if (!sessions.has(data.sessionId) || sessions.get(data.sessionId)!.timestamp < data.timestamp) {
+        sessions.set(data.sessionId, {
+          timestamp: data.timestamp,
+          lastInput: data.input.content.slice(0, 50) + (data.input.content.length > 50 ? '...' : '')
+        });
+      }
+    });
+
+    // Convert to array and sort by timestamp (most recent first)
+    return Array.from(sessions.entries())
+      .map(([sessionId, data]) => ({
+        sessionId,
+        timestamp: data.timestamp,
+        lastInput: data.lastInput
+      }))
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
+  }
+
+  /**
+   * Get debug info for troubleshooting (admin only)
+   */
+  getDebugInfo(): any {
+    const debugInfo: any = {
+      instanceId: (this as any)._instanceId || 'unknown',
+      hasLastDebugData: this.lastDebugData !== null,
+      recentDebugDataCount: this.recentDebugData.length,
+      conversationsCount: this.conversations.size,
+      lastDebugDataSessionId: this.lastDebugData?.sessionId || null
+    };
+
+    // Add global debug data info if available (server-side only)
+    if (typeof global !== 'undefined' && global.__unifiedConversationDebugData) {
+      debugInfo.globalDebugData = {
+        hasLastDebugData: global.__unifiedConversationDebugData.lastDebugData !== null,
+        recentDebugDataCount: global.__unifiedConversationDebugData.recentDebugData.length || 0,
+        lastDebugDataSessionId: global.__unifiedConversationDebugData.lastDebugData?.sessionId || null
+      };
+    }
+
+    return debugInfo;
   }
 
   /**
@@ -604,7 +737,7 @@ export class UnifiedConversationManager {
     }
 
     const data = await response.json();
-    
+
     if (!data.success) {
       throw new Error(data.error || 'AI request failed');
     }
@@ -613,7 +746,8 @@ export class UnifiedConversationManager {
       content: data.response.content,
       tokensUsed: data.response.tokensUsed,
       cost: data.response.cost,
-      model: data.response.model
+      model: data.response.model,
+      finishReason: data.response.finishReason || 'stop'
     };
   }
 
@@ -628,7 +762,7 @@ export class UnifiedConversationManager {
     while ((match = navigationRegex.exec(content)) !== null) {
       const commandStr = match[1];
       const [target, ...paramParts] = commandStr.split('&');
-      
+
       const parameters: Record<string, any> = {};
       paramParts.forEach(part => {
         const [key, value] = part.split('=');
@@ -666,7 +800,7 @@ export class UnifiedConversationManager {
     conversation.metadata.totalTokensUsed += aiResponse.tokensUsed || 0;
     conversation.metadata.totalCost += aiResponse.cost || 0;
     conversation.metadata.messageCount += 1;
-    
+
     // Update average response time
     const currentAvg = conversation.metadata.averageResponseTime;
     const count = conversation.metadata.messageCount;
@@ -676,7 +810,7 @@ export class UnifiedConversationManager {
   /**
    * Generate voice response (placeholder for voice integration)
    */
-  private async generateVoiceResponse(text: string): Promise<ConversationResponse['voiceResponse']> {
+  private async generateVoiceResponse(_text: string): Promise<ConversationResponse['voiceResponse']> {
     // Placeholder for ElevenLabs integration
     // This would be implemented when voice features are added
     return undefined;
@@ -685,7 +819,7 @@ export class UnifiedConversationManager {
   /**
    * Generate conversation suggestions
    */
-  private generateSuggestions(conversation: ConversationState, lastInput: string): string[] {
+  private generateSuggestions(conversation: ConversationState, _lastInput: string): string[] {
     const suggestions = [
       'Tell me about your projects',
       'What technologies do you work with?',
@@ -694,10 +828,10 @@ export class UnifiedConversationManager {
     ];
 
     // Add context-specific suggestions based on conversation history
-    const hasAskedAboutProjects = conversation.messages.some(m => 
+    const hasAskedAboutProjects = conversation.messages.some(m =>
       m.content.toLowerCase().includes('project')
     );
-    
+
     if (!hasAskedAboutProjects) {
       suggestions.unshift('Show me your best projects');
     }
@@ -741,6 +875,22 @@ export class UnifiedConversationManager {
       }
     }, 5 * 60 * 1000); // Clean up every 5 minutes
   }
+}
+
+// Global debug data storage (to work around Next.js singleton issues)
+declare global {
+  var __unifiedConversationDebugData: {
+    lastDebugData: ConversationDebugData | null;
+    recentDebugData: ConversationDebugData[];
+  } | undefined;
+}
+
+// Initialize global debug data storage only on server-side
+if (typeof global !== 'undefined' && !global.__unifiedConversationDebugData) {
+  global.__unifiedConversationDebugData = {
+    lastDebugData: null,
+    recentDebugData: []
+  };
 }
 
 // Export singleton instance

@@ -21,8 +21,57 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get the most recent debug data
-    const debugData = unifiedConversationManager.getLastDebugData();
+    // Get query parameters
+    const { searchParams } = new URL(request.url);
+    const sessionId = searchParams.get('sessionId');
+    const action = searchParams.get('action');
+
+    // Handle different actions
+    if (action === 'recent-sessions') {
+      const recentSessions = unifiedConversationManager.getRecentConversationSessions();
+      return NextResponse.json({
+        success: true,
+        data: recentSessions
+      });
+    }
+
+    if (action === 'recent-debug') {
+      const recentDebugData = unifiedConversationManager.getRecentDebugData();
+      return NextResponse.json({
+        success: true,
+        data: recentDebugData.map(data => ({
+          sessionId: data.sessionId,
+          timestamp: data.timestamp,
+          input: {
+            content: data.input.content,
+            mode: data.input.mode,
+            sessionId: data.input.sessionId,
+            metadata: data.input.metadata
+          },
+          options: data.options,
+          systemPrompt: data.systemPrompt,
+          contextString: data.contextString,
+          aiRequest: {
+            model: data.aiRequest.model,
+            messages: data.aiRequest.messages,
+            temperature: data.aiRequest.temperature,
+            maxTokens: data.aiRequest.maxTokens
+          },
+          aiResponse: data.aiResponse ? {
+            content: data.aiResponse.content,
+            tokensUsed: data.aiResponse.tokensUsed,
+            cost: data.aiResponse.cost,
+            model: data.aiResponse.model
+          } : null,
+          error: data.error || null
+        }))
+      });
+    }
+
+    // Get debug data - either for specific session or most recent
+    const debugData = sessionId 
+      ? unifiedConversationManager.getDebugDataForSession(sessionId)
+      : unifiedConversationManager.getLastDebugData();
 
     if (!debugData) {
       return NextResponse.json({

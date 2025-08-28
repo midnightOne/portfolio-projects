@@ -50,6 +50,8 @@ function AIDebugContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['request-info']));
+  const [recentSessions, setRecentSessions] = useState<Array<{sessionId: string, timestamp: string, lastInput: string}>>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 
   // Conversation tester state
   const [inputText, setInputText] = useState('');
@@ -65,7 +67,7 @@ function AIDebugContent() {
     }
   }, [session, status, router]);
 
-  // Load available models
+  // Load available models and recent sessions
   useEffect(() => {
     const loadModels = async () => {
       if (!session) return;
@@ -82,7 +84,23 @@ function AIDebugContent() {
       }
     };
 
+    const loadRecentSessions = async () => {
+      if (!session) return;
+      
+      try {
+        const response = await fetch('/api/admin/ai/conversation/debug?action=recent-sessions');
+        const data = await response.json();
+        
+        if (data.success) {
+          setRecentSessions(data.data || []);
+        }
+      } catch (error) {
+        console.error('Failed to load recent sessions:', error);
+      }
+    };
+
     loadModels();
+    loadRecentSessions();
   }, [session]);
 
   // Unified conversation hook
@@ -109,12 +127,25 @@ function AIDebugContent() {
     defaultModel: selectedModel
   });
 
-  const loadDebugData = async () => {
+  // Update selected session when conversation tester session changes
+  useEffect(() => {
+    if (sessionId && sessionId !== selectedSessionId) {
+      setSelectedSessionId(sessionId);
+    }
+  }, [sessionId, selectedSessionId]);
+
+  const loadDebugData = async (targetSessionId?: string) => {
     setLoading(true);
     setError(null);
     
     try {
-      const response = await fetch('/api/admin/ai/conversation/debug');
+      // Use the provided session ID, selected session ID, or conversation tester session ID
+      const useSessionId = targetSessionId || selectedSessionId || sessionId;
+      const url = useSessionId 
+        ? `/api/admin/ai/conversation/debug?sessionId=${encodeURIComponent(useSessionId)}`
+        : '/api/admin/ai/conversation/debug';
+      
+      const response = await fetch(url);
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -124,7 +155,11 @@ function AIDebugContent() {
       
       if (data.success) {
         setDebugData(data.data);
-        toast.success('Debug data loaded', 'Latest conversation debug data retrieved successfully');
+        if (data.data) {
+          toast.success('Debug data loaded', `Debug data for session ${useSessionId ? useSessionId.slice(-8) : 'latest'} retrieved successfully`);
+        } else {
+          toast.info('No debug data', `No debug data available for session ${useSessionId ? useSessionId.slice(-8) : 'latest'}`);
+        }
       } else {
         throw new Error(data.error?.message || 'Failed to load debug data');
       }
@@ -134,6 +169,19 @@ function AIDebugContent() {
       toast.error('Failed to load debug data', errorMessage);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadRecentSessions = async () => {
+    try {
+      const response = await fetch('/api/admin/ai/conversation/debug?action=recent-sessions');
+      const data = await response.json();
+      
+      if (data.success) {
+        setRecentSessions(data.data || []);
+      }
+    } catch (error) {
+      console.error('Failed to load recent sessions:', error);
     }
   };
 
@@ -178,8 +226,11 @@ function AIDebugContent() {
     try {
       await sendMessage(inputText, selectedMode, selectedModel);
       setInputText('');
-      // Auto-load debug data after sending message
-      setTimeout(() => loadDebugData(), 1000);
+      // Auto-load debug data after sending message (wait a bit for processing)
+      setTimeout(() => {
+        loadDebugData();
+        loadRecentSessions();
+      }, 1500);
     } catch (error) {
       console.error('Failed to send message:', error);
     }
@@ -386,11 +437,11 @@ function AIDebugContent() {
             <Button
               variant="outline"
               size="sm"
-              onClick={loadDebugData}
+              onClick={() => loadDebugData()}
               disabled={loading}
             >
               <RefreshCw className={`h-3 w-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
-              Load Debug Data
+              Refresh Current
             </Button>
           </div>
         </div>
@@ -481,9 +532,98 @@ function AIDebugContent() {
 
       {/* Right Side - Debug Information */}
       <div className="space-y-4">
-        <div className="flex items-center gap-2 mb-4">
-          <Copy className="h-5 w-5" />
-          <h2 className="text-lg font-semibold">Debug Information</h2>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Copy className="h-5 w-5" />
+            <h2 className="text-lg font-semibold">Debug Information</h2>
+          </div>
+          {sessionId && (
+            <div className="text-xs text-muted-foreground">
+              Current Session: <span className="font-mono">{sessionId.slice(-8)}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Conversation Selector */}
+        <div className="bg-muted/50 rounded-lg p-3">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-medium text-sm">Select Conversation</h3>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={loadRecentSessions}
+            >
+              <RefreshCw className="h-3 w-3" />
+            </Button>
+          </div>
+          <div className="space-y-2">
+            <Select 
+              value={selectedSessionId || ''} 
+              onValueChange={(value) => {
+                setSelectedSessionId(value);
+                if (value) {
+                  loadDebugData(value);
+                }
+              }}
+            >
+              <SelectTrigger className="text-xs">
+                <SelectValue placeholder="Select a conversation to debug" />
+              </SelectTrigger>
+              <SelectContent>
+                {sessionId && (
+                  <SelectItem value={sessionId}>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="default" className="text-xs">Current</Badge>
+                      <span className="font-mono text-xs">{sessionId.slice(-8)}</span>
+                    </div>
+                  </SelectItem>
+                )}
+                {recentSessions
+                  .filter(session => session.sessionId !== sessionId)
+                  .map((session) => (
+                    <SelectItem key={session.sessionId} value={session.sessionId}>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs">{session.sessionId.slice(-8)}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {formatTimestamp(session.timestamp)}
+                          </span>
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate max-w-48">
+                          {session.lastInput}
+                        </div>
+                      </div>
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => loadDebugData()}
+                disabled={loading}
+                className="flex-1"
+              >
+                <RefreshCw className={`h-3 w-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
+                Load Debug Data
+              </Button>
+              {selectedSessionId && selectedSessionId !== sessionId && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedSessionId(sessionId);
+                    if (sessionId) {
+                      loadDebugData(sessionId);
+                    }
+                  }}
+                >
+                  Back to Current
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
 
         {debugData ? (
@@ -499,8 +639,21 @@ function AIDebugContent() {
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div>
                   <span className="font-medium">Session ID:</span>
-                  <div className="font-mono bg-background p-1 rounded mt-1 break-all">
-                    {debugData.sessionId}
+                  <div className={`font-mono bg-background p-1 rounded mt-1 break-all flex items-center gap-2 ${
+                    debugData.sessionId === sessionId ? 'border border-green-200 bg-green-50' : 
+                    debugData.sessionId === selectedSessionId ? 'border border-blue-200 bg-blue-50' : ''
+                  }`}>
+                    <span>{debugData.sessionId}</span>
+                    {debugData.sessionId === sessionId && (
+                      <Badge variant="outline" className="text-xs bg-green-100 text-green-700 border-green-300">
+                        Current
+                      </Badge>
+                    )}
+                    {debugData.sessionId === selectedSessionId && debugData.sessionId !== sessionId && (
+                      <Badge variant="outline" className="text-xs bg-blue-100 text-blue-700 border-blue-300">
+                        Selected
+                      </Badge>
+                    )}
                   </div>
                 </div>
                 <div>
@@ -660,7 +813,7 @@ function AIDebugContent() {
             <p className="text-muted-foreground text-sm mb-4">
               Send a message using the conversation tester to generate debug data.
             </p>
-            <Button onClick={loadDebugData} disabled={loading} size="sm">
+            <Button onClick={() => loadDebugData()} disabled={loading} size="sm">
               <RefreshCw className={`h-3 w-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
               Load Debug Data
             </Button>
