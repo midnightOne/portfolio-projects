@@ -7,11 +7,15 @@ import { AdminLayout } from '@/components/admin/admin-layout';
 import { AdminPageLayout } from '@/components/admin/admin-page-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Separator } from '@/components/ui/separator';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ChevronDown, ChevronRight, Bug, Copy, RefreshCw, AlertCircle } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
+import { useUnifiedConversation } from '@/hooks/use-unified-conversation';
 
 interface DebugData {
   sessionId: string;
@@ -41,10 +45,17 @@ function AIDebugContent() {
   const router = useRouter();
   const toast = useToast();
   
+  // Debug panel state
   const [debugData, setDebugData] = useState<DebugData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['request-info']));
+
+  // Conversation tester state
+  const [inputText, setInputText] = useState('');
+  const [selectedMode, setSelectedMode] = useState<'text' | 'voice' | 'hybrid'>('text');
+  const [selectedModel, setSelectedModel] = useState<string>('gpt-4o');
+  const [availableModels, setAvailableModels] = useState<Array<{id: string, name: string, provider: string}>>([]);
 
   useEffect(() => {
     if (status === 'loading') return;
@@ -53,6 +64,50 @@ function AIDebugContent() {
       return;
     }
   }, [session, status, router]);
+
+  // Load available models
+  useEffect(() => {
+    const loadModels = async () => {
+      if (!session) return;
+      
+      try {
+        const response = await fetch('/api/admin/ai/available-models');
+        const data = await response.json();
+        
+        if (data.success && data.data.unified) {
+          setAvailableModels(data.data.unified);
+        }
+      } catch (error) {
+        console.error('Failed to load models:', error);
+      }
+    };
+
+    loadModels();
+  }, [session]);
+
+  // Unified conversation hook
+  const {
+    messages,
+    isProcessing,
+    currentMode,
+    currentModel,
+    sessionId,
+    isConnected,
+    transportState,
+    activeTransport,
+    error: conversationError,
+    sendMessage,
+    switchMode,
+    switchTransport,
+    switchModel,
+    clearHistory,
+    clearError
+  } = useUnifiedConversation({
+    initialMode: 'text',
+    autoConnect: true,
+    defaultTransport: 'http',
+    defaultModel: selectedModel
+  });
 
   const loadDebugData = async () => {
     setLoading(true);
@@ -103,8 +158,56 @@ function AIDebugContent() {
     });
   };
 
-  const formatTimestamp = (timestamp: string) => {
+  const formatTimestamp = (timestamp: string | Date) => {
     return new Date(timestamp).toLocaleString();
+  };
+
+  const getModeColor = (mode: string) => {
+    switch (mode) {
+      case 'text': return 'bg-blue-100 text-blue-800';
+      case 'voice': return 'bg-green-100 text-green-800';
+      case 'hybrid': return 'bg-purple-100 text-purple-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  // Conversation handlers
+  const handleSendMessage = async () => {
+    if (!inputText.trim()) return;
+
+    try {
+      await sendMessage(inputText, selectedMode, selectedModel);
+      setInputText('');
+      // Auto-load debug data after sending message
+      setTimeout(() => loadDebugData(), 1000);
+    } catch (error) {
+      console.error('Failed to send message:', error);
+    }
+  };
+
+  const handleModeSwitch = async (mode: 'text' | 'voice' | 'hybrid') => {
+    try {
+      await switchMode(mode);
+      setSelectedMode(mode);
+    } catch (error) {
+      console.error('Failed to switch mode:', error);
+    }
+  };
+
+  const handleTransportSwitch = async (transport: 'http' | 'websocket' | 'webrtc') => {
+    try {
+      await switchTransport(transport);
+    } catch (error) {
+      console.error('Failed to switch transport:', error);
+    }
+  };
+
+  const handleClearHistory = async () => {
+    try {
+      await clearHistory();
+    } catch (error) {
+      console.error('Failed to clear history:', error);
+    }
   };
 
   if (status === 'loading') {
@@ -123,373 +226,447 @@ function AIDebugContent() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header Actions */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Bug className="h-5 w-5" />
-            AI Conversation Debug Panel
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
+      {/* Left Side - Conversation Tester */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Bug className="h-5 w-5" />
+          <h2 className="text-lg font-semibold">Conversation Tester</h2>
+        </div>
+
+        {/* Connection Status */}
+        <div className="bg-muted/50 rounded-lg p-4 space-y-3">
+          <h3 className="font-medium text-sm">Connection Status</h3>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="flex items-center justify-between">
+              <span>Session:</span>
+              <Badge variant="outline" className="font-mono text-xs">
+                {sessionId ? sessionId.slice(-8) : 'None'}
+              </Badge>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Connected:</span>
+              <Badge variant={isConnected ? "default" : "destructive"}>
+                {isConnected ? 'Yes' : 'No'}
+              </Badge>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Transport:</span>
+              <Badge variant="secondary">{activeTransport || 'None'}</Badge>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Mode:</span>
+              <Badge className={getModeColor(currentMode)}>{currentMode}</Badge>
+            </div>
+          </div>
+        </div>
+
+        {/* Error Display */}
+        {(error || conversationError) && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="flex items-center justify-between">
+              <span>{error || conversationError?.message}</span>
+              <Button variant="outline" size="sm" onClick={() => {
+                setError(null);
+                clearError();
+              }}>
+                Clear
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Controls */}
+        <div className="space-y-4">
+          {/* Mode Selection */}
+          <div>
+            <label className="text-sm font-medium mb-2 block">Mode</label>
+            <div className="flex gap-2">
+              {(['text', 'voice', 'hybrid'] as const).map((mode) => (
+                <Button
+                  key={mode}
+                  variant={selectedMode === mode ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => handleModeSwitch(mode)}
+                  disabled={isProcessing}
+                >
+                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          {/* Model Selection */}
+          <div>
+            <label className="text-sm font-medium mb-2 block">Model</label>
+            <Select 
+              value={selectedModel} 
+              onValueChange={(value) => {
+                setSelectedModel(value);
+                switchModel(value);
+              }}
+              disabled={isProcessing}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select a model" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableModels.length > 0 ? (
+                  availableModels.map((model) => (
+                    <SelectItem key={model.id} value={model.id}>
+                      <div className="flex items-center gap-2">
+                        <span>{model.name}</span>
+                        <Badge variant="outline" className="text-xs">
+                          {model.provider}
+                        </Badge>
+                      </div>
+                    </SelectItem>
+                  ))
+                ) : (
+                  <SelectItem value="gpt-4o" disabled>
+                    Loading models...
+                  </SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Transport Selection */}
+          <div>
+            <label className="text-sm font-medium mb-2 block">Transport</label>
+            <div className="flex gap-2">
+              {(['http', 'websocket', 'webrtc'] as const).map((transport) => (
+                <Button
+                  key={transport}
+                  variant={activeTransport === transport ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => handleTransportSwitch(transport)}
+                  disabled={isProcessing}
+                >
+                  {transport.toUpperCase()}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Message Input */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Send Message</label>
+          <div className="flex gap-2">
+            <Input
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              placeholder="Type your message..."
+              disabled={isProcessing || !isConnected}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendMessage();
+                }
+              }}
+            />
             <Button
+              onClick={handleSendMessage}
+              disabled={isProcessing || !isConnected || !inputText.trim()}
+            >
+              {isProcessing ? 'Processing...' : 'Send'}
+            </Button>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleClearHistory}
+              disabled={isProcessing || messages.length === 0}
+            >
+              Clear History
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={loadDebugData}
               disabled={loading}
-              className="flex items-center gap-2"
             >
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-              {loading ? 'Loading...' : 'Load Latest Debug Data'}
-            </Button>
-            <p className="text-sm text-muted-foreground">
-              Retrieves debug information from the most recent AI conversation request
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Error Display */}
-      {error && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription className="flex items-center justify-between">
-            <span>{error}</span>
-            <Button variant="outline" size="sm" onClick={() => setError(null)}>
-              Clear
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* Debug Data Display */}
-      {debugData ? (
-        <div className="space-y-4">
-          {/* Request Information */}
-          <Card>
-            <Collapsible 
-              open={expandedSections.has('request-info')} 
-              onOpenChange={() => toggleSection('request-info')}
-            >
-              <CollapsibleTrigger asChild>
-                <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    {expandedSections.has('request-info') ? (
-                      <ChevronDown className="h-4 w-4" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4" />
-                    )}
-                    Request Information
-                    <Badge variant="outline" className="ml-auto">
-                      {formatTimestamp(debugData.timestamp)}
-                    </Badge>
-                  </CardTitle>
-                </CardHeader>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <CardContent className="pt-0">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <div>
-                        <span className="text-sm font-medium">Session ID:</span>
-                        <div className="font-mono text-xs bg-muted p-2 rounded mt-1 break-all">
-                          {debugData.sessionId}
-                        </div>
-                      </div>
-                      <div>
-                        <span className="text-sm font-medium">Input Mode:</span>
-                        <Badge className="ml-2">{debugData.input.mode}</Badge>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <div>
-                        <span className="text-sm font-medium">Model:</span>
-                        <div className="font-mono text-xs">{debugData.aiRequest.model}</div>
-                      </div>
-                      <div>
-                        <span className="text-sm font-medium">Temperature:</span>
-                        <div className="font-mono text-xs">{debugData.aiRequest.temperature}</div>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </CollapsibleContent>
-            </Collapsible>
-          </Card>
-
-          {/* User Input */}
-          <Card>
-            <Collapsible 
-              open={expandedSections.has('user-input')} 
-              onOpenChange={() => toggleSection('user-input')}
-            >
-              <CollapsibleTrigger asChild>
-                <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    {expandedSections.has('user-input') ? (
-                      <ChevronDown className="h-4 w-4" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4" />
-                    )}
-                    User Input
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="ml-auto"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        copyToClipboard(debugData.input.content, 'User input');
-                      }}
-                    >
-                      <Copy className="h-3 w-3" />
-                    </Button>
-                  </CardTitle>
-                </CardHeader>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <CardContent className="pt-0">
-                  <pre className="text-sm bg-muted p-4 rounded overflow-x-auto whitespace-pre-wrap">
-                    {debugData.input.content}
-                  </pre>
-                </CardContent>
-              </CollapsibleContent>
-            </Collapsible>
-          </Card>
-
-          {/* System Prompt */}
-          <Card>
-            <Collapsible 
-              open={expandedSections.has('system-prompt')} 
-              onOpenChange={() => toggleSection('system-prompt')}
-            >
-              <CollapsibleTrigger asChild>
-                <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    {expandedSections.has('system-prompt') ? (
-                      <ChevronDown className="h-4 w-4" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4" />
-                    )}
-                    System Prompt
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="ml-auto"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        copyToClipboard(debugData.systemPrompt, 'System prompt');
-                      }}
-                    >
-                      <Copy className="h-3 w-3" />
-                    </Button>
-                  </CardTitle>
-                </CardHeader>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <CardContent className="pt-0">
-                  <pre className="text-sm bg-muted p-4 rounded overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto">
-                    {debugData.systemPrompt}
-                  </pre>
-                </CardContent>
-              </CollapsibleContent>
-            </Collapsible>
-          </Card>
-
-          {/* Context String */}
-          <Card>
-            <Collapsible 
-              open={expandedSections.has('context-string')} 
-              onOpenChange={() => toggleSection('context-string')}
-            >
-              <CollapsibleTrigger asChild>
-                <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    {expandedSections.has('context-string') ? (
-                      <ChevronDown className="h-4 w-4" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4" />
-                    )}
-                    Context String
-                    <Badge variant="outline" className="ml-auto mr-2">
-                      {debugData.contextString.length} chars
-                    </Badge>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        copyToClipboard(debugData.contextString, 'Context string');
-                      }}
-                    >
-                      <Copy className="h-3 w-3" />
-                    </Button>
-                  </CardTitle>
-                </CardHeader>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <CardContent className="pt-0">
-                  {debugData.contextString ? (
-                    <pre className="text-sm bg-muted p-4 rounded overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto">
-                      {debugData.contextString}
-                    </pre>
-                  ) : (
-                    <p className="text-sm text-muted-foreground italic p-4">No context provided</p>
-                  )}
-                </CardContent>
-              </CollapsibleContent>
-            </Collapsible>
-          </Card>
-
-          {/* Full AI Request */}
-          <Card>
-            <Collapsible 
-              open={expandedSections.has('ai-request')} 
-              onOpenChange={() => toggleSection('ai-request')}
-            >
-              <CollapsibleTrigger asChild>
-                <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
-                  <CardTitle className="flex items-center gap-2 text-lg">
-                    {expandedSections.has('ai-request') ? (
-                      <ChevronDown className="h-4 w-4" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4" />
-                    )}
-                    Full AI Request
-                    <Badge variant="outline" className="ml-auto mr-2">
-                      {debugData.aiRequest.messages.length} messages
-                    </Badge>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        copyToClipboard(JSON.stringify(debugData.aiRequest, null, 2), 'AI request');
-                      }}
-                    >
-                      <Copy className="h-3 w-3" />
-                    </Button>
-                  </CardTitle>
-                </CardHeader>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <CardContent className="pt-0">
-                  <pre className="text-sm bg-muted p-4 rounded overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto">
-                    {JSON.stringify(debugData.aiRequest, null, 2)}
-                  </pre>
-                </CardContent>
-              </CollapsibleContent>
-            </Collapsible>
-          </Card>
-
-          {/* AI Response */}
-          {debugData.aiResponse && (
-            <Card>
-              <Collapsible 
-                open={expandedSections.has('ai-response')} 
-                onOpenChange={() => toggleSection('ai-response')}
-              >
-                <CollapsibleTrigger asChild>
-                  <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
-                    <CardTitle className="flex items-center gap-2 text-lg">
-                      {expandedSections.has('ai-response') ? (
-                        <ChevronDown className="h-4 w-4" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4" />
-                      )}
-                      AI Response
-                      <div className="ml-auto flex items-center gap-2">
-                        {debugData.aiResponse.tokensUsed && (
-                          <Badge variant="outline">
-                            {debugData.aiResponse.tokensUsed} tokens
-                          </Badge>
-                        )}
-                        {debugData.aiResponse.cost && (
-                          <Badge variant="outline">
-                            ${debugData.aiResponse.cost.toFixed(4)}
-                          </Badge>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            copyToClipboard(debugData.aiResponse!.content, 'AI response');
-                          }}
-                        >
-                          <Copy className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </CardTitle>
-                  </CardHeader>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <CardContent className="pt-0">
-                    <pre className="text-sm bg-muted p-4 rounded overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto">
-                      {debugData.aiResponse.content}
-                    </pre>
-                  </CardContent>
-                </CollapsibleContent>
-              </Collapsible>
-            </Card>
-          )}
-
-          {/* Error */}
-          {debugData.error && (
-            <Card className="border-destructive">
-              <Collapsible 
-                open={expandedSections.has('error')} 
-                onOpenChange={() => toggleSection('error')}
-              >
-                <CollapsibleTrigger asChild>
-                  <CardHeader className="cursor-pointer hover:bg-destructive/5 transition-colors">
-                    <CardTitle className="flex items-center gap-2 text-lg text-destructive">
-                      {expandedSections.has('error') ? (
-                        <ChevronDown className="h-4 w-4" />
-                      ) : (
-                        <ChevronRight className="h-4 w-4" />
-                      )}
-                      <AlertCircle className="h-4 w-4" />
-                      Error
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="ml-auto"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          copyToClipboard(debugData.error!, 'Error details');
-                        }}
-                      >
-                        <Copy className="h-3 w-3" />
-                      </Button>
-                    </CardTitle>
-                  </CardHeader>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <CardContent className="pt-0">
-                    <pre className="text-sm bg-destructive/5 p-4 rounded overflow-x-auto whitespace-pre-wrap text-destructive">
-                      {debugData.error}
-                    </pre>
-                  </CardContent>
-                </CollapsibleContent>
-              </Collapsible>
-            </Card>
-          )}
-        </div>
-      ) : (
-        <Card>
-          <CardContent className="text-center py-12">
-            <Bug className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="text-lg font-medium mb-2">No Debug Data Available</h3>
-            <p className="text-muted-foreground mb-4">
-              Debug data will appear here after AI conversations are made. 
-              Click "Load Latest Debug Data" to retrieve the most recent conversation debug information.
-            </p>
-            <Button onClick={loadDebugData} disabled={loading}>
+              <RefreshCw className={`h-3 w-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
               Load Debug Data
             </Button>
-          </CardContent>
-        </Card>
-      )}
+          </div>
+        </div>
+
+        {/* Test Suggestions */}
+        <div>
+          <label className="text-sm font-medium mb-2 block">Quick Tests</label>
+          <div className="grid grid-cols-1 gap-2">
+            {[
+              'Tell me about your projects',
+              'What technologies do you work with?',
+              'Show me your experience',
+              'Navigate to project details'
+            ].map((suggestion) => (
+              <Button
+                key={suggestion}
+                variant="outline"
+                size="sm"
+                onClick={() => setInputText(suggestion)}
+                disabled={isProcessing}
+                className="text-left justify-start text-xs"
+              >
+                {suggestion}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {/* Conversation History */}
+        <div className="space-y-2">
+          <h3 className="font-medium text-sm">
+            Conversation History ({messages.length} messages)
+          </h3>
+          <div className="bg-muted/30 rounded-lg p-3 max-h-96 overflow-y-auto">
+            {messages.length === 0 ? (
+              <p className="text-muted-foreground text-center py-8 text-sm">
+                No messages yet. Start a conversation above!
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {messages.map((message, index) => (
+                  <div key={message.id} className="space-y-1">
+                    <div className={`p-2 rounded text-sm ${
+                      message.role === 'user' 
+                        ? 'bg-blue-50 border-l-2 border-blue-400' 
+                        : 'bg-gray-50 border-l-2 border-gray-400'
+                    }`}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-1">
+                          <Badge variant={message.role === 'user' ? 'default' : 'secondary'} className="text-xs">
+                            {message.role}
+                          </Badge>
+                          <Badge className={`${getModeColor(message.inputMode)} text-xs`}>
+                            {message.inputMode}
+                          </Badge>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {formatTimestamp(message.timestamp)}
+                        </span>
+                      </div>
+                      <p className="text-xs whitespace-pre-wrap">{message.content}</p>
+                      
+                      {/* Message Metadata */}
+                      {message.metadata && (
+                        <div className="mt-1 pt-1 border-t border-gray-200">
+                          <div className="text-xs text-muted-foreground flex gap-3">
+                            {message.metadata.tokensUsed && (
+                              <span>Tokens: {message.metadata.tokensUsed}</span>
+                            )}
+                            {message.metadata.cost && (
+                              <span>Cost: ${message.metadata.cost.toFixed(4)}</span>
+                            )}
+                            {message.metadata.processingTime && (
+                              <span>Time: {message.metadata.processingTime}ms</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {index < messages.length - 1 && <Separator className="my-1" />}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Right Side - Debug Information */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 mb-4">
+          <Copy className="h-5 w-5" />
+          <h2 className="text-lg font-semibold">Debug Information</h2>
+        </div>
+
+        {debugData ? (
+          <div className="space-y-3">
+            {/* Request Information */}
+            <div className="bg-muted/50 rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-medium text-sm">Request Information</h3>
+                <Badge variant="outline" className="text-xs">
+                  {formatTimestamp(debugData.timestamp)}
+                </Badge>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-xs">
+                <div>
+                  <span className="font-medium">Session ID:</span>
+                  <div className="font-mono bg-background p-1 rounded mt-1 break-all">
+                    {debugData.sessionId}
+                  </div>
+                </div>
+                <div>
+                  <span className="font-medium">Mode:</span>
+                  <Badge className="ml-1 text-xs">{debugData.input.mode}</Badge>
+                </div>
+                <div>
+                  <span className="font-medium">Model:</span>
+                  <div className="font-mono">{debugData.aiRequest.model}</div>
+                </div>
+                <div>
+                  <span className="font-medium">Temperature:</span>
+                  <div className="font-mono">{debugData.aiRequest.temperature}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* User Input */}
+            <div className="bg-muted/50 rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-medium text-sm">User Input</h3>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => copyToClipboard(debugData.input.content, 'User input')}
+                >
+                  <Copy className="h-3 w-3" />
+                </Button>
+              </div>
+              <pre className="text-xs bg-background p-2 rounded overflow-x-auto whitespace-pre-wrap">
+                {debugData.input.content}
+              </pre>
+            </div>
+
+            {/* System Prompt */}
+            <div className="bg-muted/50 rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-medium text-sm">System Prompt</h3>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => copyToClipboard(debugData.systemPrompt, 'System prompt')}
+                >
+                  <Copy className="h-3 w-3" />
+                </Button>
+              </div>
+              <pre className="text-xs bg-background p-2 rounded overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">
+                {debugData.systemPrompt}
+              </pre>
+            </div>
+
+            {/* Context String */}
+            <div className="bg-muted/50 rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-medium text-sm">Context String</h3>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs">
+                    {debugData.contextString.length} chars
+                  </Badge>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => copyToClipboard(debugData.contextString, 'Context string')}
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+              {debugData.contextString ? (
+                <pre className="text-xs bg-background p-2 rounded overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">
+                  {debugData.contextString}
+                </pre>
+              ) : (
+                <p className="text-xs text-muted-foreground italic">No context provided</p>
+              )}
+            </div>
+
+            {/* Full AI Request */}
+            <div className="bg-muted/50 rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-medium text-sm">Full AI Request</h3>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs">
+                    {debugData.aiRequest.messages.length} messages
+                  </Badge>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => copyToClipboard(JSON.stringify(debugData.aiRequest, null, 2), 'AI request')}
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+              <pre className="text-xs bg-background p-2 rounded overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">
+                {JSON.stringify(debugData.aiRequest, null, 2)}
+              </pre>
+            </div>
+
+            {/* AI Response */}
+            {debugData.aiResponse && (
+              <div className="bg-muted/50 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-medium text-sm">AI Response</h3>
+                  <div className="flex items-center gap-2">
+                    {debugData.aiResponse.tokensUsed && (
+                      <Badge variant="outline" className="text-xs">
+                        {debugData.aiResponse.tokensUsed} tokens
+                      </Badge>
+                    )}
+                    {debugData.aiResponse.cost && (
+                      <Badge variant="outline" className="text-xs">
+                        ${debugData.aiResponse.cost.toFixed(4)}
+                      </Badge>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => copyToClipboard(debugData.aiResponse!.content, 'AI response')}
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+                <pre className="text-xs bg-background p-2 rounded overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">
+                  {debugData.aiResponse.content}
+                </pre>
+              </div>
+            )}
+
+            {/* Error */}
+            {debugData.error && (
+              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-medium text-sm text-destructive flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    Error
+                  </h3>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => copyToClipboard(debugData.error!, 'Error details')}
+                  >
+                    <Copy className="h-3 w-3" />
+                  </Button>
+                </div>
+                <pre className="text-xs bg-background p-2 rounded overflow-x-auto whitespace-pre-wrap text-destructive">
+                  {debugData.error}
+                </pre>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-center py-12">
+            <Copy className="h-8 w-8 mx-auto mb-4 text-muted-foreground" />
+            <h3 className="font-medium mb-2">No Debug Data Available</h3>
+            <p className="text-muted-foreground text-sm mb-4">
+              Send a message using the conversation tester to generate debug data.
+            </p>
+            <Button onClick={loadDebugData} disabled={loading} size="sm">
+              <RefreshCw className={`h-3 w-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
+              Load Debug Data
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -498,8 +675,8 @@ export default function AIDebugPage() {
   return (
     <AdminLayout>
       <AdminPageLayout
-        title="AI Debug Panel"
-        description="Debug AI conversation requests, system prompts, and context data"
+        title="AI Debug & Test Panel"
+        description="Test AI conversations and debug system prompts, context data, and requests"
         breadcrumbs={[
           { label: 'AI Assistant', href: '/admin/ai' },
           { label: 'Debug Panel', href: '/admin/ai/debug' }

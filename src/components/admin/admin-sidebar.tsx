@@ -400,7 +400,7 @@ export function AdminSidebar() {
                 >
                   <Link href="/admin/ai/debug" className="flex items-center gap-2">
                     <Bug className="size-4" />
-                    <span>Debug Panel</span>
+                    <span>Debug & Test Panel</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
