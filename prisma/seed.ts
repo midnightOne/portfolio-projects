@@ -740,6 +740,33 @@ The platform has processed over $2M in transactions in its first year, with 99.9
   console.log(`Created ${await prisma.externalLink.count()} external links`);
   console.log(`Created ${await prisma.aIModelConfig.count()} AI model configurations`);
   console.log(`Created ${await prisma.aIGeneralSettings.count()} AI general settings`);
+
+  // Optional: Auto-index projects for immediate demo readiness
+  // This ensures the project indexing admin interface shows data right away
+  try {
+    console.log('🤖 Auto-indexing projects for AI features...');
+    
+    // Import the project indexer (only if available)
+    const { projectIndexer } = await import('../src/lib/services/project-indexer');
+    
+    // Index all created projects
+    const projects = [project1, project2, project3];
+    let indexedCount = 0;
+    
+    for (const project of projects) {
+      try {
+        await projectIndexer.indexProject(project.id);
+        indexedCount++;
+        console.log(`   ✓ Indexed: ${project.title}`);
+      } catch (error) {
+        console.log(`   ⚠ Failed to index ${project.title}:`, error instanceof Error ? error.message : 'Unknown error');
+      }
+    }
+    
+    console.log(`🎯 Auto-indexed ${indexedCount}/${projects.length} projects`);
+  } catch (error) {
+    console.log('ℹ️  Skipping auto-indexing (indexer not available during seed)');
+  }
 }
 
 main()
