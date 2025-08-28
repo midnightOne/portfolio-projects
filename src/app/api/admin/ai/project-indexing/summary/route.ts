@@ -31,13 +31,15 @@ async function summaryHandler(request: NextRequest) {
     const projectIndexes = await prisma.$queryRaw<Array<{
       project_id: string;
       summary: string;
-      keywords: string;
-      topics: string;
-      technologies: string;
+      keywords: string[] | string;
+      topics: string[] | string;
+      technologies: string[] | string;
       sections_count: number;
       media_count: number;
       content_hash: string;
       updated_at: Date;
+      title: string;
+      slug: string;
     }>>`
       SELECT 
         pai.project_id,
@@ -66,9 +68,9 @@ async function summaryHandler(request: NextRequest) {
       lastUpdated: index.updated_at.toISOString(),
       sectionsCount: index.sections_count,
       mediaCount: index.media_count,
-      keywords: JSON.parse(index.keywords || '[]'),
-      topics: JSON.parse(index.topics || '[]'),
-      technologies: JSON.parse(index.technologies || '[]'),
+      keywords: Array.isArray(index.keywords) ? index.keywords : JSON.parse(index.keywords || '[]'),
+      topics: Array.isArray(index.topics) ? index.topics : JSON.parse(index.topics || '[]'),
+      technologies: Array.isArray(index.technologies) ? index.technologies : JSON.parse(index.technologies || '[]'),
       contentHash: index.content_hash
     }));
 

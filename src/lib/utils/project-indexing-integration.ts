@@ -217,35 +217,46 @@ export async function getIndexingStatistics(): Promise<{
   lastIndexingActivity: Date | null;
 }> {
   try {
-    const [totalProjects, indexedProjects, lastActivity] = await Promise.all([
-      // Total public projects
-      prisma.project.count({
-        where: {
-          status: 'PUBLISHED',
-          visibility: 'PUBLIC'
-        }
-      }),
-      
-      // Projects with indexes
-      prisma.$queryRaw<Array<{ count: bigint }>>`
+    // Get total public projects
+    const totalProjects = await prisma.project.count({
+      where: {
+        status: 'PUBLISHED',
+        visibility: 'PUBLIC'
+      }
+    });
+
+    let indexedProjects = 0;
+    let lastIndexingActivity: Date | null = null;
+
+    try {
+      // Try to get indexed projects count
+      const indexedResult = await prisma.$queryRaw<Array<{ count: bigint }>>`
         SELECT COUNT(*) as count FROM project_ai_index
-      `,
-      
-      // Last indexing activity
-      prisma.$queryRaw<Array<{ updated_at: Date }>>`
+      `;
+      indexedProjects = Number(indexedResult[0]?.count || 0);
+
+      // Try to get last indexing activity
+      const lastActivityResult = await prisma.$queryRaw<Array<{ updated_at: Date }>>`
         SELECT updated_at FROM project_ai_index 
         ORDER BY updated_at DESC 
         LIMIT 1
-      `
-    ]);
+      `;
+      lastIndexingActivity = lastActivityResult[0]?.updated_at || null;
+
+    } catch (dbError) {
+      // Table might not exist yet, that's okay
+      console.log('Project AI index table not found, returning default values');
+      indexedProjects = 0;
+      lastIndexingActivity = null;
+    }
 
     const cacheStats = projectIndexer.getCacheStats();
 
     return {
       totalProjects,
-      indexedProjects: Number(indexedProjects[0]?.count || 0),
+      indexedProjects,
       cacheSize: cacheStats.size,
-      lastIndexingActivity: lastActivity[0]?.updated_at || null
+      lastIndexingActivity
     };
 
   } catch (error) {

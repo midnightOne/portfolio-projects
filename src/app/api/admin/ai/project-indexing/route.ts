@@ -89,7 +89,17 @@ async function indexingHandler(request: NextRequest) {
           batchSize
         });
 
-        const response = NextResponse.json(createApiSuccess(result));
+        // Map the response to match what the admin page expects
+        const mappedResult = {
+          success: result.success,
+          indexed: result.indexed,
+          successful: result.indexed,
+          failed: result.errors.length,
+          errors: result.errors,
+          total: result.indexed + result.errors.length
+        };
+
+        const response = NextResponse.json(createApiSuccess(mappedResult));
         return addCorsHeaders(response);
       }
     }

@@ -603,9 +603,9 @@ export class ProjectIndexer {
         ) VALUES (
           ${index.projectId},
           ${index.summary},
-          ${JSON.stringify(index.keywords)},
-          ${JSON.stringify(index.topics)},
-          ${JSON.stringify(index.technologies)},
+          ${JSON.stringify(index.keywords)}::jsonb,
+          ${JSON.stringify(index.topics)}::jsonb,
+          ${JSON.stringify(index.technologies)}::jsonb,
           ${index.sections.length},
           ${index.mediaContext.length},
           ${index.contentHash},
@@ -614,9 +614,9 @@ export class ProjectIndexer {
         ON CONFLICT (project_id) 
         DO UPDATE SET
           summary = EXCLUDED.summary,
-          keywords = EXCLUDED.keywords,
-          topics = EXCLUDED.topics,
-          technologies = EXCLUDED.technologies,
+          keywords = EXCLUDED.keywords::jsonb,
+          topics = EXCLUDED.topics::jsonb,
+          technologies = EXCLUDED.technologies::jsonb,
           sections_count = EXCLUDED.sections_count,
           media_count = EXCLUDED.media_count,
           content_hash = EXCLUDED.content_hash,

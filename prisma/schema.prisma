@@ -37,6 +37,7 @@ model Project {
   metadataImage       MediaItem?               @relation("ProjectMetadata", fields: [metadataImageId], references: [id])
   thumbnailImage      MediaItem?               @relation("ProjectThumbnail", fields: [thumbnailImageId], references: [id])
   tags                Tag[]                    @relation("ProjectTags")
+  aiIndex             ProjectAIIndex?
 
   @@index([status, visibility])
   @@index([workDate])
@@ -248,6 +249,27 @@ model AIGeneralSettings {
   updatedAt       DateTime @updatedAt
 
   @@map("ai_general_settings")
+}
+
+model ProjectAIIndex {
+  projectId      String   @id @db.VarChar(255)
+  summary        String
+  keywords       Json     @default("[]")
+  topics         Json     @default("[]")
+  technologies   Json     @default("[]")
+  sectionsCount  Int      @default(0)
+  mediaCount     Int      @default(0)
+  contentHash    String?  @db.VarChar(255)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now())
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([contentHash])
+  @@index([updatedAt])
+  @@index([keywords], type: Gin)
+  @@index([topics], type: Gin)
+  @@index([technologies], type: Gin)
+  @@map("project_ai_index")
 }
 
 model AIContentSourceConfig {
