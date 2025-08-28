@@ -335,3 +335,130 @@ const rateLimiter = new RateLimiter({
 // Check logs for rate limiting decisions
 console.log('Rate limit result:', result);
 ```
+## Admin I
+nterface Integration
+
+The rate limiting system is fully integrated into the existing admin interface with three dedicated pages:
+
+### Admin Pages
+
+#### 1. Rate Limiting Dashboard (`/admin/ai/rate-limiting`)
+- **Overview**: Comprehensive analytics and monitoring dashboard
+- **Features**:
+  - Real-time request statistics and metrics
+  - Block rate analysis and trends
+  - Request distribution by tier and endpoint
+  - Time-based analytics with configurable periods
+  - System cleanup and maintenance tools
+
+#### 2. Reflinks Management (`/admin/ai/reflinks`)
+- **Overview**: Create and manage reflink codes for enhanced access
+- **Features**:
+  - Create new reflinks with custom settings
+  - Configure rate limit tiers (Basic, Standard, Premium, Unlimited)
+  - Set expiration dates and daily limits
+  - Toggle reflink activation status
+  - View usage statistics per reflink
+  - Copy reflink codes to clipboard
+
+#### 3. Security Management (`/admin/ai/security`)
+- **Overview**: Monitor and manage IP blacklists and security violations
+- **Features**:
+  - View all blacklisted IP addresses
+  - Add IPs to blacklist manually
+  - Reinstate blocked IPs with reason tracking
+  - Analyze violations by type and frequency
+  - Monitor top violating IPs
+  - Security analytics and trends
+
+### Navigation Integration
+
+The rate limiting admin pages are integrated into the existing admin sidebar under the "AI Assistant" section:
+
+```
+AI Assistant
+├── AI Settings
+├── Content Sources
+├── Project Indexing
+├── Context Config
+├── Rate Limiting      ← New
+├── Reflinks          ← New
+└── Security          ← New
+```
+
+### Admin Authentication
+
+All admin pages require proper authentication and admin role:
+- Uses existing NextAuth session validation
+- Redirects to `/admin/login` if not authenticated
+- Checks for `admin` role in user session
+- Consistent with existing admin page security
+
+### UI Components
+
+The admin interface uses the existing design system:
+- **Layout**: `AdminLayout` and `AdminPageLayout` components
+- **UI Components**: Shadcn/ui components (Cards, Tables, Dialogs, etc.)
+- **Icons**: Lucide React icons
+- **Styling**: Tailwind CSS with consistent theming
+- **Responsive**: Mobile-friendly responsive design
+
+### Real-time Updates
+
+Admin pages include real-time functionality:
+- **Auto-refresh**: Configurable refresh intervals
+- **Manual refresh**: Refresh buttons on all pages
+- **Live data**: Real-time analytics and status updates
+- **Toast notifications**: Success/error feedback for all actions
+
+### Data Export and Management
+
+Administrative tools for data management:
+- **Analytics export**: CSV export capabilities (planned)
+- **Bulk operations**: Bulk reflink management
+- **Cleanup tools**: Automated cleanup of expired records
+- **Backup considerations**: Database-level backup recommendations
+
+### Integration Testing
+
+The admin integration includes comprehensive testing:
+- **Component tests**: React component rendering tests
+- **API integration**: Admin endpoint functionality tests
+- **Authentication**: Admin access control verification
+- **UI consistency**: Design system compliance checks
+
+### Usage Examples
+
+#### Accessing Admin Pages
+
+1. **Login as admin**: Navigate to `/admin/login`
+2. **Dashboard access**: Go to `/admin` for overview
+3. **Rate limiting**: Navigate to `/admin/ai/rate-limiting`
+4. **Reflink management**: Go to `/admin/ai/reflinks`
+5. **Security monitoring**: Visit `/admin/ai/security`
+
+#### Common Admin Tasks
+
+**Creating a Premium Reflink:**
+1. Go to `/admin/ai/reflinks`
+2. Click "Create Reflink"
+3. Set code: `premium-2025`
+4. Select tier: `PREMIUM` (200 requests/day)
+5. Set expiration date (optional)
+6. Click "Create Reflink"
+
+**Monitoring Security Violations:**
+1. Go to `/admin/ai/security`
+2. Review "Violations by Type" section
+3. Check "Top Violating IPs" list
+4. Add problematic IPs to blacklist if needed
+5. Monitor trends in analytics dashboard
+
+**Analyzing Usage Patterns:**
+1. Go to `/admin/ai/rate-limiting`
+2. Select time period (7, 30, or 90 days)
+3. Review request distribution by tier
+4. Check top endpoints for usage patterns
+5. Monitor block rates and user behavior
+
+The admin interface provides a complete management solution for the rate limiting system, seamlessly integrated with the existing portfolio admin infrastructure.

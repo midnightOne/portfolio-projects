@@ -51,6 +51,7 @@ import {
   Loader2,
   Database,
   SlidersHorizontal,
+  Shield,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useAdminProjects } from "@/hooks/use-admin-projects";
@@ -344,6 +345,39 @@ export function AdminSidebar() {
                   <Link href="/admin/ai/context-config" className="flex items-center gap-2">
                     <SlidersHorizontal className="size-4" />
                     <span>Context Config</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/rate-limiting')}
+                >
+                  <Link href="/admin/ai/rate-limiting" className="flex items-center gap-2">
+                    <BarChart3 className="size-4" />
+                    <span>Rate Limiting</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/reflinks')}
+                >
+                  <Link href="/admin/ai/reflinks" className="flex items-center gap-2">
+                    <Hash className="size-4" />
+                    <span>Reflinks</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/security')}
+                >
+                  <Link href="/admin/ai/security" className="flex items-center gap-2">
+                    <Shield className="size-4" />
+                    <span>Security</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
