@@ -192,9 +192,18 @@ export class AbuseDetector {
    */
   private async analyzeWithAI(content: string): Promise<ContentAnalysisResult | null> {
     try {
-      // Check if AI is available
-      const isAvailable = await this.aiService.isAvailable();
-      if (!isAvailable) {
+      // Check if AI providers are available
+      const providers = await this.aiService.getAvailableProviders();
+      const hasConnectedProvider = providers.some(p => p.connected && p.configured);
+      if (!hasConnectedProvider) {
+        return null;
+      }
+
+      // Get the first available model
+      const availableModels = await this.aiService.getModelsForDropdown();
+      const firstAvailableModel = availableModels.find(m => m.available);
+      
+      if (!firstAvailableModel) {
         return null;
       }
 
@@ -208,19 +217,26 @@ export class AbuseDetector {
       Content to analyze:
       "${content.substring(0, 1000)}"`;
 
-      const response = await this.aiService.processPrompt({
+      const response = await this.aiService.processCustomPrompt({
+        model: firstAvailableModel.model,
         prompt,
+        content: content.substring(0, 1000),
+        context: {
+          projectTitle: 'Content Analysis',
+          projectDescription: 'Analyzing content for abuse detection',
+          existingTags: [],
+          fullContent: content
+        },
         temperature: 0.1, // Low temperature for consistent analysis
-        maxTokens: 200,
       });
 
-      if (!response.success || !response.content) {
+      if (!response.success) {
         return null;
       }
 
-      // Try to parse AI response
+      // Try to parse AI response from reasoning field
       try {
-        const analysis = JSON.parse(response.content);
+        const analysis = JSON.parse(response.reasoning);
         
         return this.createResult(
           analysis.isAbusive || false,
@@ -230,8 +246,21 @@ export class AbuseDetector {
           analysis.isAbusive ? (analysis.severity === 'high' ? 'block' : 'warn') : 'allow'
         );
       } catch (parseError) {
-        console.warn('Failed to parse AI analysis response:', parseError);
-        return null;
+        // If JSON parsing fails, try to extract from userFeedback or reasoning as text
+        const reasoningText = response.userFeedback || response.reasoning || '';
+        
+        // Simple heuristic analysis if AI response isn't structured
+        const isAbusive = reasoningText.toLowerCase().includes('abusive') || 
+                         reasoningText.toLowerCase().includes('inappropriate') ||
+                         reasoningText.toLowerCase().includes('spam');
+        
+        return this.createResult(
+          isAbusive,
+          isAbusive ? 0.6 : 0.2,
+          isAbusive ? ['AI detected potential issues'] : ['AI analysis completed'],
+          isAbusive ? 'medium' : 'low',
+          isAbusive ? 'warn' : 'allow'
+        );
       }
     } catch (error) {
       console.error('AI content analysis error:', error);

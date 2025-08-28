@@ -371,7 +371,9 @@ export class SecurityNotifier {
    */
   private shouldNotify(severity: 'low' | 'medium' | 'high'): boolean {
     const severityLevels = { low: 1, medium: 2, high: 3 };
-    const threshold = severityLevels[this.config.notificationThreshold];
+    const thresholdLevels = { all: 1, medium: 2, high: 3 };
+    
+    const threshold = thresholdLevels[this.config.notificationThreshold];
     const current = severityLevels[severity];
     
     return current >= threshold;
