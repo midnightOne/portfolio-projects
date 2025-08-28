@@ -93,7 +93,10 @@ export async function POST(req: NextRequest) {
     const reflink = await reflinkManager.createReflink(
       {
         ...validation.data!,
-        rateLimitTier: validation.data!.rateLimitTier ?? 'STANDARD'
+        rateLimitTier: validation.data!.rateLimitTier ?? 'STANDARD',
+        enableVoiceAI: validation.data!.enableVoiceAI ?? true,
+        enableJobAnalysis: validation.data!.enableJobAnalysis ?? true,
+        enableAdvancedNavigation: validation.data!.enableAdvancedNavigation ?? true,
       },
       (user as any).email || (user as any).id
     );

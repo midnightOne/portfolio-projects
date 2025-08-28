@@ -279,6 +279,9 @@ describe('ReflinkManager', () => {
         name: 'Test Reflink',
         description: 'A test reflink',
         rateLimitTier: 'STANDARD',
+        enableVoiceAI: true,
+        enableJobAnalysis: true,
+        enableAdvancedNavigation: true,
       };
 
       // Mock no existing reflink
@@ -312,6 +315,9 @@ describe('ReflinkManager', () => {
       const params: CreateReflinkParams = {
         code: 'existing-ref',
         rateLimitTier: 'STANDARD',
+        enableVoiceAI: true,
+        enableJobAnalysis: true,
+        enableAdvancedNavigation: true,
       };
 
       // Mock existing reflink

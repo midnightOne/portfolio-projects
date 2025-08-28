@@ -460,7 +460,7 @@ export class ReflinkManager {
         ? Math.max(0, Number(reflink.spendLimit) - Number(reflink.spendUsed))
         : Infinity;
 
-      const isExhausted = (
+      const isExhausted = Boolean(
         (reflink.tokenLimit && reflink.tokensUsed >= reflink.tokenLimit) ||
         (reflink.spendLimit && Number(reflink.spendUsed) >= Number(reflink.spendLimit))
       );
