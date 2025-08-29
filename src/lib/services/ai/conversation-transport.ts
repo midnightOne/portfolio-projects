@@ -460,14 +460,9 @@ export class WebRTCConversationTransport implements ConversationTransport {
       throw new Error('WebRTC not connected');
     }
 
-    // For WebRTC, we'll process the message locally and send the response
-    // In a full implementation, this might involve server-side processing
-    const response = await unifiedConversationManager.processInput(input, options);
-    
-    // Send response through data channel (for demonstration)
-    this.dataChannel.send(JSON.stringify(response));
-    
-    return response;
+    // For WebRTC, we need to send to server for processing to avoid recursive calls
+    // This would typically involve signaling server communication
+    throw new Error('WebRTC transport not fully implemented - use HTTP transport for now');
   }
 
   onMessage(callback: (response: ConversationResponse) => void): void {

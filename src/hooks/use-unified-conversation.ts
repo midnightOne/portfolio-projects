@@ -5,14 +5,90 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { 
-  type ConversationInput,
-  type ConversationResponse,
-  type ConversationOptions,
-  type ConversationMessage,
-  type ConversationState
-} from '@/lib/services/ai/unified-conversation-manager';
-import { clientConversationManager } from '@/lib/services/ai/client-conversation-manager';
+// Client-side conversation types (no server imports)
+export interface ConversationMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: Date;
+  inputMode: 'text' | 'voice' | 'hybrid';
+  metadata?: {
+    tokensUsed?: number;
+    cost?: number;
+    model?: string;
+    processingTime?: number;
+    voiceData?: {
+      duration?: number;
+      audioUrl?: string;
+      transcription?: string;
+    };
+    contextUsed?: string[];
+    navigationCommands?: NavigationCommand[];
+  };
+}
+
+export interface NavigationCommand {
+  type: 'navigate' | 'highlight' | 'scroll' | 'modal';
+  target: string;
+  parameters: Record<string, any>;
+  timing: 'immediate' | 'delayed' | 'synchronized';
+  duration?: number;
+}
+
+export interface ConversationInput {
+  content: string;
+  mode: 'text' | 'voice' | 'hybrid';
+  sessionId: string;
+  metadata?: {
+    voiceData?: {
+      audioBlob?: Blob;
+      duration?: number;
+      transcription?: string;
+    };
+    contextHints?: string[];
+    userPreferences?: {
+      tone?: 'technical' | 'casual' | 'professional';
+      responseLength?: 'concise' | 'detailed' | 'comprehensive';
+      includeNavigation?: boolean;
+    };
+  };
+}
+
+export interface ConversationResponse {
+  message: ConversationMessage;
+  navigationCommands: NavigationCommand[];
+  contextUpdates: string[];
+  voiceResponse?: {
+    audioUrl: string;
+    duration: number;
+    text: string;
+  };
+  suggestions: string[];
+  error?: {
+    code: string;
+    message: string;
+    recoverable: boolean;
+  };
+}
+
+export interface ConversationOptions {
+  model?: string;
+  maxTokens?: number;
+  temperature?: number;
+  includeContext?: boolean;
+  contextOptions?: any;
+  enableNavigation?: boolean;
+  enableVoiceResponse?: boolean;
+  systemPrompt?: string;
+}
+
+export interface ConversationState {
+  sessionId: string;
+  messages: ConversationMessage[];
+  isProcessing: boolean;
+  currentMode: 'text' | 'voice' | 'hybrid';
+  metadata: any;
+}
 import {
   type ConversationTransport,
   type TransportError,
@@ -145,14 +221,22 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
     }
   }, [autoConnect, defaultTransport]);
 
-  // Load existing conversation history
+  // Load existing conversation history via API
   useEffect(() => {
     if (!sessionId) return; // Wait for session ID to be initialized
     
     const loadHistory = async () => {
       try {
-        const history = await clientConversationManager.getConversationHistory(sessionId);
-        setMessages(history);
+        const response = await fetch(`/api/ai/conversation?sessionId=${encodeURIComponent(sessionId)}`, {
+          credentials: 'include'
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.data.messages) {
+            setMessages(data.data.messages);
+          }
+        }
       } catch (error) {
         console.error('Failed to load conversation history:', error);
       }
@@ -235,8 +319,18 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
     }
     
     try {
-      await clientConversationManager.updateConversationMode(sessionId, mode);
-      setCurrentMode(mode);
+      const response = await fetch('/api/ai/conversation', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ sessionId, mode })
+      });
+      
+      if (response.ok) {
+        setCurrentMode(mode);
+      } else {
+        throw new Error('Failed to update conversation mode');
+      }
     } catch (error) {
       console.error('Failed to switch conversation mode:', error);
       throw error;
@@ -269,8 +363,16 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
     }
     
     try {
-      await clientConversationManager.clearConversationHistory(sessionId);
-      setMessages([]);
+      const response = await fetch(`/api/ai/conversation?sessionId=${encodeURIComponent(sessionId)}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        setMessages([]);
+      } else {
+        throw new Error('Failed to clear conversation history');
+      }
     } catch (error) {
       console.error('Failed to clear conversation history:', error);
       throw error;
@@ -295,18 +397,49 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
     if (!sessionId) {
       return null;
     }
-    return clientConversationManager.getConversationState(sessionId);
+    
+    try {
+      const response = await fetch(`/api/ai/conversation?sessionId=${encodeURIComponent(sessionId)}`, {
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data.exists) {
+          return {
+            sessionId: data.data.sessionId || sessionId,
+            messages: data.data.messages || [],
+            isProcessing: data.data.isProcessing || false,
+            currentMode: data.data.activeMode || 'text',
+            metadata: data.data.metadata || {}
+          };
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Failed to get conversation state:', error);
+      return null;
+    }
   }, [sessionId]);
 
-  // Refresh messages from conversation manager
+  // Refresh messages from API
   const refreshMessages = useCallback(async (): Promise<void> => {
     if (!sessionId) {
       return;
     }
     
     try {
-      const history = await clientConversationManager.getConversationHistory(sessionId);
-      setMessages(history);
+      const response = await fetch(`/api/ai/conversation?sessionId=${encodeURIComponent(sessionId)}`, {
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.data.messages) {
+          setMessages(data.data.messages);
+        }
+      }
     } catch (error) {
       console.error('Failed to refresh messages:', error);
     }
@@ -317,23 +450,8 @@ export function useUnifiedConversation(options: UseUnifiedConversationOptions = 
     setError(null);
   }, []);
 
-  // Check if currently processing
-  useEffect(() => {
-    if (!sessionId) return; // Wait for session ID to be initialized
-    
-    const checkProcessing = () => {
-      const processing = clientConversationManager.isProcessing(sessionId);
-      setIsProcessing(processing);
-    };
-
-    // Check immediately
-    checkProcessing();
-
-    // Set up interval to check processing state
-    const interval = setInterval(checkProcessing, 100);
-
-    return () => clearInterval(interval);
-  }, [sessionId]);
+  // Processing state is managed locally based on API calls
+  // No need for polling since we control the processing state directly
 
   return {
     // State
@@ -378,11 +496,25 @@ export function useConversationState(sessionId: string) {
   useEffect(() => {
     const loadState = async () => {
       try {
-        const state = await clientConversationManager.getConversationState(sessionId);
-        setConversationState(state);
-        if (state) {
-          setMessages(state.messages);
-          setIsProcessing(state.isProcessing);
+        const response = await fetch(`/api/ai/conversation?sessionId=${encodeURIComponent(sessionId)}`, {
+          credentials: 'include'
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.data.exists) {
+            const state: ConversationState = {
+              sessionId: data.data.sessionId || sessionId,
+              messages: data.data.messages || [],
+              isProcessing: data.data.isProcessing || false,
+              currentMode: data.data.activeMode || 'text',
+              metadata: data.data.metadata || {}
+            };
+            
+            setConversationState(state);
+            setMessages(state.messages);
+            setIsProcessing(state.isProcessing);
+          }
         }
       } catch (error) {
         console.error('Failed to load conversation state:', error);

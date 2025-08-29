@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ChevronDown, ChevronRight, Bug, Copy, RefreshCw, AlertCircle } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
-import { useUnifiedConversation } from '@/hooks/use-unified-conversation';
+import { useUnifiedConversation, type ConversationMessage } from '@/hooks/use-unified-conversation';
 
 interface DebugData {
   sessionId: string;

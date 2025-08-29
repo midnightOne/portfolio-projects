@@ -666,7 +666,7 @@ export function ConversationsManagement() {
                         </Badge>
                       </div>
                       <div className="text-sm font-medium">
-                        {count} messages
+                        {String(count)} messages
                       </div>
                     </div>
                   ))}
@@ -687,7 +687,7 @@ export function ConversationsManagement() {
                     <div key={model} className="flex items-center justify-between">
                       <div className="text-sm font-medium">{model}</div>
                       <div className="text-sm text-muted-foreground">
-                        {count} messages
+                        {String(count)} messages
                       </div>
                     </div>
                   ))}

@@ -143,26 +143,28 @@ export class UnifiedConversationManager {
   }
 
   /**
-   * Load available models from API
+   * Load available models from database (server-side only)
    */
   private async loadAvailableModels(): Promise<void> {
     try {
-      // Only load models on server side or when window is available
-      if (typeof window === 'undefined') {
-        // Server side - use fallback models
+      // Load models from database using AI service manager
+      const aiService = new AIServiceManager();
+      const modelConfigs = await aiService.getConfiguredModels();
+      
+      // Extract all available models from all providers
+      const allModels: string[] = [];
+      modelConfigs.forEach(config => {
+        allModels.push(...config.models);
+      });
+      
+      if (allModels.length > 0) {
+        this.availableModels = allModels;
+      } else {
+        // Fallback to common models if no models configured in database
         this.availableModels = ['gpt-4o', 'gpt-4', 'claude-3-sonnet-20240229'];
-        return;
-      }
-
-      const response = await fetch('/api/admin/ai/available-models');
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success && data.data.unified) {
-          this.availableModels = data.data.unified.map((model: any) => model.id);
-        }
       }
     } catch (error) {
-      console.warn('Failed to load available models:', error);
+      console.warn('Failed to load available models from database:', error);
       // Fallback to common models
       this.availableModels = ['gpt-4o', 'gpt-4', 'claude-3-sonnet-20240229'];
     }
@@ -258,8 +260,15 @@ export class UnifiedConversationManager {
         this.recentDebugData = this.recentDebugData.slice(0, this.MAX_DEBUG_ENTRIES);
       }
 
-      // Store in global storage if available (server-side only)
-      if (typeof global !== 'undefined' && global.__unifiedConversationDebugData) {
+      // Store in global storage (server-side only)
+      if (typeof global !== 'undefined') {
+        if (!global.__unifiedConversationDebugData) {
+          global.__unifiedConversationDebugData = {
+            lastDebugData: null,
+            recentDebugData: []
+          };
+        }
+        
         global.__unifiedConversationDebugData.lastDebugData = debugData;
         global.__unifiedConversationDebugData.recentDebugData.unshift(debugData);
         if (global.__unifiedConversationDebugData.recentDebugData.length > this.MAX_DEBUG_ENTRIES) {
@@ -277,9 +286,16 @@ export class UnifiedConversationManager {
         this.lastDebugData.aiResponse = aiResponse;
       }
 
-      // Update global debug data if available (server-side only)
+      // Update global debug data (server-side only)
       if (typeof global !== 'undefined' && global.__unifiedConversationDebugData?.lastDebugData) {
         global.__unifiedConversationDebugData.lastDebugData.aiResponse = aiResponse;
+        // Also update in recent debug data array
+        const recentIndex = global.__unifiedConversationDebugData.recentDebugData.findIndex(
+          data => data.sessionId === debugData.sessionId && data.timestamp === debugData.timestamp
+        );
+        if (recentIndex >= 0) {
+          global.__unifiedConversationDebugData.recentDebugData[recentIndex].aiResponse = aiResponse;
+        }
       }
 
       // Parse navigation commands from response
@@ -388,9 +404,17 @@ export class UnifiedConversationManager {
         this.lastDebugData.error = error instanceof Error ? error.message : 'Unknown error occurred';
       }
 
-      // Update global debug data if available (server-side only)
+      // Update global debug data (server-side only)
       if (typeof global !== 'undefined' && global.__unifiedConversationDebugData?.lastDebugData) {
-        global.__unifiedConversationDebugData.lastDebugData.error = error instanceof Error ? error.message : 'Unknown error occurred';
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+        global.__unifiedConversationDebugData.lastDebugData.error = errorMessage;
+        // Also update in recent debug data array
+        const recentIndex = global.__unifiedConversationDebugData.recentDebugData.findIndex(
+          data => data.sessionId === this.lastDebugData?.sessionId && data.timestamp === this.lastDebugData?.timestamp
+        );
+        if (recentIndex >= 0) {
+          global.__unifiedConversationDebugData.recentDebugData[recentIndex].error = errorMessage;
+        }
       }
 
       console.error('Error processing conversation input:', error);
@@ -671,43 +695,36 @@ export class UnifiedConversationManager {
   }
 
   /**
-   * Initialize context sources for conversation
+   * Initialize context sources for conversation (server-side only)
    */
   private async initializeContextSources(): Promise<ContextSource[]> {
     try {
-      // Only try to load context sources on client side
-      if (typeof window !== 'undefined') {
-        const response = await fetch('/api/admin/ai/content-sources');
-        if (response.ok) {
-          const data = await response.json();
-          return data.sources || [];
+      // Server-side only - use fallback sources
+      // In a full implementation, this would load from database
+      return [
+        {
+          id: 'projects',
+          type: 'project',
+          title: 'Projects',
+          enabled: true,
+          summary: 'Portfolio projects and technical work',
+          lastUpdated: new Date(),
+          priority: 0.9
+        },
+        {
+          id: 'about',
+          type: 'about',
+          title: 'About',
+          enabled: true,
+          summary: 'Personal background and bio',
+          lastUpdated: new Date(),
+          priority: 0.8
         }
-      }
+      ];
     } catch (error) {
       console.warn('Failed to load context sources:', error);
+      return [];
     }
-
-    // Fallback to default sources
-    return [
-      {
-        id: 'projects',
-        type: 'project',
-        title: 'Projects',
-        enabled: true,
-        summary: 'Portfolio projects and technical work',
-        lastUpdated: new Date(),
-        priority: 0.9
-      },
-      {
-        id: 'about',
-        type: 'about',
-        title: 'About',
-        enabled: true,
-        summary: 'Personal background and bio',
-        lastUpdated: new Date(),
-        priority: 0.8
-      }
-    ];
   }
 
   /**
@@ -815,9 +832,11 @@ export class UnifiedConversationManager {
       throw new Error(`Model ${model} is not configured. Available models: ${this.availableModels.join(', ')}`);
     }
 
-    // Use AI service manager directly to avoid recursive calls
+    // Use AI service manager to get actual AI response
     const aiService = new AIServiceManager();
-    await aiService.initializeModelConfigurations();
+    
+    // Load model configurations to ensure provider mapping is available
+    await aiService.getConfiguredModels();
 
     // Get the provider for the model
     const provider = aiService.getProviderForModel(model);
