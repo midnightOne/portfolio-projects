@@ -482,26 +482,8 @@ export class ConversationManager {
         }
       });
 
-      // Calculate average response time
-      const avgResponseTime = await prisma.aIConversationMessage.aggregate({
-        where: {
-          metadata: {
-            path: ['processingTime'],
-            not: null
-          },
-          ...(dateRange ? {
-            conversation: {
-              startedAt: {
-                gte: dateRange.start,
-                lte: dateRange.end
-              }
-            }
-          } : {})
-        },
-        _avg: {
-          metadata: true // This won't work directly, we'll need to calculate manually
-        }
-      });
+      // Calculate average response time (simplified - we'll calculate this manually if needed)
+      const avgResponseTime = 0; // Placeholder - would need custom calculation
 
       // Build mode breakdown
       const modeBreakdown = { text: 0, voice: 0, hybrid: 0 };
@@ -533,7 +515,7 @@ export class ConversationManager {
         totalTokensUsed: conversationStats._sum.totalTokens || 0,
         totalCost: Number(conversationStats._sum.totalCost) || 0,
         averageMessagesPerConversation: Number(conversationStats._avg.messageCount) || 0,
-        averageResponseTime: 0, // Would need custom calculation
+        averageResponseTime: avgResponseTime,
         errorRate: totalConversations > 0 ? (errorConversations / totalConversations) * 100 : 0,
         modeBreakdown,
         modelUsage,
@@ -680,12 +662,6 @@ export class ConversationManager {
         where: { sessionId },
         include: {
           messages: {
-            where: {
-              metadata: {
-                path: ['debugInfo'],
-                not: null
-              }
-            },
             orderBy: { timestamp: 'desc' }
           }
         }
@@ -695,7 +671,9 @@ export class ConversationManager {
         return [];
       }
 
-      return conversation.messages.map(msg => ({
+      return conversation.messages
+        .filter(msg => (msg.metadata as any)?.debugInfo) // Filter messages with debug info
+        .map(msg => ({
         sessionId,
         messageId: msg.id,
         timestamp: msg.timestamp,

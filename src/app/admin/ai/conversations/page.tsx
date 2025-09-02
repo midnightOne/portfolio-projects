@@ -8,8 +8,8 @@
 import { getServerSession } from 'next-auth';
 import { redirect } from 'next/navigation';
 import { authOptions } from '@/lib/auth';
-import AdminLayout from '@/components/admin/admin-layout';
-import AdminPageLayout from '@/components/admin/admin-page-layout';
+import { AdminLayout } from '@/components/admin/admin-layout';
+import { AdminPageLayout } from '@/components/admin/admin-page-layout';
 import ConversationManagement from '@/components/admin/conversation-management';
 
 export default async function ConversationManagementPage() {

@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
       content: input.content,
       mode: input.mode,
       sessionId: input.sessionId,
-      reflinkId: input.metadata?.reflinkId,
+      reflinkId: (input.metadata as any)?.reflinkId,
       metadata: {
         userAgent: request.headers.get('user-agent') || undefined,
         ipAddress: request.headers.get('x-forwarded-for') || 
