@@ -49,3 +49,22 @@ export { securityNotifier } from './security-notifier';
 export { reflinkManager } from './reflink-manager';
 export { reflinkSessionManager } from './reflink-session-manager';
 export { publicAccessManager } from './public-access-manager';
+
+// Context Provider System
+export {
+  contextProvider,
+  type ContextProviderConfig,
+  type FilteredContext,
+  type ContextFilter,
+  type AccessLevel,
+  type ContextInjectionRequest,
+  type ContextInjectionResult
+} from './context-provider';
+
+// Context Injector
+export {
+  contextInjector,
+  type TokenGenerationRequest,
+  type TokenGenerationResult,
+  type SystemPromptInjection
+} from './context-injector';

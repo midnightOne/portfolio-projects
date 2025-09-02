@@ -2,6 +2,7 @@
  * Context Manager Service
  * Intelligent context building for AI conversations with session caching and optimization
  * Integrates with Data & API Layer for public project access and portfolio owner profile information
+ * Enhanced with Context Provider integration for secure context injection
  */
 
 import { projectIndexer, ProjectIndex, IndexedSection } from '@/lib/services/project-indexer';
@@ -500,7 +501,7 @@ export class ContextManager {
   /**
    * Estimate token count for text (rough approximation)
    */
-  private estimateTokens(text: string): number {
+  estimateTokens(text: string): number {
     // Rough approximation: 1 token ≈ 4 characters for English text
     return Math.ceil(text.length / 4);
   }
