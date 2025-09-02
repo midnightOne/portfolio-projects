@@ -1,39 +1,36 @@
 /**
- * Admin Conversations Management Page
+ * Admin Conversation Management Page
  * 
- * Comprehensive conversation management interface for administrators.
- * Includes search, filtering, replay, export, and analytics capabilities.
+ * Provides comprehensive conversation management interface for administrators
+ * using the simplified conversation management system.
  */
 
-import { Suspense } from 'react';
 import { getServerSession } from 'next-auth';
 import { redirect } from 'next/navigation';
 import { authOptions } from '@/lib/auth';
-import { AdminLayout } from '@/components/admin/admin-layout';
-import { AdminPageLayout } from '@/components/admin/admin-page-layout';
-import { ConversationsManagement } from '@/components/admin/conversations-management';
+import AdminLayout from '@/components/admin/admin-layout';
+import AdminPageLayout from '@/components/admin/admin-page-layout';
+import ConversationManagement from '@/components/admin/conversation-management';
 
-export default async function AdminConversationsPage() {
+export default async function ConversationManagementPage() {
   const session = await getServerSession(authOptions);
   
-  if (!session?.user || (session.user as any)?.role !== 'admin') {
-    redirect('/admin/login');
+  if (!session?.user || (session.user as any)?.role !== "admin") {
+    redirect("/admin/login");
   }
 
   return (
     <AdminLayout>
       <AdminPageLayout
         title="Conversation Management"
-        description="View, search, and manage AI conversation history with comprehensive analytics and debugging tools."
+        description="Manage AI conversations, view analytics, and debug conversation issues"
         breadcrumbs={[
-          { label: 'Dashboard', href: '/admin' },
-          { label: 'AI Assistant', href: '/admin/ai' },
-          { label: 'Conversations', href: '/admin/ai/conversations' }
+          { label: "Dashboard", href: "/admin" },
+          { label: "AI Assistant", href: "/admin/ai" },
+          { label: "Conversations", href: "/admin/ai/conversations" }
         ]}
       >
-        <Suspense fallback={<div>Loading conversations...</div>}>
-          <ConversationsManagement />
-        </Suspense>
+        <ConversationManagement />
       </AdminPageLayout>
     </AdminLayout>
   );

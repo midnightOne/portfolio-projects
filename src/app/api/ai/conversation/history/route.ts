@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { conversationManager } from '@/lib/services/ai/conversation-manager';
 import { conversationHistoryManager } from '@/lib/services/ai/conversation-history-manager';
 
 export async function GET(request: NextRequest) {
@@ -44,15 +45,43 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get conversation history from database
-    const conversation = await conversationHistoryManager.getConversationBySessionId(sessionId);
+    // Get conversation history from simplified manager first
+    let conversation = await conversationManager.getConversationBySessionId(sessionId);
 
+    // Fallback to legacy conversation history manager if not found
     if (!conversation) {
-      return NextResponse.json({
-        success: true,
-        messages: [],
-        exists: false
-      });
+      const legacyConversation = await conversationHistoryManager.getConversationBySessionId(sessionId);
+      
+      if (!legacyConversation) {
+        return NextResponse.json({
+          success: true,
+          messages: [],
+          exists: false
+        });
+      }
+
+      // Convert legacy format to simplified format
+      conversation = {
+        id: legacyConversation.id,
+        sessionId: legacyConversation.sessionId,
+        reflinkId: legacyConversation.reflinkId,
+        messageCount: legacyConversation.messageCount,
+        totalTokens: legacyConversation.totalTokens,
+        totalCost: legacyConversation.totalCost,
+        startedAt: legacyConversation.startedAt,
+        lastMessageAt: legacyConversation.lastMessageAt,
+        messages: legacyConversation.messages.map(msg => ({
+          id: msg.id,
+          role: msg.role,
+          content: msg.content,
+          timestamp: msg.timestamp,
+          tokensUsed: msg.tokensUsed,
+          cost: msg.costUsd ? Number(msg.costUsd) : undefined,
+          model: msg.modelUsed,
+          mode: msg.transportMode,
+          metadata: msg.metadata
+        }))
+      };
     }
 
     // Convert to client-side format
@@ -61,15 +90,15 @@ export async function GET(request: NextRequest) {
       role: msg.role,
       content: msg.content,
       timestamp: msg.timestamp,
-      inputMode: msg.transportMode || 'text',
+      inputMode: msg.mode || 'text',
       metadata: {
         tokensUsed: msg.tokensUsed,
-        cost: msg.costUsd,
-        model: msg.modelUsed,
-        processingTime: msg.metadata.processingTime,
-        voiceData: msg.metadata.voiceData,
-        contextUsed: msg.metadata.contextUsed,
-        navigationCommands: msg.metadata.navigationCommands
+        cost: msg.cost,
+        model: msg.model,
+        processingTime: msg.metadata?.processingTime,
+        voiceData: msg.metadata?.voiceData,
+        contextUsed: msg.metadata?.contextUsed,
+        navigationCommands: msg.metadata?.navigationCommands
       }
     }));
 
@@ -129,11 +158,18 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Get conversation and delete it
-    const conversation = await conversationHistoryManager.getConversationBySessionId(sessionId);
+    // Delete from simplified manager first
+    await conversationManager.deleteConversation(sessionId);
     
-    if (conversation) {
-      await conversationHistoryManager.deleteConversation(conversation.id);
+    // Also try to delete from legacy manager for cleanup
+    try {
+      const legacyConversation = await conversationHistoryManager.getConversationBySessionId(sessionId);
+      if (legacyConversation) {
+        await conversationHistoryManager.deleteConversation(legacyConversation.id);
+      }
+    } catch (error) {
+      console.warn('Failed to delete from legacy conversation manager:', error);
+      // Continue without failing
     }
 
     return NextResponse.json({

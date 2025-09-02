@@ -1,7 +1,7 @@
 /**
- * Unified Conversation API Endpoint
- * ADMIN ONLY - HTTP transport endpoint for the unified conversation system
- * Handles text, voice, and hybrid conversation inputs through a single interface
+ * Simplified Conversation API Endpoint
+ * ADMIN ONLY - Server-side conversation management with proper database integration
+ * Handles text, voice, and hybrid conversation inputs through a simplified interface
  * Security: All operations require admin authentication - this is an interactive portfolio, not a public chatbot
  */
 
@@ -9,12 +9,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { 
+  conversationManager,
+  type SimpleConversationInput,
+  type SimpleConversationResponse
+} from '@/lib/services/ai/conversation-manager';
+import { 
   unifiedConversationManager,
   type ConversationInput,
   type ConversationOptions 
 } from '@/lib/services/ai/unified-conversation-manager';
-import { AIServiceManager } from '@/lib/ai/service-manager';
-import { type ProviderChatRequest } from '@/lib/ai/types';
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,11 +38,9 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
+    const startTime = Date.now();
     
-    // Remove direct chat request handling to prevent recursive calls
-    // All AI requests should go through the unified conversation manager
-    
-    // Handle both nested format (from transport) and flat format (direct calls)
+    // Handle both simplified and unified conversation formats
     let input: ConversationInput;
     let options: ConversationOptions;
     
@@ -82,8 +83,63 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Process the conversation input
+    // Process the conversation input through unified manager
     const response = await unifiedConversationManager.processInput(input, options);
+    
+    // Store conversation using simplified manager for better database integration
+    const simpleInput: SimpleConversationInput = {
+      content: input.content,
+      mode: input.mode,
+      sessionId: input.sessionId,
+      reflinkId: input.metadata?.reflinkId,
+      metadata: {
+        userAgent: request.headers.get('user-agent') || undefined,
+        ipAddress: request.headers.get('x-forwarded-for') || 
+                  request.headers.get('x-real-ip') || 
+                  'unknown',
+        voiceData: input.metadata?.voiceData,
+        userPreferences: input.metadata?.userPreferences
+      }
+    };
+
+    const simpleResponse: SimpleConversationResponse = {
+      id: response.message.id,
+      content: response.message.content,
+      tokensUsed: response.message.metadata?.tokensUsed,
+      cost: response.message.metadata?.cost,
+      model: response.message.metadata?.model,
+      processingTime: Date.now() - startTime,
+      navigationCommands: response.navigationCommands,
+      error: response.error
+    };
+
+    // Get debug data from unified manager
+    const debugData = unifiedConversationManager.getDebugDataForSession(input.sessionId);
+
+    // Store in simplified conversation manager
+    try {
+      await conversationManager.addMessage(
+        input.sessionId,
+        simpleInput,
+        simpleResponse,
+        debugData ? {
+          sessionId: debugData.sessionId,
+          messageId: response.message.id,
+          timestamp: new Date(),
+          systemPrompt: debugData.systemPrompt,
+          contextString: debugData.contextString,
+          aiRequest: debugData.aiRequest,
+          aiResponse: debugData.aiResponse,
+          error: debugData.error,
+          performanceMetrics: {
+            totalProcessingTime: simpleResponse.processingTime
+          }
+        } : undefined
+      );
+    } catch (storageError) {
+      console.error('Failed to store conversation in simplified manager:', storageError);
+      // Continue without failing the request
+    }
 
     // Return the response
     return NextResponse.json({
