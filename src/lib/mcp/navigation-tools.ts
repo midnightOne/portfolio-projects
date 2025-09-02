@@ -705,8 +705,7 @@ const animateElementTool: MCPNavigationTool = {
               type: 'number',
               description: 'Animation delay in milliseconds'
             }
-          },
-          required: ['type']
+          }
         }
       },
       required: ['selector', 'animation']

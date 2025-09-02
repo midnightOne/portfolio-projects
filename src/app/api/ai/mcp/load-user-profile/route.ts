@@ -11,7 +11,7 @@ import type { MCPToolCall } from '@/lib/mcp/types';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { toolName, arguments: args, id } = body as MCPToolCall;
+    const { name: toolName, arguments: args, id } = body as MCPToolCall;
 
     if (toolName !== 'loadUserProfile') {
       return NextResponse.json(

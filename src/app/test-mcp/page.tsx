@@ -4,6 +4,8 @@
  * Test page for demonstrating the MCP (Model Context Protocol) navigation tools system.
  */
 
+'use client';
+
 import React from 'react';
 import { MCPProvider } from '@/components/providers/mcp-provider';
 import { MCPDemo } from '@/components/mcp/mcp-demo';

@@ -36,6 +36,9 @@ export type {
   ReportUIStateArgs
 } from './types';
 
+// Import types for internal use
+import type { MCPToolCall, MCPError, MCPConfig } from './types';
+
 // Client and server instances
 export { mcpClient, MCPClientImpl } from './client';
 export { mcpServer, MCPServerImpl } from './server';

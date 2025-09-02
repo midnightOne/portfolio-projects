@@ -154,8 +154,7 @@ const reportUIStateTool: MCPServerTool = {
               type: 'number',
               description: 'Timestamp of the state'
             }
-          },
-          required: ['timestamp']
+          }
         }
       },
       required: ['state']
@@ -245,9 +244,11 @@ const analyzeUserIntentTool: MCPServerTool = {
           description: 'Previous conversation messages',
           items: {
             type: 'object',
+            description: 'Conversation message object',
             properties: {
               role: {
                 type: 'string',
+                description: 'Message role (user or assistant)',
                 enum: ['user', 'assistant']
               },
               content: {
@@ -296,10 +297,15 @@ const generateNavigationSuggestionsTool: MCPServerTool = {
           description: 'List of available projects',
           items: {
             type: 'object',
+            description: 'Project information object',
             properties: {
-              id: { type: 'string' },
-              title: { type: 'string' },
-              tags: { type: 'array', items: { type: 'string' } }
+              id: { type: 'string', description: 'Project ID' },
+              title: { type: 'string', description: 'Project title' },
+              tags: { 
+                type: 'array', 
+                description: 'Project tags',
+                items: { type: 'string', description: 'Tag name' } 
+              }
             }
           }
         }
