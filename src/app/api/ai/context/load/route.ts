@@ -80,7 +80,7 @@ async function contextLoadHandler(request: NextRequest) {
     }
 
     // Load context based on type and access level
-    const contextData = await this.loadContextByType(
+    const contextData = await loadContextByType(
       contextType,
       query,
       sessionId,
