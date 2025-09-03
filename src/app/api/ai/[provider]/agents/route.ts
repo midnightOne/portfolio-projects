@@ -1,0 +1,373 @@
+/**
+ * Provider-Specific Agents API Route
+ * 
+ * Handles agent metadata and management for different voice AI providers.
+ * Supports both OpenAI and ElevenLabs agent configurations.
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+
+interface AgentMetadata {
+  id: string;
+  name: string;
+  provider: 'openai' | 'elevenlabs';
+  model?: string;
+  voice?: string;
+  capabilities: string[];
+  description: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface AgentsResponse {
+  success: boolean;
+  agents: AgentMetadata[];
+  total: number;
+}
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { provider: string } }
+) {
+  try {
+    const provider = params.provider as 'openai' | 'elevenlabs';
+    
+    if (!['openai', 'elevenlabs'].includes(provider)) {
+      return NextResponse.json(
+        { success: false, message: 'Invalid provider. Must be "openai" or "elevenlabs"' },
+        { status: 400 }
+      );
+    }
+
+    const { searchParams } = new URL(request.url);
+    const limit = parseInt(searchParams.get('limit') || '10');
+    const offset = parseInt(searchParams.get('offset') || '0');
+
+    let agents: AgentMetadata[] = [];
+
+    if (provider === 'openai') {
+      // OpenAI doesn't have persistent agents in the same way as ElevenLabs
+      // We return available models and configurations
+      agents = [
+        {
+          id: 'gpt-4o-realtime-default',
+          name: 'GPT-4o Realtime (Default)',
+          provider: 'openai',
+          model: 'gpt-4o-realtime-preview-2025-06-03',
+          voice: 'alloy',
+          capabilities: [
+            'real-time-stt',
+            'real-time-tts',
+            'tool-calling',
+            'interruption-handling',
+            'voice-activity-detection',
+            'webrtc-transport'
+          ],
+          description: 'Default OpenAI Realtime configuration with Alloy voice',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        {
+          id: 'gpt-4o-realtime-echo',
+          name: 'GPT-4o Realtime (Echo)',
+          provider: 'openai',
+          model: 'gpt-4o-realtime-preview-2025-06-03',
+          voice: 'echo',
+          capabilities: [
+            'real-time-stt',
+            'real-time-tts',
+            'tool-calling',
+            'interruption-handling',
+            'voice-activity-detection',
+            'webrtc-transport'
+          ],
+          description: 'OpenAI Realtime configuration with Echo voice',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        },
+        {
+          id: 'gpt-4o-realtime-nova',
+          name: 'GPT-4o Realtime (Nova)',
+          provider: 'openai',
+          model: 'gpt-4o-realtime-preview-2025-06-03',
+          voice: 'nova',
+          capabilities: [
+            'real-time-stt',
+            'real-time-tts',
+            'tool-calling',
+            'interruption-handling',
+            'voice-activity-detection',
+            'webrtc-transport'
+          ],
+          description: 'OpenAI Realtime configuration with Nova voice',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+      ];
+    } else if (provider === 'elevenlabs') {
+      // For ElevenLabs, we would typically fetch actual agents from their API
+      const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
+      
+      if (elevenLabsApiKey) {
+        try {
+          const response = await fetch('https://api.elevenlabs.io/v1/convai/agents', {
+            headers: {
+              'xi-api-key': elevenLabsApiKey,
+            },
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            agents = data.agents?.map((agent: any) => ({
+              id: agent.agent_id,
+              name: agent.name || 'Unnamed Agent',
+              provider: 'elevenlabs' as const,
+              voice: agent.voice_id,
+              capabilities: [
+                'real-time-conversation',
+                'agent-management',
+                'signed-url-conversations',
+                'tool-calling',
+                'real-time-audio'
+              ],
+              description: agent.prompt || 'ElevenLabs conversational agent',
+              created_at: agent.created_at || new Date().toISOString(),
+              updated_at: agent.updated_at || new Date().toISOString()
+            })) || [];
+          } else {
+            console.error('Failed to fetch ElevenLabs agents:', response.statusText);
+          }
+        } catch (error) {
+          console.error('Error fetching ElevenLabs agents:', error);
+        }
+      }
+
+      // If no agents found or API call failed, return default configuration
+      if (agents.length === 0) {
+        agents = [
+          {
+            id: 'elevenlabs-default',
+            name: 'ElevenLabs Default Agent',
+            provider: 'elevenlabs',
+            voice: 'default',
+            capabilities: [
+              'real-time-conversation',
+              'agent-management',
+              'signed-url-conversations',
+              'tool-calling',
+              'real-time-audio'
+            ],
+            description: 'Default ElevenLabs conversational agent configuration',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }
+        ];
+      }
+    }
+
+    // Apply pagination
+    const paginatedAgents = agents.slice(offset, offset + limit);
+
+    const response: AgentsResponse = {
+      success: true,
+      agents: paginatedAgents,
+      total: agents.length
+    };
+
+    return NextResponse.json(response);
+
+  } catch (error) {
+    console.error(`Error fetching ${params.provider} agents:`, error);
+    return NextResponse.json(
+      { success: false, message: 'Failed to fetch agents' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { provider: string } }
+) {
+  try {
+    const provider = params.provider as 'openai' | 'elevenlabs';
+    
+    if (!['openai', 'elevenlabs'].includes(provider)) {
+      return NextResponse.json(
+        { success: false, message: 'Invalid provider. Must be "openai" or "elevenlabs"' },
+        { status: 400 }
+      );
+    }
+
+    const body = await request.json();
+
+    if (provider === 'openai') {
+      // OpenAI doesn't support creating persistent agents
+      // Return the configuration that would be used
+      const agentConfig = {
+        id: `gpt-4o-realtime-${Date.now()}`,
+        name: body.name || 'Custom OpenAI Agent',
+        provider: 'openai' as const,
+        model: body.model || 'gpt-4o-realtime-preview-2025-06-03',
+        voice: body.voice || 'alloy',
+        capabilities: [
+          'real-time-stt',
+          'real-time-tts',
+          'tool-calling',
+          'interruption-handling',
+          'voice-activity-detection',
+          'webrtc-transport'
+        ],
+        description: body.description || 'Custom OpenAI Realtime configuration',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      return NextResponse.json({
+        success: true,
+        agent: agentConfig,
+        message: 'OpenAI agent configuration created (session-based)'
+      });
+
+    } else if (provider === 'elevenlabs') {
+      const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
+      
+      if (!elevenLabsApiKey) {
+        return NextResponse.json(
+          { success: false, message: 'ElevenLabs API key not configured' },
+          { status: 500 }
+        );
+      }
+
+      // Create ElevenLabs agent
+      const agentConfig = {
+        name: body.name || 'Portfolio AI Assistant',
+        prompt: body.prompt || body.description || 'You are a helpful AI assistant.',
+        voice_id: body.voice || body.voiceId || 'default',
+        language: body.language || 'en',
+        conversation_config: body.conversationConfig || {
+          turn_detection: {
+            type: 'server_vad',
+            threshold: 0.5,
+            prefix_padding_ms: 300,
+            silence_duration_ms: 1000
+          }
+        }
+      };
+
+      const response = await fetch('https://api.elevenlabs.io/v1/convai/agents', {
+        method: 'POST',
+        headers: {
+          'xi-api-key': elevenLabsApiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(agentConfig),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('ElevenLabs agent creation failed:', errorText);
+        return NextResponse.json(
+          { success: false, message: 'Failed to create ElevenLabs agent' },
+          { status: response.status }
+        );
+      }
+
+      const agentData = await response.json();
+      
+      const agent: AgentMetadata = {
+        id: agentData.agent_id,
+        name: agentData.name,
+        provider: 'elevenlabs',
+        voice: agentData.voice_id,
+        capabilities: [
+          'real-time-conversation',
+          'agent-management',
+          'signed-url-conversations',
+          'tool-calling',
+          'real-time-audio'
+        ],
+        description: agentData.prompt,
+        created_at: agentData.created_at || new Date().toISOString(),
+        updated_at: agentData.updated_at || new Date().toISOString()
+      };
+
+      return NextResponse.json({
+        success: true,
+        agent,
+        message: 'ElevenLabs agent created successfully'
+      });
+    }
+
+  } catch (error) {
+    console.error(`Error creating ${params.provider} agent:`, error);
+    return NextResponse.json(
+      { success: false, message: 'Failed to create agent' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { provider: string } }
+) {
+  try {
+    const provider = params.provider as 'openai' | 'elevenlabs';
+    const { searchParams } = new URL(request.url);
+    const agentId = searchParams.get('agentId');
+
+    if (!agentId) {
+      return NextResponse.json(
+        { success: false, message: 'Agent ID is required' },
+        { status: 400 }
+      );
+    }
+
+    if (provider === 'openai') {
+      // OpenAI doesn't have persistent agents to delete
+      return NextResponse.json({
+        success: true,
+        message: 'OpenAI agents are session-based and automatically cleaned up'
+      });
+
+    } else if (provider === 'elevenlabs') {
+      const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
+      
+      if (!elevenLabsApiKey) {
+        return NextResponse.json(
+          { success: false, message: 'ElevenLabs API key not configured' },
+          { status: 500 }
+        );
+      }
+
+      const response = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}`, {
+        method: 'DELETE',
+        headers: {
+          'xi-api-key': elevenLabsApiKey,
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('ElevenLabs agent deletion failed:', errorText);
+        return NextResponse.json(
+          { success: false, message: 'Failed to delete ElevenLabs agent' },
+          { status: response.status }
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: 'ElevenLabs agent deleted successfully'
+      });
+    }
+
+  } catch (error) {
+    console.error(`Error deleting ${params.provider} agent:`, error);
+    return NextResponse.json(
+      { success: false, message: 'Failed to delete agent' },
+      { status: 500 }
+    );
+  }
+}
