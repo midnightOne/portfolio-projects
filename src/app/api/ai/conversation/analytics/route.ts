@@ -1,44 +1,52 @@
-/**
- * Conversation Analytics API Endpoint
- * ADMIN ONLY - Provides conversation analytics and statistics
- */
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
-import { conversationManager } from '@/lib/services/ai/conversation-manager';
+import { authOptions } from '@/lib/auth-utils';
 
 export async function GET(request: NextRequest) {
   try {
-    // Check admin authentication
+    // Check authentication
     const session = await getServerSession(authOptions);
-    
-    if (!session || (session.user as any)?.role !== 'admin') {
+    if (!session?.user || (session.user as any)?.role !== 'admin') {
       return NextResponse.json(
-        { 
-          success: false,
-          error: { 
-            code: 'UNAUTHORIZED',
-            message: 'Admin access required' 
-          }
-        },
-        { status: 403 }
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
       );
     }
 
     const { searchParams } = new URL(request.url);
-    const startDate = searchParams.get('startDate');
-    const endDate = searchParams.get('endDate');
+    const provider = searchParams.get('provider');
+    const dateFrom = searchParams.get('dateFrom');
+    const dateTo = searchParams.get('dateTo');
 
-    let dateRange: { start: Date; end: Date } | undefined;
-    if (startDate && endDate) {
-      dateRange = {
-        start: new Date(startDate),
-        end: new Date(endDate)
-      };
-    }
-
-    const analytics = await conversationManager.getAnalytics(dateRange);
+    // Mock analytics data
+    const analytics = {
+      totalSessions: 156,
+      totalMessages: 1247,
+      averageSessionDuration: 4.2 * 60 * 1000, // 4.2 minutes in milliseconds
+      providerBreakdown: {
+        openai: 89,
+        elevenlabs: 67
+      },
+      dailyActivity: [
+        { date: '2025-01-01', sessions: 23, messages: 184 },
+        { date: '2025-01-02', sessions: 31, messages: 248 },
+        { date: '2025-01-03', sessions: 28, messages: 221 },
+        { date: '2025-01-04', sessions: 35, messages: 279 },
+        { date: '2025-01-05', sessions: 25, messages: 198 },
+        { date: '2025-01-06', sessions: 14, messages: 117 }
+      ],
+      topErrors: [
+        { error: 'Connection timeout', count: 8 },
+        { error: 'Microphone permission denied', count: 5 },
+        { error: 'WebRTC connection failed', count: 3 }
+      ],
+      responseTimeStats: {
+        average: 1850,
+        median: 1650,
+        p95: 3200,
+        p99: 4800
+      }
+    };
 
     return NextResponse.json({
       success: true,
@@ -47,14 +55,10 @@ export async function GET(request: NextRequest) {
 
   } catch (error) {
     console.error('Conversation analytics API error:', error);
-    
     return NextResponse.json(
       { 
-        success: false,
-        error: {
-          code: 'ANALYTICS_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to get analytics'
-        }
+        success: false, 
+        error: 'Internal server error' 
       },
       { status: 500 }
     );

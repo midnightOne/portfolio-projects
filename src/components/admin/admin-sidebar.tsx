@@ -53,6 +53,7 @@ import {
   SlidersHorizontal,
   Shield,
   Bug,
+  Mic,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useAdminProjects } from "@/hooks/use-admin-projects";
@@ -401,6 +402,28 @@ export function AdminSidebar() {
                   <Link href="/admin/ai/debug" className="flex items-center gap-2">
                     <Bug className="size-4" />
                     <span>Debug & Test Panel</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/voice-debug')}
+                >
+                  <Link href="/admin/ai/voice-debug" className="flex items-center gap-2">
+                    <Mic className="size-4" />
+                    <span>Voice Debug</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/voice-analytics')}
+                >
+                  <Link href="/admin/ai/voice-analytics" className="flex items-center gap-2">
+                    <BarChart3 className="size-4" />
+                    <span>Voice Analytics</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
