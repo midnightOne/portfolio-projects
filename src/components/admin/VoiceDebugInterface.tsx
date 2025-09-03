@@ -1,42 +1,38 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+
 import { Separator } from '@/components/ui/separator';
-import { 
-  Mic, 
-  MicOff, 
-  Volume2, 
-  VolumeX, 
-  Play, 
-  Pause, 
-  RefreshCw, 
-  AlertCircle, 
-  CheckCircle, 
+import {
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
+  Pause,
+  RefreshCw,
+  AlertCircle,
+  CheckCircle,
   XCircle,
   Settings,
   MessageSquare,
   Activity,
   Headphones
 } from 'lucide-react';
-import { useToast } from '@/components/ui/toast';
+import { useToast } from '@/hooks/use-toast';
 import { ConversationalAgentProvider, useConversationalAgent } from '@/contexts/ConversationalAgentContext';
-import { VoiceConnectionTester } from '@/components/admin/VoiceConnectionTester';
-import { ConversationTranscripts } from '@/components/admin/ConversationTranscripts';
 
-interface VoiceDebugInterfaceProps {}
+interface VoiceDebugInterfaceProps { }
 
 function VoiceDebugContent() {
-  const toast = useToast();
+  const { toast } = useToast();
   const {
     state,
     switchProvider,
-    getAvailableProviders,
     connect,
     disconnect,
     startVoiceInput,
@@ -87,100 +83,158 @@ function VoiceDebugContent() {
     }
   }, [state.transcript.length]);
 
-  const handleProviderSwitch = async (provider: 'openai' | 'elevenlabs') => {
+  const handleProviderSwitch = useCallback(async (provider: 'openai' | 'elevenlabs') => {
     try {
       setIsConnecting(true);
       await switchProvider(provider);
       setSelectedProvider(provider);
-      toast.success('Provider switched', `Switched to ${provider === 'openai' ? 'OpenAI Realtime' : 'ElevenLabs'}`);
+      toast({
+        title: 'Provider switched',
+        description: `Switched to ${provider === 'openai' ? 'OpenAI Realtime' : 'ElevenLabs'}`,
+      });
     } catch (error) {
-      toast.error('Provider switch failed', error instanceof Error ? error.message : 'Unknown error');
+      toast({
+        title: 'Provider switch failed',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
     } finally {
       setIsConnecting(false);
     }
-  };
+  }, [switchProvider, toast]);
 
-  const handleConnect = async () => {
+  const handleConnect = useCallback(async () => {
     try {
       setIsConnecting(true);
       await connect();
-      toast.success('Connected', `Connected to ${selectedProvider === 'openai' ? 'OpenAI Realtime' : 'ElevenLabs'}`);
+      toast({
+        title: 'Connected',
+        description: `Connected to ${selectedProvider === 'openai' ? 'OpenAI Realtime' : 'ElevenLabs'}`,
+      });
     } catch (error) {
-      toast.error('Connection failed', error instanceof Error ? error.message : 'Failed to connect');
+      toast({
+        title: 'Connection failed',
+        description: error instanceof Error ? error.message : 'Failed to connect',
+        variant: 'destructive',
+      });
     } finally {
       setIsConnecting(false);
     }
-  };
+  }, [connect, selectedProvider, toast]);
 
-  const handleDisconnect = async () => {
+  const handleDisconnect = useCallback(async () => {
     try {
       await disconnect();
-      toast.success('Disconnected', 'Voice AI connection closed');
+      toast({
+        title: 'Disconnected',
+        description: 'Voice AI connection closed',
+      });
     } catch (error) {
-      toast.error('Disconnect failed', error instanceof Error ? error.message : 'Unknown error');
+      toast({
+        title: 'Disconnect failed',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
     }
-  };
+  }, [disconnect, toast]);
 
-  const handleStartVoice = async () => {
+  const handleStartVoice = useCallback(async () => {
     try {
       await startVoiceInput();
-      toast.success('Voice input started', 'Microphone is now active');
+      toast({
+        title: 'Voice input started',
+        description: 'Microphone is now active',
+      });
     } catch (error) {
-      toast.error('Voice input failed', error instanceof Error ? error.message : 'Failed to start microphone');
+      toast({
+        title: 'Voice input failed',
+        description: error instanceof Error ? error.message : 'Failed to start microphone',
+        variant: 'destructive',
+      });
     }
-  };
+  }, [startVoiceInput, toast]);
 
-  const handleStopVoice = async () => {
+  const handleStopVoice = useCallback(async () => {
     try {
       await stopVoiceInput();
-      toast.success('Voice input stopped', 'Microphone is now inactive');
+      toast({
+        title: 'Voice input stopped',
+        description: 'Microphone is now inactive',
+      });
     } catch (error) {
-      toast.error('Voice stop failed', error instanceof Error ? error.message : 'Unknown error');
+      toast({
+        title: 'Voice stop failed',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
     }
-  };
+  }, [stopVoiceInput, toast]);
 
-  const handleSendMessage = async () => {
+  const handleSendMessage = useCallback(async () => {
     if (!textInput.trim()) return;
 
     try {
       await sendMessage(textInput);
       setTextInput('');
-      toast.success('Message sent', 'Text message sent to AI');
+      toast({
+        title: 'Message sent',
+        description: 'Text message sent to AI',
+      });
     } catch (error) {
-      toast.error('Send failed', error instanceof Error ? error.message : 'Failed to send message');
+      toast({
+        title: 'Send failed',
+        description: error instanceof Error ? error.message : 'Failed to send message',
+        variant: 'destructive',
+      });
     }
-  };
+  }, [textInput, sendMessage, toast]);
 
-  const handleVolumeChange = (newVolume: number) => {
+  const handleVolumeChange = useCallback((newVolume: number) => {
     setVolume(newVolume);
     setVolumeState(newVolume);
-  };
+  }, [setVolume]);
 
-  const handleMute = () => {
+  const handleMute = useCallback(() => {
     if (state.audioState.isRecording) {
       mute();
-      toast.info('Muted', 'Audio output muted');
+      toast({
+        title: 'Muted',
+        description: 'Audio output muted',
+      });
     } else {
       unmute();
-      toast.info('Unmuted', 'Audio output unmuted');
+      toast({
+        title: 'Unmuted',
+        description: 'Audio output unmuted',
+      });
     }
-  };
+  }, [state.audioState.isRecording, mute, unmute, toast]);
 
-  const handleInterrupt = async () => {
+  const handleInterrupt = useCallback(async () => {
     try {
       await interrupt();
-      toast.success('Interrupted', 'AI speech interrupted');
+      toast({
+        title: 'Interrupted',
+        description: 'AI speech interrupted',
+      });
     } catch (error) {
-      toast.error('Interrupt failed', error instanceof Error ? error.message : 'Unknown error');
+      toast({
+        title: 'Interrupt failed',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
     }
-  };
+  }, [interrupt, toast]);
 
-  const handleClearTranscript = () => {
+  const handleClearTranscript = useCallback(() => {
     clearTranscript();
-    toast.success('Transcript cleared', 'Conversation history cleared');
-  };
+    toast({
+      title: 'Transcript cleared',
+      description: 'Conversation history cleared',
+    });
+  }, [clearTranscript, toast]);
 
-  const handleExportTranscript = async () => {
+  const handleExportTranscript = useCallback(async () => {
     try {
       const transcript = await exportTranscript();
       const blob = new Blob([transcript], { type: 'application/json' });
@@ -192,29 +246,36 @@ function VoiceDebugContent() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast.success('Transcript exported', 'Conversation transcript downloaded');
+      toast({
+        title: 'Transcript exported',
+        description: 'Conversation transcript downloaded',
+      });
     } catch (error) {
-      toast.error('Export failed', error instanceof Error ? error.message : 'Failed to export transcript');
+      toast({
+        title: 'Export failed',
+        description: error instanceof Error ? error.message : 'Failed to export transcript',
+        variant: 'destructive',
+      });
     }
-  };
+  }, [exportTranscript, toast]);
 
-  const getConnectionStatusColor = () => {
+  const getConnectionStatusColor = useCallback(() => {
     switch (connectionStatus) {
       case 'connected': return 'text-green-600 bg-green-50 border-green-200';
       case 'connecting': return 'text-yellow-600 bg-yellow-50 border-yellow-200';
       case 'error': return 'text-red-600 bg-red-50 border-red-200';
       default: return 'text-gray-600 bg-gray-50 border-gray-200';
     }
-  };
+  }, [connectionStatus]);
 
-  const getConnectionStatusIcon = () => {
+  const getConnectionStatusIcon = useCallback(() => {
     switch (connectionStatus) {
       case 'connected': return <CheckCircle className="h-4 w-4" />;
       case 'connecting': return <RefreshCw className="h-4 w-4 animate-spin" />;
       case 'error': return <XCircle className="h-4 w-4" />;
       default: return <AlertCircle className="h-4 w-4" />;
     }
-  };
+  }, [connectionStatus]);
 
   return (
     <div className="space-y-6">
@@ -248,7 +309,7 @@ function VoiceDebugContent() {
               </div>
               <p className="text-sm capitalize">{connectionStatus}</p>
             </div>
-            
+
             <div className="p-3 rounded-lg border bg-blue-50 border-blue-200">
               <div className="flex items-center gap-2 mb-2">
                 <Settings className="h-4 w-4 text-blue-600" />
@@ -282,33 +343,30 @@ function VoiceDebugContent() {
       <div className="flex space-x-1 bg-muted p-1 rounded-lg">
         <button
           onClick={() => setActiveTab('conversation')}
-          className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-            activeTab === 'conversation'
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
+          className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'conversation'
+            ? 'bg-background text-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'
+            }`}
         >
           <MessageSquare className="h-4 w-4 inline mr-2" />
           Voice Conversation
         </button>
         <button
           onClick={() => setActiveTab('connection')}
-          className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-            activeTab === 'connection'
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
+          className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'connection'
+            ? 'bg-background text-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'
+            }`}
         >
           <Activity className="h-4 w-4 inline mr-2" />
           Connection Testing
         </button>
         <button
           onClick={() => setActiveTab('transcripts')}
-          className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
-            activeTab === 'transcripts'
-              ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground'
-          }`}
+          className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'transcripts'
+            ? 'bg-background text-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'
+            }`}
         >
           <Headphones className="h-4 w-4 inline mr-2" />
           Transcripts
@@ -327,35 +385,32 @@ function VoiceDebugContent() {
               <CardContent className="space-y-4">
                 <div>
                   <label className="text-sm font-medium mb-2 block">AI Provider</label>
-                  <Select 
-                    value={selectedProvider} 
-                    onValueChange={(value: 'openai' | 'elevenlabs') => handleProviderSwitch(value)}
-                    disabled={isConnecting || isConnected()}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="openai">
-                        <div className="flex items-center gap-2">
-                          <span>OpenAI Realtime</span>
-                          <Badge variant="outline">WebRTC</Badge>
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="elevenlabs">
-                        <div className="flex items-center gap-2">
-                          <span>ElevenLabs</span>
-                          <Badge variant="outline">Conversational AI</Badge>
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      variant={selectedProvider === 'openai' ? 'default' : 'outline'}
+                      onClick={() => handleProviderSwitch('openai')}
+                      disabled={isConnecting || isConnected()}
+                      className="flex flex-col items-center gap-1 h-auto py-3"
+                    >
+                      <span>OpenAI Realtime</span>
+                      <Badge variant="outline" className="text-xs">WebRTC</Badge>
+                    </Button>
+                    <Button
+                      variant={selectedProvider === 'elevenlabs' ? 'default' : 'outline'}
+                      onClick={() => handleProviderSwitch('elevenlabs')}
+                      disabled={isConnecting || isConnected()}
+                      className="flex flex-col items-center gap-1 h-auto py-3"
+                    >
+                      <span>ElevenLabs</span>
+                      <Badge variant="outline" className="text-xs">Conversational AI</Badge>
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="flex gap-2">
                   {!isConnected() ? (
-                    <Button 
-                      onClick={handleConnect} 
+                    <Button
+                      onClick={handleConnect}
                       disabled={isConnecting}
                       className="flex-1"
                     >
@@ -372,8 +427,8 @@ function VoiceDebugContent() {
                       )}
                     </Button>
                   ) : (
-                    <Button 
-                      onClick={handleDisconnect} 
+                    <Button
+                      onClick={handleDisconnect}
                       variant="destructive"
                       className="flex-1"
                     >
@@ -392,8 +447,8 @@ function VoiceDebugContent() {
               <CardContent className="space-y-4">
                 <div className="flex gap-2">
                   {!isRecording() ? (
-                    <Button 
-                      onClick={handleStartVoice} 
+                    <Button
+                      onClick={handleStartVoice}
                       disabled={!isConnected()}
                       className="flex-1"
                     >
@@ -401,8 +456,8 @@ function VoiceDebugContent() {
                       Start Voice Input
                     </Button>
                   ) : (
-                    <Button 
-                      onClick={handleStopVoice} 
+                    <Button
+                      onClick={handleStopVoice}
                       variant="destructive"
                       className="flex-1"
                     >
@@ -410,9 +465,9 @@ function VoiceDebugContent() {
                       Stop Voice Input
                     </Button>
                   )}
-                  
-                  <Button 
-                    onClick={handleMute} 
+
+                  <Button
+                    onClick={handleMute}
                     variant="outline"
                     disabled={!isConnected()}
                   >
@@ -438,8 +493,8 @@ function VoiceDebugContent() {
                   />
                 </div>
 
-                <Button 
-                  onClick={handleInterrupt} 
+                <Button
+                  onClick={handleInterrupt}
                   variant="outline"
                   disabled={!isConnected() || state.sessionState.status !== 'speaking'}
                   className="w-full"
@@ -534,22 +589,21 @@ function VoiceDebugContent() {
                   ) : (
                     <div className="space-y-3">
                       {state.transcript.map((item, index) => (
-                        <div key={item.id} className="space-y-1">
-                          <div className={`p-3 rounded text-sm ${
-                            item.type === 'user_speech' 
-                              ? 'bg-blue-50 border-l-4 border-blue-400' 
-                              : item.type === 'ai_response'
+                        <div key={`${item.id}-${index}`} className="space-y-1">
+                          <div className={`p-3 rounded text-sm ${item.type === 'user_speech'
+                            ? 'bg-blue-50 border-l-4 border-blue-400'
+                            : item.type === 'ai_response'
                               ? 'bg-green-50 border-l-4 border-green-400'
                               : 'bg-gray-50 border-l-4 border-gray-400'
-                          }`}>
+                            }`}>
                             <div className="flex items-center justify-between mb-2">
                               <div className="flex items-center gap-2">
                                 <Badge variant={
-                                  item.type === 'user_speech' ? 'default' : 
-                                  item.type === 'ai_response' ? 'secondary' : 'outline'
+                                  item.type === 'user_speech' ? 'default' :
+                                    item.type === 'ai_response' ? 'secondary' : 'outline'
                                 } className="text-xs">
-                                  {item.type === 'user_speech' ? 'User' : 
-                                   item.type === 'ai_response' ? 'AI' : 'System'}
+                                  {item.type === 'user_speech' ? 'User' :
+                                    item.type === 'ai_response' ? 'AI' : 'System'}
                                 </Badge>
                                 <Badge variant="outline" className="text-xs">
                                   {item.provider}
@@ -560,7 +614,7 @@ function VoiceDebugContent() {
                               </span>
                             </div>
                             <p className="text-sm whitespace-pre-wrap">{item.content}</p>
-                            
+
                             {/* Metadata */}
                             {item.metadata && (
                               <div className="mt-2 pt-2 border-t border-gray-200">
@@ -591,17 +645,31 @@ function VoiceDebugContent() {
       )}
 
       {activeTab === 'connection' && (
-        <VoiceConnectionTester />
+        <Card>
+          <CardHeader>
+            <CardTitle>Connection Testing</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground">Connection testing interface will be implemented here.</p>
+          </CardContent>
+        </Card>
       )}
 
       {activeTab === 'transcripts' && (
-        <ConversationTranscripts />
+        <Card>
+          <CardHeader>
+            <CardTitle>Conversation Transcripts</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground">Transcript management interface will be implemented here.</p>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
 }
 
-export function VoiceDebugInterface(props: VoiceDebugInterfaceProps) {
+export function VoiceDebugInterface(_props: VoiceDebugInterfaceProps) {
   return (
     <ConversationalAgentProvider
       defaultProvider="openai"

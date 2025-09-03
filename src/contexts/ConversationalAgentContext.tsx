@@ -274,32 +274,58 @@ export function ConversationalAgentProvider({
     }
   }, []);
 
-  // Initialize with default provider and settings
+  // Initialize context settings
   useEffect(() => {
     if (contextId) {
       dispatch({ type: 'SET_CONTEXT_ID', contextId });
     }
+  }, [contextId]);
+
+  useEffect(() => {
     if (reflinkId) {
       dispatch({ type: 'SET_REFLINK_ID', reflinkId });
     }
+  }, [reflinkId]);
+
+  useEffect(() => {
     if (accessLevel) {
       dispatch({ type: 'SET_ACCESS_LEVEL', accessLevel });
     }
-    
-    // Register initial tools
+  }, [accessLevel]);
+
+  // Register initial tools
+  useEffect(() => {
     tools.forEach(tool => {
       dispatch({ type: 'ADD_TOOL', tool });
     });
+  }, [tools]);
 
-    // Set default provider and auto-connect if requested
-    if (defaultProvider && !state.activeProvider) {
-      switchProvider(defaultProvider).then(() => {
-        if (autoConnect) {
-          connect().catch(console.error);
+  // Initialize default provider (separate from other effects to avoid circular dependencies)
+  useEffect(() => {
+    let isMounted = true;
+    
+    const initializeProvider = async () => {
+      if (defaultProvider && !state.activeProvider && isInitializedRef.current) {
+        try {
+          await switchProvider(defaultProvider);
+          if (autoConnect && isMounted) {
+            await connect();
+          }
+        } catch (error) {
+          console.error('Failed to initialize provider:', error);
         }
-      }).catch(console.error);
+      }
+    };
+
+    // Only initialize after adapters are registered
+    if (isInitializedRef.current) {
+      initializeProvider();
     }
-  }, [contextId, reflinkId, accessLevel, tools, defaultProvider, autoConnect]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [defaultProvider, state.activeProvider]); // Removed switchProvider and connect from dependencies
 
   // Create adapter init options
   const createAdapterOptions = useCallback((): AdapterInitOptions => {
