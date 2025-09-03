@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth-utils';
+import { authOptions } from '@/lib/auth';
 
 // Mock transcript data generator
 const generateMockTranscripts = () => {

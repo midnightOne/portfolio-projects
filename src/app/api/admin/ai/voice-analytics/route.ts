@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth-utils';
+import { authOptions } from '@/lib/auth';
 
 // Mock analytics data for now - in production this would come from a database
 const generateMockAnalytics = (timeRange: string, provider?: string) => {
