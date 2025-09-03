@@ -74,8 +74,12 @@ export class RateLimiter {
 
       // Log the request
       await this.logRequest({
-        ...params,
+        identifier: params.identifier || rateLimitConfig.reflinkId,
+        identifierType: params.identifierType || 'reflink',
+        endpoint: params.endpoint || '/api/ai/unknown',
         reflinkId: rateLimitConfig.reflinkId,
+        userAgent: params.userAgent,
+        ipAddress: params.ipAddress,
         wasBlocked: !allowed,
         requestsRemaining,
       });

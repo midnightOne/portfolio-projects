@@ -150,7 +150,7 @@ export class ProjectIndexer {
       }
 
       // Parse Tiptap content
-      const tiptapContent = project.articleContent?.jsonContent as TiptapContentData | null;
+      const tiptapContent = project.articleContent?.jsonContent as unknown as TiptapContentData | null;
       
       // Generate sections from Tiptap structure
       const sections = tiptapContent ? this.extractSections(tiptapContent, projectId) : [];

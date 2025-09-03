@@ -23,7 +23,11 @@ import {
 import { BaseConversationalAgentAdapter } from './IConversationalAgentAdapter';
 
 // OpenAI Realtime SDK imports - REAL IMPLEMENTATION REQUIRED
-import { RealtimeAgent, RealtimeSession } from '@openai/agents/realtime';
+import { 
+  RealtimeAgent, 
+  RealtimeSession,
+  OpenAIRealtimeWebRTC 
+} from '@openai/agents/realtime';
 
 interface OpenAISessionResponse {
   client_secret: string;
@@ -134,18 +138,26 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
         tools: this._convertToolsToOpenAIFormat()
       });
 
-      // Create RealtimeSession
+      // Create RealtimeSession with proper WebRTC transport
       this._session = new RealtimeSession(this._agent, {
-        apiKey: () => this._sessionToken!,
-        transport: 'webrtc',
-        model: this._config.model
+        transport: new OpenAIRealtimeWebRTC({
+          audioElement: this._audioElement,
+        }),
+        model: this._config.model,
+        config: {
+          inputAudioFormat: 'pcm16',
+          outputAudioFormat: 'pcm16',
+          inputAudioTranscription: {
+            model: 'gpt-4o-mini-transcribe',
+          },
+        }
       });
 
       // Set up event listeners before connecting
       this._setupEventListeners();
 
-      // Connect to OpenAI Realtime API
-      await this._session.connect({});
+      // Connect to OpenAI Realtime API with the ephemeral key
+      await this._session.connect({ apiKey: this._sessionToken });
       
       this._setConnectionStatus('connected');
       this._reconnectAttempts = 0;
@@ -632,6 +644,11 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
 
     this._reconnectTimer = setTimeout(async () => {
       try {
+        // Clean up previous session before reconnecting
+        if (this._session) {
+          this._session.close();
+          this._session = null;
+        }
         await this.connect();
       } catch (error) {
         // Connection will handle further reconnection attempts

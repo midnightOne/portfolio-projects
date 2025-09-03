@@ -62,7 +62,7 @@ function generateBreadcrumbs(pathname: string): BreadcrumbItem[] {
 
 export function AdminPageHeader() {
   const pathname = usePathname();
-  const breadcrumbs = generateBreadcrumbs(pathname);
+  const breadcrumbs = generateBreadcrumbs(pathname || '/admin');
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-2 border-b border-sidebar-border px-4">

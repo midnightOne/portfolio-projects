@@ -91,7 +91,7 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
   protected _transcript: TranscriptItem[] = [];
   protected _tools: Map<string, import('@/types/voice-agent').ToolDefinition> = new Map();
   protected _lastError: VoiceAgentError | null = null;
-  protected _audioElement: HTMLAudioElement | null = null;
+  protected _audioElement?: HTMLAudioElement;
   protected _isMuted: boolean = false;
   protected _volume: number = 1.0;
 

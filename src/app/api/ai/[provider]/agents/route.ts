@@ -27,11 +27,13 @@ interface AgentsResponse {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { provider: string } }
+  { params }: { params: Promise<{ provider: string }> }
 ) {
+  const { provider: providerParam } = await params;
+  const provider = providerParam as 'openai' | 'elevenlabs';
+
   try {
-    const provider = params.provider as 'openai' | 'elevenlabs';
-    
+
     if (!['openai', 'elevenlabs'].includes(provider)) {
       return NextResponse.json(
         { success: false, message: 'Invalid provider. Must be "openai" or "elevenlabs"' },
@@ -107,7 +109,7 @@ export async function GET(
     } else if (provider === 'elevenlabs') {
       // For ElevenLabs, we would typically fetch actual agents from their API
       const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
-      
+
       if (elevenLabsApiKey) {
         try {
           const response = await fetch('https://api.elevenlabs.io/v1/convai/agents', {
@@ -177,7 +179,7 @@ export async function GET(
     return NextResponse.json(response);
 
   } catch (error) {
-    console.error(`Error fetching ${params.provider} agents:`, error);
+    console.error(`Error fetching ${provider} agents:`, error);
     return NextResponse.json(
       { success: false, message: 'Failed to fetch agents' },
       { status: 500 }
@@ -187,11 +189,13 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { provider: string } }
+  { params }: { params: Promise<{ provider: string }> }
 ) {
+  const { provider: providerParam } = await params;
+  const provider = providerParam as 'openai' | 'elevenlabs';
+
   try {
-    const provider = params.provider as 'openai' | 'elevenlabs';
-    
+
     if (!['openai', 'elevenlabs'].includes(provider)) {
       return NextResponse.json(
         { success: false, message: 'Invalid provider. Must be "openai" or "elevenlabs"' },
@@ -231,7 +235,7 @@ export async function POST(
 
     } else if (provider === 'elevenlabs') {
       const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
-      
+
       if (!elevenLabsApiKey) {
         return NextResponse.json(
           { success: false, message: 'ElevenLabs API key not configured' },
@@ -274,7 +278,7 @@ export async function POST(
       }
 
       const agentData = await response.json();
-      
+
       const agent: AgentMetadata = {
         id: agentData.agent_id,
         name: agentData.name,
@@ -300,7 +304,7 @@ export async function POST(
     }
 
   } catch (error) {
-    console.error(`Error creating ${params.provider} agent:`, error);
+    console.error(`Error creating ${provider} agent:`, error);
     return NextResponse.json(
       { success: false, message: 'Failed to create agent' },
       { status: 500 }
@@ -310,10 +314,12 @@ export async function POST(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { provider: string } }
+  { params }: { params: Promise<{ provider: string }> }
 ) {
+  const { provider: providerParam } = await params;
+  const provider = providerParam as 'openai' | 'elevenlabs';
+
   try {
-    const provider = params.provider as 'openai' | 'elevenlabs';
     const { searchParams } = new URL(request.url);
     const agentId = searchParams.get('agentId');
 
@@ -333,7 +339,7 @@ export async function DELETE(
 
     } else if (provider === 'elevenlabs') {
       const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
-      
+
       if (!elevenLabsApiKey) {
         return NextResponse.json(
           { success: false, message: 'ElevenLabs API key not configured' },
@@ -364,7 +370,7 @@ export async function DELETE(
     }
 
   } catch (error) {
-    console.error(`Error deleting ${params.provider} agent:`, error);
+    console.error(`Error deleting ${provider} agent:`, error);
     return NextResponse.json(
       { success: false, message: 'Failed to delete agent' },
       { status: 500 }
