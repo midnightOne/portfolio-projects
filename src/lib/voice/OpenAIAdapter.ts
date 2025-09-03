@@ -134,14 +134,18 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
         tools: this._convertToolsToOpenAIFormat()
       });
 
-      // Connect to OpenAI Realtime API using session token
-      this._session = await this._agent.connect({
-        getEphemeralKey: async () => this._sessionToken!,
-        audioElement: this._audioElement!
+      // Create RealtimeSession
+      this._session = new RealtimeSession(this._agent, {
+        apiKey: () => this._sessionToken!,
+        transport: 'webrtc',
+        model: this._config.model
       });
 
-      // Set up event listeners after session is created
+      // Set up event listeners before connecting
       this._setupEventListeners();
+
+      // Connect to OpenAI Realtime API
+      await this._session.connect({});
       
       this._setConnectionStatus('connected');
       this._reconnectAttempts = 0;
@@ -192,7 +196,7 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
 
       // Disconnect session
       if (this._session) {
-        await this._session.disconnect();
+        this._session.close();
         this._session = null;
       }
 
@@ -249,8 +253,8 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
         }
       });
 
-      // Start streaming audio to OpenAI
-      await this._session.startRecording();
+      // Mute/unmute to control audio input
+      this._session.mute(false);
       this._isRecording = true;
       this._setSessionStatus('listening');
 
@@ -284,7 +288,7 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
       }
 
       if (this._session) {
-        await this._session.stopRecording();
+        this._session.mute(true);
       }
 
       if (this._mediaStream) {
@@ -337,7 +341,7 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
       });
 
       // Send message to OpenAI
-      await this._session.sendUserMessage(message);
+      this._session.sendMessage(message);
 
     } catch (error) {
       const voiceError = new VoiceAgentError(
@@ -355,9 +359,8 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
         throw new AudioError('No active session for audio data', 'openai');
       }
 
-      // Convert ArrayBuffer to the format expected by OpenAI
-      const audioBuffer = new Uint8Array(audioData);
-      await this._session.sendAudioData(audioBuffer);
+      // Send audio data to OpenAI
+      this._session.sendAudio(audioData);
 
     } catch (error) {
       const audioError = new AudioError(
@@ -376,7 +379,7 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
         return;
       }
 
-      await this._session.interrupt();
+      this._session.interrupt();
       this._setSessionStatus('interrupted');
 
       // Add interruption to transcript
@@ -419,9 +422,14 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
         };
       }
 
-      // If connected, update session configuration
+      // If connected, update agent configuration
       if (this._session && this._config.instructions) {
-        await this._session.updateInstructions(this._config.instructions);
+        const updatedAgent = new RealtimeAgent({
+          name: 'portfolio-assistant',
+          instructions: this._config.instructions,
+          tools: this._convertToolsToOpenAIFormat()
+        });
+        await this._session.updateAgent(updatedAgent);
       }
 
     } catch (error) {
@@ -454,29 +462,11 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
   private _setupEventListeners(): void {
     if (!this._session) return;
 
-    // Connection events
-    this._session.on('connected', () => {
-      this._setConnectionStatus('connected');
-      this._handleConnectionEvent({
-        type: 'connected',
-        provider: 'openai',
-        timestamp: new Date()
-      });
-    });
-
-    this._session.on('disconnected', () => {
-      this._setConnectionStatus('disconnected');
-      this._handleConnectionEvent({
-        type: 'disconnected',
-        provider: 'openai',
-        timestamp: new Date()
-      });
-    });
-
+    // Error events
     this._session.on('error', (error: any) => {
       this._setConnectionStatus('error');
       const connectionError = new ConnectionError(
-        `OpenAI Realtime error: ${error.message || String(error)}`,
+        `OpenAI Realtime error: ${error.error?.message || String(error)}`,
         'openai',
         { error }
       );
@@ -490,12 +480,12 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
       });
     });
 
-    // Transcript events
-    this._session.on('transcriptionCompleted', (item: any) => {
+    // History events for transcript
+    this._session.on('history_added', (item: any) => {
       const transcriptItem: TranscriptItem = {
         id: uuidv4(),
         type: item.role === 'user' ? 'user_speech' : 'ai_response',
-        content: item.transcript || item.content || '',
+        content: item.content || item.transcript || '',
         timestamp: new Date(),
         provider: 'openai',
         metadata: {
@@ -514,7 +504,7 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
     });
 
     // Audio events
-    this._session.on('audioStart', () => {
+    this._session.on('audio_start', () => {
       this._setSessionStatus('speaking');
       this._handleAudioEvent({
         type: 'audio_start',
@@ -522,7 +512,7 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
       });
     });
 
-    this._session.on('audioEnd', () => {
+    this._session.on('audio_stopped', () => {
       this._setSessionStatus('idle');
       this._handleAudioEvent({
         type: 'audio_end',
@@ -531,12 +521,12 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
     });
 
     // Tool calling events
-    this._session.on('agentToolStart', async (details: any, agent: any, functionCall: any) => {
+    this._session.on('agent_tool_start', async (context: any, agent: any, tool: any, details: any) => {
       try {
         const toolCall: ToolCall = {
-          id: functionCall.call_id || uuidv4(),
-          name: functionCall.name,
-          arguments: JSON.parse(functionCall.arguments || '{}'),
+          id: details.toolCall.call_id || uuidv4(),
+          name: details.toolCall.name,
+          arguments: JSON.parse(details.toolCall.arguments || '{}'),
           timestamp: new Date()
         };
 
@@ -546,14 +536,10 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
           timestamp: new Date()
         });
 
-        // Execute tool
+        // Execute tool locally
         const toolResult = await this._executeTool(toolCall);
         
-        // Send result back to OpenAI
-        if (this._session) {
-          await this._session.sendToolResult(toolCall.id, toolResult.result);
-        }
-
+        // The result will be automatically sent back to OpenAI by the session
         this._handleToolEvent({
           type: 'tool_result',
           toolResult,
@@ -585,14 +571,33 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
         const toolError = new ToolError(
           `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
           'openai',
-          functionCall.name,
-          { error, toolCall: functionCall }
+          details.toolCall.name,
+          { error, toolCall: details.toolCall }
         );
         this._setError(toolError);
 
         this._handleToolEvent({
           type: 'tool_error',
           error: toolError.message,
+          timestamp: new Date()
+        });
+      }
+    });
+
+    // Connection status tracking via transport events
+    this._session.on('transport_event', (event: any) => {
+      if (event.type === 'session.created') {
+        this._setConnectionStatus('connected');
+        this._handleConnectionEvent({
+          type: 'connected',
+          provider: 'openai',
+          timestamp: new Date()
+        });
+      } else if (event.type === 'session.ended') {
+        this._setConnectionStatus('disconnected');
+        this._handleConnectionEvent({
+          type: 'disconnected',
+          provider: 'openai',
           timestamp: new Date()
         });
       }
