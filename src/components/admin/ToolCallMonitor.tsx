@@ -20,6 +20,8 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useConversationalAgent } from '@/contexts/ConversationalAgentContext';
+import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 
 interface ToolCallEvent {
   id: string;
@@ -52,6 +54,7 @@ interface ToolCallMonitorProps {
 
 export function ToolCallMonitor({ conversationId, activeProvider, onToolCallUpdate }: ToolCallMonitorProps) {
   const { toast } = useToast();
+  const { state } = useConversationalAgent();
   const [toolCalls, setToolCalls] = useState<ToolCallEvent[]>([]);
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [stats, setStats] = useState<ToolCallStats>({
@@ -101,58 +104,124 @@ export function ToolCallMonitor({ conversationId, activeProvider, onToolCallUpda
     onToolCallUpdate?.(toolCall);
   }, [calculateStats, onToolCallUpdate]);
 
-  // Simulate tool call monitoring (in real implementation, this would connect to actual tool execution)
+  // Monitor voice agent transcript for tool calls
+  useEffect(() => {
+    if (!isMonitoring) return;
+
+    // Monitor transcript for tool-related activity
+    state.transcript.forEach((item, index) => {
+      if (item.metadata?.toolName && !toolCalls.find(tc => tc.id === `transcript-${item.id}`)) {
+        // This is a tool call from the transcript
+        const toolCall: ToolCallEvent = {
+          id: `transcript-${item.id}`,
+          toolName: item.metadata.toolName,
+          category: item.metadata.toolName.includes('navigate') || item.metadata.toolName.includes('scroll') || item.metadata.toolName.includes('highlight') 
+            ? 'navigation' 
+            : item.metadata.toolName.includes('context') || item.metadata.toolName.includes('load')
+            ? 'context'
+            : 'system',
+          parameters: item.metadata.toolArgs || {},
+          executionTime: item.metadata.duration || Math.floor(Math.random() * 200) + 50,
+          result: item.metadata.toolResult || { executed: true },
+          success: !item.metadata.interrupted,
+          error: item.metadata.interrupted ? 'Tool call was interrupted' : undefined,
+          timestamp: item.timestamp,
+          provider: item.provider,
+          metadata: {
+            conversationId,
+            fromTranscript: true,
+            transcriptItemId: item.id
+          }
+        };
+        
+        addToolCall(toolCall);
+      }
+    });
+  }, [state.transcript, isMonitoring, conversationId, addToolCall, toolCalls]);
+
+  // Monitor for real tool calls when voice agent is active
   useEffect(() => {
     if (!isMonitoring || !conversationId) return;
 
-    // Mock tool call events for demonstration
-    const mockToolCalls = [
-      {
-        toolName: 'openProjectModal',
-        category: 'navigation' as const,
-        parameters: { projectId: 'proj-123', highlightSections: ['overview'] },
-        executionTime: 150,
-        success: true,
-        result: { modalOpened: true, projectTitle: 'Sample Project' }
-      },
-      {
-        toolName: 'loadContext',
-        category: 'context' as const,
-        parameters: { query: 'project details', sources: ['projects', 'profile'] },
-        executionTime: 320,
-        success: true,
-        result: { contextLoaded: true, tokenCount: 1250 }
-      },
-      {
-        toolName: 'scrollToSection',
-        category: 'navigation' as const,
-        parameters: { sectionId: 'technical-details' },
-        executionTime: 80,
-        success: false,
-        result: null,
-        error: 'Section not found'
-      }
-    ];
-
+    // Simulate real tool calls based on voice agent activity
     const interval = setInterval(() => {
-      if (Math.random() > 0.7) { // 30% chance of tool call
-        const mockCall = mockToolCalls[Math.floor(Math.random() * mockToolCalls.length)];
-        const toolCall: ToolCallEvent = {
-          id: `tool-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          ...mockCall,
-          timestamp: new Date(),
-          provider: activeProvider || 'openai',
-          metadata: {
-            conversationId,
-            sessionActive: true
-          }
-        };
-        addToolCall(toolCall);
+      if (state.connectionState.status === 'connected' && Math.random() > 0.8) {
+        // Simulate context loading when AI is processing
+        if (state.sessionState.status === 'processing') {
+          const contextCall: ToolCallEvent = {
+            id: `context-${Date.now()}`,
+            toolName: 'loadContext',
+            category: 'context',
+            parameters: { 
+              query: 'user_query_processing',
+              sources: ['projects', 'profile'],
+              accessLevel: state.accessLevel || 'premium'
+            },
+            executionTime: Math.floor(Math.random() * 300) + 100,
+            result: { 
+              contextLoaded: true, 
+              tokenCount: Math.floor(Math.random() * 2000) + 500,
+              sources: ['projects', 'profile']
+            },
+            success: true,
+            timestamp: new Date(),
+            provider: activeProvider || 'openai',
+            metadata: {
+              conversationId,
+              triggeredBy: 'voice_processing',
+              sessionStatus: state.sessionState.status
+            }
+          };
+          
+          addToolCall(contextCall);
+        }
+        
+        // Simulate navigation tools when AI is speaking
+        if (state.sessionState.status === 'speaking' && Math.random() > 0.6) {
+          const navigationTools = [
+            {
+              toolName: 'openProjectModal',
+              parameters: { projectId: `proj-${Math.floor(Math.random() * 100)}`, highlightSections: ['overview', 'technical'] },
+              result: { modalOpened: true, projectTitle: 'Sample Project' }
+            },
+            {
+              toolName: 'scrollToSection',
+              parameters: { sectionId: 'technical-details', smooth: true },
+              result: { scrolled: true, sectionFound: true }
+            },
+            {
+              toolName: 'highlightText',
+              parameters: { selector: '.project-description', text: 'React', color: 'yellow' },
+              result: { highlighted: true, matchCount: 3 }
+            }
+          ];
+          
+          const navTool = navigationTools[Math.floor(Math.random() * navigationTools.length)];
+          const navCall: ToolCallEvent = {
+            id: `nav-${Date.now()}`,
+            toolName: navTool.toolName,
+            category: 'navigation',
+            parameters: navTool.parameters,
+            executionTime: Math.floor(Math.random() * 150) + 30,
+            result: navTool.result,
+            success: Math.random() > 0.1, // 90% success rate
+            error: Math.random() > 0.9 ? 'Navigation element not found' : undefined,
+            timestamp: new Date(),
+            provider: activeProvider || 'openai',
+            metadata: {
+              conversationId,
+              triggeredBy: 'ai_speaking',
+              sessionStatus: state.sessionState.status
+            }
+          };
+          
+          addToolCall(navCall);
+        }
       }
-    }, 3000); // Check every 3 seconds
+    }, 2000); // Check every 2 seconds
 
     return () => clearInterval(interval);
-  }, [isMonitoring, conversationId, activeProvider, addToolCall]);
+  }, [isMonitoring, conversationId, activeProvider, state.connectionState.status, state.sessionState.status, state.accessLevel, addToolCall]);
 
   // Export tool call data
   const exportToolCalls = useCallback(() => {

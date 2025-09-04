@@ -611,6 +611,79 @@ function VoiceDebugContent() {
                     </Button>
                   ))}
                 </div>
+
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="text-sm font-medium mb-2">Debug Actions</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        // Trigger real context loading for testing
+                        try {
+                          const response = await fetch('/api/ai/context', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              sessionId: `debug-session-${selectedProvider}`,
+                              query: 'Tell me about your React projects and experience',
+                              sources: ['projects', 'profile'],
+                              options: { includeSystemPrompt: true },
+                              useCache: false
+                            }),
+                          });
+                          
+                          if (response.ok) {
+                            const result = await response.json();
+                            toast({
+                              title: 'Context loaded',
+                              description: `Loaded ${result.data?.tokenCount || 0} tokens`,
+                            });
+                          }
+                        } catch (error) {
+                          toast({
+                            title: 'Context load failed',
+                            description: error instanceof Error ? error.message : 'Unknown error',
+                            variant: 'destructive',
+                          });
+                        }
+                      }}
+                      className="text-xs"
+                    >
+                      Test Context Load
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        // Simulate sending a message to trigger tool calls
+                        if (isConnected()) {
+                          sendMessage('Can you show me your React projects and navigate to the technical details?').then(() => {
+                            toast({
+                              title: 'Message sent',
+                              description: 'This should trigger tool call monitoring',
+                            });
+                          }).catch((error) => {
+                            toast({
+                              title: 'Send failed',
+                              description: error.message,
+                              variant: 'destructive',
+                            });
+                          });
+                        } else {
+                          toast({
+                            title: 'Not connected',
+                            description: 'Connect to a voice provider first',
+                            variant: 'destructive',
+                          });
+                        }
+                      }}
+                      className="text-xs"
+                    >
+                      Test Tool Calls
+                    </Button>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </div>
