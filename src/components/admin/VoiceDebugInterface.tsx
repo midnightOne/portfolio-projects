@@ -289,18 +289,16 @@ function VoiceDebugContent() {
           <AlertCircle className="h-4 w-4" />
           <AlertDescription className="flex items-center justify-between">
             <div className="flex-1 mr-4">
-              <div className="font-medium mb-1">OpenAI Realtime Error:</div>
-              <div className="text-sm font-mono bg-red-100 p-2 rounded border">
-                {(() => {
-                  const error = getLastError();
-                  console.error('VoiceDebugInterface - Displaying Error:', {
-                    errorType: typeof error,
-                    errorValue: error,
-                    errorLength: error?.length
-                  });
-                  return error;
-                })()}
+              <div className="font-medium mb-1">Voice Connection Error:</div>
+              <div className="text-sm bg-red-50 p-3 rounded border border-red-200">
+                {getLastError()}
               </div>
+              {getLastError()?.includes('session.type') && (
+                <div className="text-xs text-red-600 mt-2">
+                  <strong>Note:</strong> This is a known issue with the OpenAI Realtime SDK v0.1.0. 
+                  Voice functionality may still work despite this error.
+                </div>
+              )}
             </div>
             <Button variant="outline" size="sm" onClick={clearErrors}>
               Clear

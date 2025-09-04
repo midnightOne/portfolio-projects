@@ -367,20 +367,12 @@ export function ConversationalAgentProvider({
         });
 
         if (event.error) {
-          // Enhanced error logging for debugging
-          console.group('🔍 ConversationalAgentContext - Connection Error Debug');
-          console.error('Event type:', event.type);
-          console.error('Provider:', event.provider);
-          console.error('Raw event.error:', event.error);
-          console.error('typeof event.error:', typeof event.error);
-          console.error('event.error === "[object Object]":', event.error === '[object Object]');
-          console.error('String(event.error):', String(event.error));
-          console.groupEnd();
+          // Log error for debugging (can be removed in production)
+          console.error(`${event.provider} connection error:`, event.error);
 
           // event.error is typed as string in ConnectionEvent
           const errorMessage = event.error;
           
-          console.error('🎯 Final error message to display:', errorMessage);
           dispatch({ type: 'SET_ERROR', error: new VoiceAgentError(errorMessage, event.provider) });
         }
       },
