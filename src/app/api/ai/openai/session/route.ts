@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const contextId = searchParams.get('contextId');
     const reflinkId = searchParams.get('reflinkId');
-    
+
     // Validate OpenAI API key
     const openaiApiKey = process.env.OPENAI_API_KEY;
     if (!openaiApiKey) {
@@ -42,9 +42,9 @@ export async function GET(request: NextRequest) {
 
     // Get client IP for rate limiting (basic implementation)
     const headersList = await headers();
-    const clientIP = headersList.get('x-forwarded-for') || 
-                    headersList.get('x-real-ip') || 
-                    'unknown';
+    const clientIP = headersList.get('x-forwarded-for') ||
+      headersList.get('x-real-ip') ||
+      'unknown';
 
     // TODO: Implement rate limiting based on IP and reflink
     // TODO: Validate reflink and get access level
@@ -62,13 +62,24 @@ Key capabilities:
 - Provide technical explanations
 - Analyze job requirements against the portfolio owner's background
 
-Always be helpful, professional, and accurate. If you don't know something, say so rather than guessing.`;
+Communication guidelines:
+- Always respond in English unless specifically asked to use another language
+- Keep responses concise and conversational
+- Be helpful, professional, and accurate
+- If you don't know something, say so rather than guessing
+- Use a friendly, approachable tone suitable for a professional portfolio
+
+Audio interaction:
+- Speak clearly and at a moderate pace
+- Use natural speech patterns
+- Acknowledge when you hear the user speaking
+- Wait for the user to finish before responding`;
 
     // TODO: Inject actual context from ContextProviderService based on contextId and reflinkId
     if (contextId) {
       systemInstructions += `\n\nContext ID: ${contextId}`;
     }
-    
+
     if (reflinkId) {
       systemInstructions += `\n\nThis user has special access via reflink: ${reflinkId}`;
       // TODO: Add personalized context based on reflink
@@ -169,7 +180,7 @@ Always be helpful, professional, and accurate. If you don't know something, say 
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-realtime',
+        model: 'gpt-4o-realtime-preview-2024-10-01',
       }),
     });
 
@@ -186,7 +197,7 @@ Always be helpful, professional, and accurate. If you don't know something, say 
 
     // Generate session ID for tracking
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
+
     // Calculate expiration (OpenAI sessions typically expire in 15 minutes)
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
@@ -197,7 +208,7 @@ Always be helpful, professional, and accurate. If you don't know something, say 
       client_secret: sessionData.client_secret.value,
       session_id: sessionId,
       expires_at: expiresAt,
-      model: 'gpt-4o-realtime-preview-2025-06-03',
+      model: 'gpt-4o-realtime-preview-2024-10-01',
       voice: 'alloy'
     };
 
@@ -218,10 +229,10 @@ Always be helpful, professional, and accurate. If you don't know something, say 
 export async function POST(request: NextRequest) {
   try {
     const body: OpenAISessionRequest = await request.json();
-    
+
     // Handle POST requests with custom configuration
     // This allows for more complex session setup with custom instructions and tools
-    
+
     const openaiApiKey = process.env.OPENAI_API_KEY;
     if (!openaiApiKey) {
       return NextResponse.json(
@@ -232,7 +243,7 @@ export async function POST(request: NextRequest) {
 
     // Build custom instructions
     let instructions = body.instructions || `You are a helpful AI assistant for a portfolio website.`;
-    
+
     if (body.contextId) {
       // TODO: Load context from ContextProviderService
       instructions += `\n\nContext ID: ${body.contextId}`;
@@ -263,7 +274,7 @@ export async function POST(request: NextRequest) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-realtime',
+        model: 'gpt-4o-realtime-preview-2024-10-01',
       }),
     });
 
@@ -284,7 +295,7 @@ export async function POST(request: NextRequest) {
       client_secret: sessionData.client_secret.value,
       session_id: sessionId,
       expires_at: expiresAt,
-      model: 'gpt-realtime',
+      model: 'gpt-4o-realtime-preview-2024-10-01',
       voice: 'alloy'
     };
 

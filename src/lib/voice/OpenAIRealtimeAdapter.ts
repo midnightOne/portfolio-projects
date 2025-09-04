@@ -75,7 +75,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         // Create the main agent
         this._agent = new RealtimeAgent({
             name: 'Portfolio Assistant',
-            instructions: 'You are a helpful assistant for the portfolio website. You can help with questions about projects, skills, and general information.',
+            instructions: 'You are a helpful assistant. Keep responses brief and friendly.',
             tools: [weatherTool],
         });
     }
@@ -157,13 +157,77 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
     private _processHistoryUpdate(history: RealtimeItem[]) {
         // Convert RealtimeItem[] to TranscriptItem[] for the interface
-        const transcriptItems: TranscriptItem[] = history.map((item, index) => ({
-            id: `item-${index}`,
-            type: item.type === 'message' ? 'user_speech' : 'ai_response',
-            content: this._extractContentFromItem(item),
-            timestamp: new Date(Date.now()),
-            provider: 'openai'
-        }));
+        const transcriptItems: TranscriptItem[] = history.map((item, index) => {
+            // Determine the type based on the item's role or origin
+            let itemType: 'user_speech' | 'ai_response' = 'ai_response';
+            
+            // Debug log the item structure
+            console.log('Processing history item:', {
+                index,
+                type: item.type,
+                role: 'role' in item ? item.role : 'no role',
+                object: 'object' in item ? item.object : 'no object',
+                hasContent: 'content' in item,
+                keys: Object.keys(item)
+            });
+            
+            // Check various properties to determine if it's user input
+            if ('role' in item && item.role === 'user') {
+                itemType = 'user_speech';
+                console.log('Detected user speech via role');
+            } else if (item.type === 'message' && 'content' in item) {
+                // Check if it's an input audio transcription
+                const content = Array.isArray(item.content) ? item.content : [item.content];
+                const hasInputAudio = content.some((c: any) => 
+                    c?.type === 'input_audio' || 
+                    c?.type === 'input_text' ||
+                    (typeof c === 'object' && 'input_audio_transcription' in c)
+                );
+                if (hasInputAudio) {
+                    itemType = 'user_speech';
+                    console.log('Detected user speech via input audio content');
+                }
+                
+                // Also check if the role is in the item itself
+                if ('role' in item && item.role === 'user') {
+                    itemType = 'user_speech';
+                    console.log('Detected user speech via message role');
+                }
+            } else if ('object' in item && item.object === 'realtime.item' && 'type' in item) {
+                // OpenAI Realtime API structure
+                if (item.type === 'message' && 'role' in item && item.role === 'user') {
+                    itemType = 'user_speech';
+                    console.log('Detected user speech via realtime item structure');
+                }
+            }
+            
+            // Additional check for items that might be user input based on their position or context
+            // If this is the first item in a conversation turn, it's likely user input
+            if (index > 0 && history[index - 1] && 'role' in history[index - 1] && history[index - 1].role === 'assistant') {
+                // If the previous item was from assistant, this might be user
+                if (item.type === 'message' && !('role' in item && item.role === 'assistant')) {
+                    itemType = 'user_speech';
+                    console.log('Detected user speech via conversation flow');
+                }
+            }
+
+            const content = this._extractContentFromItem(item);
+            
+            console.log('Final item classification:', {
+                index,
+                type: itemType,
+                content: content.substring(0, 50),
+                hasContent: content.length > 0
+            });
+            
+            return {
+                id: `item-${index}`,
+                type: itemType,
+                content,
+                timestamp: new Date(Date.now()),
+                provider: 'openai'
+            };
+        }).filter(item => item.content.trim().length > 0); // Only include items with actual content
 
         // Emit transcript events for new items
         const previousLength = this._transcript.length;
@@ -174,6 +238,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         
         // Emit events for new items
         newItems.forEach(item => {
+            console.log('Emitting transcript event for:', item.type, item.content.substring(0, 50));
             this._emitTranscriptEvent(item);
         });
     }
@@ -220,16 +285,89 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
     private _extractContentFromItem(item: RealtimeItem): string {
         // Extract text content from RealtimeItem
-        if (item.type === 'message' && 'content' in item) {
-            if (Array.isArray(item.content)) {
-                return item.content
-                    .filter((c: any) => c.type === 'text')
-                    .map((c: any) => c.text)
-                    .join(' ');
+        try {
+            console.log('Extracting content from item:', {
+                type: item.type,
+                hasContent: 'content' in item,
+                hasTranscript: 'transcript' in item,
+                hasText: 'text' in item,
+                keys: Object.keys(item)
+            });
+            
+            // Handle different item structures
+            if (item.type === 'message' && 'content' in item) {
+                if (Array.isArray(item.content)) {
+                    const textContent = item.content
+                        .filter((c: any) => {
+                            const isTextType = c.type === 'text' || c.type === 'input_text' || c.type === 'input_audio';
+                            console.log('Content part:', { type: c.type, isTextType, hasText: !!c.text, hasTranscript: !!c.transcript });
+                            return isTextType;
+                        })
+                        .map((c: any) => {
+                            // Try multiple properties for text content
+                            const text = c.text || c.transcript || c.audio_transcript || c.content || '';
+                            console.log('Extracted text from content part:', text.substring(0, 50));
+                            return text;
+                        })
+                        .filter(text => text && text.trim().length > 0)
+                        .join(' ');
+                    
+                    if (textContent) {
+                        return textContent;
+                    }
+                }
+                
+                // If content is not an array, try to extract directly
+                if (typeof item.content === 'string') {
+                    return item.content;
+                } else if (typeof item.content === 'object' && item.content !== null) {
+                    // Try to extract text from object content
+                    const content = item.content as any;
+                    return content.text || content.transcript || content.audio_transcript || '';
+                }
             }
-            return String(item.content);
+            
+            // Handle audio transcription items directly
+            if ('transcript' in item && item.transcript) {
+                console.log('Found transcript property:', item.transcript);
+                return String(item.transcript);
+            }
+            
+            // Handle text items directly
+            if ('text' in item && item.text) {
+                console.log('Found text property:', item.text);
+                return String(item.text);
+            }
+            
+            // Handle audio_transcript property
+            if ('audio_transcript' in item && (item as any).audio_transcript) {
+                console.log('Found audio_transcript property:', (item as any).audio_transcript);
+                return String((item as any).audio_transcript);
+            }
+            
+            // Handle formatted content
+            if ('formatted' in item && item.formatted) {
+                if (typeof item.formatted === 'object' && 'text' in item.formatted) {
+                    return String(item.formatted.text);
+                }
+                return String(item.formatted);
+            }
+            
+            // Last resort: try to find any text-like property
+            const itemAny = item as any;
+            for (const key of ['content', 'message', 'data', 'value']) {
+                if (itemAny[key] && typeof itemAny[key] === 'string') {
+                    console.log(`Found text in ${key} property:`, itemAny[key]);
+                    return itemAny[key];
+                }
+            }
+            
+            console.log('No text content found in item');
+            return '';
+        } catch (error) {
+            console.warn('Error extracting content from item:', error, item);
+            return '';
         }
-        return '';
     }
 
     async connect(): Promise<void> {
