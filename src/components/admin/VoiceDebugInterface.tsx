@@ -21,10 +21,15 @@ import {
   Settings,
   MessageSquare,
   Activity,
-  Headphones
+  Headphones,
+  Eye
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ConversationalAgentProvider, useConversationalAgent } from '@/contexts/ConversationalAgentContext';
+import { ContextMonitor } from './ContextMonitor';
+import { ToolCallMonitor } from './ToolCallMonitor';
+import { IntegrationValidator } from './IntegrationValidator';
+import { ConversationStateInspector } from './ConversationStateInspector';
 
 interface VoiceDebugInterfaceProps { }
 
@@ -65,7 +70,7 @@ function VoiceDebugContent() {
   const [volume, setVolumeState] = useState(1.0);
   const [isConnecting, setIsConnecting] = useState(false);
   const [lastActivity, setLastActivity] = useState<Date | null>(null);
-  const [activeTab, setActiveTab] = useState<'conversation' | 'connection' | 'transcripts'>('conversation');
+  const [activeTab, setActiveTab] = useState<'conversation' | 'connection' | 'transcripts' | 'context' | 'tools' | 'integration' | 'state'>('conversation');
 
   // Derive state from context instead of local state
   const selectedProvider = state.activeProvider || 'openai';
@@ -356,36 +361,76 @@ function VoiceDebugContent() {
       </Card>
 
       {/* Tab Navigation */}
-      <div className="flex space-x-1 bg-muted p-1 rounded-lg">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-1 bg-muted p-1 rounded-lg">
         <button
           onClick={() => setActiveTab('conversation')}
-          className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'conversation'
+          className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'conversation'
             ? 'bg-background text-foreground shadow-sm'
             : 'text-muted-foreground hover:text-foreground'
             }`}
         >
-          <MessageSquare className="h-4 w-4 inline mr-2" />
-          Voice Conversation
+          <MessageSquare className="h-4 w-4 inline mr-1" />
+          <span className="hidden sm:inline">Voice</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('context')}
+          className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'context'
+            ? 'bg-background text-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'
+            }`}
+        >
+          <Eye className="h-4 w-4 inline mr-1" />
+          <span className="hidden sm:inline">Context</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('tools')}
+          className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'tools'
+            ? 'bg-background text-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'
+            }`}
+        >
+          <Settings className="h-4 w-4 inline mr-1" />
+          <span className="hidden sm:inline">Tools</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('state')}
+          className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'state'
+            ? 'bg-background text-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'
+            }`}
+        >
+          <Activity className="h-4 w-4 inline mr-1" />
+          <span className="hidden sm:inline">State</span>
+        </button>
+        <button
+          onClick={() => setActiveTab('integration')}
+          className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'integration'
+            ? 'bg-background text-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'
+            }`}
+        >
+          <CheckCircle className="h-4 w-4 inline mr-1" />
+          <span className="hidden sm:inline">Health</span>
         </button>
         <button
           onClick={() => setActiveTab('connection')}
-          className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'connection'
+          className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'connection'
             ? 'bg-background text-foreground shadow-sm'
             : 'text-muted-foreground hover:text-foreground'
             }`}
         >
-          <Activity className="h-4 w-4 inline mr-2" />
-          Connection Testing
+          <RefreshCw className="h-4 w-4 inline mr-1" />
+          <span className="hidden sm:inline">Debug</span>
         </button>
         <button
           onClick={() => setActiveTab('transcripts')}
-          className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'transcripts'
+          className={`px-3 py-2 text-sm font-medium rounded-md transition-colors ${activeTab === 'transcripts'
             ? 'bg-background text-foreground shadow-sm'
             : 'text-muted-foreground hover:text-foreground'
             }`}
         >
-          <Headphones className="h-4 w-4 inline mr-2" />
-          Transcripts
+          <Headphones className="h-4 w-4 inline mr-1" />
+          <span className="hidden sm:inline">History</span>
         </button>
       </div>
 
@@ -725,6 +770,48 @@ function VoiceDebugContent() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {activeTab === 'context' && (
+        <ContextMonitor
+          conversationId={selectedProvider ? `debug-session-${selectedProvider}` : ''}
+          activeProvider={selectedProvider}
+          onContextUpdate={(update) => {
+            console.log('Context update:', update);
+          }}
+        />
+      )}
+
+      {activeTab === 'tools' && (
+        <ToolCallMonitor
+          conversationId={selectedProvider ? `debug-session-${selectedProvider}` : ''}
+          activeProvider={selectedProvider}
+          onToolCallUpdate={(toolCall) => {
+            console.log('Tool call update:', toolCall);
+          }}
+        />
+      )}
+
+      {activeTab === 'state' && (
+        <ConversationStateInspector
+          conversationId={selectedProvider ? `debug-session-${selectedProvider}` : ''}
+          onStateUpdate={(state) => {
+            console.log('State update:', state);
+          }}
+        />
+      )}
+
+      {activeTab === 'integration' && (
+        <IntegrationValidator
+          onValidationComplete={(results) => {
+            console.log('Validation results:', results);
+            toast({
+              title: 'Integration validation complete',
+              description: `Overall status: ${results.overall}`,
+              variant: results.overall === 'healthy' ? 'default' : 'destructive'
+            });
+          }}
+        />
       )}
 
       {activeTab === 'transcripts' && (
