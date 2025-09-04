@@ -510,10 +510,21 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         }
 
         try {
-            // For now, just log the message. The actual method might be different in the SDK
-            console.log('Sending message:', message);
-            // TODO: Implement actual message sending when the correct API is available
+            console.log('Sending text message:', message);
+            
+            // Interrupt any ongoing AI speech before sending the message
+            await this.interrupt();
+            
+            // Use the RealtimeSession's sendMessage method
+            if (this._session && typeof (this._session as any).sendMessage === 'function') {
+                (this._session as any).sendMessage(message);
+                console.log('Text message sent successfully via sendMessage');
+            } else {
+                console.error('sendMessage method not available on session');
+                throw new Error('Text messaging not supported by current session implementation');
+            }
         } catch (error) {
+            console.error('Failed to send text message:', error);
             throw new Error(
                 `Failed to send message: ${error instanceof Error ? error.message : 'Unknown error'}`
             );
