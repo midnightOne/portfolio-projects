@@ -48,6 +48,7 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
   private _mediaStream: MediaStream | null = null;
   private _isRecording: boolean = false;
   private _pendingAiTranscript: string = '';
+  private _pendingUserTranscript: string = '';
   private _config: OpenAIRealtimeConfig;
   private _reconnectTimer: NodeJS.Timeout | null = null;
   private _reconnectAttempts: number = 0;
@@ -128,10 +129,13 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
       this._sessionToken = sessionResponse.client_secret;
       this._sessionId = sessionResponse.session_id;
 
-      // Initialize RealtimeAgent
+      // Initialize RealtimeAgent with explicit English system prompt and voice
+      const baseInstructions = this._config.instructions && this._config.instructions.trim().length > 0
+        ? this._config.instructions
+        : 'You are a helpful, concise voice assistant for the portfolio website. Speak only English. Use a neutral professional tone. Keep answers short unless more detail is asked. Never switch languages.';
       this._agent = new RealtimeAgent({
         name: 'portfolio-assistant',
-        instructions: this._config.instructions,
+        instructions: baseInstructions,
         tools: this._convertToolsToOpenAIFormat()
       });
 
@@ -162,11 +166,19 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
         }),
         model: this._config.model,
         config: {
-          inputAudioFormat: 'pcm16',
-          outputAudioFormat: 'pcm16',
-          inputAudioTranscription: {
-            model: 'gpt-4o-mini-transcribe',
-          },
+          instructions: baseInstructions,
+          audio: {
+            input: {
+              format: { type: 'audio/pcm', rate: 24000 },
+              transcription: { model: 'gpt-4o-mini-transcribe' },
+              turnDetection: { type: 'semantic_vad' }
+            },
+            output: {
+              format: { type: 'audio/pcm', rate: 24000 },
+              voice: this._config.voice || 'alloy',
+              speed: 1
+            }
+          }
         }
       });
 
@@ -509,27 +521,9 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
       });
     });
 
-    // History events for transcript
+    // History events: mirror SDK example – track deltas and done events 
     this._session.on('history_added', (item: any) => {
-      const transcriptItem: TranscriptItem = {
-        id: uuidv4(),
-        type: item.role === 'user' ? 'user_speech' : 'ai_response',
-        content: item.content || item.transcript || '',
-        timestamp: new Date(),
-        provider: 'openai',
-        metadata: {
-          confidence: item.confidence,
-          duration: item.duration,
-          interrupted: item.interrupted
-        }
-      };
-
-      this._addTranscriptItem(transcriptItem);
-      this._handleTranscriptEvent({
-        type: 'transcript_update',
-        item: transcriptItem,
-        timestamp: new Date()
-      });
+      // Avoid double-adding; rely on specific transport events below
     });
 
     // Audio events
@@ -655,6 +649,17 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
           }
           break;
         }
+        case 'conversation.item.input_audio_transcription.delta': {
+          if (typeof event.delta === 'string') {
+            this._pendingUserTranscript += event.delta;
+          }
+          break;
+        }
+        case 'conversation.item.input_audio_transcription.started': {
+          // Optional: could add a placeholder 'transcribing...' item if UI supports it
+          this._pendingUserTranscript = '';
+          break;
+        }
         case 'response.audio_transcript.delta': {
           // Accumulate AI transcript text as it streams
           if (typeof event.delta === 'string') {
@@ -681,6 +686,27 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
             });
           }
           this._pendingAiTranscript = '';
+          break;
+        }
+        case 'conversation.item.input_audio_transcription.completed.v2': {
+          // In case of different event naming; be lenient
+          const transcriptText = event.transcript || '';
+          if (transcriptText) {
+            const transcriptItem: TranscriptItem = {
+              id: uuidv4(),
+              type: 'user_speech',
+              content: transcriptText,
+              timestamp: new Date(),
+              provider: 'openai'
+            };
+            this._addTranscriptItem(transcriptItem);
+            this._handleTranscriptEvent({
+              type: 'transcript_update',
+              item: transcriptItem,
+              timestamp: new Date()
+            });
+          }
+          this._pendingUserTranscript = '';
           break;
         }
         default:
