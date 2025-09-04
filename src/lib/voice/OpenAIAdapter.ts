@@ -57,7 +57,7 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
   constructor() {
     const metadata: ProviderMetadata = {
       provider: 'openai',
-      model: 'gpt-4o-realtime-preview-2025-06-03',
+      model: 'gpt-realtime',
       version: '1.0.0',
       capabilities: [
         'real-time-stt',
@@ -74,7 +74,7 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
     super('openai', metadata);
 
     this._config = {
-      model: 'gpt-4o-realtime-preview-2025-06-03',
+      model: 'gpt-realtime',
       temperature: 0.7,
       maxTokens: 4096,
       voice: 'alloy',
@@ -132,7 +132,7 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
       // Initialize RealtimeAgent with explicit English system prompt and voice
       const baseInstructions = this._config.instructions && this._config.instructions.trim().length > 0
         ? this._config.instructions
-        : 'You are a helpful, concise voice assistant for the portfolio website. Speak only English. Use a neutral professional tone. Keep answers short unless more detail is asked. Never switch languages.';
+        : 'You are a helpful, concise voice assistant for the portfolio website. Use a neutral professional tone. Keep answers short unless more detail is asked.';
       this._agent = new RealtimeAgent({
         name: 'portfolio-assistant',
         instructions: baseInstructions,
@@ -164,7 +164,7 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
             return pc;
           },
         }),
-        model: 'gpt-4o-realtime-preview-2025-06-03',
+        model: 'gpt-realtime',
         config: {
           inputAudioFormat: 'pcm16',
           outputAudioFormat: 'pcm16',

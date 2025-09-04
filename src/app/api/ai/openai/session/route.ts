@@ -284,7 +284,7 @@ export async function POST(request: NextRequest) {
       client_secret: sessionData.client_secret.value,
       session_id: sessionId,
       expires_at: expiresAt,
-      model: 'gpt-4o-realtime-preview-2025-06-03',
+      model: 'gpt-realtime',
       voice: 'alloy'
     };
 
