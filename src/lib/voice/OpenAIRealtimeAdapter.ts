@@ -124,6 +124,15 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             this._events.push(event);
             console.log('Transport event:', event.type);
             
+            // Handle transcript events
+            if (event.type === 'conversation.item.input_audio_transcription.completed') {
+                console.log('Input audio transcription completed:', event);
+                // The transcript should be in the history update that follows
+            } else if (event.type === 'response.output_audio_transcript.done') {
+                console.log('Output audio transcript done:', event);
+                // The transcript should be in the history update that follows
+            }
+            
             // Emit connection events based on transport events
             if (event.type === 'session.created') {
                 console.log('Emitting connected event from session.created');
@@ -156,8 +165,21 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     }
 
     private _processHistoryUpdate(history: RealtimeItem[]) {
-        // Convert RealtimeItem[] to TranscriptItem[] for the interface
-        const transcriptItems: TranscriptItem[] = history.map((item, index) => {
+        // Only process new items to avoid duplication
+        const currentLength = this._transcript.length;
+        
+        // Convert only new RealtimeItem[] to TranscriptItem[] for the interface
+        const newTranscriptItems: TranscriptItem[] = [];
+        
+        for (let index = 0; index < history.length; index++) {
+            const item = history[index];
+            
+            // Skip items we've already processed
+            const existingItem = this._transcript.find(t => t.id === `item-${index}`);
+            if (existingItem && existingItem.content.trim().length > 0) {
+                continue; // Skip items that already have content
+            }
+            
             // Determine the type based on the item's role or origin
             let itemType: 'user_speech' | 'ai_response' = 'ai_response';
             
@@ -175,6 +197,9 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             if ('role' in item && item.role === 'user') {
                 itemType = 'user_speech';
                 console.log('Detected user speech via role');
+            } else if ('role' in item && item.role === 'assistant') {
+                itemType = 'ai_response';
+                console.log('Detected AI response via role');
             } else if (item.type === 'message' && 'content' in item) {
                 // Check if it's an input audio transcription
                 const content = Array.isArray(item.content) ? item.content : [item.content];
@@ -183,31 +208,17 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                     c?.type === 'input_text' ||
                     (typeof c === 'object' && 'input_audio_transcription' in c)
                 );
+                const hasOutputAudio = content.some((c: any) => 
+                    c?.type === 'output_audio' ||
+                    (typeof c === 'object' && 'output_audio_transcription' in c)
+                );
+                
                 if (hasInputAudio) {
                     itemType = 'user_speech';
                     console.log('Detected user speech via input audio content');
-                }
-                
-                // Also check if the role is in the item itself
-                if ('role' in item && item.role === 'user') {
-                    itemType = 'user_speech';
-                    console.log('Detected user speech via message role');
-                }
-            } else if ('object' in item && item.object === 'realtime.item' && 'type' in item) {
-                // OpenAI Realtime API structure
-                if (item.type === 'message' && 'role' in item && item.role === 'user') {
-                    itemType = 'user_speech';
-                    console.log('Detected user speech via realtime item structure');
-                }
-            }
-            
-            // Additional check for items that might be user input based on their position or context
-            // If this is the first item in a conversation turn, it's likely user input
-            if (index > 0 && history[index - 1] && 'role' in history[index - 1] && history[index - 1].role === 'assistant') {
-                // If the previous item was from assistant, this might be user
-                if (item.type === 'message' && !('role' in item && item.role === 'assistant')) {
-                    itemType = 'user_speech';
-                    console.log('Detected user speech via conversation flow');
+                } else if (hasOutputAudio) {
+                    itemType = 'ai_response';
+                    console.log('Detected AI response via output audio content');
                 }
             }
 
@@ -220,24 +231,30 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 hasContent: content.length > 0
             });
             
-            return {
-                id: `item-${index}`,
-                type: itemType,
-                content,
-                timestamp: new Date(Date.now()),
-                provider: 'openai'
-            };
-        }).filter(item => item.content.trim().length > 0); // Only include items with actual content
-
-        // Emit transcript events for new items
-        const previousLength = this._transcript.length;
-        const newItems = transcriptItems.slice(previousLength);
+            // Only add items with content or update existing items that now have content
+            if (content.trim().length > 0) {
+                const transcriptItem = {
+                    id: `item-${index}`,
+                    type: itemType,
+                    content,
+                    timestamp: new Date(Date.now()),
+                    provider: 'openai'
+                };
+                
+                // Update existing item or add new one
+                const existingIndex = this._transcript.findIndex(t => t.id === `item-${index}`);
+                if (existingIndex >= 0) {
+                    this._transcript[existingIndex] = transcriptItem;
+                } else {
+                    this._transcript.push(transcriptItem);
+                }
+                
+                newTranscriptItems.push(transcriptItem);
+            }
+        }
         
-        // Update internal transcript
-        this._transcript = transcriptItems;
-        
-        // Emit events for new items
-        newItems.forEach(item => {
+        // Emit events for new items with content
+        newTranscriptItems.forEach(item => {
             console.log('Emitting transcript event for:', item.type, item.content.substring(0, 50));
             this._emitTranscriptEvent(item);
         });
@@ -299,13 +316,28 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 if (Array.isArray(item.content)) {
                     const textContent = item.content
                         .filter((c: any) => {
-                            const isTextType = c.type === 'text' || c.type === 'input_text' || c.type === 'input_audio';
-                            console.log('Content part:', { type: c.type, isTextType, hasText: !!c.text, hasTranscript: !!c.transcript });
+                            // Include both input and output audio types, plus text types
+                            const isTextType = c.type === 'text' || 
+                                             c.type === 'input_text' || 
+                                             c.type === 'input_audio' ||
+                                             c.type === 'output_audio';
+                            console.log('Content part:', { 
+                                type: c.type, 
+                                isTextType, 
+                                hasText: !!c.text, 
+                                hasTranscript: !!c.transcript,
+                                hasAudioTranscript: !!c.audio_transcript 
+                            });
                             return isTextType;
                         })
                         .map((c: any) => {
                             // Try multiple properties for text content
-                            const text = c.text || c.transcript || c.audio_transcript || c.content || '';
+                            const text = c.text || 
+                                        c.transcript || 
+                                        c.audio_transcript || 
+                                        c.content ||
+                                        (c.type === 'output_audio' && c.transcript) ||
+                                        '';
                             console.log('Extracted text from content part:', text.substring(0, 50));
                             return text;
                         })
