@@ -120,9 +120,22 @@ function conversationalAgentReducer(
       };
 
     case 'SET_ERROR':
+      let errorMessage: string | undefined;
+      if (action.error) {
+        if (typeof action.error === 'string') {
+          errorMessage = action.error;
+        } else if (action.error instanceof Error) {
+          errorMessage = action.error.message;
+        } else if (typeof action.error === 'object' && action.error !== null && 'message' in action.error) {
+          errorMessage = String((action.error as any).message);
+        } else {
+          errorMessage = 'An error occurred';
+        }
+      }
+
       return {
         ...state,
-        lastError: action.error?.message,
+        lastError: errorMessage,
         errorCount: action.error ? state.errorCount + 1 : state.errorCount
       };
 
@@ -180,40 +193,40 @@ function conversationalAgentReducer(
 interface ConversationalAgentContextType {
   // State
   state: VoiceAgentState;
-  
+
   // Provider management
   switchProvider: (provider: VoiceProvider) => Promise<void>;
   getAvailableProviders: () => VoiceProvider[];
-  
+
   // Connection management
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
   reconnect: () => Promise<void>;
-  
+
   // Audio controls
   startVoiceInput: () => Promise<void>;
   stopVoiceInput: () => Promise<void>;
   mute: () => void;
   unmute: () => void;
   setVolume: (volume: number) => void;
-  
+
   // Communication
   sendMessage: (message: string) => Promise<void>;
   interrupt: () => Promise<void>;
-  
+
   // Tool management
   registerTool: (tool: ToolDefinition) => void;
   unregisterTool: (toolName: string) => void;
-  
+
   // Transcript management
   clearTranscript: () => void;
   exportTranscript: () => Promise<string>;
-  
+
   // Configuration
   setContextId: (contextId: string) => void;
   setReflinkId: (reflinkId: string) => void;
   setAccessLevel: (level: 'basic' | 'limited' | 'premium') => void;
-  
+
   // Utilities
   isConnected: () => boolean;
   isRecording: () => boolean;
@@ -256,7 +269,7 @@ export function ConversationalAgentProvider({
       audioElementRef.current = new Audio();
       audioElementRef.current.autoplay = true;
     }
-    
+
     return () => {
       if (audioElementRef.current) {
         audioElementRef.current.pause();
@@ -303,18 +316,18 @@ export function ConversationalAgentProvider({
   // Initialize default provider (separate from other effects to avoid circular dependencies)
   useEffect(() => {
     let isMounted = true;
-    
+
     const initializeProvider = async () => {
       if (defaultProvider && !state.activeProvider && isInitializedRef.current) {
         try {
           // Set the provider but don't auto-connect to avoid false "connected" state
           dispatch({ type: 'SET_ACTIVE_PROVIDER', provider: defaultProvider });
-          
+
           // Create adapter but don't connect yet
           const newAdapter = await AdapterRegistry.create(defaultProvider);
           await newAdapter.init(createAdapterOptions());
           currentAdapterRef.current = newAdapter;
-          
+
           // Only connect if explicitly requested
           if (autoConnect && isMounted) {
             await connect();
@@ -346,29 +359,34 @@ export function ConversationalAgentProvider({
     return {
       audioElement: audioElementRef.current,
       onConnectionEvent: (event) => {
-        dispatch({ type: 'SET_CONNECTION_STATUS', status: 
-          event.type === 'connected' ? 'connected' : 
-          event.type === 'disconnected' ? 'disconnected' :
-          event.type === 'reconnecting' ? 'reconnecting' : 'error'
+        dispatch({
+          type: 'SET_CONNECTION_STATUS', status:
+            event.type === 'connected' ? 'connected' :
+              event.type === 'disconnected' ? 'disconnected' :
+                event.type === 'reconnecting' ? 'reconnecting' : 'error'
         });
-        
+
         if (event.error) {
-          let errorMessage: string;
-          if (typeof event.error === 'string') {
-            errorMessage = event.error;
-          } else if (event.error instanceof Error) {
-            errorMessage = event.error.message;
-          } else if (event.error && typeof event.error === 'object' && 'message' in event.error) {
-            errorMessage = String(event.error.message);
-          } else {
-            errorMessage = 'Unknown connection error occurred';
-          }
+          // Enhanced error logging for debugging
+          console.group('🔍 ConversationalAgentContext - Connection Error Debug');
+          console.error('Event type:', event.type);
+          console.error('Provider:', event.provider);
+          console.error('Raw event.error:', event.error);
+          console.error('typeof event.error:', typeof event.error);
+          console.error('event.error === "[object Object]":', event.error === '[object Object]');
+          console.error('String(event.error):', String(event.error));
+          console.groupEnd();
+
+          // event.error is typed as string in ConnectionEvent
+          const errorMessage = event.error;
+          
+          console.error('🎯 Final error message to display:', errorMessage);
           dispatch({ type: 'SET_ERROR', error: new VoiceAgentError(errorMessage, event.provider) });
         }
       },
       onTranscriptEvent: (event) => {
         dispatch({ type: 'ADD_TRANSCRIPT_ITEM', item: event.item });
-        
+
         // Log transcript to server asynchronously
         logTranscriptToServer(event.item).catch(console.error);
       },
@@ -380,9 +398,18 @@ export function ConversationalAgentProvider({
           dispatch({ type: 'SET_AUDIO_STATE', audioState: { isRecording: false } });
           dispatch({ type: 'SET_SESSION_STATUS', status: 'idle' });
         } else if (event.error) {
-          const errorMessage = typeof event.error === 'string' ? event.error : 
-                              event.error instanceof Error ? event.error.message : 
-                              'Audio error occurred';
+          // Enhanced error logging for audio events
+          console.error('ConversationalAgentContext - Audio Error Details:', {
+            eventType: event.type,
+            errorType: typeof event.error,
+            errorValue: event.error,
+            errorLength: event.error?.length
+          });
+
+          // event.error is typed as string in AudioEvent
+          const errorMessage = event.error;
+          
+          console.error('ConversationalAgentContext - Processed Audio Error Message:', errorMessage);
           dispatch({ type: 'SET_ERROR', error: new VoiceAgentError(errorMessage, state.activeProvider || 'openai') });
         }
       },
@@ -442,10 +469,10 @@ export function ConversationalAgentProvider({
       // Create new adapter
       const newAdapter = await AdapterRegistry.create(provider);
       await newAdapter.init(createAdapterOptions());
-      
+
       currentAdapterRef.current = newAdapter;
       dispatch({ type: 'SET_ACTIVE_PROVIDER', provider });
-      
+
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const voiceError = new VoiceAgentError(
@@ -469,7 +496,7 @@ export function ConversationalAgentProvider({
       dispatch({ type: 'SET_ERROR', error });
       throw error;
     }
-    
+
     try {
       dispatch({ type: 'SET_CONNECTION_STATUS', status: 'connecting' });
       await currentAdapterRef.current.connect();
@@ -508,7 +535,7 @@ export function ConversationalAgentProvider({
     if (!currentAdapterRef.current) {
       throw new VoiceAgentError('No active adapter', state.activeProvider || 'openai');
     }
-    
+
     await currentAdapterRef.current.startAudioInput();
   }, [state.activeProvider]);
 
@@ -544,7 +571,7 @@ export function ConversationalAgentProvider({
     if (!currentAdapterRef.current) {
       throw new VoiceAgentError('No active adapter', state.activeProvider || 'openai');
     }
-    
+
     await currentAdapterRef.current.sendMessage(message);
   }, [state.activeProvider]);
 
@@ -557,7 +584,7 @@ export function ConversationalAgentProvider({
   // Tool management
   const registerTool = useCallback((tool: ToolDefinition) => {
     dispatch({ type: 'ADD_TOOL', tool });
-    
+
     if (currentAdapterRef.current) {
       currentAdapterRef.current.registerTool(tool);
     }
@@ -565,7 +592,7 @@ export function ConversationalAgentProvider({
 
   const unregisterTool = useCallback((toolName: string) => {
     dispatch({ type: 'REMOVE_TOOL', toolName });
-    
+
     if (currentAdapterRef.current) {
       currentAdapterRef.current.unregisterTool(toolName);
     }
@@ -574,7 +601,7 @@ export function ConversationalAgentProvider({
   // Transcript management
   const clearTranscript = useCallback(() => {
     dispatch({ type: 'CLEAR_TRANSCRIPT' });
-    
+
     if (currentAdapterRef.current) {
       currentAdapterRef.current.clearTranscript();
     }
@@ -584,7 +611,7 @@ export function ConversationalAgentProvider({
     if (currentAdapterRef.current) {
       return currentAdapterRef.current.exportTranscript();
     }
-    
+
     return JSON.stringify(state.transcript, null, 2);
   }, [state.transcript]);
 

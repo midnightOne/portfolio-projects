@@ -50,6 +50,16 @@ function VoiceDebugContent() {
     clearErrors
   } = useConversationalAgent();
 
+  // Debug: Log state changes
+  useEffect(() => {
+    console.log('VoiceDebugInterface - State Update:', {
+      connectionStatus: state.connectionState.status,
+      activeProvider: state.activeProvider,
+      lastError: state.lastError,
+      errorCount: state.errorCount
+    });
+  }, [state.connectionState.status, state.activeProvider, state.lastError, state.errorCount]);
+
   // Local state
   const [textInput, setTextInput] = useState('');
   const [volume, setVolumeState] = useState(1.0);
@@ -264,7 +274,7 @@ function VoiceDebugContent() {
   const getConnectionStatusIcon = useCallback(() => {
     switch (connectionStatus) {
       case 'connected': return <CheckCircle className="h-4 w-4" />;
-      case 'connecting': 
+      case 'connecting':
       case 'reconnecting': return <RefreshCw className="h-4 w-4 animate-spin" />;
       case 'error': return <XCircle className="h-4 w-4" />;
       default: return <AlertCircle className="h-4 w-4" />;
@@ -278,7 +288,20 @@ function VoiceDebugContent() {
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription className="flex items-center justify-between">
-            <span>{getLastError()}</span>
+            <div className="flex-1 mr-4">
+              <div className="font-medium mb-1">OpenAI Realtime Error:</div>
+              <div className="text-sm font-mono bg-red-100 p-2 rounded border">
+                {(() => {
+                  const error = getLastError();
+                  console.error('VoiceDebugInterface - Displaying Error:', {
+                    errorType: typeof error,
+                    errorValue: error,
+                    errorLength: error?.length
+                  });
+                  return error;
+                })()}
+              </div>
+            </div>
             <Button variant="outline" size="sm" onClick={clearErrors}>
               Clear
             </Button>
@@ -639,14 +662,70 @@ function VoiceDebugContent() {
       )}
 
       {activeTab === 'connection' && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Connection Testing</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-muted-foreground">Connection testing interface will be implemented here.</p>
-          </CardContent>
-        </Card>
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Connection Testing & Debug Information</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <h4 className="font-medium mb-2">Current State</h4>
+                <div className="bg-muted p-3 rounded-lg font-mono text-sm">
+                  <pre>{JSON.stringify({
+                    connectionStatus: state.connectionState.status,
+                    activeProvider: state.activeProvider,
+                    sessionStatus: state.sessionState.status,
+                    isRecording: state.audioState.isRecording,
+                    lastError: state.lastError,
+                    errorCount: state.errorCount,
+                    transcriptCount: state.transcript.length
+                  }, null, 2)}</pre>
+                </div>
+              </div>
+
+              {state.lastError && (
+                <div>
+                  <h4 className="font-medium mb-2 text-red-600">Last Error Details</h4>
+                  <div className="bg-red-50 border border-red-200 p-3 rounded-lg">
+                    <div className="font-mono text-sm text-red-800">
+                      <div><strong>Error:</strong> {state.lastError}</div>
+                      <div><strong>Type:</strong> {typeof state.lastError}</div>
+                      <div><strong>Length:</strong> {state.lastError?.length || 'N/A'}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <h4 className="font-medium mb-2">Connection History</h4>
+                <div className="bg-muted p-3 rounded-lg font-mono text-sm">
+                  <div>Last Connected: {state.connectionState.lastConnected?.toISOString() || 'Never'}</div>
+                  <div>Reconnect Attempts: {state.connectionState.reconnectAttempts}</div>
+                  <div>Max Reconnect Attempts: {state.connectionState.maxReconnectAttempts}</div>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => {
+                    console.log('Manual debug log - Full state:', state);
+                    console.log('Manual debug log - Last error:', getLastError());
+                  }}
+                  variant="outline"
+                >
+                  Log State to Console
+                </Button>
+                <Button
+                  onClick={clearErrors}
+                  variant="outline"
+                  disabled={!state.lastError}
+                >
+                  Clear Errors
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {activeTab === 'transcripts' && (

@@ -505,9 +505,65 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
 
     // Error events
     this._session.on('error', (error: any) => {
+      // Enhanced error logging for debugging
+      console.error('OpenAI Realtime Session Error - Full Details:', {
+        errorType: typeof error,
+        errorConstructor: error?.constructor?.name,
+        errorMessage: error?.message,
+        errorError: error?.error,
+        errorErrorError: error?.error?.error,
+        errorStack: error?.stack,
+        fullError: error,
+        serializedError: JSON.stringify(error, Object.getOwnPropertyNames(error))
+      });
+
+      // Log the nested structure if it exists
+      if (error?.error?.error) {
+        console.error('OpenAI Realtime - Nested Error Details:', {
+          type: error.error.error.type,
+          message: error.error.error.message,
+          code: error.error.error.code,
+          param: error.error.error.param,
+          fullNestedError: error.error.error
+        });
+      }
+
       this._setConnectionStatus('error');
+      
+      let errorMessage: string;
+      
+      // Parse nested OpenAI error structure
+      if (error?.error?.error?.type) {
+        // Deeply nested error (like invalid_request_error)
+        const innerError = error.error.error;
+        errorMessage = `OpenAI Realtime error: ${innerError.type}`;
+        if (innerError.message) {
+          errorMessage += ` - ${innerError.message}`;
+        }
+        if (innerError.code) {
+          errorMessage += ` (${innerError.code})`;
+        }
+      } else if (error?.error?.message) {
+        errorMessage = `OpenAI Realtime error: ${error.error.message}`;
+      } else if (error?.error?.type) {
+        errorMessage = `OpenAI Realtime error: ${error.error.type}`;
+      } else if (error?.message) {
+        errorMessage = `OpenAI Realtime error: ${error.message}`;
+      } else if (typeof error === 'string') {
+        errorMessage = `OpenAI Realtime error: ${error}`;
+      } else {
+        try {
+          const serialized = JSON.stringify(error, Object.getOwnPropertyNames(error));
+          errorMessage = `OpenAI Realtime error: ${serialized}`;
+        } catch {
+          errorMessage = `OpenAI Realtime error: ${String(error)}`;
+        }
+      }
+
+      console.error('OpenAIAdapter - Processed Error Message:', errorMessage);
+
       const connectionError = new ConnectionError(
-        `OpenAI Realtime error: ${error.error?.message || String(error)}`,
+        errorMessage,
         'openai',
         { error }
       );
