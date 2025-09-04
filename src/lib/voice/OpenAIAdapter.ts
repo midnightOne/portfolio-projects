@@ -47,6 +47,7 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
   private _sessionId: string | null = null;
   private _mediaStream: MediaStream | null = null;
   private _isRecording: boolean = false;
+  private _pendingAiTranscript: string = '';
   private _config: OpenAIRealtimeConfig;
   private _reconnectTimer: NodeJS.Timeout | null = null;
   private _reconnectAttempts: number = 0;
@@ -105,11 +106,7 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
         this._audioElement.muted = this._isMuted;
       }
 
-      this._handleConnectionEvent({
-        type: 'connected',
-        provider: 'openai',
-        timestamp: new Date()
-      });
+      // Do not mark as connected on init; connection occurs after session.connect()
 
     } catch (error) {
       const connectionError = new ConnectionError(
@@ -138,10 +135,30 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
         tools: this._convertToolsToOpenAIFormat()
       });
 
-      // Create RealtimeSession with proper WebRTC transport
+      // Create RealtimeSession with proper WebRTC transport and codec preferences
       this._session = new RealtimeSession(this._agent, {
         transport: new OpenAIRealtimeWebRTC({
           audioElement: this._audioElement,
+          // Force correct Realtime WebRTC base URL (avoid /realtime/calls)
+          baseUrl: 'https://api.openai.com/v1/realtime',
+          // Ensure the peer connection is prepared before offer creation
+          changePeerConnection: async (pc: RTCPeerConnection) => {
+            try {
+              // Add an audio transceiver to ensure an m=audio section exists in SDP
+              pc.addTransceiver('audio', { direction: 'sendrecv' });
+            } catch {}
+            // Attempt to prefer Opus if available
+            try {
+              const caps = (RTCRtpSender as any).getCapabilities?.('audio');
+              const opus = caps?.codecs?.find((c: any) => (c.mimeType || '').toLowerCase() === 'audio/opus');
+              if (opus) {
+                pc.getTransceivers()
+                  .filter((t) => t.sender && t.sender.track?.kind === 'audio')
+                  .forEach((t) => t.setCodecPreferences([opus]));
+              }
+            } catch {}
+            return pc;
+          },
         }),
         model: this._config.model,
         config: {
@@ -598,20 +615,76 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
 
     // Connection status tracking via transport events
     this._session.on('transport_event', (event: any) => {
-      if (event.type === 'session.created') {
-        this._setConnectionStatus('connected');
-        this._handleConnectionEvent({
-          type: 'connected',
-          provider: 'openai',
-          timestamp: new Date()
-        });
-      } else if (event.type === 'session.ended') {
-        this._setConnectionStatus('disconnected');
-        this._handleConnectionEvent({
-          type: 'disconnected',
-          provider: 'openai',
-          timestamp: new Date()
-        });
+      switch (event.type) {
+        case 'session.created': {
+          this._setConnectionStatus('connected');
+          this._handleConnectionEvent({
+            type: 'connected',
+            provider: 'openai',
+            timestamp: new Date()
+          });
+          break;
+        }
+        case 'session.ended': {
+          this._setConnectionStatus('disconnected');
+          this._handleConnectionEvent({
+            type: 'disconnected',
+            provider: 'openai',
+            timestamp: new Date()
+          });
+          break;
+        }
+        case 'conversation.item.input_audio_transcription.completed': {
+          // User speech transcription completed -> add to transcript
+          const transcriptText = event.transcript || event.text || '';
+          if (transcriptText) {
+            const transcriptItem: TranscriptItem = {
+              id: uuidv4(),
+              type: 'user_speech',
+              content: transcriptText,
+              timestamp: new Date(),
+              provider: 'openai',
+              metadata: { confidence: event.confidence }
+            };
+            this._addTranscriptItem(transcriptItem);
+            this._handleTranscriptEvent({
+              type: 'transcript_update',
+              item: transcriptItem,
+              timestamp: new Date()
+            });
+          }
+          break;
+        }
+        case 'response.audio_transcript.delta': {
+          // Accumulate AI transcript text as it streams
+          if (typeof event.delta === 'string') {
+            this._pendingAiTranscript += event.delta;
+          }
+          break;
+        }
+        case 'response.audio_transcript.done': {
+          // Finalize AI transcript item
+          const finalText = event.transcript || this._pendingAiTranscript;
+          if (finalText) {
+            const transcriptItem: TranscriptItem = {
+              id: uuidv4(),
+              type: 'ai_response',
+              content: finalText,
+              timestamp: new Date(),
+              provider: 'openai'
+            };
+            this._addTranscriptItem(transcriptItem);
+            this._handleTranscriptEvent({
+              type: 'transcript_update',
+              item: transcriptItem,
+              timestamp: new Date()
+            });
+          }
+          this._pendingAiTranscript = '';
+          break;
+        }
+        default:
+          break;
       }
     });
   }

@@ -161,29 +161,17 @@ Always be helpful, professional, and accurate. If you don't know something, say 
       }
     ];
 
-    // Create OpenAI Realtime session
+    // Create OpenAI Realtime session (minimal payload per SDK example)
     const sessionResponse = await fetch('https://api.openai.com/v1/realtime/sessions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${openaiApiKey}`,
         'Content-Type': 'application/json',
+        // Some deployments require beta header for realtime endpoints
+        'OpenAI-Beta': 'realtime=v1',
       },
       body: JSON.stringify({
         model: 'gpt-4o-realtime-preview-2025-06-03',
-        voice: 'alloy',
-        instructions: systemInstructions,
-        tools: navigationTools,
-        turn_detection: {
-          type: 'server_vad',
-          threshold: 0.5,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 1000
-        },
-        input_audio_format: 'pcm16',
-        output_audio_format: 'pcm16',
-        input_audio_transcription: {
-          model: 'whisper-1'
-        }
       }),
     });
 
@@ -275,23 +263,10 @@ export async function POST(request: NextRequest) {
       headers: {
         'Authorization': `Bearer ${openaiApiKey}`,
         'Content-Type': 'application/json',
+        'OpenAI-Beta': 'realtime=v1',
       },
       body: JSON.stringify({
         model: 'gpt-4o-realtime-preview-2025-06-03',
-        voice: 'alloy',
-        instructions,
-        tools,
-        turn_detection: {
-          type: 'server_vad',
-          threshold: 0.5,
-          prefix_padding_ms: 300,
-          silence_duration_ms: 1000
-        },
-        input_audio_format: 'pcm16',
-        output_audio_format: 'pcm16',
-        input_audio_transcription: {
-          model: 'whisper-1'
-        }
       }),
     });
 

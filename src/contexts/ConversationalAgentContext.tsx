@@ -307,12 +307,22 @@ export function ConversationalAgentProvider({
     const initializeProvider = async () => {
       if (defaultProvider && !state.activeProvider && isInitializedRef.current) {
         try {
-          await switchProvider(defaultProvider);
+          // Set the provider but don't auto-connect to avoid false "connected" state
+          dispatch({ type: 'SET_ACTIVE_PROVIDER', provider: defaultProvider });
+          
+          // Create adapter but don't connect yet
+          const newAdapter = await AdapterRegistry.create(defaultProvider);
+          await newAdapter.init(createAdapterOptions());
+          currentAdapterRef.current = newAdapter;
+          
+          // Only connect if explicitly requested
           if (autoConnect && isMounted) {
             await connect();
           }
         } catch (error) {
           console.error('Failed to initialize provider:', error);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          dispatch({ type: 'SET_ERROR', error: new VoiceAgentError(errorMessage, defaultProvider) });
         }
       }
     };
@@ -325,7 +335,7 @@ export function ConversationalAgentProvider({
     return () => {
       isMounted = false;
     };
-  }, [defaultProvider, state.activeProvider]); // Removed switchProvider and connect from dependencies
+  }, [defaultProvider, state.activeProvider, autoConnect]); // Removed switchProvider and connect from dependencies
 
   // Create adapter init options
   const createAdapterOptions = useCallback((): AdapterInitOptions => {
@@ -343,7 +353,17 @@ export function ConversationalAgentProvider({
         });
         
         if (event.error) {
-          dispatch({ type: 'SET_ERROR', error: new VoiceAgentError(event.error, event.provider) });
+          let errorMessage: string;
+          if (typeof event.error === 'string') {
+            errorMessage = event.error;
+          } else if (event.error instanceof Error) {
+            errorMessage = event.error.message;
+          } else if (event.error && typeof event.error === 'object' && 'message' in event.error) {
+            errorMessage = String(event.error.message);
+          } else {
+            errorMessage = 'Unknown connection error occurred';
+          }
+          dispatch({ type: 'SET_ERROR', error: new VoiceAgentError(errorMessage, event.provider) });
         }
       },
       onTranscriptEvent: (event) => {
@@ -360,7 +380,10 @@ export function ConversationalAgentProvider({
           dispatch({ type: 'SET_AUDIO_STATE', audioState: { isRecording: false } });
           dispatch({ type: 'SET_SESSION_STATUS', status: 'idle' });
         } else if (event.error) {
-          dispatch({ type: 'SET_ERROR', error: new VoiceAgentError(event.error, state.activeProvider || 'openai') });
+          const errorMessage = typeof event.error === 'string' ? event.error : 
+                              event.error instanceof Error ? event.error.message : 
+                              'Audio error occurred';
+          dispatch({ type: 'SET_ERROR', error: new VoiceAgentError(errorMessage, state.activeProvider || 'openai') });
         }
       },
       onToolEvent: (event) => {
@@ -379,6 +402,9 @@ export function ConversationalAgentProvider({
   // Log transcript to server
   const logTranscriptToServer = useCallback(async (item: TranscriptItem) => {
     try {
+      const ensuredSessionId = state.conversationMetadata?.sessionId || (state.connectionState.lastConnected?.getTime ? `sess_${state.connectionState.lastConnected.getTime()}` : uuidv4());
+      const ensuredProvider = state.activeProvider || 'openai';
+      const ensuredTimestamp = new Date().toISOString();
       await fetch('/api/ai/conversation/log', {
         method: 'POST',
         headers: {
@@ -386,11 +412,11 @@ export function ConversationalAgentProvider({
         },
         body: JSON.stringify({
           transcriptItem: item,
-          sessionId: state.conversationMetadata?.sessionId || uuidv4(),
+          sessionId: ensuredSessionId,
           contextId: state.contextId,
           reflinkId: state.reflinkId,
-          provider: state.activeProvider,
-          timestamp: new Date().toISOString()
+          provider: ensuredProvider,
+          timestamp: ensuredTimestamp
         }),
       });
     } catch (error) {
@@ -405,7 +431,13 @@ export function ConversationalAgentProvider({
       if (currentAdapterRef.current) {
         await currentAdapterRef.current.disconnect();
         await currentAdapterRef.current.cleanup();
+        currentAdapterRef.current = null;
       }
+
+      // Reset connection state when switching providers
+      dispatch({ type: 'SET_CONNECTION_STATUS', status: 'disconnected' });
+      dispatch({ type: 'SET_SESSION_STATUS', status: 'idle' });
+      dispatch({ type: 'SET_AUDIO_STATE', audioState: { isRecording: false, isPlaying: false } });
 
       // Create new adapter
       const newAdapter = await AdapterRegistry.create(provider);
@@ -415,8 +447,9 @@ export function ConversationalAgentProvider({
       dispatch({ type: 'SET_ACTIVE_PROVIDER', provider });
       
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       const voiceError = new VoiceAgentError(
-        `Failed to switch to provider ${provider}: ${error instanceof Error ? error.message : String(error)}`,
+        `Failed to switch to provider ${provider}: ${errorMessage}`,
         provider
       );
       dispatch({ type: 'SET_ERROR', error: voiceError });
@@ -431,15 +464,37 @@ export function ConversationalAgentProvider({
   // Connection management
   const connect = useCallback(async () => {
     if (!currentAdapterRef.current) {
-      throw new VoiceAgentError('No active adapter', state.activeProvider || 'openai');
+      const errorMessage = 'No active adapter available. Please select a provider first.';
+      const error = new VoiceAgentError(errorMessage, state.activeProvider || 'openai');
+      dispatch({ type: 'SET_ERROR', error });
+      throw error;
     }
     
-    await currentAdapterRef.current.connect();
+    try {
+      dispatch({ type: 'SET_CONNECTION_STATUS', status: 'connecting' });
+      await currentAdapterRef.current.connect();
+      // Connection status will be updated by the adapter's onConnectionEvent callback
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const voiceError = new VoiceAgentError(`Connection failed: ${errorMessage}`, state.activeProvider || 'openai');
+      dispatch({ type: 'SET_ERROR', error: voiceError });
+      dispatch({ type: 'SET_CONNECTION_STATUS', status: 'error' });
+      throw voiceError;
+    }
   }, [state.activeProvider]);
 
   const disconnect = useCallback(async () => {
-    if (currentAdapterRef.current) {
-      await currentAdapterRef.current.disconnect();
+    try {
+      if (currentAdapterRef.current) {
+        await currentAdapterRef.current.disconnect();
+      }
+      dispatch({ type: 'SET_CONNECTION_STATUS', status: 'disconnected' });
+      dispatch({ type: 'SET_SESSION_STATUS', status: 'idle' });
+      dispatch({ type: 'SET_AUDIO_STATE', audioState: { isRecording: false, isPlaying: false } });
+    } catch (error) {
+      console.error('Error during disconnect:', error);
+      // Still set to disconnected even if there was an error
+      dispatch({ type: 'SET_CONNECTION_STATUS', status: 'disconnected' });
     }
   }, []);
 

@@ -51,27 +51,21 @@ function VoiceDebugContent() {
   } = useConversationalAgent();
 
   // Local state
-  const [selectedProvider, setSelectedProvider] = useState<'openai' | 'elevenlabs'>('openai');
   const [textInput, setTextInput] = useState('');
   const [volume, setVolumeState] = useState(1.0);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
   const [lastActivity, setLastActivity] = useState<Date | null>(null);
   const [activeTab, setActiveTab] = useState<'conversation' | 'connection' | 'transcripts'>('conversation');
 
-  // Update connection status based on state
+  // Derive state from context instead of local state
+  const selectedProvider = state.activeProvider || 'openai';
+  const connectionStatus = state.connectionState.status;
+
+  // Update connecting state based on connection status
   useEffect(() => {
-    if (state.connectionState.status === 'connected') {
-      setConnectionStatus('connected');
-      setIsConnecting(false);
-    } else if (state.connectionState.status === 'connecting') {
-      setConnectionStatus('connecting');
+    if (state.connectionState.status === 'connecting') {
       setIsConnecting(true);
-    } else if (state.connectionState.status === 'error') {
-      setConnectionStatus('error');
-      setIsConnecting(false);
     } else {
-      setConnectionStatus('disconnected');
       setIsConnecting(false);
     }
   }, [state.connectionState.status]);
@@ -84,10 +78,13 @@ function VoiceDebugContent() {
   }, [state.transcript.length]);
 
   const handleProviderSwitch = useCallback(async (provider: 'openai' | 'elevenlabs') => {
+    // Don't switch if already on this provider
+    if (selectedProvider === provider) {
+      return;
+    }
+
     try {
-      setIsConnecting(true);
       await switchProvider(provider);
-      setSelectedProvider(provider);
       toast({
         title: 'Provider switched',
         description: `Switched to ${provider === 'openai' ? 'OpenAI Realtime' : 'ElevenLabs'}`,
@@ -98,14 +95,11 @@ function VoiceDebugContent() {
         description: error instanceof Error ? error.message : 'Unknown error',
         variant: 'destructive',
       });
-    } finally {
-      setIsConnecting(false);
     }
-  }, [switchProvider, toast]);
+  }, [switchProvider, toast, selectedProvider]);
 
   const handleConnect = useCallback(async () => {
     try {
-      setIsConnecting(true);
       await connect();
       toast({
         title: 'Connected',
@@ -117,8 +111,6 @@ function VoiceDebugContent() {
         description: error instanceof Error ? error.message : 'Failed to connect',
         variant: 'destructive',
       });
-    } finally {
-      setIsConnecting(false);
     }
   }, [connect, selectedProvider, toast]);
 
@@ -263,6 +255,7 @@ function VoiceDebugContent() {
     switch (connectionStatus) {
       case 'connected': return 'text-green-600 bg-green-50 border-green-200';
       case 'connecting': return 'text-yellow-600 bg-yellow-50 border-yellow-200';
+      case 'reconnecting': return 'text-yellow-600 bg-yellow-50 border-yellow-200';
       case 'error': return 'text-red-600 bg-red-50 border-red-200';
       default: return 'text-gray-600 bg-gray-50 border-gray-200';
     }
@@ -271,7 +264,8 @@ function VoiceDebugContent() {
   const getConnectionStatusIcon = useCallback(() => {
     switch (connectionStatus) {
       case 'connected': return <CheckCircle className="h-4 w-4" />;
-      case 'connecting': return <RefreshCw className="h-4 w-4 animate-spin" />;
+      case 'connecting': 
+      case 'reconnecting': return <RefreshCw className="h-4 w-4 animate-spin" />;
       case 'error': return <XCircle className="h-4 w-4" />;
       default: return <AlertCircle className="h-4 w-4" />;
     }
