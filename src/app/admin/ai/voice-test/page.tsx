@@ -42,7 +42,7 @@ export default function VoiceTestPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const sessionRef = useRef<RealtimeSession<any> | null>(null);
-  
+
   const [isConnected, setIsConnected] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [events, setEvents] = useState<TransportEvent[]>([]);
@@ -74,7 +74,7 @@ export default function VoiceTestPage() {
     // Set up event listeners
     sessionRef.current.on('transport_event', (event) => {
       setEvents((prev) => [...prev.slice(-49), event]); // Keep last 50 events
-      
+
       // Handle connection state changes from transport events
       if (event.type === 'session.created') {
         setConnectionStatus('Session Created');
@@ -99,28 +99,8 @@ export default function VoiceTestPage() {
       sessionRef.current?.approve(approvalRequest.approvalItem);
     });
 
-    // Try to listen for connection-related events
-    try {
-      sessionRef.current.on('connected', () => {
-        console.log('Session connected event received');
-        setIsConnected(true);
-        setConnectionStatus('Connected');
-      });
-
-      sessionRef.current.on('disconnected', () => {
-        console.log('Session disconnected event received');
-        setIsConnected(false);
-        setConnectionStatus('Disconnected');
-      });
-
-      sessionRef.current.on('error', (error: any) => {
-        console.log('Session error event received:', error);
-        setConnectionStatus(`Error: ${error.message || 'Unknown error'}`);
-        setIsConnected(false);
-      });
-    } catch (e) {
-      console.log('Some connection events not available:', e);
-    }
+    // Note: RealtimeSession doesn't emit 'connected', 'disconnected', or 'error' events directly
+    // Connection state is managed manually in the connect() function
 
     return () => {
       if (sessionRef.current && isConnected) {
@@ -188,11 +168,11 @@ export default function VoiceTestPage() {
         console.log('Getting token...');
         const token = await getToken();
         console.log('Token received, connecting to session...');
-        
+
         await sessionRef.current?.connect({
           apiKey: token,
         });
-        
+
         console.log('Session connected successfully');
         setIsConnected(true);
         setConnectionStatus('Connected');
@@ -267,7 +247,7 @@ export default function VoiceTestPage() {
                 >
                   {isConnected ? 'Disconnect' : 'Connect'}
                 </Button>
-                
+
                 {isConnected && (
                   <Button
                     onClick={toggleMute}
@@ -276,11 +256,11 @@ export default function VoiceTestPage() {
                     {isMuted ? 'Unmute' : 'Mute'}
                   </Button>
                 )}
-                
+
                 <div className="text-sm text-gray-600">
                   Status: <span className="font-medium">{connectionStatus}</span>
                 </div>
-                
+
                 <Button
                   onClick={() => {
                     console.log('Session state:', {
@@ -335,7 +315,7 @@ export default function VoiceTestPage() {
                     // Extract readable content from the item
                     let content = '';
                     let itemType = item.type || 'unknown';
-                    
+
                     if (item.type === 'message' && 'content' in item) {
                       if (Array.isArray(item.content)) {
                         content = item.content

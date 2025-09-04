@@ -82,9 +82,14 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
     async init(options: AdapterInitOptions): Promise<void> {
         try {
+            console.log('OpenAIRealtimeAdapter: Initializing with options:', options);
+            
             if (!this._agent) {
                 throw new Error('Agent not initialized');
             }
+
+            // Store the options for later use
+            this._options = options;
 
             // Create the realtime session
             this._session = new RealtimeSession(this._agent, {
@@ -102,6 +107,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             this._setupEventListeners();
 
             this._isInitialized = true;
+            console.log('OpenAIRealtimeAdapter: Initialization complete');
         } catch (error) {
             console.error('OpenAI Realtime initialization failed:', error);
             throw new ConnectionError(
@@ -117,6 +123,19 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         this._session.on('transport_event', (event: TransportEvent) => {
             this._events.push(event);
             console.log('Transport event:', event.type);
+            
+            // Emit connection events based on transport events
+            if (event.type === 'session.created') {
+                console.log('Emitting connected event from session.created');
+                this._emitConnectionEvent('connected');
+            } else if (event.type === 'session.updated') {
+                // Also emit connected on session.updated to ensure UI gets the event
+                console.log('Emitting connected event from session.updated');
+                this._emitConnectionEvent('connected');
+            } else if (event.type === 'error') {
+                console.log('Emitting error event');
+                this._emitConnectionEvent('error', (event as any).error?.message || 'Unknown error');
+            }
         });
 
         this._session.on('mcp_tools_changed', (tools: any[]) => {
@@ -125,6 +144,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         });
 
         this._session.on('history_updated', (history: RealtimeItem[]) => {
+            console.log('History updated, items:', history.length);
             this._history = history;
             this._processHistoryUpdate(history);
         });
@@ -145,8 +165,57 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             provider: 'openai'
         }));
 
+        // Emit transcript events for new items
+        const previousLength = this._transcript.length;
+        const newItems = transcriptItems.slice(previousLength);
+        
         // Update internal transcript
         this._transcript = transcriptItems;
+        
+        // Emit events for new items
+        newItems.forEach(item => {
+            this._emitTranscriptEvent(item);
+        });
+    }
+
+    // Helper methods to emit events to the context
+    private _emitConnectionEvent(type: 'connected' | 'disconnected' | 'reconnecting' | 'error', error?: string) {
+        console.log('_emitConnectionEvent called:', { type, error, hasCallback: !!this._options?.onConnectionEvent });
+        if (this._options?.onConnectionEvent) {
+            this._options.onConnectionEvent({
+                type,
+                provider: 'openai',
+                error,
+                timestamp: new Date()
+            });
+            console.log('Connection event emitted successfully');
+        } else {
+            console.log('No onConnectionEvent callback available');
+        }
+    }
+
+    private _emitTranscriptEvent(item: TranscriptItem) {
+        console.log('_emitTranscriptEvent called:', { item, hasCallback: !!this._options?.onTranscriptEvent });
+        if (this._options?.onTranscriptEvent) {
+            this._options.onTranscriptEvent({
+                type: 'transcript_update',
+                item,
+                timestamp: new Date()
+            });
+            console.log('Transcript event emitted successfully');
+        } else {
+            console.log('No onTranscriptEvent callback available');
+        }
+    }
+
+    private _emitAudioEvent(type: 'audio_start' | 'audio_end' | 'audio_error', error?: string) {
+        if (this._options?.onAudioEvent) {
+            this._options.onAudioEvent({
+                type,
+                error,
+                timestamp: new Date()
+            });
+        }
     }
 
     private _extractContentFromItem(item: RealtimeItem): string {
@@ -164,11 +233,14 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     }
 
     async connect(): Promise<void> {
+        console.log('OpenAIRealtimeAdapter: Connect called');
+        
         if (!this._session) {
             throw new ConnectionError('Session not initialized', 'openai');
         }
 
         try {
+            console.log('OpenAIRealtimeAdapter: Getting token...');
             // Get token from our API
             const response = await fetch('/api/ai/openai/token', {
                 method: 'POST',
@@ -183,6 +255,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             }
 
             const { token } = await response.json();
+            console.log('OpenAIRealtimeAdapter: Token received, connecting...');
 
             // Connect to OpenAI Realtime
             await this._session.connect({
@@ -191,15 +264,15 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
             this._isConnected = true;
             this._connectionStatus = 'connected';
-            console.log('Connected to OpenAI Realtime');
+            console.log('OpenAIRealtimeAdapter: Connected successfully, emitting event');
+            this._emitConnectionEvent('connected');
 
         } catch (error) {
-            console.error('Connection failed:', error);
+            console.error('OpenAIRealtimeAdapter: Connection failed:', error);
             this._connectionStatus = 'error';
-            throw new ConnectionError(
-                `Failed to connect: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                'openai'
-            );
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            this._emitConnectionEvent('error', errorMessage);
+            throw new ConnectionError(`Failed to connect: ${errorMessage}`, 'openai');
         }
     }
 
@@ -210,6 +283,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 this._isConnected = false;
                 this._connectionStatus = 'disconnected';
                 console.log('Disconnected from OpenAI Realtime');
+                this._emitConnectionEvent('disconnected');
             } catch (error) {
                 console.error('Disconnect failed:', error);
                 throw new ConnectionError(
@@ -233,6 +307,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             this._isRecording = true;
             this._sessionStatus = 'listening';
             console.log('Started listening');
+            this._emitAudioEvent('audio_start');
         } catch (error) {
             throw new AudioError(
                 `Failed to start listening: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -250,6 +325,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             this._isRecording = false;
             this._sessionStatus = 'idle';
             console.log('Stopped listening');
+            this._emitAudioEvent('audio_end');
         } catch (error) {
             throw new AudioError(
                 `Failed to stop listening: ${error instanceof Error ? error.message : 'Unknown error'}`,
