@@ -99,12 +99,59 @@ export default function VoiceTestPage() {
       sessionRef.current?.approve(approvalRequest.approvalItem);
     });
 
+    // Try to listen for connection-related events
+    try {
+      sessionRef.current.on('connected', () => {
+        console.log('Session connected event received');
+        setIsConnected(true);
+        setConnectionStatus('Connected');
+      });
+
+      sessionRef.current.on('disconnected', () => {
+        console.log('Session disconnected event received');
+        setIsConnected(false);
+        setConnectionStatus('Disconnected');
+      });
+
+      sessionRef.current.on('error', (error: any) => {
+        console.log('Session error event received:', error);
+        setConnectionStatus(`Error: ${error.message || 'Unknown error'}`);
+        setIsConnected(false);
+      });
+    } catch (e) {
+      console.log('Some connection events not available:', e);
+    }
+
     return () => {
       if (sessionRef.current && isConnected) {
         sessionRef.current.close();
       }
     };
   }, [isConnected]);
+
+  // Monitor connection state
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (sessionRef.current) {
+        // Check if we can access session properties to determine if it's really connected
+        try {
+          // If the session is connected, we should be able to access its state
+          // For now, just check if we have events or history as indicators of activity
+          if (events.length > 0 || history.length > 0) {
+            if (!isConnected) {
+              console.log('Detected activity, updating connection state');
+              setIsConnected(true);
+              setConnectionStatus('Connected (detected activity)');
+            }
+          }
+        } catch (error) {
+          console.log('Session state check failed:', error);
+        }
+      }
+    }, 2000); // Check every 2 seconds
+
+    return () => clearInterval(interval);
+  }, [events.length, history.length, isConnected]);
 
   const getToken = async () => {
     const response = await fetch('/api/ai/openai/token', {
@@ -233,6 +280,22 @@ export default function VoiceTestPage() {
                 <div className="text-sm text-gray-600">
                   Status: <span className="font-medium">{connectionStatus}</span>
                 </div>
+                
+                <Button
+                  onClick={() => {
+                    console.log('Session state:', {
+                      sessionExists: !!sessionRef.current,
+                      isConnected,
+                      eventsCount: events.length,
+                      historyCount: history.length,
+                      mcpToolsCount: mcpTools.length
+                    });
+                  }}
+                  variant="outline"
+                  size="sm"
+                >
+                  Debug State
+                </Button>
               </div>
             </CardContent>
           </Card>
@@ -268,14 +331,40 @@ export default function VoiceTestPage() {
                 {history.length === 0 ? (
                   <p className="text-sm text-gray-500">No conversation history yet. Connect and start talking!</p>
                 ) : (
-                  history.map((item, index) => (
-                    <div key={index} className="p-2 bg-gray-50 rounded text-sm">
-                      <div className="font-medium text-xs text-gray-600 mb-1">
-                        {item.type} - {new Date().toLocaleTimeString()}
+                  history.map((item, index) => {
+                    // Extract readable content from the item
+                    let content = '';
+                    let itemType = item.type || 'unknown';
+                    
+                    if (item.type === 'message' && 'content' in item) {
+                      if (Array.isArray(item.content)) {
+                        content = item.content
+                          .filter((c: any) => c.type === 'text')
+                          .map((c: any) => c.text)
+                          .join(' ');
+                      } else {
+                        content = String(item.content);
+                      }
+                    } else if ('text' in item) {
+                      content = String(item.text);
+                    } else {
+                      content = JSON.stringify(item, null, 2);
+                    }
+
+                    return (
+                      <div key={index} className="p-2 bg-gray-50 rounded text-sm">
+                        <div className="font-medium text-xs text-gray-600 mb-1">
+                          {itemType} - {new Date().toLocaleTimeString()}
+                        </div>
+                        <div className="whitespace-pre-wrap">{content}</div>
+                        {/* Debug info */}
+                        <details className="mt-2">
+                          <summary className="text-xs text-gray-400 cursor-pointer">Debug Info</summary>
+                          <pre className="text-xs text-gray-500 mt-1">{JSON.stringify(item, null, 2)}</pre>
+                        </details>
                       </div>
-                      <div>{JSON.stringify(item, null, 2)}</div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </CardContent>
