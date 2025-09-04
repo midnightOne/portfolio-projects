@@ -133,6 +133,15 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 // The transcript should be in the history update that follows
             }
             
+            // Handle audio interruption events
+            if (event.type === 'response.audio_transcript.delta') {
+                console.log('AI is speaking (audio transcript delta)');
+            } else if (event.type === 'response.audio.delta') {
+                console.log('AI is generating audio');
+            } else if (event.type === 'response.done') {
+                console.log('AI response completed');
+            }
+            
             // Emit connection events based on transport events
             if (event.type === 'session.created') {
                 console.log('Emitting connected event from session.created');
@@ -162,6 +171,17 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             // For now, auto-approve all tools. In production, you might want user confirmation
             this._session?.approve(approvalRequest.approvalItem);
         });
+
+        // Listen for audio interruption events (if available)
+        if (typeof (this._session as any).on === 'function') {
+            try {
+                (this._session as any).on('audio_interrupted', () => {
+                    console.log('Audio interrupted event received');
+                });
+            } catch (error) {
+                console.log('audio_interrupted event not available:', error);
+            }
+        }
     }
 
     private _processHistoryUpdate(history: RealtimeItem[]) {
@@ -233,12 +253,12 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             
             // Only add items with content or update existing items that now have content
             if (content.trim().length > 0) {
-                const transcriptItem = {
+                const transcriptItem: TranscriptItem = {
                     id: `item-${index}`,
                     type: itemType,
                     content,
                     timestamp: new Date(Date.now()),
-                    provider: 'openai'
+                    provider: 'openai' as VoiceProvider
                 };
                 
                 // Update existing item or add new one
@@ -510,19 +530,23 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         }
 
         try {
-            console.log('Sending text message:', message);
+            console.log('=== SENDING TEXT MESSAGE ===');
+            console.log('Message:', message);
+            console.log('Session state before interrupt:', {
+                isConnected: this._isConnected,
+                sessionStatus: this._sessionStatus,
+                isRecording: this._isRecording
+            });
             
             // Interrupt any ongoing AI speech before sending the message
+            console.log('Calling interrupt...');
             await this.interrupt();
+            console.log('Interrupt completed, now sending message...');
             
-            // Use the RealtimeSession's sendMessage method
-            if (this._session && typeof (this._session as any).sendMessage === 'function') {
-                (this._session as any).sendMessage(message);
-                console.log('Text message sent successfully via sendMessage');
-            } else {
-                console.error('sendMessage method not available on session');
-                throw new Error('Text messaging not supported by current session implementation');
-            }
+            // Use the RealtimeSession's sendMessage method with proper typing
+            this._session.sendMessage(message);
+            console.log('Text message sent successfully to session');
+            console.log('=== MESSAGE SEND COMPLETE ===');
         } catch (error) {
             console.error('Failed to send text message:', error);
             throw new Error(
@@ -618,9 +642,19 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
     async interrupt(): Promise<void> {
         if (this._session && this._isConnected) {
-            // The RealtimeSession handles interruption automatically
-            console.log('Interrupt requested');
-            // TODO: Implement actual interruption when the correct API is available
+            console.log('Interrupt requested - stopping AI speech');
+            console.log('Session state:', {
+                isConnected: this._isConnected,
+                sessionExists: !!this._session,
+                sessionStatus: this._sessionStatus
+            });
+            this._session.interrupt();
+            console.log('Interrupt command sent to session');
+        } else {
+            console.log('Cannot interrupt - session not available or not connected:', {
+                sessionExists: !!this._session,
+                isConnected: this._isConnected
+            });
         }
     }
 

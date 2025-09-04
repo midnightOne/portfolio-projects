@@ -176,11 +176,12 @@ function VoiceDebugContent() {
     if (!textInput.trim()) return;
 
     try {
+      // sendMessage already handles interrupt internally
       await sendMessage(textInput);
       setTextInput('');
       toast({
         title: 'Message sent',
-        description: 'Text message sent to AI',
+        description: 'Text message sent to AI (interrupted any ongoing speech)',
       });
     } catch (error) {
       toast({
