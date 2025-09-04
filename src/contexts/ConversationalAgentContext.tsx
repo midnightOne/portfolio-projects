@@ -23,6 +23,7 @@ import {
 } from '@/types/voice-agent';
 import { IConversationalAgentAdapter, AdapterRegistry } from '@/lib/voice/IConversationalAgentAdapter';
 import { OpenAIAdapter } from '@/lib/voice/OpenAIAdapter';
+import { OpenAIRealtimeAdapter } from '@/lib/voice/OpenAIRealtimeAdapter';
 import { ElevenLabsAdapter } from '@/lib/voice/ElevenLabsAdapter';
 
 // Action types for state management
@@ -281,7 +282,7 @@ export function ConversationalAgentProvider({
   // Register adapter factories
   useEffect(() => {
     if (!isInitializedRef.current) {
-      AdapterRegistry.register('openai', async () => new OpenAIAdapter());
+      AdapterRegistry.register('openai', async () => new OpenAIRealtimeAdapter());
       AdapterRegistry.register('elevenlabs', async () => new ElevenLabsAdapter());
       isInitializedRef.current = true;
     }
