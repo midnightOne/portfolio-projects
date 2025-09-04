@@ -6,7 +6,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { OpenAIAdapter } from '@/lib/voice/OpenAIAdapter';
+import { OpenAIRealtimeAdapter } from '@/lib/voice/OpenAIRealtimeAdapter';
 import {
   ConnectionStatus,
   SessionStatus,
@@ -58,7 +58,7 @@ interface UseRealtimeSessionReturn {
   volume: number;
   
   // Adapter access
-  adapter: OpenAIAdapter | null;
+  adapter: OpenAIRealtimeAdapter | null;
 }
 
 export function useRealtimeSession(
@@ -84,7 +84,7 @@ export function useRealtimeSession(
   const [volume, setVolumeState] = useState(1.0);
 
   // Refs
-  const adapterRef = useRef<OpenAIAdapter | null>(null);
+  const adapterRef = useRef<OpenAIRealtimeAdapter | null>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const isInitializedRef = useRef(false);
@@ -111,7 +111,7 @@ export function useRealtimeSession(
     }
 
     try {
-      const adapter = new OpenAIAdapter();
+      const adapter = new OpenAIRealtimeAdapter();
       
       const initOptions: AdapterInitOptions = {
         audioElement: audioElementRef.current,

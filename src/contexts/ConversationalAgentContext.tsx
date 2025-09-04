@@ -22,7 +22,6 @@ import {
   AudioConfig
 } from '@/types/voice-agent';
 import { IConversationalAgentAdapter, AdapterRegistry } from '@/lib/voice/IConversationalAgentAdapter';
-import { OpenAIAdapter } from '@/lib/voice/OpenAIAdapter';
 import { OpenAIRealtimeAdapter } from '@/lib/voice/OpenAIRealtimeAdapter';
 import { ElevenLabsAdapter } from '@/lib/voice/ElevenLabsAdapter';
 
