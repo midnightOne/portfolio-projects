@@ -167,11 +167,9 @@ Always be helpful, professional, and accurate. If you don't know something, say 
       headers: {
         'Authorization': `Bearer ${openaiApiKey}`,
         'Content-Type': 'application/json',
-        // Some deployments require beta header for realtime endpoints
-        'OpenAI-Beta': 'realtime=v1',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-realtime-preview-2025-06-03',
+        model: 'gpt-realtime',
       }),
     });
 
@@ -263,10 +261,9 @@ export async function POST(request: NextRequest) {
       headers: {
         'Authorization': `Bearer ${openaiApiKey}`,
         'Content-Type': 'application/json',
-        'OpenAI-Beta': 'realtime=v1',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-realtime-preview-2025-06-03',
+        model: 'gpt-realtime',
       }),
     });
 

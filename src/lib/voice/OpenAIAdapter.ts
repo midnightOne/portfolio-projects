@@ -164,21 +164,13 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
             return pc;
           },
         }),
-        model: this._config.model,
+        model: 'gpt-4o-realtime-preview-2025-06-03',
         config: {
-          instructions: baseInstructions,
-          audio: {
-            input: {
-              format: { type: 'audio/pcm', rate: 24000 },
-              transcription: { model: 'gpt-4o-mini-transcribe' },
-              turnDetection: { type: 'semantic_vad' }
-            },
-            output: {
-              format: { type: 'audio/pcm', rate: 24000 },
-              voice: this._config.voice || 'alloy',
-              speed: 1
-            }
-          }
+          inputAudioFormat: 'pcm16',
+          outputAudioFormat: 'pcm16',
+          inputAudioTranscription: {
+            model: 'gpt-4o-mini-transcribe',
+          },
         }
       });
 
@@ -600,12 +592,12 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
     });
 
     // Tool calling events
-    this._session.on('agent_tool_start', async (context: any, agent: any, tool: any, details: any) => {
+    this._session.on('agent_tool_start', async (context: any, agent: any, tool: any) => {
       try {
         const toolCall: ToolCall = {
-          id: details.toolCall.call_id || uuidv4(),
-          name: details.toolCall.name,
-          arguments: JSON.parse(details.toolCall.arguments || '{}'),
+          id: tool.call_id || uuidv4(),
+          name: tool.name,
+          arguments: JSON.parse(tool.arguments || '{}'),
           timestamp: new Date()
         };
 
@@ -650,8 +642,8 @@ export class OpenAIAdapter extends BaseConversationalAgentAdapter {
         const toolError = new ToolError(
           `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
           'openai',
-          details.toolCall.name,
-          { error, toolCall: details.toolCall }
+          tool.name,
+          { error, toolCall: tool }
         );
         this._setError(toolError);
 
