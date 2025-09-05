@@ -3,10 +3,13 @@
  * 
  * Generates ephemeral OpenAI client_secret tokens for WebRTC connections.
  * Implements secure server-side token generation with context injection.
+ * Uses the ClientAIModelManager for consistent OpenAI configuration management.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
+import { getClientAIModelManager, ClientAIModelManagerError } from '../../../../../lib/voice/ClientAIModelManager';
+import { OpenAIRealtimeConfig } from '../../../../../lib/voice/config-serializers';
 
 interface OpenAISessionRequest {
   contextId?: string;
@@ -50,30 +53,33 @@ export async function GET(request: NextRequest) {
     // TODO: Validate reflink and get access level
     // TODO: Load context from ContextProviderService
 
-    // Build system instructions with context
-    let systemInstructions = `You are a helpful AI assistant for a portfolio website. 
-You can help visitors learn about the portfolio owner's background, projects, and experience.
-You have access to navigation tools to show relevant content and guide users through the portfolio.
+    // Get OpenAI configuration using ClientAIModelManager
+    const modelManager = getClientAIModelManager();
+    let defaultConfig: OpenAIRealtimeConfig;
+    
+    try {
+      const configWithMetadata = await modelManager.getProviderConfig('openai');
+      
+      if (configWithMetadata) {
+        defaultConfig = configWithMetadata.config as OpenAIRealtimeConfig;
+        console.log(`Using database OpenAI config: ${configWithMetadata.name}`);
+      } else {
+        // Fallback to default config if no database config found
+        const { getSerializerForProvider } = await import('../../../../../lib/voice/config-serializers');
+        const openaiSerializer = getSerializerForProvider('openai');
+        defaultConfig = openaiSerializer.getDefaultConfig() as OpenAIRealtimeConfig;
+        console.log('Using fallback OpenAI config (no database config found)');
+      }
+    } catch (error) {
+      console.warn('Failed to load OpenAI config from ClientAIModelManager, using fallback:', error instanceof Error ? error.message : 'Unknown error');
+      // Fallback to default config
+      const { getSerializerForProvider } = await import('../../../../../lib/voice/config-serializers');
+      const openaiSerializer = getSerializerForProvider('openai');
+      defaultConfig = openaiSerializer.getDefaultConfig() as OpenAIRealtimeConfig;
+    }
 
-Key capabilities:
-- Answer questions about projects and experience
-- Navigate users to relevant portfolio sections
-- Highlight important content
-- Provide technical explanations
-- Analyze job requirements against the portfolio owner's background
-
-Communication guidelines:
-- Always respond in English unless specifically asked to use another language
-- Keep responses concise and conversational
-- Be helpful, professional, and accurate
-- If you don't know something, say so rather than guessing
-- Use a friendly, approachable tone suitable for a professional portfolio
-
-Audio interaction:
-- Speak clearly and at a moderate pace
-- Use natural speech patterns
-- Acknowledge when you hear the user speaking
-- Wait for the user to finish before responding`;
+    // Build system instructions with context (using config as base)
+    let systemInstructions = defaultConfig.instructions;
 
     // TODO: Inject actual context from ContextProviderService based on contextId and reflinkId
     if (contextId) {
@@ -85,10 +91,11 @@ Audio interaction:
       // TODO: Add personalized context based on reflink
     }
 
-    // Define navigation tools for OpenAI
+    // Define navigation tools for OpenAI (extend default config tools)
     const navigationTools = [
+      ...defaultConfig.tools, // Include any tools from config
       {
-        type: 'function',
+        type: 'function' as const,
         name: 'navigateTo',
         description: 'Navigate to a specific page or URL',
         parameters: {
@@ -100,15 +107,14 @@ Audio interaction:
             },
             newTab: {
               type: 'boolean',
-              description: 'Whether to open in a new tab',
-              default: false
+              description: 'Whether to open in a new tab'
             }
           },
           required: ['path']
-        }        
+        }
       },
       {
-        type: 'function',
+        type: 'function' as const,
         name: 'showProjectDetails',
         description: 'Show details for a specific project, optionally highlighting sections',
         parameters: {
@@ -121,15 +127,14 @@ Audio interaction:
             highlightSections: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Array of section IDs to highlight',
-              default: []
+              description: 'Array of section IDs to highlight'
             }
           },
           required: ['projectId']
-        }        
+        }
       },
       {
-        type: 'function',
+        type: 'function' as const,
         name: 'highlightText',
         description: 'Highlight specific text or elements on the page',
         parameters: {
@@ -145,10 +150,10 @@ Audio interaction:
             }
           },
           required: ['selector']
-        }        
+        }
       },
       {
-        type: 'function',
+        type: 'function' as const,
         name: 'scrollIntoView',
         description: 'Scroll to bring a specific element into view',
         parameters: {
@@ -160,12 +165,11 @@ Audio interaction:
             }
           },
           required: ['selector']
-        }        
+        }
       }
     ];
 
-    // Create OpenAI Realtime session using sessions API with context injection
-    
+    // Create OpenAI Realtime session using config system
     const sessionResponse = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
       method: 'POST',
       headers: {
@@ -176,12 +180,12 @@ Audio interaction:
         expires_after: { anchor: "created_at", seconds: 600 },
         session: {
           type: "realtime",
-          model: 'gpt-realtime',
+          model: defaultConfig.model,
           // Server-side context injection - instructions are injected here and not visible to client
           instructions: systemInstructions,
           // Server-side tool definitions injection
           tools: navigationTools,
-          // Audio configuration with proper structure
+          // Audio configuration from config system
           audio: {
             input: {
               format: {
@@ -189,12 +193,12 @@ Audio interaction:
                 rate: 24000
               },
               turn_detection: {
-                type: 'server_vad',
-                threshold: 0.5,
-                prefix_padding_ms: 300,
-                silence_duration_ms: 200,
+                type: defaultConfig.sessionConfig.turnDetection.type,
+                threshold: defaultConfig.sessionConfig.turnDetection.threshold,
+                prefix_padding_ms: defaultConfig.sessionConfig.turnDetection.prefixPaddingMs,
+                silence_duration_ms: defaultConfig.sessionConfig.turnDetection.silenceDurationMs,
                 create_response: true,
-                interrupt_response: true
+                interrupt_response: defaultConfig.advanced.enableInterruption
               },
               transcription: {
                 model: 'whisper-1'
@@ -205,7 +209,7 @@ Audio interaction:
                 type: 'audio/pcm',
                 rate: 24000
               },
-              voice: 'alloy'
+              voice: defaultConfig.voice
             }
           }
         }
@@ -224,7 +228,7 @@ Audio interaction:
     const sessionData = await sessionResponse.json();
 
     // Generate session ID for tracking
-    const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
     // Calculate expiration (OpenAI sessions typically expire in 15 minutes)
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
@@ -236,8 +240,8 @@ Audio interaction:
       client_secret: sessionData.value,
       session_id: sessionId,
       expires_at: expiresAt,
-      model: 'gpt-realtime',
-      voice: 'alloy'
+      model: defaultConfig.model,
+      voice: defaultConfig.voice
     };
 
     // Log session creation (without sensitive data)
@@ -269,18 +273,43 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Build custom instructions
-    let instructions = body.instructions || `You are a helpful AI assistant for a portfolio website.`;
+    // Get OpenAI configuration using ClientAIModelManager
+    const modelManager = getClientAIModelManager();
+    let defaultConfig: OpenAIRealtimeConfig;
+    
+    try {
+      const configWithMetadata = await modelManager.getProviderConfig('openai');
+      
+      if (configWithMetadata) {
+        defaultConfig = configWithMetadata.config as OpenAIRealtimeConfig;
+        console.log(`Using database OpenAI config: ${configWithMetadata.name}`);
+      } else {
+        // Fallback to default config if no database config found
+        const { getSerializerForProvider } = await import('../../../../../lib/voice/config-serializers');
+        const openaiSerializer = getSerializerForProvider('openai');
+        defaultConfig = openaiSerializer.getDefaultConfig() as OpenAIRealtimeConfig;
+        console.log('Using fallback OpenAI config (no database config found)');
+      }
+    } catch (error) {
+      console.warn('Failed to load OpenAI config from ClientAIModelManager, using fallback:', error instanceof Error ? error.message : 'Unknown error');
+      // Fallback to default config
+      const { getSerializerForProvider } = await import('../../../../../lib/voice/config-serializers');
+      const openaiSerializer = getSerializerForProvider('openai');
+      defaultConfig = openaiSerializer.getDefaultConfig() as OpenAIRealtimeConfig;
+    }
+
+    // Build custom instructions (use config default if not provided)
+    let instructions = body.instructions || defaultConfig.instructions;
 
     if (body.contextId) {
       // TODO: Load context from ContextProviderService
       instructions += `\n\nContext ID: ${body.contextId}`;
     }
 
-    // Use custom tools or default navigation tools
+    // Use custom tools or default from config
     const tools = body.tools || [
       {
-        type: 'function',        
+        type: 'function' as const,
         name: 'navigateTo',
         description: 'Navigate to a specific page or URL',
         parameters: {
@@ -289,10 +318,10 @@ export async function POST(request: NextRequest) {
             path: { type: 'string', description: 'The path or URL to navigate to' }
           },
           required: ['path']
-        }        
+        }
       }
     ];
-    
+
     const sessionResponse = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
       method: 'POST',
       headers: {
@@ -303,12 +332,12 @@ export async function POST(request: NextRequest) {
         expires_after: { anchor: "created_at", seconds: 600 },
         session: {
           type: "realtime",
-          model: 'gpt-realtime',
+          model: defaultConfig.model,
           // Server-side context injection - instructions are injected here and not visible to client
           instructions: instructions,
           // Server-side tool definitions injection
           tools: tools,
-          // Audio configuration with proper structure
+          // Audio configuration from config system
           audio: {
             input: {
               format: {
@@ -316,12 +345,12 @@ export async function POST(request: NextRequest) {
                 rate: 24000
               },
               turn_detection: {
-                type: 'server_vad',
-                threshold: 0.5,
-                prefix_padding_ms: 300,
-                silence_duration_ms: 200,
+                type: defaultConfig.sessionConfig.turnDetection.type,
+                threshold: defaultConfig.sessionConfig.turnDetection.threshold,
+                prefix_padding_ms: defaultConfig.sessionConfig.turnDetection.prefixPaddingMs,
+                silence_duration_ms: defaultConfig.sessionConfig.turnDetection.silenceDurationMs,
                 create_response: true,
-                interrupt_response: true
+                interrupt_response: defaultConfig.advanced.enableInterruption
               },
               transcription: {
                 model: 'whisper-1'
@@ -332,7 +361,7 @@ export async function POST(request: NextRequest) {
                 type: 'audio/pcm',
                 rate: 24000
               },
-              voice: 'alloy'
+              voice: defaultConfig.voice
             }
           }
         }
@@ -356,8 +385,8 @@ export async function POST(request: NextRequest) {
       client_secret: sessionData.value,
       session_id: sessionId,
       expires_at: expiresAt,
-      model: 'gpt-4o-realtime-preview',
-      voice: 'alloy'
+      model: defaultConfig.model,
+      voice: defaultConfig.voice
     };
 
     return NextResponse.json(response);

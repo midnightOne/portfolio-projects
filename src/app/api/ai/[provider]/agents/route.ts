@@ -3,9 +3,12 @@
  * 
  * Handles agent metadata and management for different voice AI providers.
  * Supports both OpenAI and ElevenLabs agent configurations.
+ * Uses the ClientAIModelManager for consistent provider configurations.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getClientAIModelManager } from '../../../../../lib/voice/ClientAIModelManager';
+import { OpenAIRealtimeConfig, ElevenLabsConfig } from '../../../../../lib/voice/config-serializers';
 
 interface AgentMetadata {
   id: string;
@@ -48,65 +51,70 @@ export async function GET(
     let agents: AgentMetadata[] = [];
 
     if (provider === 'openai') {
-      // OpenAI doesn't have persistent agents in the same way as ElevenLabs
-      // We return available models and configurations
-      agents = [
-        {
-          id: 'gpt-4o-realtime-default',
-          name: 'GPT-4o Realtime (Default)',
-          provider: 'openai',
-          model: 'gpt-4o-realtime-preview-2025-06-03',
-          voice: 'alloy',
-          capabilities: [
-            'real-time-stt',
-            'real-time-tts',
-            'tool-calling',
-            'interruption-handling',
-            'voice-activity-detection',
-            'webrtc-transport'
-          ],
-          description: 'Default OpenAI Realtime configuration with Alloy voice',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        },
-        {
-          id: 'gpt-4o-realtime-echo',
-          name: 'GPT-4o Realtime (Echo)',
-          provider: 'openai',
-          model: 'gpt-4o-realtime-preview-2025-06-03',
-          voice: 'echo',
-          capabilities: [
-            'real-time-stt',
-            'real-time-tts',
-            'tool-calling',
-            'interruption-handling',
-            'voice-activity-detection',
-            'webrtc-transport'
-          ],
-          description: 'OpenAI Realtime configuration with Echo voice',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        },
-        {
-          id: 'gpt-4o-realtime-nova',
-          name: 'GPT-4o Realtime (Nova)',
-          provider: 'openai',
-          model: 'gpt-4o-realtime-preview-2025-06-03',
-          voice: 'nova',
-          capabilities: [
-            'real-time-stt',
-            'real-time-tts',
-            'tool-calling',
-            'interruption-handling',
-            'voice-activity-detection',
-            'webrtc-transport'
-          ],
-          description: 'OpenAI Realtime configuration with Nova voice',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+      // Get OpenAI configuration using ClientAIModelManager
+      const modelManager = getClientAIModelManager();
+      let defaultConfig: OpenAIRealtimeConfig;
+      
+      try {
+        const configWithMetadata = await modelManager.getProviderConfig('openai');
+        if (configWithMetadata) {
+          defaultConfig = configWithMetadata.config as OpenAIRealtimeConfig;
+        } else {
+          // Fallback to default config
+          const { getSerializerForProvider } = await import('../../../../../lib/voice/config-serializers');
+          const openaiSerializer = getSerializerForProvider('openai');
+          defaultConfig = openaiSerializer.getDefaultConfig() as OpenAIRealtimeConfig;
         }
-      ];
+      } catch (error) {
+        // Fallback to default config
+        const { getSerializerForProvider } = await import('../../../../../lib/voice/config-serializers');
+        const openaiSerializer = getSerializerForProvider('openai');
+        defaultConfig = openaiSerializer.getDefaultConfig() as OpenAIRealtimeConfig;
+      }
+      
+      // Generate agent configurations based on available voices
+      const availableVoices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'] as const;
+      
+      agents = availableVoices.map(voice => ({
+        id: `gpt-4o-realtime-${voice}`,
+        name: `${defaultConfig.displayName} (${voice.charAt(0).toUpperCase() + voice.slice(1)})`,
+        provider: 'openai' as const,
+        model: defaultConfig.model,
+        voice: voice,
+        capabilities: [
+          'real-time-stt',
+          'real-time-tts',
+          'tool-calling',
+          'interruption-handling',
+          'voice-activity-detection',
+          'webrtc-transport'
+        ],
+        description: `${defaultConfig.description} with ${voice.charAt(0).toUpperCase() + voice.slice(1)} voice`,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }));
     } else if (provider === 'elevenlabs') {
+      // Get ElevenLabs configuration using ClientAIModelManager
+      const modelManager = getClientAIModelManager();
+      let defaultConfig: ElevenLabsConfig;
+      
+      try {
+        const configWithMetadata = await modelManager.getProviderConfig('elevenlabs');
+        if (configWithMetadata) {
+          defaultConfig = configWithMetadata.config as ElevenLabsConfig;
+        } else {
+          // Fallback to default config
+          const { getSerializerForProvider } = await import('../../../../../lib/voice/config-serializers');
+          const elevenLabsSerializer = getSerializerForProvider('elevenlabs');
+          defaultConfig = elevenLabsSerializer.getDefaultConfig() as ElevenLabsConfig;
+        }
+      } catch (error) {
+        // Fallback to default config
+        const { getSerializerForProvider } = await import('../../../../../lib/voice/config-serializers');
+        const elevenLabsSerializer = getSerializerForProvider('elevenlabs');
+        defaultConfig = elevenLabsSerializer.getDefaultConfig() as ElevenLabsConfig;
+      }
+      
       // For ElevenLabs, we would typically fetch actual agents from their API
       const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
 
@@ -132,7 +140,7 @@ export async function GET(
                 'tool-calling',
                 'real-time-audio'
               ],
-              description: agent.prompt || 'ElevenLabs conversational agent',
+              description: agent.prompt || defaultConfig.description,
               created_at: agent.created_at || new Date().toISOString(),
               updated_at: agent.updated_at || new Date().toISOString()
             })) || [];
@@ -149,9 +157,9 @@ export async function GET(
         agents = [
           {
             id: 'elevenlabs-default',
-            name: 'ElevenLabs Default Agent',
+            name: defaultConfig.displayName,
             provider: 'elevenlabs',
-            voice: 'default',
+            voice: defaultConfig.voiceId,
             capabilities: [
               'real-time-conversation',
               'agent-management',
@@ -159,7 +167,7 @@ export async function GET(
               'tool-calling',
               'real-time-audio'
             ],
-            description: 'Default ElevenLabs conversational agent configuration',
+            description: defaultConfig.description,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           }
@@ -206,14 +214,35 @@ export async function POST(
     const body = await request.json();
 
     if (provider === 'openai') {
+      // Get OpenAI configuration using ClientAIModelManager
+      const modelManager = getClientAIModelManager();
+      let defaultConfig: OpenAIRealtimeConfig;
+      
+      try {
+        const configWithMetadata = await modelManager.getProviderConfig('openai');
+        if (configWithMetadata) {
+          defaultConfig = configWithMetadata.config as OpenAIRealtimeConfig;
+        } else {
+          // Fallback to default config
+          const { getSerializerForProvider } = await import('../../../../../lib/voice/config-serializers');
+          const openaiSerializer = getSerializerForProvider('openai');
+          defaultConfig = openaiSerializer.getDefaultConfig() as OpenAIRealtimeConfig;
+        }
+      } catch (error) {
+        // Fallback to default config
+        const { getSerializerForProvider } = await import('../../../../../lib/voice/config-serializers');
+        const openaiSerializer = getSerializerForProvider('openai');
+        defaultConfig = openaiSerializer.getDefaultConfig() as OpenAIRealtimeConfig;
+      }
+      
       // OpenAI doesn't support creating persistent agents
       // Return the configuration that would be used
       const agentConfig = {
         id: `gpt-4o-realtime-${Date.now()}`,
-        name: body.name || 'Custom OpenAI Agent',
+        name: body.name || defaultConfig.name,
         provider: 'openai' as const,
-        model: body.model || 'gpt-4o-realtime-preview-2025-06-03',
-        voice: body.voice || 'alloy',
+        model: body.model || defaultConfig.model,
+        voice: body.voice || defaultConfig.voice,
         capabilities: [
           'real-time-stt',
           'real-time-tts',
@@ -222,7 +251,7 @@ export async function POST(
           'voice-activity-detection',
           'webrtc-transport'
         ],
-        description: body.description || 'Custom OpenAI Realtime configuration',
+        description: body.description || defaultConfig.description,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -234,6 +263,27 @@ export async function POST(
       });
 
     } else if (provider === 'elevenlabs') {
+      // Get ElevenLabs configuration using ClientAIModelManager
+      const modelManager = getClientAIModelManager();
+      let defaultConfig: ElevenLabsConfig;
+      
+      try {
+        const configWithMetadata = await modelManager.getProviderConfig('elevenlabs');
+        if (configWithMetadata) {
+          defaultConfig = configWithMetadata.config as ElevenLabsConfig;
+        } else {
+          // Fallback to default config
+          const { getSerializerForProvider } = await import('../../../../../lib/voice/config-serializers');
+          const elevenLabsSerializer = getSerializerForProvider('elevenlabs');
+          defaultConfig = elevenLabsSerializer.getDefaultConfig() as ElevenLabsConfig;
+        }
+      } catch (error) {
+        // Fallback to default config
+        const { getSerializerForProvider } = await import('../../../../../lib/voice/config-serializers');
+        const elevenLabsSerializer = getSerializerForProvider('elevenlabs');
+        defaultConfig = elevenLabsSerializer.getDefaultConfig() as ElevenLabsConfig;
+      }
+      
       const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
 
       if (!elevenLabsApiKey) {
@@ -243,20 +293,13 @@ export async function POST(
         );
       }
 
-      // Create ElevenLabs agent
+      // Create ElevenLabs agent using config defaults
       const agentConfig = {
-        name: body.name || 'Portfolio AI Assistant',
-        prompt: body.prompt || body.description || 'You are a helpful AI assistant.',
-        voice_id: body.voice || body.voiceId || 'default',
-        language: body.language || 'en',
-        conversation_config: body.conversationConfig || {
-          turn_detection: {
-            type: 'server_vad',
-            threshold: 0.5,
-            prefix_padding_ms: 300,
-            silence_duration_ms: 1000
-          }
-        }
+        name: body.name || defaultConfig.displayName,
+        prompt: body.prompt || body.description || defaultConfig.context.systemPrompt,
+        voice_id: body.voice || body.voiceId || defaultConfig.voiceId,
+        language: body.language || defaultConfig.conversationConfig.language,
+        conversation_config: body.conversationConfig || defaultConfig.conversationConfig
       };
 
       const response = await fetch('https://api.elevenlabs.io/v1/convai/agents', {

@@ -66,14 +66,12 @@ export interface OpenAIRealtimeConfig extends BaseVoiceProviderConfig {
 
 export interface OpenAIToolConfig {
   type: 'function';
-  function: {
-    name: string;
-    description: string;
-    parameters: {
-      type: 'object';
-      properties: Record<string, any>;
-      required?: string[];
-    };
+  name: string;
+  description: string;
+  parameters: {
+    type: 'object';
+    properties: Record<string, any>;
+    required?: string[];
   };
 }
 
@@ -315,21 +313,21 @@ export class OpenAIRealtimeSerializer implements VoiceConfigSerializer<OpenAIRea
             });
           }
           
-          if (!tool.function?.name) {
+          if (!tool.name) {
             errors.push({
-              field: `tools[${index}].function.name`,
+              field: `tools[${index}].name`,
               message: 'Tool function name is required',
               code: 'REQUIRED_FIELD',
-              value: tool.function?.name
+              value: tool.name
             });
           }
           
-          if (!tool.function?.description) {
+          if (!tool.description) {
             errors.push({
-              field: `tools[${index}].function.description`,
+              field: `tools[${index}].description`,
               message: 'Tool function description is required',
               code: 'REQUIRED_FIELD',
-              value: tool.function?.description
+              value: tool.description
             });
           }
         });
