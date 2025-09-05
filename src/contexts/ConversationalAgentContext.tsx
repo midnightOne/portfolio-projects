@@ -6,7 +6,7 @@
  * with provider switching, conversation continuity, and unified transcripts.
  */
 
-'use client';
+'use client'; 
 
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
