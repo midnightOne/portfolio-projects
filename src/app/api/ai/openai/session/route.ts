@@ -89,90 +89,83 @@ Audio interaction:
     const navigationTools = [
       {
         type: 'function',
-        function: {
-          name: 'navigateTo',
-          description: 'Navigate to a specific page or URL',
-          parameters: {
-            type: 'object',
-            properties: {
-              path: {
-                type: 'string',
-                description: 'The path or URL to navigate to'
-              },
-              newTab: {
-                type: 'boolean',
-                description: 'Whether to open in a new tab',
-                default: false
-              }
+        name: 'navigateTo',
+        description: 'Navigate to a specific page or URL',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: {
+              type: 'string',
+              description: 'The path or URL to navigate to'
             },
-            required: ['path']
-          }
-        }
+            newTab: {
+              type: 'boolean',
+              description: 'Whether to open in a new tab',
+              default: false
+            }
+          },
+          required: ['path']
+        }        
       },
       {
         type: 'function',
-        function: {
-          name: 'showProjectDetails',
-          description: 'Show details for a specific project, optionally highlighting sections',
-          parameters: {
-            type: 'object',
-            properties: {
-              projectId: {
-                type: 'string',
-                description: 'The ID or slug of the project to show'
-              },
-              highlightSections: {
-                type: 'array',
-                items: { type: 'string' },
-                description: 'Array of section IDs to highlight',
-                default: []
-              }
+        name: 'showProjectDetails',
+        description: 'Show details for a specific project, optionally highlighting sections',
+        parameters: {
+          type: 'object',
+          properties: {
+            projectId: {
+              type: 'string',
+              description: 'The ID or slug of the project to show'
             },
-            required: ['projectId']
-          }
-        }
+            highlightSections: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Array of section IDs to highlight',
+              default: []
+            }
+          },
+          required: ['projectId']
+        }        
       },
       {
         type: 'function',
-        function: {
-          name: 'highlightText',
-          description: 'Highlight specific text or elements on the page',
-          parameters: {
-            type: 'object',
-            properties: {
-              selector: {
-                type: 'string',
-                description: 'CSS selector for elements to search within'
-              },
-              text: {
-                type: 'string',
-                description: 'Specific text to highlight (optional)'
-              }
+        name: 'highlightText',
+        description: 'Highlight specific text or elements on the page',
+        parameters: {
+          type: 'object',
+          properties: {
+            selector: {
+              type: 'string',
+              description: 'CSS selector for elements to search within'
             },
-            required: ['selector']
-          }
-        }
+            text: {
+              type: 'string',
+              description: 'Specific text to highlight (optional)'
+            }
+          },
+          required: ['selector']
+        }        
       },
       {
         type: 'function',
-        function: {
-          name: 'scrollIntoView',
-          description: 'Scroll to bring a specific element into view',
-          parameters: {
-            type: 'object',
-            properties: {
-              selector: {
-                type: 'string',
-                description: 'CSS selector for the element to scroll to'
-              }
-            },
-            required: ['selector']
-          }
-        }
+        name: 'scrollIntoView',
+        description: 'Scroll to bring a specific element into view',
+        parameters: {
+          type: 'object',
+          properties: {
+            selector: {
+              type: 'string',
+              description: 'CSS selector for the element to scroll to'
+            }
+          },
+          required: ['selector']
+        }        
       }
     ];
 
-    // Create OpenAI Realtime session using client_secrets API with context injection
+    // Create OpenAI Realtime session using sessions API with context injection
+    
     const sessionResponse = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
       method: 'POST',
       headers: {
@@ -180,25 +173,40 @@ Audio interaction:
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
+        expires_after: { anchor: "created_at", seconds: 600 },
         session: {
-          type: 'realtime',
-          model: 'gpt-4o-realtime-preview-2024-10-01',
+          type: "realtime",
+          model: 'gpt-realtime',
           // Server-side context injection - instructions are injected here and not visible to client
           instructions: systemInstructions,
           // Server-side tool definitions injection
           tools: navigationTools,
-          // Audio configuration
-          voice: 'alloy',
-          turn_detection: {
-            type: 'server_vad',
-            threshold: 0.5,
-            prefix_padding_ms: 300,
-            silence_duration_ms: 200
-          },
-          input_audio_format: 'pcm16',
-          output_audio_format: 'pcm16',
-          input_audio_transcription: {
-            model: 'whisper-1'
+          // Audio configuration with proper structure
+          audio: {
+            input: {
+              format: {
+                type: 'audio/pcm',
+                rate: 24000
+              },
+              turn_detection: {
+                type: 'server_vad',
+                threshold: 0.5,
+                prefix_padding_ms: 300,
+                silence_duration_ms: 200,
+                create_response: true,
+                interrupt_response: true
+              },
+              transcription: {
+                model: 'whisper-1'
+              }
+            },
+            output: {
+              format: {
+                type: 'audio/pcm',
+                rate: 24000
+              },
+              voice: 'alloy'
+            }
           }
         }
       }),
@@ -225,10 +233,10 @@ Audio interaction:
     // TODO: Track usage for cost monitoring
 
     const response: OpenAISessionResponse = {
-      client_secret: sessionData.client_secret.value,
+      client_secret: sessionData.value,
       session_id: sessionId,
       expires_at: expiresAt,
-      model: 'gpt-4o-realtime-preview-2024-10-01',
+      model: 'gpt-realtime',
       voice: 'alloy'
     };
 
@@ -272,21 +280,19 @@ export async function POST(request: NextRequest) {
     // Use custom tools or default navigation tools
     const tools = body.tools || [
       {
-        type: 'function',
-        function: {
-          name: 'navigateTo',
-          description: 'Navigate to a specific page or URL',
-          parameters: {
-            type: 'object',
-            properties: {
-              path: { type: 'string', description: 'The path or URL to navigate to' }
-            },
-            required: ['path']
-          }
-        }
+        type: 'function',        
+        name: 'navigateTo',
+        description: 'Navigate to a specific page or URL',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'The path or URL to navigate to' }
+          },
+          required: ['path']
+        }        
       }
     ];
-
+    
     const sessionResponse = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
       method: 'POST',
       headers: {
@@ -294,25 +300,40 @@ export async function POST(request: NextRequest) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
+        expires_after: { anchor: "created_at", seconds: 600 },
         session: {
-          type: 'realtime',
-          model: 'gpt-4o-realtime-preview-2024-10-01',
-          // Server-side context injection
+          type: "realtime",
+          model: 'gpt-realtime',
+          // Server-side context injection - instructions are injected here and not visible to client
           instructions: instructions,
           // Server-side tool definitions injection
           tools: tools,
-          // Audio configuration
-          voice: 'alloy',
-          turn_detection: {
-            type: 'server_vad',
-            threshold: 0.5,
-            prefix_padding_ms: 300,
-            silence_duration_ms: 200
-          },
-          input_audio_format: 'pcm16',
-          output_audio_format: 'pcm16',
-          input_audio_transcription: {
-            model: 'whisper-1'
+          // Audio configuration with proper structure
+          audio: {
+            input: {
+              format: {
+                type: 'audio/pcm',
+                rate: 24000
+              },
+              turn_detection: {
+                type: 'server_vad',
+                threshold: 0.5,
+                prefix_padding_ms: 300,
+                silence_duration_ms: 200,
+                create_response: true,
+                interrupt_response: true
+              },
+              transcription: {
+                model: 'whisper-1'
+              }
+            },
+            output: {
+              format: {
+                type: 'audio/pcm',
+                rate: 24000
+              },
+              voice: 'alloy'
+            }
           }
         }
       }),
@@ -328,14 +349,14 @@ export async function POST(request: NextRequest) {
     }
 
     const sessionData = await sessionResponse.json();
-    const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
     const response: OpenAISessionResponse = {
-      client_secret: sessionData.client_secret.value,
+      client_secret: sessionData.value,
       session_id: sessionId,
       expires_at: expiresAt,
-      model: 'gpt-4o-realtime-preview-2024-10-01',
+      model: 'gpt-4o-realtime-preview',
       voice: 'alloy'
     };
 
