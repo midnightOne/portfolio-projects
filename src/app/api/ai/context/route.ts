@@ -1,101 +1,131 @@
 /**
- * AI Context API - POST /api/ai/context
- * Builds intelligent context for AI conversations with caching
- * Used by the Client-Side AI Assistant system
+ * AI Context API Route
+ * 
+ * Provides dynamic context loading for voice agents based on queries and access control.
+ * Filters context based on reflink permissions and access levels.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { contextManager, ContextSource, ContextBuildOptions } from '@/lib/services/ai/context-manager';
-import { createApiError, createApiSuccess } from '@/lib/types/api';
-import { handleApiError, addCorsHeaders } from '@/lib/utils/api-utils';
-import { withPerformanceTracking } from '@/lib/utils/performance';
 
 interface ContextRequest {
-  sessionId: string;
   query: string;
-  sources?: ContextSource[];
-  options?: ContextBuildOptions;
-  useCache?: boolean;
+  contextType?: 'projects' | 'profile' | 'skills' | 'experience';
+  reflinkId?: string;
+  accessLevel?: 'basic' | 'limited' | 'premium';
 }
 
-async function contextHandler(request: NextRequest) {
+interface ContextResponse {
+  context: any;
+  sources: string[];
+  accessLevel: string;
+  timestamp: string;
+}
+
+export async function POST(request: NextRequest) {
   try {
     const body: ContextRequest = await request.json();
-    
-    const {
-      sessionId,
+    const { query, contextType, reflinkId, accessLevel = 'basic' } = body;
+
+    if (!query || typeof query !== 'string') {
+      return NextResponse.json(
+        { error: 'Query is required and must be a string' },
+        { status: 400 }
+      );
+    }
+
+    // TODO: Implement actual context loading from ContextProviderService
+    // TODO: Apply access control based on reflink permissions
+    // TODO: Filter context based on access level
+
+    // Mock context response for now
+    const mockContext = {
       query,
-      sources = [],
-      options = {},
-      useCache = true
-    } = body;
-
-    // Validate required fields
-    if (!sessionId || !query) {
-      return NextResponse.json(
-        createApiError(
-          'VALIDATION_ERROR',
-          'sessionId and query are required',
-          null,
-          request.url
-        ),
-        { status: 400 }
-      );
-    }
-
-    if (query.trim().length < 2) {
-      return NextResponse.json(
-        createApiError(
-          'VALIDATION_ERROR',
-          'Query must be at least 2 characters long',
-          null,
-          request.url
-        ),
-        { status: 400 }
-      );
-    }
-
-    const startTime = Date.now();
-
-    let result;
-    
-    if (useCache) {
-      // Use caching
-      result = await contextManager.buildContextWithCaching(
-        sessionId,
-        sources,
-        query.trim(),
-        options
-      );
-    } else {
-      // Build fresh context
-      const context = await contextManager.buildContext(sources, query.trim(), options);
-      result = { context, fromCache: false };
-    }
-
-    const processingTime = Date.now() - startTime;
-
-    const responseData = {
-      context: result.context,
-      fromCache: result.fromCache,
-      sessionId,
-      query: query.trim(),
-      processingTime,
-      tokenCount: Math.ceil(result.context.length / 4), // Rough token estimate
-      cacheStats: contextManager.getCacheStats()
+      contextType: contextType || 'general',
+      results: [
+        {
+          type: 'project',
+          title: 'Sample Project',
+          description: 'This is a sample project description that matches your query.',
+          relevance: 0.85,
+          tags: ['react', 'typescript', 'nextjs']
+        },
+        {
+          type: 'skill',
+          name: 'React Development',
+          description: 'Extensive experience with React and modern frontend development.',
+          relevance: 0.92,
+          yearsExperience: 5
+        }
+      ],
+      totalResults: 2,
+      processingTime: '45ms'
     };
 
-    const response = NextResponse.json(createApiSuccess(responseData));
-    return addCorsHeaders(response);
+    const response: ContextResponse = {
+      context: mockContext,
+      sources: ['projects', 'profile', 'skills'],
+      accessLevel: accessLevel,
+      timestamp: new Date().toISOString()
+    };
+
+    // TODO: Log context request for analytics
+    console.log(`Context loaded for query: "${query}" (${contextType || 'general'})`);
+
+    return NextResponse.json(response);
 
   } catch (error) {
-    return handleApiError(error, request);
+    console.error('Error loading context:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }
 
-export const POST = withPerformanceTracking(contextHandler);
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url);
+    const query = searchParams.get('query');
+    const contextType = searchParams.get('contextType') as 'projects' | 'profile' | 'skills' | 'experience' | null;
 
-export async function OPTIONS(request: NextRequest) {
-  const response = new NextResponse(null, { status: 200 });
-  return addCorsHeaders(response);
+    if (!query) {
+      return NextResponse.json(
+        { error: 'Query parameter is required' },
+        { status: 400 }
+      );
+    }
+
+    // Handle GET request similar to POST
+    const mockContext = {
+      query,
+      contextType: contextType || 'general',
+      results: [
+        {
+          type: 'project',
+          title: 'Sample Project',
+          description: 'This is a sample project description that matches your query.',
+          relevance: 0.85,
+          tags: ['react', 'typescript', 'nextjs']
+        }
+      ],
+      totalResults: 1,
+      processingTime: '32ms'
+    };
+
+    const response: ContextResponse = {
+      context: mockContext,
+      sources: ['projects', 'profile'],
+      accessLevel: 'basic',
+      timestamp: new Date().toISOString()
+    };
+
+    return NextResponse.json(response);
+
+  } catch (error) {
+    console.error('Error loading context:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
 }

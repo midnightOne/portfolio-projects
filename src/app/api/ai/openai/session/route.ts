@@ -172,15 +172,35 @@ Audio interaction:
       }
     ];
 
-    // Create OpenAI Realtime session (minimal payload per SDK example)
-    const sessionResponse = await fetch('https://api.openai.com/v1/realtime/sessions', {
+    // Create OpenAI Realtime session using client_secrets API with context injection
+    const sessionResponse = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${openaiApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-realtime-preview-2024-10-01',
+        session: {
+          type: 'realtime',
+          model: 'gpt-4o-realtime-preview-2024-10-01',
+          // Server-side context injection - instructions are injected here and not visible to client
+          instructions: systemInstructions,
+          // Server-side tool definitions injection
+          tools: navigationTools,
+          // Audio configuration
+          voice: 'alloy',
+          turn_detection: {
+            type: 'server_vad',
+            threshold: 0.5,
+            prefix_padding_ms: 300,
+            silence_duration_ms: 200
+          },
+          input_audio_format: 'pcm16',
+          output_audio_format: 'pcm16',
+          input_audio_transcription: {
+            model: 'whisper-1'
+          }
+        }
       }),
     });
 
@@ -267,14 +287,34 @@ export async function POST(request: NextRequest) {
       }
     ];
 
-    const sessionResponse = await fetch('https://api.openai.com/v1/realtime/sessions', {
+    const sessionResponse = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${openaiApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-realtime-preview-2024-10-01',
+        session: {
+          type: 'realtime',
+          model: 'gpt-4o-realtime-preview-2024-10-01',
+          // Server-side context injection
+          instructions: instructions,
+          // Server-side tool definitions injection
+          tools: tools,
+          // Audio configuration
+          voice: 'alloy',
+          turn_detection: {
+            type: 'server_vad',
+            threshold: 0.5,
+            prefix_padding_ms: 300,
+            silence_duration_ms: 200
+          },
+          input_audio_format: 'pcm16',
+          output_audio_format: 'pcm16',
+          input_audio_transcription: {
+            model: 'whisper-1'
+          }
+        }
       }),
     });
 
