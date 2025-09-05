@@ -173,7 +173,11 @@ export async function multipleConfigsExample() {
     
     for (const config of allConfigs) {
       console.log(`  - ${config.name}: ${config.config.displayName} (Default: ${config.isDefault})`);
-      console.log(`    Temperature: ${config.config.temperature}, Voice: ${config.config.voice}`);
+      if (config.config.provider === 'openai') {
+        console.log(`    Temperature: ${config.config.temperature}, Voice: ${config.config.voice}`);
+      } else if (config.config.provider === 'elevenlabs') {
+        console.log(`    Agent ID: ${config.config.agentId}, Voice ID: ${config.config.voiceId}`);
+      }
     }
     
     // Switch default configuration
@@ -294,11 +298,4 @@ export async function runAllExamples() {
   }
 }
 
-// Export individual examples for selective running
-export {
-  basicUsageExample,
-  validationExample,
-  multipleConfigsExample,
-  cachingExample,
-  errorHandlingExample
-};
+// Individual examples are already exported above
