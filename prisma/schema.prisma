@@ -532,6 +532,22 @@ enum AnalyticsEvent {
   @@map("analytics_event")
 }
 
+model VoiceProviderConfig {
+  id        String   @id @default(cuid())
+  provider  String   // 'openai' | 'elevenlabs'
+  name      String   // User-defined config name (e.g., "Professional", "Casual", "Technical")
+  isDefault Boolean  @default(false) @map("is_default")
+  configJson String  @map("config_json") // Serialized provider-specific configuration
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([provider, name])
+  @@unique([provider, isDefault], name: "voice_provider_configs_provider_is_default_key", map: "voice_provider_configs_provider_is_default_key")
+  @@index([provider])
+  @@index([isDefault])
+  @@map("voice_provider_configs")
+}
+
 enum AIRateLimitTier {
   BASIC
   STANDARD

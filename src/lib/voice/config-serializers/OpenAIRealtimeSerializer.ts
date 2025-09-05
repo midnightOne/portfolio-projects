@@ -16,7 +16,7 @@ import {
   ConfigSerializationError,
   ConfigValidationError
 } from './index';
-import { VoiceProvider } from '@/types/voice-agent';
+import { VoiceProvider } from '../../../types/voice-agent';
 
 // OpenAI Realtime specific configuration interface
 export interface OpenAIRealtimeConfig extends BaseVoiceProviderConfig {

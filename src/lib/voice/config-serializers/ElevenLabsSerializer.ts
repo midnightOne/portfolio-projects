@@ -16,7 +16,7 @@ import {
   ConfigSerializationError,
   ConfigValidationError
 } from './index';
-import { VoiceProvider } from '@/types/voice-agent';
+import { VoiceProvider } from '../../../types/voice-agent';
 
 // ElevenLabs Conversational AI specific configuration interface
 export interface ElevenLabsConfig extends BaseVoiceProviderConfig {

@@ -9,7 +9,7 @@
  * - Default configuration management
  */
 
-import { VoiceProvider } from '@/types/voice-agent';
+import { VoiceProvider } from '../../../types/voice-agent';
 
 // Base interface for all voice configuration serializers
 export interface VoiceConfigSerializer<T extends BaseVoiceProviderConfig> {
