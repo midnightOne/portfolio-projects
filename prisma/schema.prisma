@@ -542,7 +542,7 @@ model VoiceProviderConfig {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@unique([provider, name])
-  @@unique([provider, isDefault], name: "voice_provider_configs_provider_is_default_key", map: "voice_provider_configs_provider_is_default_key")
+  @@unique([provider, isDefault], name: "voice_provider_configs_provider_default_unique")
   @@index([provider])
   @@index([isDefault])
   @@map("voice_provider_configs")
