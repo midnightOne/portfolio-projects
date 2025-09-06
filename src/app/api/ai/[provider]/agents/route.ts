@@ -76,7 +76,7 @@ export async function GET(
       const availableVoices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'] as const;
       
       agents = availableVoices.map(voice => ({
-        id: `gpt-4o-realtime-${voice}`,
+        id: `gpt-realtime-${voice}`,
         name: `${defaultConfig.displayName} (${voice.charAt(0).toUpperCase() + voice.slice(1)})`,
         provider: 'openai' as const,
         model: defaultConfig.model,
@@ -238,7 +238,7 @@ export async function POST(
       // OpenAI doesn't support creating persistent agents
       // Return the configuration that would be used
       const agentConfig = {
-        id: `gpt-4o-realtime-${Date.now()}`,
+        id: `gpt-realtime-${Date.now()}`,
         name: body.name || defaultConfig.displayName,
         provider: 'openai' as const,
         model: body.model || defaultConfig.model,
