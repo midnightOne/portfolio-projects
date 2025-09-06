@@ -18,8 +18,14 @@ const nextConfig: NextConfig = {
       fullUrl: false,
     },
   },
+  // Enable source maps for debugging
+  productionBrowserSourceMaps: true,
+  
   // Suppress webpack warnings
   webpack: (config, { dev, isServer }) => {
+    // Don't override devtool in development - let Next.js handle it
+    // Next.js 15 has built-in source map support
+    
     // Suppress specific webpack warnings
     config.ignoreWarnings = [
       /Critical dependency: the request of a dependency is an expression/,
