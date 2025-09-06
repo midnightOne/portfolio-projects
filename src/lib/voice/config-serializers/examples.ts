@@ -31,11 +31,8 @@ export function createOpenAIConfig(): OpenAIRealtimeConfig {
   
   // Configure session settings for optimal performance
   config.sessionConfig.transport = 'webrtc';
-  config.sessionConfig.turnDetection.threshold = 0.6;
-  config.sessionConfig.outputGuardrails = {
-    debounceTextLength: 150,
-    maxResponseLength: 1500
-  };
+  config.sessionConfig.audio.input.turnDetection.threshold = 0.6;
+  // Note: outputGuardrails are not part of the current configuration structure
   
   return config;
 }
@@ -64,25 +61,15 @@ export function createElevenLabsConfig(): ElevenLabsConfig {
   
   // Configure conversation behavior
   config.conversationConfig = {
-    language: 'en-US',
-    maxDuration: 2400, // 40 minutes
+    language: 'en',
+    maxDuration: 2400000, // 40 minutes in milliseconds
     timeoutMs: 8000,
     enableInterruption: true,
-    turnDetection: {
-      type: 'server_vad',
-      threshold: 0.4,
-      prefixPaddingMs: 250,
-      silenceDurationMs: 600
-    }
+    enableBackchannel: false
   };
   
-  // Set context and personalization
-  config.context = {
-    systemPrompt: 'You are a knowledgeable and friendly portfolio assistant. Help visitors understand the portfolio owner\'s background, skills, and projects. Be conversational but informative.',
-    firstMessage: 'Hi there! I\'m here to help you explore this portfolio. What would you like to know about?',
-    personalizedGreeting: true,
-    contextNotes: 'Focus on technical expertise and project outcomes'
-  };
+  // Note: ElevenLabs system prompts are configured through their agent settings
+  // The configuration here focuses on voice and conversation parameters
   
   return config;
 }
@@ -257,7 +244,7 @@ export const configurationPresets = {
       config.displayName = 'Professional Voice';
       config.voiceSettings.stability = 0.8;
       config.voiceSettings.style = 0.1;
-      config.context.systemPrompt = 'You are a professional portfolio assistant. Speak with confidence and authority while maintaining warmth and approachability.';
+      // Note: System prompts are configured through ElevenLabs agent settings
       return config;
     },
     
@@ -266,7 +253,7 @@ export const configurationPresets = {
       config.displayName = 'Conversational Voice';
       config.voiceSettings.stability = 0.6;
       config.voiceSettings.style = 0.3;
-      config.context.systemPrompt = 'You are a friendly and casual portfolio assistant. Be conversational, enthusiastic, and engaging in your responses.';
+      // Note: System prompts are configured through ElevenLabs agent settings
       return config;
     },
     
@@ -275,7 +262,7 @@ export const configurationPresets = {
       config.displayName = 'Multilingual Assistant';
       config.conversationConfig.language = 'auto'; // Auto-detect language
       config.voiceSettings.stability = 0.7;
-      config.context.systemPrompt = 'You are a multilingual portfolio assistant. Adapt your language and cultural context to match the visitor\'s preferences.';
+      // Note: System prompts are configured through ElevenLabs agent settings
       return config;
     }
   }

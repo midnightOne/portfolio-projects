@@ -239,7 +239,7 @@ export async function POST(
       // Return the configuration that would be used
       const agentConfig = {
         id: `gpt-4o-realtime-${Date.now()}`,
-        name: body.name || defaultConfig.name,
+        name: body.name || defaultConfig.displayName,
         provider: 'openai' as const,
         model: body.model || defaultConfig.model,
         voice: body.voice || defaultConfig.voice,
@@ -296,7 +296,7 @@ export async function POST(
       // Create ElevenLabs agent using config defaults
       const agentConfig = {
         name: body.name || defaultConfig.displayName,
-        prompt: body.prompt || body.description || defaultConfig.context.systemPrompt,
+        prompt: body.prompt || body.description || defaultConfig.description,
         voice_id: body.voice || body.voiceId || defaultConfig.voiceId,
         language: body.language || defaultConfig.conversationConfig.language,
         conversation_config: body.conversationConfig || defaultConfig.conversationConfig

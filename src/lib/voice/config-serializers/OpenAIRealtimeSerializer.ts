@@ -7,73 +7,24 @@
 
 import {
   VoiceConfigSerializer,
-  BaseVoiceProviderConfig,
   ValidationResult,
   ValidationError,
   ValidationWarning,
   ConfigSchema,
-  SchemaProperty,
   ConfigSerializationError,
   ConfigValidationError
 } from './index';
+import { 
+  OpenAIRealtimeConfig,
+  OpenAIRealtimeConfigSchema,
+  DEFAULT_OPENAI_CONFIG,
+  ConfigValidationResult,
+  EnvValidationResult
+} from '../../../types/voice-config';
 import { VoiceProvider } from '../../../types/voice-agent';
 
-// OpenAI Realtime specific configuration interface
-export interface OpenAIRealtimeConfig extends BaseVoiceProviderConfig {
-  provider: 'openai';
-  
-  // Model configuration
-  model: 'gpt-4o-realtime-preview' | 'gpt-4o-realtime-preview-2024-10-01' | string;
-  temperature: number;
-  maxTokens: number;
-  
-  // Voice configuration
-  voice: 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
-  
-  // Agent configuration
-  instructions: string;
-  name: string;
-  
-  // Session configuration
-  sessionConfig: {
-    transport: 'websocket' | 'webrtc';
-    audioFormat: 'pcm16' | 'g711_ulaw' | 'g711_alaw';
-    turnDetection: {
-      type: 'server_vad' | 'none';
-      threshold?: number;
-      prefixPaddingMs?: number;
-      silenceDurationMs?: number;
-    };
-    outputGuardrails?: {
-      debounceTextLength?: number;
-      maxResponseLength?: number;
-    };
-  };
-  
-  // Tool configuration
-  tools: OpenAIToolConfig[];
-  
-  // Advanced configuration
-  advanced: {
-    enableInterruption: boolean;
-    enableToolCalling: boolean;
-    enableTranscriptLogging: boolean;
-    maxRetries: number;
-    connectionTimeout: number;
-    reconnectDelay: number;
-  };
-}
-
-export interface OpenAIToolConfig {
-  type: 'function';
-  name: string;
-  description: string;
-  parameters: {
-    type: 'object';
-    properties: Record<string, any>;
-    required?: string[];
-  };
-}
+// Re-export types for backward compatibility
+export type { OpenAIRealtimeConfig } from '../../../types/voice-config';
 
 export class OpenAIRealtimeSerializer implements VoiceConfigSerializer<OpenAIRealtimeConfig> {
   
@@ -136,254 +87,99 @@ export class OpenAIRealtimeSerializer implements VoiceConfigSerializer<OpenAIRea
   }
   
   validate(config: Partial<OpenAIRealtimeConfig>): ValidationResult {
-    const errors: ValidationError[] = [];
-    const warnings: ValidationWarning[] = [];
-    
-    // Required fields validation
-    if (!config.provider || config.provider !== 'openai') {
-      errors.push({
-        field: 'provider',
-        message: 'Provider must be "openai"',
-        code: 'INVALID_PROVIDER',
-        value: config.provider
-      });
-    }
-    
-    if (!config.enabled !== undefined && typeof config.enabled !== 'boolean') {
-      errors.push({
-        field: 'enabled',
-        message: 'Enabled must be a boolean value',
-        code: 'INVALID_TYPE',
-        value: config.enabled
-      });
-    }
-    
-    if (!config.displayName || typeof config.displayName !== 'string') {
-      errors.push({
-        field: 'displayName',
-        message: 'Display name is required and must be a string',
-        code: 'REQUIRED_FIELD',
-        value: config.displayName
-      });
-    }
-    
-    if (!config.description || typeof config.description !== 'string') {
-      errors.push({
-        field: 'description',
-        message: 'Description is required and must be a string',
-        code: 'REQUIRED_FIELD',
-        value: config.description
-      });
-    }
-    
-    // Model validation
-    if (config.model) {
-      const validModels = [
-        'gpt-4o-realtime-preview',
-        'gpt-4o-realtime-preview-2024-10-01'
-      ];
-      if (!validModels.includes(config.model) && !config.model.startsWith('gpt-')) {
-        warnings.push({
-          field: 'model',
-          message: 'Using non-standard model name',
-          suggestion: 'Consider using gpt-4o-realtime-preview for best compatibility'
-        });
-      }
-    }
-    
-    // Temperature validation
-    if (config.temperature !== undefined) {
-      if (typeof config.temperature !== 'number' || config.temperature < 0 || config.temperature > 2) {
-        errors.push({
-          field: 'temperature',
-          message: 'Temperature must be a number between 0 and 2',
-          code: 'INVALID_RANGE',
-          value: config.temperature
-        });
-      }
-    }
-    
-    // Max tokens validation
-    if (config.maxTokens !== undefined) {
-      if (typeof config.maxTokens !== 'number' || config.maxTokens < 1 || config.maxTokens > 128000) {
-        errors.push({
-          field: 'maxTokens',
-          message: 'Max tokens must be a number between 1 and 128000',
-          code: 'INVALID_RANGE',
-          value: config.maxTokens
-        });
-      }
-    }
-    
-    // Voice validation
-    if (config.voice) {
-      const validVoices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
-      if (!validVoices.includes(config.voice)) {
-        errors.push({
-          field: 'voice',
-          message: `Voice must be one of: ${validVoices.join(', ')}`,
-          code: 'INVALID_ENUM',
-          value: config.voice
-        });
-      }
-    }
-    
-    // Instructions validation
-    if (config.instructions !== undefined) {
-      if (typeof config.instructions !== 'string') {
-        errors.push({
-          field: 'instructions',
-          message: 'Instructions must be a string',
-          code: 'INVALID_TYPE',
-          value: config.instructions
-        });
-      } else if (config.instructions.length > 10000) {
-        warnings.push({
-          field: 'instructions',
-          message: 'Instructions are very long and may impact performance',
-          suggestion: 'Consider keeping instructions under 2000 characters'
-        });
-      }
-    }
-    
-    // Session config validation
-    if (config.sessionConfig) {
-      const sessionConfig = config.sessionConfig;
+    try {
+      // Use Zod schema for validation
+      const result = OpenAIRealtimeConfigSchema.safeParse(config);
       
-      if (sessionConfig.transport && !['websocket', 'webrtc'].includes(sessionConfig.transport)) {
-        errors.push({
-          field: 'sessionConfig.transport',
-          message: 'Transport must be "websocket" or "webrtc"',
-          code: 'INVALID_ENUM',
-          value: sessionConfig.transport
-        });
-      }
-      
-      if (sessionConfig.audioFormat && !['pcm16', 'g711_ulaw', 'g711_alaw'].includes(sessionConfig.audioFormat)) {
-        errors.push({
-          field: 'sessionConfig.audioFormat',
-          message: 'Audio format must be "pcm16", "g711_ulaw", or "g711_alaw"',
-          code: 'INVALID_ENUM',
-          value: sessionConfig.audioFormat
-        });
-      }
-      
-      if (sessionConfig.turnDetection) {
-        const turnDetection = sessionConfig.turnDetection;
+      if (result.success) {
+        // Additional custom validations and warnings
+        const warnings: ValidationWarning[] = [];
         
-        if (turnDetection.type && !['server_vad', 'none'].includes(turnDetection.type)) {
-          errors.push({
-            field: 'sessionConfig.turnDetection.type',
-            message: 'Turn detection type must be "server_vad" or "none"',
-            code: 'INVALID_ENUM',
-            value: turnDetection.type
+        // Check for non-standard model names
+        if (config.model && !config.model.startsWith('gpt-realtime')) {
+          warnings.push({
+            field: 'model',
+            message: 'Using non-standard model name',
+            suggestion: 'Consider using gpt-realtime for best compatibility'
           });
         }
         
-        if (turnDetection.threshold !== undefined) {
-          if (typeof turnDetection.threshold !== 'number' || turnDetection.threshold < 0 || turnDetection.threshold > 1) {
-            errors.push({
-              field: 'sessionConfig.turnDetection.threshold',
-              message: 'Threshold must be a number between 0 and 1',
-              code: 'INVALID_RANGE',
-              value: turnDetection.threshold
+        // Check for very long instructions
+        if (config.instructions && config.instructions.length > 5000) {
+          warnings.push({
+            field: 'instructions',
+            message: 'Instructions are very long and may impact performance',
+            suggestion: 'Consider keeping instructions under 2000 characters'
+          });
+        }
+        
+        // Check environment variables if specified
+        if (config.apiKeyEnvVar) {
+          const envResult = this.validateEnvironmentVariable(config.apiKeyEnvVar);
+          if (!envResult.available) {
+            warnings.push({
+              field: 'apiKeyEnvVar',
+              message: `Environment variable ${config.apiKeyEnvVar} is not set`,
+              suggestion: 'Ensure the API key environment variable is properly configured'
             });
           }
         }
-      }
-    }
-    
-    // Tools validation
-    if (config.tools) {
-      if (!Array.isArray(config.tools)) {
-        errors.push({
-          field: 'tools',
-          message: 'Tools must be an array',
-          code: 'INVALID_TYPE',
-          value: config.tools
-        });
+        
+        return {
+          valid: true,
+          errors: [],
+          warnings: warnings.length > 0 ? warnings : undefined
+        };
       } else {
-        config.tools.forEach((tool, index) => {
-          if (!tool.type || tool.type !== 'function') {
-            errors.push({
-              field: `tools[${index}].type`,
-              message: 'Tool type must be "function"',
-              code: 'INVALID_ENUM',
-              value: tool.type
-            });
-          }
-          
-          if (!tool.name) {
-            errors.push({
-              field: `tools[${index}].name`,
-              message: 'Tool function name is required',
-              code: 'REQUIRED_FIELD',
-              value: tool.name
-            });
-          }
-          
-          if (!tool.description) {
-            errors.push({
-              field: `tools[${index}].description`,
-              message: 'Tool function description is required',
-              code: 'REQUIRED_FIELD',
-              value: tool.description
-            });
-          }
-        });
+        // Convert Zod errors to ValidationError format
+        const errors: ValidationError[] = result.error.errors.map(err => ({
+          field: err.path.join('.'),
+          message: err.message,
+          code: err.code.toUpperCase() as any,
+          value: (err as any).received || (err as any).input || undefined
+        }));
+        
+        return {
+          valid: false,
+          errors,
+          warnings: undefined
+        };
       }
+    } catch (error) {
+      return {
+        valid: false,
+        errors: [{
+          field: 'config',
+          message: 'Configuration validation failed',
+          code: 'VALIDATION_ERROR',
+          value: error instanceof Error ? error.message : String(error)
+        }],
+        warnings: undefined
+      };
     }
-    
-    return {
-      valid: errors.length === 0,
-      errors,
-      warnings: warnings.length > 0 ? warnings : undefined
-    };
+  }
+  
+  /**
+   * Validate environment variable availability
+   */
+  private validateEnvironmentVariable(envVar: string): EnvValidationResult {
+    try {
+      const value = process.env[envVar];
+      return {
+        available: !!value,
+        value: value || undefined,
+        error: value ? undefined : `Environment variable ${envVar} is not set`
+      };
+    } catch (error) {
+      return {
+        available: false,
+        error: `Failed to check environment variable ${envVar}: ${error}`
+      };
+    }
   }
   
   getDefaultConfig(): OpenAIRealtimeConfig {
-    return {
-      provider: 'openai',
-      enabled: true,
-      displayName: 'OpenAI Realtime Assistant',
-      description: 'Real-time voice conversation using OpenAI GPT-4 Realtime API',
-      version: '1.0.0',
-      
-      model: 'gpt-4o-realtime-preview',
-      temperature: 0.7,
-      maxTokens: 4096,
-      
-      voice: 'alloy',
-      
-      name: 'Portfolio Assistant',
-      instructions: 'You are a helpful assistant for a portfolio website. You can answer questions about the portfolio owner\'s background, projects, and experience. Be professional, friendly, and informative.',
-      
-      sessionConfig: {
-        transport: 'webrtc',
-        audioFormat: 'pcm16',
-        turnDetection: {
-          type: 'server_vad',
-          threshold: 0.5,
-          prefixPaddingMs: 300,
-          silenceDurationMs: 500
-        },
-        outputGuardrails: {
-          debounceTextLength: 200,
-          maxResponseLength: 2000
-        }
-      },
-      
-      tools: [],
-      
-      advanced: {
-        enableInterruption: true,
-        enableToolCalling: true,
-        enableTranscriptLogging: true,
-        maxRetries: 3,
-        connectionTimeout: 10000,
-        reconnectDelay: 2000
-      }
-    };
+    return DEFAULT_OPENAI_CONFIG;
   }
   
   getConfigSchema(): ConfigSchema {
@@ -428,8 +224,8 @@ export class OpenAIRealtimeSerializer implements VoiceConfigSerializer<OpenAIRea
           type: 'string',
           title: 'Model',
           description: 'OpenAI model to use for realtime conversations',
-          enum: ['gpt-4o-realtime-preview', 'gpt-4o-realtime-preview-2024-10-01'],
-          default: 'gpt-4o-realtime-preview'
+          enum: ['gpt-realtime', 'gpt-4o-realtime-preview-2024-10-01'],
+          default: 'gpt-realtime'
         },
         temperature: {
           type: 'number',

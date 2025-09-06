@@ -10,6 +10,13 @@
  */
 
 import { VoiceProvider } from '../../../types/voice-agent';
+import { 
+  BaseVoiceProviderConfig,
+  VoiceProviderConfig,
+  ConfigValidationResult,
+  OpenAIRealtimeConfig,
+  ElevenLabsConfig
+} from '../../../types/voice-config';
 
 // Base interface for all voice configuration serializers
 export interface VoiceConfigSerializer<T extends BaseVoiceProviderConfig> {
@@ -44,14 +51,8 @@ export interface VoiceConfigSerializer<T extends BaseVoiceProviderConfig> {
   getProviderType(): VoiceProvider;
 }
 
-// Base configuration interface that all providers extend
-export interface BaseVoiceProviderConfig {
-  provider: VoiceProvider;
-  enabled: boolean;
-  displayName: string;
-  description: string;
-  version: string;
-}
+// Re-export types from voice-config for backward compatibility
+export type { BaseVoiceProviderConfig, VoiceProviderConfig } from '../../../types/voice-config';
 
 // Validation result interface
 export interface ValidationResult {
@@ -140,6 +141,5 @@ export function getSerializerForProvider(provider: VoiceProvider): VoiceConfigSe
 export { OpenAIRealtimeSerializer } from './OpenAIRealtimeSerializer';
 export { ElevenLabsSerializer } from './ElevenLabsSerializer';
 
-// Re-export provider-specific config types
-export type { OpenAIRealtimeConfig } from './OpenAIRealtimeSerializer';
-export type { ElevenLabsConfig } from './ElevenLabsSerializer';
+// Re-export provider-specific config types from voice-config
+export type { OpenAIRealtimeConfig, ElevenLabsConfig } from '../../../types/voice-config';

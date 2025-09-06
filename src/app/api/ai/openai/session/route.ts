@@ -8,8 +8,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
-import { getClientAIModelManager, ClientAIModelManagerError } from '../../../../../lib/voice/ClientAIModelManager';
-import { OpenAIRealtimeConfig } from '../../../../../lib/voice/config-serializers';
+import { getClientAIModelManager } from '../../../../../lib/voice/ClientAIModelManager';
+import { OpenAIRealtimeConfig } from '../../../../../types/voice-config';
 
 interface OpenAISessionRequest {
   contextId?: string;
@@ -190,26 +190,26 @@ export async function GET(request: NextRequest) {
             input: {
               format: {
                 type: 'audio/pcm',
-                rate: 24000
+                rate: defaultConfig.sessionConfig.audio.input.format.rate
               },
               turn_detection: {
-                type: defaultConfig.sessionConfig.turnDetection.type,
-                threshold: defaultConfig.sessionConfig.turnDetection.threshold,
-                prefix_padding_ms: defaultConfig.sessionConfig.turnDetection.prefixPaddingMs,
-                silence_duration_ms: defaultConfig.sessionConfig.turnDetection.silenceDurationMs,
-                create_response: true,
-                interrupt_response: defaultConfig.advanced.enableInterruption
+                type: defaultConfig.sessionConfig.audio.input.turnDetection.type,
+                threshold: defaultConfig.sessionConfig.audio.input.turnDetection.threshold,
+                prefix_padding_ms: defaultConfig.sessionConfig.audio.input.turnDetection.prefixPaddingMs,
+                silence_duration_ms: defaultConfig.sessionConfig.audio.input.turnDetection.silenceDurationMs,
+                create_response: defaultConfig.sessionConfig.audio.input.turnDetection.createResponse,
+                interrupt_response: defaultConfig.sessionConfig.audio.input.turnDetection.interruptResponse
               },
               transcription: {
-                model: 'whisper-1'
+                model: defaultConfig.sessionConfig.audio.input.transcription?.model || 'whisper-1'
               }
             },
             output: {
               format: {
                 type: 'audio/pcm',
-                rate: 24000
+                rate: defaultConfig.sessionConfig.audio.output.format.rate
               },
-              voice: defaultConfig.voice
+              voice: defaultConfig.sessionConfig.audio.output.voice
             }
           }
         }
@@ -241,7 +241,7 @@ export async function GET(request: NextRequest) {
       session_id: sessionId,
       expires_at: expiresAt,
       model: defaultConfig.model,
-      voice: defaultConfig.voice
+      voice: defaultConfig.sessionConfig.audio.output.voice
     };
 
     // Log session creation (without sensitive data)
@@ -342,26 +342,26 @@ export async function POST(request: NextRequest) {
             input: {
               format: {
                 type: 'audio/pcm',
-                rate: 24000
+                rate: defaultConfig.sessionConfig.audio.input.format.rate
               },
               turn_detection: {
-                type: defaultConfig.sessionConfig.turnDetection.type,
-                threshold: defaultConfig.sessionConfig.turnDetection.threshold,
-                prefix_padding_ms: defaultConfig.sessionConfig.turnDetection.prefixPaddingMs,
-                silence_duration_ms: defaultConfig.sessionConfig.turnDetection.silenceDurationMs,
-                create_response: true,
-                interrupt_response: defaultConfig.advanced.enableInterruption
+                type: defaultConfig.sessionConfig.audio.input.turnDetection.type,
+                threshold: defaultConfig.sessionConfig.audio.input.turnDetection.threshold,
+                prefix_padding_ms: defaultConfig.sessionConfig.audio.input.turnDetection.prefixPaddingMs,
+                silence_duration_ms: defaultConfig.sessionConfig.audio.input.turnDetection.silenceDurationMs,
+                create_response: defaultConfig.sessionConfig.audio.input.turnDetection.createResponse,
+                interrupt_response: defaultConfig.sessionConfig.audio.input.turnDetection.interruptResponse
               },
               transcription: {
-                model: 'whisper-1'
+                model: defaultConfig.sessionConfig.audio.input.transcription?.model || 'whisper-1'
               }
             },
             output: {
               format: {
                 type: 'audio/pcm',
-                rate: 24000
+                rate: defaultConfig.sessionConfig.audio.output.format.rate
               },
-              voice: defaultConfig.voice
+              voice: defaultConfig.sessionConfig.audio.output.voice
             }
           }
         }
@@ -386,7 +386,7 @@ export async function POST(request: NextRequest) {
       session_id: sessionId,
       expires_at: expiresAt,
       model: defaultConfig.model,
-      voice: defaultConfig.voice
+      voice: defaultConfig.sessionConfig.audio.output.voice
     };
 
     return NextResponse.json(response);

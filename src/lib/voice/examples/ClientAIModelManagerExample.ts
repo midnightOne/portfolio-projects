@@ -47,7 +47,7 @@ export async function basicUsageExample() {
     elevenLabsConfig.agentId = 'your-agent-id-here';
     elevenLabsConfig.voiceId = 'your-voice-id-here';
     elevenLabsConfig.voiceSettings.stability = 0.7;
-    elevenLabsConfig.context.systemPrompt = 'You are a friendly assistant. Be conversational and approachable.';
+    // Note: ElevenLabs system prompts are configured through their agent settings, not in the config
     
     const savedElevenLabs = await manager.saveProviderConfig('elevenlabs', 'Casual', elevenLabsConfig, false);
     console.log('✓ ElevenLabs config saved:', savedElevenLabs.name, '(Default:', savedElevenLabs.isDefault, ')');

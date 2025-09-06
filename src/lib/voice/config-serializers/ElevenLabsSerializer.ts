@@ -7,69 +7,24 @@
 
 import {
   VoiceConfigSerializer,
-  BaseVoiceProviderConfig,
   ValidationResult,
   ValidationError,
   ValidationWarning,
   ConfigSchema,
-  SchemaProperty,
   ConfigSerializationError,
   ConfigValidationError
 } from './index';
+import { 
+  ElevenLabsConfig,
+  ElevenLabsConfigSchema,
+  DEFAULT_ELEVENLABS_CONFIG,
+  ConfigValidationResult,
+  EnvValidationResult
+} from '../../../types/voice-config';
 import { VoiceProvider } from '../../../types/voice-agent';
 
-// ElevenLabs Conversational AI specific configuration interface
-export interface ElevenLabsConfig extends BaseVoiceProviderConfig {
-  provider: 'elevenlabs';
-  
-  // Agent configuration
-  agentId: string;
-  agentName?: string;
-  
-  // Voice configuration
-  voiceId: string;
-  voiceName?: string;
-  model: string;
-  
-  // Voice settings
-  voiceSettings: {
-    stability: number;
-    similarityBoost: number;
-    style: number;
-    useSpeakerBoost: boolean;
-  };
-  
-  // Conversation configuration
-  conversationConfig: {
-    language: string;
-    maxDuration: number;
-    timeoutMs: number;
-    enableInterruption: boolean;
-    turnDetection?: {
-      type: 'server_vad';
-      threshold?: number;
-      prefixPaddingMs?: number;
-      silenceDurationMs?: number;
-    };
-  };
-  
-  // Context and personalization
-  context: {
-    systemPrompt?: string;
-    firstMessage?: string;
-    personalizedGreeting?: boolean;
-    contextNotes?: string;
-  };
-  
-  // Advanced configuration
-  advanced: {
-    enableTranscriptLogging: boolean;
-    maxRetries: number;
-    connectionTimeout: number;
-    reconnectDelay: number;
-    signedUrlExpiry: number;
-  };
-}
+// Re-export types for backward compatibility
+export type { ElevenLabsConfig } from '../../../types/voice-config';
 
 export class ElevenLabsSerializer implements VoiceConfigSerializer<ElevenLabsConfig> {
   
@@ -132,365 +87,107 @@ export class ElevenLabsSerializer implements VoiceConfigSerializer<ElevenLabsCon
   }
   
   validate(config: Partial<ElevenLabsConfig>): ValidationResult {
-    const errors: ValidationError[] = [];
-    const warnings: ValidationWarning[] = [];
-    
-    // Required fields validation
-    if (!config.provider || config.provider !== 'elevenlabs') {
-      errors.push({
-        field: 'provider',
-        message: 'Provider must be "elevenlabs"',
-        code: 'INVALID_PROVIDER',
-        value: config.provider
-      });
-    }
-    
-    if (config.enabled !== undefined && typeof config.enabled !== 'boolean') {
-      errors.push({
-        field: 'enabled',
-        message: 'Enabled must be a boolean value',
-        code: 'INVALID_TYPE',
-        value: config.enabled
-      });
-    }
-    
-    if (!config.displayName || typeof config.displayName !== 'string') {
-      errors.push({
-        field: 'displayName',
-        message: 'Display name is required and must be a string',
-        code: 'REQUIRED_FIELD',
-        value: config.displayName
-      });
-    }
-    
-    if (!config.description || typeof config.description !== 'string') {
-      errors.push({
-        field: 'description',
-        message: 'Description is required and must be a string',
-        code: 'REQUIRED_FIELD',
-        value: config.description
-      });
-    }
-    
-    // Agent ID validation
-    if (!config.agentId || typeof config.agentId !== 'string') {
-      errors.push({
-        field: 'agentId',
-        message: 'Agent ID is required and must be a string',
-        code: 'REQUIRED_FIELD',
-        value: config.agentId
-      });
-    } else if (!/^[a-zA-Z0-9_-]+$/.test(config.agentId)) {
-      errors.push({
-        field: 'agentId',
-        message: 'Agent ID must contain only alphanumeric characters, hyphens, and underscores',
-        code: 'INVALID_FORMAT',
-        value: config.agentId
-      });
-    }
-    
-    // Voice ID validation
-    if (!config.voiceId || typeof config.voiceId !== 'string') {
-      errors.push({
-        field: 'voiceId',
-        message: 'Voice ID is required and must be a string',
-        code: 'REQUIRED_FIELD',
-        value: config.voiceId
-      });
-    } else if (!/^[a-zA-Z0-9_-]+$/.test(config.voiceId)) {
-      errors.push({
-        field: 'voiceId',
-        message: 'Voice ID must contain only alphanumeric characters, hyphens, and underscores',
-        code: 'INVALID_FORMAT',
-        value: config.voiceId
-      });
-    }
-    
-    // Model validation
-    if (!config.model || typeof config.model !== 'string') {
-      errors.push({
-        field: 'model',
-        message: 'Model is required and must be a string',
-        code: 'REQUIRED_FIELD',
-        value: config.model
-      });
-    }
-    
-    // Voice settings validation
-    if (config.voiceSettings) {
-      const voiceSettings = config.voiceSettings;
+    try {
+      // Use Zod schema for validation
+      const result = ElevenLabsConfigSchema.safeParse(config);
       
-      if (voiceSettings.stability !== undefined) {
-        if (typeof voiceSettings.stability !== 'number' || voiceSettings.stability < 0 || voiceSettings.stability > 1) {
-          errors.push({
-            field: 'voiceSettings.stability',
-            message: 'Stability must be a number between 0 and 1',
-            code: 'INVALID_RANGE',
-            value: voiceSettings.stability
+      if (result.success) {
+        // Additional custom validations and warnings
+        const warnings: ValidationWarning[] = [];
+        
+        // Check for empty agent/voice IDs (common configuration issue)
+        if (config.agentId === '') {
+          warnings.push({
+            field: 'agentId',
+            message: 'Agent ID is empty',
+            suggestion: 'Configure a valid ElevenLabs agent ID for voice conversations'
           });
         }
-      }
-      
-      if (voiceSettings.similarityBoost !== undefined) {
-        if (typeof voiceSettings.similarityBoost !== 'number' || voiceSettings.similarityBoost < 0 || voiceSettings.similarityBoost > 1) {
-          errors.push({
-            field: 'voiceSettings.similarityBoost',
-            message: 'Similarity boost must be a number between 0 and 1',
-            code: 'INVALID_RANGE',
-            value: voiceSettings.similarityBoost
+        
+        if (config.voiceId === '') {
+          warnings.push({
+            field: 'voiceId',
+            message: 'Voice ID is empty',
+            suggestion: 'Configure a valid ElevenLabs voice ID for speech synthesis'
           });
         }
-      }
-      
-      if (voiceSettings.style !== undefined) {
-        if (typeof voiceSettings.style !== 'number' || voiceSettings.style < 0 || voiceSettings.style > 1) {
-          errors.push({
-            field: 'voiceSettings.style',
-            message: 'Style must be a number between 0 and 1',
-            code: 'INVALID_RANGE',
-            value: voiceSettings.style
-          });
-        }
-      }
-      
-      if (voiceSettings.useSpeakerBoost !== undefined && typeof voiceSettings.useSpeakerBoost !== 'boolean') {
-        errors.push({
-          field: 'voiceSettings.useSpeakerBoost',
-          message: 'Use speaker boost must be a boolean value',
-          code: 'INVALID_TYPE',
-          value: voiceSettings.useSpeakerBoost
-        });
-      }
-    } else {
-      errors.push({
-        field: 'voiceSettings',
-        message: 'Voice settings are required',
-        code: 'REQUIRED_FIELD',
-        value: config.voiceSettings
-      });
-    }
-    
-    // Conversation config validation
-    if (config.conversationConfig) {
-      const conversationConfig = config.conversationConfig;
-      
-      if (!conversationConfig.language || typeof conversationConfig.language !== 'string') {
-        errors.push({
-          field: 'conversationConfig.language',
-          message: 'Language is required and must be a string',
-          code: 'REQUIRED_FIELD',
-          value: conversationConfig.language
-        });
-      } else {
-        // Validate language code format (ISO 639-1)
-        if (!/^[a-z]{2}(-[A-Z]{2})?$/.test(conversationConfig.language)) {
+        
+        // Check language code format
+        if (config.conversationConfig?.language && !/^[a-z]{2}(-[A-Z]{2})?$/.test(config.conversationConfig.language)) {
           warnings.push({
             field: 'conversationConfig.language',
             message: 'Language should be in ISO 639-1 format (e.g., "en", "en-US")',
             suggestion: 'Use standard language codes like "en", "es", "fr", etc.'
           });
         }
-      }
-      
-      if (conversationConfig.maxDuration !== undefined) {
-        if (typeof conversationConfig.maxDuration !== 'number' || conversationConfig.maxDuration < 60 || conversationConfig.maxDuration > 3600) {
-          errors.push({
-            field: 'conversationConfig.maxDuration',
-            message: 'Max duration must be a number between 60 and 3600 seconds',
-            code: 'INVALID_RANGE',
-            value: conversationConfig.maxDuration
-          });
-        }
-      }
-      
-      if (conversationConfig.timeoutMs !== undefined) {
-        if (typeof conversationConfig.timeoutMs !== 'number' || conversationConfig.timeoutMs < 1000 || conversationConfig.timeoutMs > 30000) {
-          errors.push({
-            field: 'conversationConfig.timeoutMs',
-            message: 'Timeout must be a number between 1000 and 30000 milliseconds',
-            code: 'INVALID_RANGE',
-            value: conversationConfig.timeoutMs
-          });
-        }
-      }
-      
-      if (conversationConfig.enableInterruption !== undefined && typeof conversationConfig.enableInterruption !== 'boolean') {
-        errors.push({
-          field: 'conversationConfig.enableInterruption',
-          message: 'Enable interruption must be a boolean value',
-          code: 'INVALID_TYPE',
-          value: conversationConfig.enableInterruption
-        });
-      }
-      
-      // Turn detection validation
-      if (conversationConfig.turnDetection) {
-        const turnDetection = conversationConfig.turnDetection;
         
-        if (turnDetection.type && turnDetection.type !== 'server_vad') {
-          errors.push({
-            field: 'conversationConfig.turnDetection.type',
-            message: 'Turn detection type must be "server_vad"',
-            code: 'INVALID_ENUM',
-            value: turnDetection.type
-          });
-        }
-        
-        if (turnDetection.threshold !== undefined) {
-          if (typeof turnDetection.threshold !== 'number' || turnDetection.threshold < 0 || turnDetection.threshold > 1) {
-            errors.push({
-              field: 'conversationConfig.turnDetection.threshold',
-              message: 'Threshold must be a number between 0 and 1',
-              code: 'INVALID_RANGE',
-              value: turnDetection.threshold
+        // Check environment variables if specified
+        if (config.apiKeyEnvVar) {
+          const envResult = this.validateEnvironmentVariable(config.apiKeyEnvVar);
+          if (!envResult.available) {
+            warnings.push({
+              field: 'apiKeyEnvVar',
+              message: `Environment variable ${config.apiKeyEnvVar} is not set`,
+              suggestion: 'Ensure the API key environment variable is properly configured'
             });
           }
         }
+        
+        return {
+          valid: true,
+          errors: [],
+          warnings: warnings.length > 0 ? warnings : undefined
+        };
+      } else {
+        // Convert Zod errors to ValidationError format
+        const errors: ValidationError[] = result.error.errors.map(err => ({
+          field: err.path.join('.'),
+          message: err.message,
+          code: err.code.toUpperCase() as any,
+          value: (err as any).received || (err as any).input || undefined
+        }));
+        
+        return {
+          valid: false,
+          errors,
+          warnings: undefined
+        };
       }
-    } else {
-      errors.push({
-        field: 'conversationConfig',
-        message: 'Conversation config is required',
-        code: 'REQUIRED_FIELD',
-        value: config.conversationConfig
-      });
+    } catch (error) {
+      return {
+        valid: false,
+        errors: [{
+          field: 'config',
+          message: 'Configuration validation failed',
+          code: 'VALIDATION_ERROR',
+          value: error instanceof Error ? error.message : String(error)
+        }],
+        warnings: undefined
+      };
     }
-    
-    // Context validation
-    if (config.context) {
-      const context = config.context;
-      
-      if (context.systemPrompt !== undefined) {
-        if (typeof context.systemPrompt !== 'string') {
-          errors.push({
-            field: 'context.systemPrompt',
-            message: 'System prompt must be a string',
-            code: 'INVALID_TYPE',
-            value: context.systemPrompt
-          });
-        } else if (context.systemPrompt.length > 5000) {
-          warnings.push({
-            field: 'context.systemPrompt',
-            message: 'System prompt is very long and may impact performance',
-            suggestion: 'Consider keeping system prompt under 2000 characters'
-          });
-        }
-      }
-      
-      if (context.firstMessage !== undefined && typeof context.firstMessage !== 'string') {
-        errors.push({
-          field: 'context.firstMessage',
-          message: 'First message must be a string',
-          code: 'INVALID_TYPE',
-          value: context.firstMessage
-        });
-      }
-      
-      if (context.personalizedGreeting !== undefined && typeof context.personalizedGreeting !== 'boolean') {
-        errors.push({
-          field: 'context.personalizedGreeting',
-          message: 'Personalized greeting must be a boolean value',
-          code: 'INVALID_TYPE',
-          value: context.personalizedGreeting
-        });
-      }
+  }
+  
+  /**
+   * Validate environment variable availability
+   */
+  private validateEnvironmentVariable(envVar: string): EnvValidationResult {
+    try {
+      const value = process.env[envVar];
+      return {
+        available: !!value,
+        value: value || undefined,
+        error: value ? undefined : `Environment variable ${envVar} is not set`
+      };
+    } catch (error) {
+      return {
+        available: false,
+        error: `Failed to check environment variable ${envVar}: ${error}`
+      };
     }
-    
-    // Advanced settings validation
-    if (config.advanced) {
-      const advanced = config.advanced;
-      
-      if (advanced.maxRetries !== undefined) {
-        if (typeof advanced.maxRetries !== 'number' || advanced.maxRetries < 0 || advanced.maxRetries > 10) {
-          errors.push({
-            field: 'advanced.maxRetries',
-            message: 'Max retries must be a number between 0 and 10',
-            code: 'INVALID_RANGE',
-            value: advanced.maxRetries
-          });
-        }
-      }
-      
-      if (advanced.connectionTimeout !== undefined) {
-        if (typeof advanced.connectionTimeout !== 'number' || advanced.connectionTimeout < 1000 || advanced.connectionTimeout > 30000) {
-          errors.push({
-            field: 'advanced.connectionTimeout',
-            message: 'Connection timeout must be a number between 1000 and 30000 milliseconds',
-            code: 'INVALID_RANGE',
-            value: advanced.connectionTimeout
-          });
-        }
-      }
-      
-      if (advanced.signedUrlExpiry !== undefined) {
-        if (typeof advanced.signedUrlExpiry !== 'number' || advanced.signedUrlExpiry < 300 || advanced.signedUrlExpiry > 86400) {
-          errors.push({
-            field: 'advanced.signedUrlExpiry',
-            message: 'Signed URL expiry must be a number between 300 and 86400 seconds',
-            code: 'INVALID_RANGE',
-            value: advanced.signedUrlExpiry
-          });
-        }
-      }
-    }
-    
-    return {
-      valid: errors.length === 0,
-      errors,
-      warnings: warnings.length > 0 ? warnings : undefined
-    };
   }
   
   getDefaultConfig(): ElevenLabsConfig {
-    return {
-      provider: 'elevenlabs',
-      enabled: true,
-      displayName: 'ElevenLabs Conversational AI',
-      description: 'Real-time voice conversation using ElevenLabs Conversational AI platform',
-      version: '1.0.0',
-      
-      agentId: '',
-      agentName: 'Portfolio Assistant',
-      
-      voiceId: '',
-      voiceName: 'Default Voice',
-      model: 'eleven_turbo_v2_5',
-      
-      voiceSettings: {
-        stability: 0.5,
-        similarityBoost: 0.8,
-        style: 0.0,
-        useSpeakerBoost: true
-      },
-      
-      conversationConfig: {
-        language: 'en',
-        maxDuration: 1800, // 30 minutes
-        timeoutMs: 10000,
-        enableInterruption: true,
-        turnDetection: {
-          type: 'server_vad',
-          threshold: 0.5,
-          prefixPaddingMs: 300,
-          silenceDurationMs: 700
-        }
-      },
-      
-      context: {
-        systemPrompt: 'You are a helpful assistant for a portfolio website. You can answer questions about the portfolio owner\'s background, projects, and experience. Be professional, friendly, and informative.',
-        firstMessage: 'Hello! I\'m here to help you learn about this portfolio. What would you like to know?',
-        personalizedGreeting: true,
-        contextNotes: ''
-      },
-      
-      advanced: {
-        enableTranscriptLogging: true,
-        maxRetries: 3,
-        connectionTimeout: 10000,
-        reconnectDelay: 2000,
-        signedUrlExpiry: 3600 // 1 hour
-      }
-    };
+    return DEFAULT_ELEVENLABS_CONFIG;
   }
   
   getConfigSchema(): ConfigSchema {

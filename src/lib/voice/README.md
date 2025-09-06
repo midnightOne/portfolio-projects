@@ -107,7 +107,7 @@ interface OpenAIRealtimeConfig {
   version: string;
   
   // Model configuration
-  model: 'gpt-4o-realtime-preview' | string;
+  model: 'gpt-realtime' | string;
   temperature: number;
   maxTokens: number;
   voice: 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';

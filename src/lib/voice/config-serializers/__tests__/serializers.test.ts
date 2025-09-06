@@ -18,7 +18,7 @@ describe('OpenAI Realtime Serializer', () => {
     const config = serializer.getDefaultConfig();
     expect(config.provider).toBe('openai');
     expect(config.enabled).toBe(true);
-    expect(config.model).toBe('gpt-4o-realtime-preview');
+    expect(config.model).toBe('gpt-realtime');
     expect(config.voice).toBe('alloy');
   });
 
