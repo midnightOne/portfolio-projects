@@ -419,6 +419,17 @@ export function AdminSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
+                  isActive={isItemActive('/admin/ai/voice-config')}
+                >
+                  <Link href="/admin/ai/voice-config" className="flex items-center gap-2">
+                    <Settings className="size-4" />
+                    <span>Voice Config</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
                   isActive={isItemActive('/admin/ai/voice-analytics')}
                 >
                   <Link href="/admin/ai/voice-analytics" className="flex items-center gap-2">
