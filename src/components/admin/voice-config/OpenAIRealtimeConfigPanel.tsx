@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -70,7 +70,7 @@ export function OpenAIRealtimeConfigPanel({
   saving = false
 }: OpenAIRealtimeConfigPanelProps) {
   const toast = useToast();
-  const serializer = new OpenAIRealtimeSerializer();
+  const serializer = useMemo(() => new OpenAIRealtimeSerializer(), []);
   
   // Configuration state
   const [config, setConfig] = useState<OpenAIRealtimeConfig>(

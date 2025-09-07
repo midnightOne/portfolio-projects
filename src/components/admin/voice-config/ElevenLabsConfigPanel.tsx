@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -75,7 +75,7 @@ export function ElevenLabsConfigPanel({
   saving = false
 }: ElevenLabsConfigPanelProps) {
   const toast = useToast();
-  const serializer = new ElevenLabsSerializer();
+  const serializer = useMemo(() => new ElevenLabsSerializer(), []);
   
   // Configuration state
   const [config, setConfig] = useState<ElevenLabsConfig>(
