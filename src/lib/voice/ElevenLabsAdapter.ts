@@ -71,17 +71,30 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
     };
 
     super('elevenlabs', metadata);
-    this._loadConfiguration();
+    // Don't load configuration in constructor - defer to init() method
   }
 
   /**
-   * Load configuration from ClientAIModelManager with automatic fallbacks
+   * Load configuration with environment-aware approach
    */
   private async _loadConfiguration(): Promise<void> {
     try {
-      const modelManager = getClientAIModelManager();
-      const configWithMetadata = await modelManager.getProviderConfig('elevenlabs');
-      this._config = configWithMetadata.config as ElevenLabsConfig;
+      // Check if we're on the server side or client side
+      if (typeof window === 'undefined') {
+        // Server side - use ClientAIModelManager directly
+        const modelManager = getClientAIModelManager();
+        const configWithMetadata = await modelManager.getProviderConfig('elevenlabs');
+        this._config = configWithMetadata.config as ElevenLabsConfig;
+        
+        console.log(`ElevenLabs configuration loaded from database: ${configWithMetadata.name}`);
+      } else {
+        // Client side - use default configuration from serializer
+        const { getSerializerForProvider } = await import('./config-serializers');
+        const elevenLabsSerializer = getSerializerForProvider('elevenlabs');
+        this._config = elevenLabsSerializer.getDefaultConfig() as ElevenLabsConfig;
+        
+        console.log('ElevenLabs configuration loaded from defaults (client-side)');
+      }
       
       // Update metadata with loaded configuration
       this._metadata = {
@@ -90,14 +103,36 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
         capabilities: this._config.capabilities,
         quality: 'high'
       };
-      
-      console.log(`ElevenLabs configuration loaded: ${configWithMetadata.name}`);
     } catch (error) {
-      console.error('Failed to load ElevenLabs configuration, using defaults:', error);
-      // Set default config if loading fails
-      const { getSerializerForProvider } = await import('./config-serializers');
-      const elevenLabsSerializer = getSerializerForProvider('elevenlabs');
-      this._config = elevenLabsSerializer.getDefaultConfig() as ElevenLabsConfig;
+      console.error('Failed to load ElevenLabs configuration, using fallback defaults:', error);
+      
+      // Fallback to hardcoded defaults if everything fails
+      this._config = {
+        provider: 'elevenlabs',
+        enabled: true,
+        displayName: 'ElevenLabs Conversational AI',
+        description: 'Natural voice conversations powered by ElevenLabs',
+        version: '1.0.0',
+        agentId: 'default-agent',
+        voiceId: 'default-voice',
+        model: 'eleven_turbo_v2_5',
+        voiceSettings: {
+          stability: 0.5,
+          similarityBoost: 0.8,
+          style: 0.0,
+          useSpeakerBoost: true,
+        },
+        conversationConfig: {
+          language: 'en',
+          maxDuration: 300000,
+          timeoutMs: 30000,
+          enableInterruption: true,
+          enableBackchannel: false,
+        },
+        capabilities: ['streaming', 'interruption', 'realTimeAudio', 'voiceActivityDetection'],
+        apiKeyEnvVar: 'ELEVENLABS_API_KEY',
+        baseUrlEnvVar: 'ELEVENLABS_BASE_URL',
+      } as ElevenLabsConfig;
     }
   }
 

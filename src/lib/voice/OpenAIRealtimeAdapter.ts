@@ -52,17 +52,30 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             quality: 'high'
         };
         super('openai', metadata);
-        this._loadConfiguration();
+        // Don't load configuration in constructor - defer to init() method
     }
 
     /**
-     * Load configuration from ClientAIModelManager with automatic fallbacks
+     * Load configuration with environment-aware approach
      */
     private async _loadConfiguration(): Promise<void> {
         try {
-            const modelManager = getClientAIModelManager();
-            const configWithMetadata = await modelManager.getProviderConfig('openai');
-            this._config = configWithMetadata.config as OpenAIRealtimeConfig;
+            // Check if we're on the server side or client side
+            if (typeof window === 'undefined') {
+                // Server side - use ClientAIModelManager directly
+                const modelManager = getClientAIModelManager();
+                const configWithMetadata = await modelManager.getProviderConfig('openai');
+                this._config = configWithMetadata.config as OpenAIRealtimeConfig;
+                
+                console.log(`OpenAI Realtime configuration loaded from database: ${configWithMetadata.name}`);
+            } else {
+                // Client side - use default configuration from serializer
+                const { getSerializerForProvider } = await import('./config-serializers');
+                const openaiSerializer = getSerializerForProvider('openai');
+                this._config = openaiSerializer.getDefaultConfig() as OpenAIRealtimeConfig;
+                
+                console.log('OpenAI Realtime configuration loaded from defaults (client-side)');
+            }
             
             // Update metadata with loaded configuration
             this._metadata = {
@@ -72,13 +85,56 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 quality: 'high'
             };
             
-            console.log(`OpenAI Realtime configuration loaded: ${configWithMetadata.name}`);
-            
             // Initialize agent with loaded configuration
             this._initializeAgent();
         } catch (error) {
-            console.error('Failed to load OpenAI configuration, using defaults:', error);
-            // Initialize with defaults if configuration loading fails
+            console.error('Failed to load OpenAI configuration, using fallback defaults:', error);
+            
+            // Fallback to hardcoded defaults if everything fails
+            this._config = {
+                provider: 'openai',
+                enabled: true,
+                displayName: 'OpenAI Realtime Assistant',
+                description: 'Real-time voice assistant powered by OpenAI GPT-4o Realtime',
+                version: '1.0.0',
+                model: 'gpt-realtime',
+                voice: 'alloy',
+                temperature: 0.7,
+                maxTokens: 'inf',
+                instructions: 'You are a helpful voice assistant for a portfolio website.',
+                tools: [],
+                sessionConfig: {
+                    transport: 'webrtc',
+                    model: 'gpt-realtime',
+                    maxOutputTokens: 'inf',
+                    temperature: 0.7,
+                    audio: {
+                        input: {
+                            format: { type: 'pcm16', rate: 24000 },
+                            turnDetection: {
+                                type: 'server_vad',
+                                threshold: 0.5,
+                                prefixPaddingMs: 300,
+                                silenceDurationMs: 200,
+                                createResponse: true,
+                                interruptResponse: true,
+                            },
+                            transcription: { model: 'whisper-1' },
+                        },
+                        output: {
+                            format: { type: 'pcm16', rate: 24000 },
+                            voice: 'alloy',
+                            speed: 1.0,
+                        },
+                    },
+                    toolChoice: 'auto',
+                },
+                capabilities: ['streaming', 'interruption', 'toolCalling', 'realTimeAudio', 'voiceActivityDetection'],
+                apiKeyEnvVar: 'OPENAI_API_KEY',
+                baseUrlEnvVar: 'OPENAI_BASE_URL',
+            } as OpenAIRealtimeConfig;
+            
+            // Initialize with fallback configuration
             this._initializeAgent();
         }
     }
@@ -438,6 +494,11 @@ Communication guidelines:
         try {
             console.log('OpenAIRealtimeAdapter: Initializing with options:', options);
             
+            // Load configuration first if not already loaded
+            if (!this._config) {
+                await this._loadConfiguration();
+            }
+            
             if (!this._agent) {
                 throw new Error('Agent not initialized');
             }
@@ -445,13 +506,13 @@ Communication guidelines:
             // Store the options for later use
             this._options = options;
 
-            // Create the realtime session
+            // Create the realtime session using loaded configuration
             this._session = new RealtimeSession(this._agent, {
-                model: 'gpt-realtime',
+                model: this._config?.model || 'gpt-realtime',
                 config: {
                     audio: {
                         output: {
-                            voice: 'alloy',
+                            voice: this._config?.voice || 'alloy',
                         },
                     },
                 },
