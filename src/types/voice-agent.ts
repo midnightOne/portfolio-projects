@@ -238,30 +238,12 @@ export interface AdapterInitOptions {
   logLevel?: 'error' | 'warn' | 'info' | 'debug';
 }
 
-// Provider-specific configuration types
-export interface OpenAIRealtimeConfig {
-  model: string;
-  temperature: number;
-  maxTokens: number;
-  voice: string;
-  instructions?: string;
-  tools?: any[];
-}
-
-export interface ElevenLabsConversationConfig {
-  agentId: string;
-  voiceId: string;
-  stability: number;
-  similarityBoost: number;
-  conversationConfig?: {
-    turnDetection?: {
-      type: 'server_vad';
-      threshold?: number;
-      prefixPaddingMs?: number;
-      silenceDurationMs?: number;
-    };
-  };
-}
+// Re-export provider-specific configuration types from voice-config.ts (single source of truth)
+export type { 
+  OpenAIRealtimeConfig,
+  ElevenLabsConfig as ElevenLabsConversationConfig,
+  VoiceProviderConfig
+} from './voice-config';
 
 // Error Types
 export class VoiceAgentError extends Error {

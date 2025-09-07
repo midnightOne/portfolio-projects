@@ -13,9 +13,11 @@ import {
     ToolResult,
     ProviderMetadata,
     ConnectionError,
-    AudioError
+    AudioError,
+    OpenAIRealtimeConfig
 } from '@/types/voice-agent';
 import { BaseConversationalAgentAdapter } from './IConversationalAgentAdapter';
+import { getClientAIModelManager } from './ClientAIModelManager';
 
 // OpenAI Realtime SDK 0.1.0 imports
 import {
@@ -39,8 +41,10 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     private _mcpTools: string[] = [];
     protected _isRecording: boolean = false;
     protected _isInitialized: boolean = false;
+    private _config: OpenAIRealtimeConfig | null = null;
 
     constructor() {
+        // Initialize with default metadata - will be updated when config is loaded
         const metadata: ProviderMetadata = {
             provider: 'openai',
             model: 'gpt-realtime',
@@ -48,7 +52,35 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             quality: 'high'
         };
         super('openai', metadata);
-        this._initializeAgent();
+        this._loadConfiguration();
+    }
+
+    /**
+     * Load configuration from ClientAIModelManager with automatic fallbacks
+     */
+    private async _loadConfiguration(): Promise<void> {
+        try {
+            const modelManager = getClientAIModelManager();
+            const configWithMetadata = await modelManager.getProviderConfig('openai');
+            this._config = configWithMetadata.config as OpenAIRealtimeConfig;
+            
+            // Update metadata with loaded configuration
+            this._metadata = {
+                provider: 'openai',
+                model: this._config.model,
+                capabilities: this._config.capabilities,
+                quality: 'high'
+            };
+            
+            console.log(`OpenAI Realtime configuration loaded: ${configWithMetadata.name}`);
+            
+            // Initialize agent with loaded configuration
+            this._initializeAgent();
+        } catch (error) {
+            console.error('Failed to load OpenAI configuration, using defaults:', error);
+            // Initialize with defaults if configuration loading fails
+            this._initializeAgent();
+        }
     }
 
     private _initializeAgent() {
@@ -253,10 +285,9 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             },
         });
 
-        // Create the main agent with all tools
-        this._agent = new RealtimeAgent({
-            name: 'Portfolio Assistant',
-            instructions: `You are a helpful AI assistant for a portfolio website. You can help visitors learn about the portfolio owner's background, projects, and experience. You have access to navigation tools to show relevant content and guide users through the portfolio.
+        // Create the main agent with configuration from ClientAIModelManager
+        const agentName = this._config?.displayName || 'Portfolio Assistant';
+        const instructions = this._config?.instructions || `You are a helpful AI assistant for a portfolio website. You can help visitors learn about the portfolio owner's background, projects, and experience. You have access to navigation tools to show relevant content and guide users through the portfolio.
 
 Key capabilities:
 - Answer questions about projects and experience using loadContext tool
@@ -271,7 +302,11 @@ Communication guidelines:
 - Use navigation tools to show relevant content while explaining
 - Be helpful, professional, and accurate
 - If you don't know something, use loadContext to get more information
-- Use a friendly, approachable tone suitable for a professional portfolio`,
+- Use a friendly, approachable tone suitable for a professional portfolio`;
+
+        this._agent = new RealtimeAgent({
+            name: agentName,
+            instructions: instructions,
             tools: [
                 navigateToTool,
                 showProjectDetailsTool,

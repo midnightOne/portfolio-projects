@@ -123,7 +123,8 @@ export class ElevenLabsSerializer implements VoiceConfigSerializer<ElevenLabsCon
         
         // Check environment variables if specified
         if (config.apiKeyEnvVar) {
-          const envResult = this.validateEnvironmentVariable(config.apiKeyEnvVar);
+          const { validateEnvironmentVariable } = require('../../../types/voice-config');
+          const envResult = validateEnvironmentVariable(config.apiKeyEnvVar);
           if (!envResult.available) {
             warnings.push({
               field: 'apiKeyEnvVar',
@@ -167,24 +168,7 @@ export class ElevenLabsSerializer implements VoiceConfigSerializer<ElevenLabsCon
     }
   }
   
-  /**
-   * Validate environment variable availability
-   */
-  private validateEnvironmentVariable(envVar: string): EnvValidationResult {
-    try {
-      const value = process.env[envVar];
-      return {
-        available: !!value,
-        value: value || undefined,
-        error: value ? undefined : `Environment variable ${envVar} is not set`
-      };
-    } catch (error) {
-      return {
-        available: false,
-        error: `Failed to check environment variable ${envVar}: ${error}`
-      };
-    }
-  }
+
   
   getDefaultConfig(): ElevenLabsConfig {
     return DEFAULT_ELEVENLABS_CONFIG;

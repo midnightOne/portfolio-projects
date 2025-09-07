@@ -116,7 +116,8 @@ export async function GET(
       }
       
       // For ElevenLabs, we would typically fetch actual agents from their API
-      const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
+      const { getEnvironmentVariable } = await import('../../../../../types/voice-config');
+      const elevenLabsApiKey = getEnvironmentVariable('ELEVENLABS_API_KEY', false);
 
       if (elevenLabsApiKey) {
         try {
@@ -381,9 +382,13 @@ export async function DELETE(
       });
 
     } else if (provider === 'elevenlabs') {
-      const elevenLabsApiKey = process.env.ELEVENLABS_API_KEY;
-
-      if (!elevenLabsApiKey) {
+      const { getEnvironmentVariable } = await import('../../../../../types/voice-config');
+      let elevenLabsApiKey: string;
+      
+      try {
+        elevenLabsApiKey = getEnvironmentVariable('ELEVENLABS_API_KEY', true)!;
+      } catch (error) {
+        console.error('ElevenLabs API key validation failed:', error instanceof Error ? error.message : 'Unknown error');
         return NextResponse.json(
           { success: false, message: 'ElevenLabs API key not configured' },
           { status: 500 }

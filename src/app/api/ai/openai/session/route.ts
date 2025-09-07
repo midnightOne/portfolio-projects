@@ -33,10 +33,14 @@ export async function GET(request: NextRequest) {
     const contextId = searchParams.get('contextId');
     const reflinkId = searchParams.get('reflinkId');
 
-    // Validate OpenAI API key
-    const openaiApiKey = process.env.OPENAI_API_KEY;
-    if (!openaiApiKey) {
-      console.error('OpenAI API key not configured');
+    // Validate OpenAI API key using centralized environment validation
+    const { getEnvironmentVariable } = await import('../../../../../types/voice-config');
+    let openaiApiKey: string;
+    
+    try {
+      openaiApiKey = getEnvironmentVariable('OPENAI_API_KEY', true)!;
+    } catch (error) {
+      console.error('OpenAI API key validation failed:', error instanceof Error ? error.message : 'Unknown error');
       return NextResponse.json(
         { error: 'OpenAI API key not configured' },
         { status: 500 }
@@ -265,8 +269,14 @@ export async function POST(request: NextRequest) {
     // Handle POST requests with custom configuration
     // This allows for more complex session setup with custom instructions and tools
 
-    const openaiApiKey = process.env.OPENAI_API_KEY;
-    if (!openaiApiKey) {
+    // Validate OpenAI API key using centralized environment validation
+    const { getEnvironmentVariable } = await import('../../../../../types/voice-config');
+    let openaiApiKey: string;
+    
+    try {
+      openaiApiKey = getEnvironmentVariable('OPENAI_API_KEY', true)!;
+    } catch (error) {
+      console.error('OpenAI API key validation failed:', error instanceof Error ? error.message : 'Unknown error');
       return NextResponse.json(
         { error: 'OpenAI API key not configured' },
         { status: 500 }

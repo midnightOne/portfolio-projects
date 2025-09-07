@@ -280,12 +280,31 @@ export interface VoiceProviderConfigRecord {
 // =============================================================================
 
 /**
- * Configuration validation result
+ * Detailed validation error with field context
  */
-export interface ConfigValidationResult {
+export interface ValidationError {
+  field: string;
+  message: string;
+  code: string;
+  value?: any;
+}
+
+/**
+ * Validation warning with suggestions
+ */
+export interface ValidationWarning {
+  field: string;
+  message: string;
+  suggestion?: string;
+}
+
+/**
+ * Unified validation result interface (replaces ConfigValidationResult)
+ */
+export interface ValidationResult {
   valid: boolean;
-  errors: string[];
-  warnings?: string[];
+  errors: ValidationError[];
+  warnings?: ValidationWarning[];
 }
 
 /**
@@ -295,6 +314,15 @@ export interface EnvValidationResult {
   available: boolean;
   value?: string;
   error?: string;
+}
+
+/**
+ * @deprecated Use ValidationResult instead
+ */
+export interface ConfigValidationResult {
+  valid: boolean;
+  errors: string[];
+  warnings?: string[];
 }
 
 // =============================================================================

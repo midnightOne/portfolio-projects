@@ -21,6 +21,8 @@ import {
   ElevenLabsConversationConfig
 } from '@/types/voice-agent';
 import { BaseConversationalAgentAdapter } from './IConversationalAgentAdapter';
+import { getClientAIModelManager } from './ClientAIModelManager';
+import { ElevenLabsConfig } from '@/types/voice-config';
 
 interface ElevenLabsTokenResponse {
   conversation_token: string;
@@ -45,13 +47,14 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
   private _websocket: WebSocket | null = null;
   private _mediaStream: MediaStream | null = null;
   private _isRecording: boolean = false;
-  private _config: ElevenLabsConversationConfig;
+  private _config: ElevenLabsConfig | null = null;
   private _reconnectTimer: NodeJS.Timeout | null = null;
   private _reconnectAttempts: number = 0;
   private _maxReconnectAttempts: number = 3;
   private _conversationId: string | null = null;
 
   constructor() {
+    // Initialize with default metadata - will be updated when config is loaded
     const metadata: ProviderMetadata = {
       provider: 'elevenlabs',
       model: 'conversational-ai',
@@ -68,21 +71,34 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
     };
 
     super('elevenlabs', metadata);
+    this._loadConfiguration();
+  }
 
-    this._config = {
-      agentId: '',
-      voiceId: 'default',
-      stability: 0.5,
-      similarityBoost: 0.8,
-      conversationConfig: {
-        turnDetection: {
-          type: 'server_vad',
-          threshold: 0.5,
-          prefixPaddingMs: 300,
-          silenceDurationMs: 1000
-        }
-      }
-    };
+  /**
+   * Load configuration from ClientAIModelManager with automatic fallbacks
+   */
+  private async _loadConfiguration(): Promise<void> {
+    try {
+      const modelManager = getClientAIModelManager();
+      const configWithMetadata = await modelManager.getProviderConfig('elevenlabs');
+      this._config = configWithMetadata.config as ElevenLabsConfig;
+      
+      // Update metadata with loaded configuration
+      this._metadata = {
+        provider: 'elevenlabs',
+        model: this._config.model,
+        capabilities: this._config.capabilities,
+        quality: 'high'
+      };
+      
+      console.log(`ElevenLabs configuration loaded: ${configWithMetadata.name}`);
+    } catch (error) {
+      console.error('Failed to load ElevenLabs configuration, using defaults:', error);
+      // Set default config if loading fails
+      const { getSerializerForProvider } = await import('./config-serializers');
+      const elevenLabsSerializer = getSerializerForProvider('elevenlabs');
+      this._config = elevenLabsSerializer.getDefaultConfig() as ElevenLabsConfig;
+    }
   }
 
   async init(options: AdapterInitOptions): Promise<void> {
@@ -90,12 +106,17 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
       this._options = options;
       this._audioElement = options.audioElement;
       
-      // Apply provider-specific configuration
-      if (options.providerConfig?.elevenlabs) {
+      // Ensure configuration is loaded
+      if (!this._config) {
+        await this._loadConfiguration();
+      }
+      
+      // Apply provider-specific configuration overrides if provided
+      if (options.providerConfig?.elevenlabs && this._config) {
         this._config = {
           ...this._config,
           ...options.providerConfig.elevenlabs
-        };
+        } as ElevenLabsConfig;
       }
 
       // Register tools

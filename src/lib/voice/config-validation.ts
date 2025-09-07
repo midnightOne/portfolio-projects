@@ -4,12 +4,15 @@
  * Provides comprehensive validation utilities for voice AI configurations
  * including environment variable validation, schema validation, and
  * configuration health checks.
+ * 
+ * Updated to use serializer validation first, then augment with environment checks.
  */
 
 import { 
   VoiceProviderConfig,
   OpenAIRealtimeConfig,
   ElevenLabsConfig,
+  ValidationResult,
   ConfigValidationResult,
   EnvValidationResult,
   validateEnvironmentVariable,
@@ -19,102 +22,150 @@ import {
   ElevenLabsConfigSchema,
   VoiceProviderConfigSchema
 } from '../../types/voice-config';
+import { getSerializerForProvider } from './config-serializers';
 
 /**
- * Comprehensive configuration validator that checks both schema and environment variables
+ * Comprehensive configuration validator that uses serializer validation first, then augments with environment checks
  */
 export class VoiceConfigValidator {
   
   /**
-   * Validate any voice provider configuration
+   * Validate any voice provider configuration using serializer validation first
    */
-  static validateConfig(config: Partial<VoiceProviderConfig>): ConfigValidationResult {
+  static validateConfig(config: Partial<VoiceProviderConfig>): ValidationResult {
     try {
-      const result = VoiceProviderConfigSchema.safeParse(config);
-      
-      if (result.success) {
-        // Additional environment variable validation
-        const envWarnings = this.validateConfigEnvironmentVariables(result.data as VoiceProviderConfig);
-        
-        return {
-          valid: true,
-          errors: [],
-          warnings: envWarnings.length > 0 ? envWarnings.map(w => w.error || 'Environment variable issue') : undefined
-        };
-      } else {
+      // Determine provider type
+      if (!config.provider) {
         return {
           valid: false,
-          errors: result.error.errors.map(err => err.message),
-          warnings: undefined
+          errors: [{
+            field: 'provider',
+            message: 'Provider is required',
+            code: 'REQUIRED'
+          }]
         };
       }
+
+      // Use serializer validation first
+      const serializer = getSerializerForProvider(config.provider);
+      const serializerResult = serializer.validate(config);
+      
+      if (!serializerResult.valid) {
+        return serializerResult;
+      }
+      
+      // Augment with additional environment variable validation
+      const envWarnings = this.validateConfigEnvironmentVariables(config as VoiceProviderConfig);
+      
+      // Merge warnings from serializer and environment validation
+      const allWarnings = [
+        ...(serializerResult.warnings || []),
+        ...envWarnings.map(w => ({
+          field: w.error?.includes('OPENAI_API_KEY') ? 'apiKeyEnvVar' : 'baseUrlEnvVar',
+          message: w.error || 'Environment variable issue',
+          suggestion: 'Ensure environment variables are properly configured'
+        }))
+      ];
+      
+      return {
+        valid: true,
+        errors: [],
+        warnings: allWarnings.length > 0 ? allWarnings : undefined
+      };
     } catch (error) {
       return {
         valid: false,
-        errors: [`Configuration validation failed: ${error instanceof Error ? error.message : String(error)}`],
-        warnings: undefined
+        errors: [{
+          field: 'config',
+          message: `Configuration validation failed: ${error instanceof Error ? error.message : String(error)}`,
+          code: 'VALIDATION_ERROR'
+        }]
       };
     }
   }
   
   /**
-   * Validate OpenAI Realtime configuration specifically
+   * Validate OpenAI Realtime configuration specifically using serializer validation first
    */
-  static validateOpenAIConfig(config: Partial<OpenAIRealtimeConfig>): ConfigValidationResult {
+  static validateOpenAIConfig(config: Partial<OpenAIRealtimeConfig>): ValidationResult {
     try {
-      const result = OpenAIRealtimeConfigSchema.safeParse(config);
+      // Use OpenAI serializer validation first
+      const serializer = getSerializerForProvider('openai');
+      const serializerResult = serializer.validate(config);
       
-      if (result.success) {
-        const envWarnings = this.validateOpenAIEnvironmentVariables(result.data as OpenAIRealtimeConfig);
-        
-        return {
-          valid: true,
-          errors: [],
-          warnings: envWarnings.length > 0 ? envWarnings.map(w => w.error || 'Environment variable issue') : undefined
-        };
-      } else {
-        return {
-          valid: false,
-          errors: result.error.errors.map(err => err.message),
-          warnings: undefined
-        };
+      if (!serializerResult.valid) {
+        return serializerResult;
       }
+      
+      // Augment with environment variable validation
+      const envWarnings = this.validateOpenAIEnvironmentVariables(config as OpenAIRealtimeConfig);
+      
+      // Merge warnings
+      const allWarnings = [
+        ...(serializerResult.warnings || []),
+        ...envWarnings.map(w => ({
+          field: w.error?.includes('OPENAI_API_KEY') ? 'apiKeyEnvVar' : 'baseUrlEnvVar',
+          message: w.error || 'Environment variable issue',
+          suggestion: 'Ensure OpenAI environment variables are properly configured'
+        }))
+      ];
+      
+      return {
+        valid: true,
+        errors: [],
+        warnings: allWarnings.length > 0 ? allWarnings : undefined
+      };
     } catch (error) {
       return {
         valid: false,
-        errors: [`OpenAI configuration validation failed: ${error instanceof Error ? error.message : String(error)}`],
-        warnings: undefined
+        errors: [{
+          field: 'config',
+          message: `OpenAI configuration validation failed: ${error instanceof Error ? error.message : String(error)}`,
+          code: 'VALIDATION_ERROR'
+        }]
       };
     }
   }
   
   /**
-   * Validate ElevenLabs configuration specifically
+   * Validate ElevenLabs configuration specifically using serializer validation first
    */
-  static validateElevenLabsConfig(config: Partial<ElevenLabsConfig>): ConfigValidationResult {
+  static validateElevenLabsConfig(config: Partial<ElevenLabsConfig>): ValidationResult {
     try {
-      const result = ElevenLabsConfigSchema.safeParse(config);
+      // Use ElevenLabs serializer validation first
+      const serializer = getSerializerForProvider('elevenlabs');
+      const serializerResult = serializer.validate(config);
       
-      if (result.success) {
-        const envWarnings = this.validateElevenLabsEnvironmentVariables(result.data as ElevenLabsConfig);
-        
-        return {
-          valid: true,
-          errors: [],
-          warnings: envWarnings.length > 0 ? envWarnings.map(w => w.error || 'Environment variable issue') : undefined
-        };
-      } else {
-        return {
-          valid: false,
-          errors: result.error.errors.map(err => err.message),
-          warnings: undefined
-        };
+      if (!serializerResult.valid) {
+        return serializerResult;
       }
+      
+      // Augment with environment variable validation
+      const envWarnings = this.validateElevenLabsEnvironmentVariables(config as ElevenLabsConfig);
+      
+      // Merge warnings
+      const allWarnings = [
+        ...(serializerResult.warnings || []),
+        ...envWarnings.map(w => ({
+          field: w.error?.includes('ELEVENLABS_API_KEY') ? 'apiKeyEnvVar' : 'baseUrlEnvVar',
+          message: w.error || 'Environment variable issue',
+          suggestion: 'Ensure ElevenLabs environment variables are properly configured'
+        }))
+      ];
+      
+      return {
+        valid: true,
+        errors: [],
+        warnings: allWarnings.length > 0 ? allWarnings : undefined
+      };
     } catch (error) {
       return {
         valid: false,
-        errors: [`ElevenLabs configuration validation failed: ${error instanceof Error ? error.message : String(error)}`],
-        warnings: undefined
+        errors: [{
+          field: 'config',
+          message: `ElevenLabs configuration validation failed: ${error instanceof Error ? error.message : String(error)}`,
+          code: 'VALIDATION_ERROR'
+        }]
       };
     }
   }
@@ -177,15 +228,15 @@ export class VoiceConfigValidator {
   }
   
   /**
-   * Perform a comprehensive health check on a configuration
+   * Perform a comprehensive health check on a configuration using serializer validation
    */
   static performHealthCheck(config: VoiceProviderConfig): {
     overall: 'healthy' | 'warning' | 'error';
-    schema: ConfigValidationResult;
+    validation: ValidationResult;
     environment: EnvValidationResult[];
     recommendations: string[];
   } {
-    const schema = this.validateConfig(config);
+    const validation = this.validateConfig(config);
     const environment = this.validateConfigEnvironmentVariables(config);
     const recommendations: string[] = [];
     
@@ -209,11 +260,11 @@ export class VoiceConfigValidator {
     if (config.provider === 'elevenlabs') {
       const elevenLabsConfig = config as ElevenLabsConfig;
       
-      if (!elevenLabsConfig.agentId) {
+      if (!elevenLabsConfig.agentId || elevenLabsConfig.agentId === 'default-agent') {
         recommendations.push('Configure a valid ElevenLabs agent ID');
       }
       
-      if (!elevenLabsConfig.voiceId) {
+      if (!elevenLabsConfig.voiceId || elevenLabsConfig.voiceId === 'default-voice') {
         recommendations.push('Configure a valid ElevenLabs voice ID');
       }
       
@@ -225,15 +276,15 @@ export class VoiceConfigValidator {
     // Determine overall health
     let overall: 'healthy' | 'warning' | 'error' = 'healthy';
     
-    if (!schema.valid) {
+    if (!validation.valid) {
       overall = 'error';
-    } else if (schema.warnings?.length || recommendations.length > 0 || environment.some(e => !e.available)) {
+    } else if (validation.warnings?.length || recommendations.length > 0 || environment.some(e => !e.available)) {
       overall = 'warning';
     }
     
     return {
       overall,
-      schema,
+      validation,
       environment,
       recommendations
     };
@@ -248,11 +299,12 @@ export class VoiceConfigHelpers {
   /**
    * Validate configuration before saving to database
    */
-  static validateForSave(config: VoiceProviderConfig): ConfigValidationResult {
+  static validateForSave(config: VoiceProviderConfig): ValidationResult {
     const result = VoiceConfigValidator.validateConfig(config);
     
     if (!result.valid) {
-      throw new Error(`Configuration validation failed: ${result.errors.join(', ')}`);
+      const errorMessages = result.errors.map(e => `${e.field}: ${e.message}`);
+      throw new Error(`Configuration validation failed: ${errorMessages.join(', ')}`);
     }
     
     return result;
@@ -261,16 +313,17 @@ export class VoiceConfigHelpers {
   /**
    * Validate configuration before using in production
    */
-  static validateForProduction(config: VoiceProviderConfig): ConfigValidationResult {
+  static validateForProduction(config: VoiceProviderConfig): ValidationResult {
     const healthCheck = VoiceConfigValidator.performHealthCheck(config);
     
     if (healthCheck.overall === 'error') {
+      const errorMessages = healthCheck.validation.errors.map(e => `${e.field}: ${e.message}`);
       throw new Error(
-        `Configuration is not ready for production: ${healthCheck.schema.errors.join(', ')}`
+        `Configuration is not ready for production: ${errorMessages.join(', ')}`
       );
     }
     
-    return healthCheck.schema;
+    return healthCheck.validation;
   }
   
   /**

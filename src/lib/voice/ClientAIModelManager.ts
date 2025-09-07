@@ -17,6 +17,10 @@ import {
   OpenAIRealtimeConfig,
   ElevenLabsConfig
 } from './config-serializers';
+import { 
+  ValidationResult,
+  EnvValidationResult
+} from '../../types/voice-config';
 import { VoiceProvider } from '../../types/voice-agent';
 
 // Union type for all provider configurations
@@ -109,12 +113,12 @@ export class ClientAIModelManager {
   }
 
   /**
-   * Get provider configuration by name or default
+   * Get provider configuration by name or default with automatic fallback to serializer defaults
    */
   async getProviderConfig(
     provider: VoiceProvider,
     configName?: string
-  ): Promise<VoiceProviderConfigWithMetadata | null> {
+  ): Promise<VoiceProviderConfigWithMetadata> {
     try {
       const cacheKey = this.getCacheKey(provider, configName);
       
@@ -126,15 +130,33 @@ export class ClientAIModelManager {
       
       // Query database
       const record = await this.queryProviderConfig(provider, configName);
-      if (!record) {
-        return null;
+      
+      if (record) {
+        // Deserialize and cache database config
+        const config = this.deserializeConfig(record);
+        this.setCache(cacheKey, config);
+        return config;
+      } else {
+        // Automatic fallback to serializer default config when no database record found
+        const serializer = getSerializerForProvider(provider);
+        const defaultConfig = serializer.getDefaultConfig();
+        
+        // Create metadata wrapper for default config
+        const configWithMetadata: VoiceProviderConfigWithMetadata = {
+          id: `default-${provider}`,
+          provider,
+          name: configName || 'default',
+          isDefault: true,
+          config: defaultConfig,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        
+        // Cache the default config
+        this.setCache(cacheKey, configWithMetadata);
+        
+        return configWithMetadata;
       }
-      
-      // Deserialize and cache
-      const config = this.deserializeConfig(record);
-      this.setCache(cacheKey, config);
-      
-      return config;
     } catch (error) {
       throw new ClientAIModelManagerError(
         `Failed to get provider config: ${provider}${configName ? `:${configName}` : ''}`,
@@ -357,20 +379,18 @@ export class ClientAIModelManager {
   validateConfig(
     provider: VoiceProvider,
     config: Partial<VoiceProviderConfig>
-  ): { valid: boolean; errors: string[]; warnings?: string[] } {
+  ): ValidationResult {
     try {
       const serializer = getSerializerForProvider(provider);
-      const validation = serializer.validate(config);
-      
-      return {
-        valid: validation.valid,
-        errors: validation.errors.map(e => `${e.field}: ${e.message}`),
-        warnings: validation.warnings?.map(w => `${w.field}: ${w.message}`)
-      };
+      return serializer.validate(config);
     } catch (error) {
       return {
         valid: false,
-        errors: [`Validation error: ${error instanceof Error ? error.message : String(error)}`]
+        errors: [{
+          field: 'config',
+          message: `Validation error: ${error instanceof Error ? error.message : String(error)}`,
+          code: 'VALIDATION_ERROR'
+        }]
       };
     }
   }
@@ -494,15 +514,145 @@ export class ClientAIModelManager {
   }
 
   /**
-   * Cleanup resources
+   * Perform comprehensive configuration health checks with validation and recommendations
    */
-  destroy(): void {
+  async performHealthCheck(provider?: VoiceProvider): Promise<{
+    overall: 'healthy' | 'warning' | 'error';
+    providers: Record<VoiceProvider, {
+      status: 'healthy' | 'warning' | 'error';
+      validation: ValidationResult;
+      environment: EnvValidationResult[];
+      recommendations: string[];
+      configExists: boolean;
+    }>;
+    recommendations: string[];
+  }> {
+    try {
+      const providers: VoiceProvider[] = provider ? [provider] : ['openai', 'elevenlabs'];
+      const results: Record<VoiceProvider, any> = {} as any;
+      const globalRecommendations: string[] = [];
+      
+      for (const p of providers) {
+        try {
+          const configWithMetadata = await this.getProviderConfig(p);
+          const config = configWithMetadata.config;
+          
+          // Validate configuration using serializer
+          const validation = this.validateConfig(p, config);
+          
+          // Check environment variables
+          const envResults: EnvValidationResult[] = [];
+          if (config.apiKeyEnvVar) {
+            const { validateEnvironmentVariable } = await import('../../types/voice-config');
+            envResults.push(validateEnvironmentVariable(config.apiKeyEnvVar));
+          }
+          if (config.baseUrlEnvVar) {
+            const { validateEnvironmentVariable } = await import('../../types/voice-config');
+            envResults.push(validateEnvironmentVariable(config.baseUrlEnvVar));
+          }
+          
+          // Generate recommendations
+          const recommendations: string[] = [];
+          
+          if (p === 'openai') {
+            const openaiConfig = config as OpenAIRealtimeConfig;
+            if (openaiConfig.temperature > 1.5) {
+              recommendations.push('Consider lowering temperature for more consistent responses');
+            }
+            if (openaiConfig.instructions.length > 3000) {
+              recommendations.push('Consider shortening instructions for better performance');
+            }
+          }
+          
+          if (p === 'elevenlabs') {
+            const elevenLabsConfig = config as ElevenLabsConfig;
+            if (elevenLabsConfig.agentId === 'default-agent') {
+              recommendations.push('Configure a valid ElevenLabs agent ID');
+            }
+            if (elevenLabsConfig.voiceId === 'default-voice') {
+              recommendations.push('Configure a valid ElevenLabs voice ID');
+            }
+          }
+          
+          // Determine status
+          let status: 'healthy' | 'warning' | 'error' = 'healthy';
+          if (!validation.valid) {
+            status = 'error';
+          } else if (validation.warnings?.length || recommendations.length > 0 || envResults.some(e => !e.available)) {
+            status = 'warning';
+          }
+          
+          results[p] = {
+            status,
+            validation,
+            environment: envResults,
+            recommendations,
+            configExists: configWithMetadata.id !== `default-${p}`
+          };
+          
+        } catch (error) {
+          results[p] = {
+            status: 'error' as const,
+            validation: {
+              valid: false,
+              errors: [{
+                field: 'config',
+                message: `Failed to load configuration: ${error instanceof Error ? error.message : String(error)}`,
+                code: 'LOAD_ERROR'
+              }]
+            },
+            environment: [],
+            recommendations: ['Fix configuration loading issues'],
+            configExists: false
+          };
+        }
+      }
+      
+      // Determine overall health
+      const statuses = Object.values(results).map(r => r.status);
+      let overall: 'healthy' | 'warning' | 'error' = 'healthy';
+      
+      if (statuses.includes('error')) {
+        overall = 'error';
+      } else if (statuses.includes('warning')) {
+        overall = 'warning';
+      }
+      
+      // Add global recommendations
+      if (overall !== 'healthy') {
+        globalRecommendations.push('Review provider configurations and fix identified issues');
+      }
+      
+      return {
+        overall,
+        providers: results,
+        recommendations: globalRecommendations
+      };
+      
+    } catch (error) {
+      throw new ClientAIModelManagerError(
+        'Failed to perform health check',
+        'HEALTH_CHECK_ERROR',
+        provider,
+        undefined,
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
+  }
+
+  /**
+   * Cleanup resources with proper Prisma disconnection
+   */
+  async destroy(): Promise<void> {
     if (this.reloadTimer) {
       clearInterval(this.reloadTimer);
       this.reloadTimer = undefined;
     }
     
     this.cache.clear();
+    
+    // Proper Prisma client disconnection
+    await this.prisma.$disconnect();
   }
 
   // Private helper methods
