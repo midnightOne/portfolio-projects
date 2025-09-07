@@ -348,14 +348,19 @@ export function ElevenLabsConfigPanel({
                   <div className="flex gap-2">
                     <Select
                       value={config.agentId}
-                      onValueChange={(value) => handleConfigChange('agentId', value)}
+                      onValueChange={(value) => {
+                        // Don't set placeholder values
+                        if (value !== '__loading__' && value !== '__no_agents__') {
+                          handleConfigChange('agentId', value);
+                        }
+                      }}
                     >
                       <SelectTrigger className="flex-1">
                         <SelectValue placeholder="Select or enter agent ID" />
                       </SelectTrigger>
                       <SelectContent>
                         {loadingAgents ? (
-                          <SelectItem value="" disabled>Loading agents...</SelectItem>
+                          <SelectItem value="__loading__" disabled>Loading agents...</SelectItem>
                         ) : availableAgents.length > 0 ? (
                           availableAgents.map((agent) => (
                             <SelectItem key={agent.id} value={agent.id}>
@@ -363,7 +368,7 @@ export function ElevenLabsConfigPanel({
                             </SelectItem>
                           ))
                         ) : (
-                          <SelectItem value="" disabled>No agents found</SelectItem>
+                          <SelectItem value="__no_agents__" disabled>No agents found</SelectItem>
                         )}
                       </SelectContent>
                     </Select>
@@ -400,14 +405,19 @@ export function ElevenLabsConfigPanel({
                   <div className="flex gap-2">
                     <Select
                       value={config.voiceId}
-                      onValueChange={(value) => handleConfigChange('voiceId', value)}
+                      onValueChange={(value) => {
+                        // Don't set placeholder values
+                        if (value !== '__loading__' && value !== '__no_voices__') {
+                          handleConfigChange('voiceId', value);
+                        }
+                      }}
                     >
                       <SelectTrigger className="flex-1">
                         <SelectValue placeholder="Select or enter voice ID" />
                       </SelectTrigger>
                       <SelectContent>
                         {loadingVoices ? (
-                          <SelectItem value="" disabled>Loading voices...</SelectItem>
+                          <SelectItem value="__loading__" disabled>Loading voices...</SelectItem>
                         ) : availableVoices.length > 0 ? (
                           availableVoices.map((voice) => (
                             <SelectItem key={voice.id} value={voice.id}>
@@ -415,7 +425,7 @@ export function ElevenLabsConfigPanel({
                             </SelectItem>
                           ))
                         ) : (
-                          <SelectItem value="" disabled>No voices found</SelectItem>
+                          <SelectItem value="__no_voices__" disabled>No voices found</SelectItem>
                         )}
                       </SelectContent>
                     </Select>
