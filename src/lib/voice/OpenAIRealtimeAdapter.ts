@@ -624,6 +624,9 @@ Communication guidelines:
             // Automatically approve all tool calls without user confirmation
             this._session?.approve(approvalRequest.approvalItem);
             console.log('Tool call auto-approved:', approvalRequest.approvalItem);
+            
+            // Note: Tool execution and result reporting is handled automatically by the OpenAI SDK
+            // when tools are defined with execute functions using the tool() helper
         });
 
         // Enhanced guardrail handling
@@ -882,6 +885,7 @@ Communication guidelines:
             console.error('Error logging tool call:', error);
         }
     }
+
 
     /**
      * Handle guardrail events
