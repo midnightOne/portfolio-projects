@@ -464,6 +464,7 @@ function VoiceDebugContent() {
                     >
                       <span>ElevenLabs</span>
                       <Badge variant="outline" className="text-xs">Conversational AI</Badge>
+                      <Badge variant="secondary" className="text-xs mt-1">Debug Mode</Badge>
                     </Button>
                   </div>
                 </div>

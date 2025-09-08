@@ -317,37 +317,75 @@ export async function GET(request: NextRequest) {
 
     let agentId = requestedAgentId;
 
-    // Create or get agent if not provided
+    // Get or use existing agent if not provided
     if (!agentId) {
       try {
-        const agentResponse = await fetch('https://api.elevenlabs.io/v1/convai/agents', {
-          method: 'POST',
+        console.log('Fetching available ElevenLabs agents...');
+
+        // First, try to get existing agents
+        const agentsResponse = await fetch('https://api.elevenlabs.io/v1/convai/agents', {
+          method: 'GET',
           headers: {
             'xi-api-key': elevenLabsApiKey,
-            'Content-Type': 'application/json',
           },
-          body: JSON.stringify(agentConfig),
         });
 
-        if (!agentResponse.ok) {
-          const errorText = await agentResponse.text();
-          console.error('ElevenLabs agent creation failed:', errorText);
-          return NextResponse.json(
-            { error: 'Failed to create ElevenLabs agent' },
-            { status: agentResponse.status }
+        if (agentsResponse.ok) {
+          const agentsData = await agentsResponse.json();
+          console.log('Available ElevenLabs agents:', agentsData.agents?.length || 0);
+          
+          // Use the first available agent or the portfolio assistant if it exists
+          const portfolioAgent = agentsData.agents?.find((agent: any) => 
+            agent.name.toLowerCase().includes('portfolio') || 
+            agent.name.toLowerCase().includes('assistant')
           );
+          
+          if (portfolioAgent) {
+            agentId = portfolioAgent.agent_id;
+            console.log(`Using existing portfolio agent: ${agentId} (${portfolioAgent.name})`);
+          } else if (agentsData.agents?.length > 0) {
+            agentId = agentsData.agents[0].agent_id;
+            console.log(`Using first available agent: ${agentId} (${agentsData.agents[0].name})`);
+          }
         }
 
-        const agentData = await agentResponse.json();
-        agentId = agentData.agent_id;
+        // If no existing agents found, try to create one
+        if (!agentId) {
+          console.log('No existing agents found, attempting to create new agent...');
+          
+          const agentResponse = await fetch('https://api.elevenlabs.io/v1/convai/agents', {
+            method: 'POST',
+            headers: {
+              'xi-api-key': elevenLabsApiKey,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(agentConfig),
+          });
+
+          if (agentResponse.ok) {
+            const agentData = await agentResponse.json();
+            agentId = agentData.agent_id;
+            console.log(`Successfully created ElevenLabs agent: ${agentId}`);
+          } else {
+            const errorText = await agentResponse.text();
+            console.error('ElevenLabs agent creation failed:', {
+              status: agentResponse.status,
+              statusText: agentResponse.statusText,
+              error: errorText
+            });
+            
+            // Fall back to config default if creation fails
+            agentId = config.agentId || 'default-agent';
+            console.log(`Using fallback agent ID from config: ${agentId}`);
+          }
+        }
         
-        console.log(`Created ElevenLabs agent: ${agentId}`);
       } catch (error) {
-        console.error('Error creating ElevenLabs agent:', error);
-        return NextResponse.json(
-          { error: 'Failed to create agent' },
-          { status: 500 }
-        );
+        console.error('Error managing ElevenLabs agent:', error);
+        
+        // Use fallback agent ID from config
+        agentId = config.agentId || 'default-agent';
+        console.log(`Using fallback agent ID due to error: ${agentId}`);
       }
     }
 

@@ -613,8 +613,8 @@ export const DEFAULT_ELEVENLABS_CONFIG: ElevenLabsConfig = {
   displayName: 'ElevenLabs Conversational AI',
   description: 'Natural voice conversations powered by ElevenLabs',
   version: '1.0.0',
-  agentId: 'default-agent', // Placeholder - should be configured
-  voiceId: 'default-voice', // Placeholder - should be configured  
+  agentId: 'agent_2101k3sztpfse6396vep8tfj9an8', // Portfolio-assistant agent
+  voiceId: '21m00Tcm4TlvDq8ikWAM', // Rachel voice  
   model: 'eleven_turbo_v2_5',
   voiceSettings: {
     stability: 0.5,

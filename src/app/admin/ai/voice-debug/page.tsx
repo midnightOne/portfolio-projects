@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { AdminLayout } from '@/components/admin/admin-layout';
 import { AdminPageLayout } from '@/components/admin/admin-page-layout';
 import { VoiceDebugInterface } from '@/components/admin/VoiceDebugInterface';
+import { AdminDebugTest } from '@/components/admin/AdminDebugTest';
 
 export default function VoiceDebugPage() {
   const { data: session, status } = useSession();
@@ -57,7 +58,10 @@ export default function VoiceDebugPage() {
           { label: "Voice Debug", href: "/admin/ai/voice-debug" }
         ]}
       >
-        <VoiceDebugInterface />
+        <div className="space-y-8">
+          <AdminDebugTest />
+          <VoiceDebugInterface />
+        </div>
       </AdminPageLayout>
     </AdminLayout>
   );
