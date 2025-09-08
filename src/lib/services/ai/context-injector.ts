@@ -338,6 +338,98 @@ export class ContextInjector {
   }
 
   /**
+   * Generate ElevenLabs prompt with dynamic context injection
+   */
+  async generateElevenLabsPrompt(
+    sessionId: string,
+    reflinkCode?: string,
+    query?: string
+  ): Promise<{
+    agent_prompt: string;
+    first_message: string;
+    language: string;
+    capabilities: any;
+    welcomeMessage?: string;
+  }> {
+    try {
+      // Load filtered context
+      const contextRequest: ContextInjectionRequest = {
+        sessionId,
+        query: query || 'Initial conversation setup',
+        reflinkCode,
+        provider: 'elevenlabs',
+      };
+
+      const result = await contextProvider.injectContext(contextRequest);
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Context injection failed');
+      }
+
+      const context = result.context;
+      
+      // Determine capabilities based on reflink
+      const capabilities = await this.determineCapabilities(reflinkCode);
+      
+      // Generate welcome message
+      const welcomeMessage = await this.generateWelcomeMessage(reflinkCode);
+
+      // Build comprehensive agent prompt with injected context
+      const agent_prompt = `You are a helpful AI assistant for a portfolio website. 
+You can help visitors learn about the portfolio owner's background, projects, and experience.
+You have access to navigation tools to show relevant content and guide users through the portfolio.
+
+${context.systemPrompt}
+
+${context.hiddenContext ? `\nAdditional Context:\n${context.hiddenContext}` : ''}
+
+Key capabilities:
+- Answer questions about projects and experience
+- Navigate users to relevant portfolio sections using available tools
+- Highlight important content
+- Provide technical explanations
+${capabilities.jobAnalysis ? '- Analyze job requirements against the portfolio owner\'s background' : ''}
+${capabilities.advancedNavigation ? '- Provide advanced navigation and content discovery' : ''}
+
+Always be helpful, professional, and accurate. If you don't know something, say so rather than guessing.
+
+When you want to navigate or show content, use the available tools to guide the user through the portfolio.
+Use the navigation tools to create an interactive experience that helps users discover relevant information.
+
+${context.initialContext ? `\nCurrent Context:\n${context.initialContext}` : ''}`;
+
+      // Generate appropriate first message
+      const first_message = welcomeMessage || 
+        "Hello! I'm here to help you learn about this portfolio. I can answer questions about projects, experience, and background. I can also guide you through relevant sections using interactive navigation. What would you like to know?";
+
+      return {
+        agent_prompt,
+        first_message,
+        language: 'en',
+        capabilities,
+        welcomeMessage
+      };
+
+    } catch (error) {
+      console.error('ElevenLabs prompt generation failed:', error);
+      
+      // Return minimal prompt for error cases
+      return {
+        agent_prompt: `You are a helpful AI assistant for a portfolio website. 
+You can help visitors learn about the portfolio owner's background, projects, and experience.
+Always be helpful, professional, and accurate. If you don't know something, say so rather than guessing.`,
+        first_message: "Hello! I'm here to help you learn about this portfolio. What would you like to know?",
+        language: 'en',
+        capabilities: {
+          voiceAI: false,
+          jobAnalysis: false,
+          advancedNavigation: false,
+        }
+      };
+    }
+  }
+
+  /**
    * Get context cache statistics
    */
   getCacheStats(): any {
