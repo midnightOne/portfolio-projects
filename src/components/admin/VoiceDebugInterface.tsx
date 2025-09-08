@@ -830,35 +830,90 @@ function VoiceDebugContent() {
                     <div className="space-y-3">
                       {state.transcript.map((item, index) => (
                         <div key={`${item.id}-${index}`} className="space-y-1">
-                          <div className={`p-3 rounded text-sm ${item.type === 'user_speech'
-                            ? 'bg-blue-50 border-l-4 border-blue-400'
-                            : item.type === 'ai_response'
-                              ? 'bg-green-50 border-l-4 border-green-400'
-                              : 'bg-gray-50 border-l-4 border-gray-400'
+                          <div className={`p-3 rounded text-sm ${
+                            item.type === 'user_speech'
+                              ? 'bg-blue-50 border-l-4 border-blue-400'
+                              : item.type === 'ai_response'
+                                ? 'bg-green-50 border-l-4 border-green-400'
+                                : item.type === 'tool_call'
+                                  ? 'bg-orange-50 border-l-4 border-orange-400'
+                                  : item.type === 'tool_result'
+                                    ? 'bg-purple-50 border-l-4 border-purple-400'
+                                    : 'bg-gray-50 border-l-4 border-gray-400'
                             }`}>
                             <div className="flex items-center justify-between mb-2">
                               <div className="flex items-center gap-2">
                                 <Badge variant={
                                   item.type === 'user_speech' ? 'default' :
-                                    item.type === 'ai_response' ? 'secondary' : 'outline'
+                                    item.type === 'ai_response' ? 'secondary' :
+                                      item.type === 'tool_call' ? 'destructive' :
+                                        item.type === 'tool_result' ? 'secondary' : 'outline'
                                 } className="text-xs">
                                   {item.type === 'user_speech' ? 'User' :
-                                    item.type === 'ai_response' ? 'AI' : 'System'}
+                                    item.type === 'ai_response' ? 'AI' :
+                                      item.type === 'tool_call' ? 'Tool Call' :
+                                        item.type === 'tool_result' ? 'Tool Result' : 'System'}
                                 </Badge>
                                 <Badge variant="outline" className="text-xs">
                                   {item.provider}
                                 </Badge>
+                                {/* Show tool name for tool calls/results */}
+                                {(item.type === 'tool_call' || item.type === 'tool_result') && item.metadata?.toolName && (
+                                  <Badge variant="outline" className="text-xs bg-orange-100">
+                                    {item.metadata.toolName}
+                                  </Badge>
+                                )}
                               </div>
                               <span className="text-xs text-muted-foreground">
                                 {item.timestamp.toLocaleTimeString()}
                               </span>
                             </div>
-                            <p className="text-sm whitespace-pre-wrap">{item.content}</p>
+                            
+                            {/* Content rendering based on type */}
+                            {item.type === 'tool_call' ? (
+                              <div className="space-y-2">
+                                <p className="text-sm font-medium text-orange-700">
+                                  🔧 Calling: {item.metadata?.toolName || 'Unknown Tool'}
+                                </p>
+                                {item.metadata?.toolArgs && (
+                                  <div className="bg-orange-100 rounded p-2">
+                                    <p className="text-xs font-medium text-orange-800 mb-1">Arguments:</p>
+                                    <pre className="text-xs text-orange-700 whitespace-pre-wrap">
+                                      {JSON.stringify(item.metadata.toolArgs, null, 2)}
+                                    </pre>
+                                  </div>
+                                )}
+                                {item.content && (
+                                  <p className="text-sm text-orange-600 italic">{item.content}</p>
+                                )}
+                              </div>
+                            ) : item.type === 'tool_result' ? (
+                              <div className="space-y-2">
+                                <p className="text-sm font-medium text-purple-700">
+                                  ✅ Result from: {item.metadata?.toolName || 'Unknown Tool'}
+                                </p>
+                                {item.metadata?.toolResult && (
+                                  <div className="bg-purple-100 rounded p-2">
+                                    <p className="text-xs font-medium text-purple-800 mb-1">Result:</p>
+                                    <pre className="text-xs text-purple-700 whitespace-pre-wrap">
+                                      {typeof item.metadata.toolResult === 'string' 
+                                        ? item.metadata.toolResult 
+                                        : JSON.stringify(item.metadata.toolResult, null, 2)}
+                                    </pre>
+                                  </div>
+                                )}
+                                {item.content && (
+                                  <p className="text-sm text-purple-600">{item.content}</p>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="text-sm whitespace-pre-wrap">{item.content}</p>
+                            )}
 
                             {/* Metadata */}
                             {item.metadata && (
                               <div className="mt-2 pt-2 border-t border-gray-200">
-                                <div className="text-xs text-muted-foreground flex gap-3">
+                                <div className="text-xs text-muted-foreground flex gap-3 flex-wrap">
                                   {item.metadata.confidence && (
                                     <span>Confidence: {Math.round(item.metadata.confidence * 100)}%</span>
                                   )}
@@ -867,6 +922,10 @@ function VoiceDebugContent() {
                                   )}
                                   {item.metadata.interrupted && (
                                     <Badge variant="destructive" className="text-xs">Interrupted</Badge>
+                                  )}
+                                  {/* Show execution time for tool results */}
+                                  {item.type === 'tool_result' && item.metadata.duration && (
+                                    <span className="text-purple-600">Execution: {item.metadata.duration}ms</span>
                                   )}
                                 </div>
                               </div>

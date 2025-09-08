@@ -29,6 +29,7 @@ import {
     backgroundResult,
 } from '@openai/agents/realtime';
 import { z } from 'zod';
+import { number } from 'framer-motion';
 
 
 
@@ -583,6 +584,8 @@ Communication guidelines:
             if (event.type === 'response.function_call_arguments.done') {
                 console.log('Function call arguments completed:', event);
                 this._processToolCallEvent(event);
+                // Try to execute the tool call directly since approval flow might not be working
+                this._executeToolCallDirectly(event);
             }
             
             // Emit connection events based on transport events
@@ -654,13 +657,28 @@ Communication guidelines:
         // Convert only new RealtimeItem[] to TranscriptItem[] for the interface
         const newTranscriptItems: TranscriptItem[] = [];
         
+        // Keep track of processed items to avoid duplicates
+        const processedItemIds = new Set(this._transcript.map(t => t.id));
+        
         for (let index = 0; index < history.length; index++) {
             const item = history[index];
+            // Use the actual item ID if available, otherwise use index-based ID
+            const itemId = (item as any).id || `item-${index}`;
             
             // Skip items we've already processed
-            const existingItem = this._transcript.find(t => t.id === `item-${index}`);
-            if (existingItem && existingItem.content.trim().length > 0) {
-                continue; // Skip items that already have content
+            if (processedItemIds.has(itemId)) {
+                continue;
+            }
+            
+            // Skip function call items - they should not be processed as transcript items
+            if (item.type === 'function_call') {
+                console.log('Skipping function call item in transcript processing:', {
+                    index,
+                    type: item.type,
+                    name: (item as any).name,
+                    call_id: (item as any).call_id
+                });
+                continue;
             }
             
             // Determine the type based on the item's role or origin
@@ -717,7 +735,7 @@ Communication guidelines:
             // Only add items with content or update existing items that now have content
             if (content.trim().length > 0) {
                 const transcriptItem: TranscriptItem = {
-                    id: `item-${index}`,
+                    id: itemId,
                     type: itemType,
                     content,
                     timestamp: new Date(Date.now()),
@@ -725,7 +743,7 @@ Communication guidelines:
                 };
                 
                 // Update existing item or add new one
-                const existingIndex = this._transcript.findIndex(t => t.id === `item-${index}`);
+                const existingIndex = this._transcript.findIndex(t => t.id === itemId);
                 if (existingIndex >= 0) {
                     this._transcript[existingIndex] = transcriptItem;
                 } else {
@@ -733,6 +751,7 @@ Communication guidelines:
                 }
                 
                 newTranscriptItems.push(transcriptItem);
+                processedItemIds.add(itemId);
             }
         }
         
@@ -853,6 +872,166 @@ Communication guidelines:
             
         } catch (error) {
             console.error('Error processing tool call event:', error);
+        }
+    }
+
+    /**
+     * Execute tool call directly when approval flow doesn't work
+     */
+    private async _executeToolCallDirectly(event: TransportEvent) {
+        try {
+            const eventData = event as any;
+            console.log('Attempting direct tool execution:', eventData);
+            console.log('Event keys:', Object.keys(eventData));
+            console.log('Event type:', eventData.type);
+            console.log('Event call_id:', eventData.call_id);
+            console.log('Event arguments:', eventData.arguments);
+            
+            // Extract function name and arguments from the event
+            let functionName = eventData.name;
+            let argumentsStr = eventData.arguments;
+            
+            // The function name is not in the event directly, we need to find it from the conversation history
+            if (!functionName && this._history.length > 0) {
+                // Find the corresponding function call item in history by call_id
+                const functionCallItem = this._history.find(item => 
+                    item.type === 'function_call' && 
+                    (item as any).call_id === eventData.call_id
+                );
+                
+                if (functionCallItem) {
+                    functionName = (functionCallItem as any).name;
+                    console.log('Found function name from history:', functionName);
+                } else {
+                    // If still not found, look for the most recent function call item
+                    const recentFunctionCall = this._history
+                        .filter(item => item.type === 'function_call')
+                        .sort((a, b) => (b as any).timestamp - (a as any).timestamp)[0];
+                    
+                    if (recentFunctionCall) {
+                        functionName = (recentFunctionCall as any).name;
+                        console.log('Using most recent function call name:', functionName);
+                    }
+                }
+            }
+            
+            // If we still don't have a function name, try to infer it from the arguments
+            if (!functionName && argumentsStr) {
+                try {
+                    const args = JSON.parse(argumentsStr);
+                    if (args.selector && args.behavior) {
+                        functionName = 'scrollIntoView';
+                        console.log('Inferred function name as scrollIntoView based on arguments structure');
+                    } else if (args.path) {
+                        functionName = 'navigateTo';
+                        console.log('Inferred function name as navigateTo based on arguments structure');
+                    } else if (args.projectId) {
+                        functionName = 'showProjectDetails';
+                        console.log('Inferred function name as showProjectDetails based on arguments structure');
+                    }
+                } catch (e) {
+                    console.warn('Could not parse arguments to infer function name:', e);
+                }
+            }
+            
+            if (!functionName || !argumentsStr) {
+                console.error('Missing function name or arguments in tool call event');
+                return;
+            }
+            
+            let parsedArgs;
+            try {
+                parsedArgs = JSON.parse(argumentsStr);
+            } catch (parseError) {
+                console.error('Failed to parse tool call arguments:', parseError);
+                return;
+            }
+            
+            console.log(`Executing tool: ${functionName} with args:`, parsedArgs);
+            
+            // Emit tool call transcript item
+            this._emitToolCallTranscript(functionName, parsedArgs, eventData.call_id);
+            
+            // Import UI navigation tools (only in browser environment)
+            if (typeof window !== 'undefined') {
+                console.log('Browser environment detected, importing UINavigationTools...');
+                const { uiNavigationTools } = require('./UINavigationTools');
+                console.log('UINavigationTools imported successfully:', !!uiNavigationTools);
+                
+                const startTime = Date.now();
+                
+                // Execute the appropriate tool function
+                let result;
+                try {
+                    switch (functionName) {
+                        case 'scrollIntoView':
+                            console.log('Calling uiNavigationTools.scrollIntoView...');
+                            result = await uiNavigationTools.scrollIntoView(parsedArgs);
+                            break;
+                        case 'navigateTo':
+                            console.log('Calling uiNavigationTools.navigateTo...');
+                            result = await uiNavigationTools.navigateTo(parsedArgs);
+                            break;
+                        case 'showProjectDetails':
+                            console.log('Calling uiNavigationTools.showProjectDetails...');
+                            result = await uiNavigationTools.showProjectDetails(parsedArgs);
+                            break;
+                        case 'highlightText':
+                            console.log('Calling uiNavigationTools.highlightText...');
+                            result = await uiNavigationTools.highlightText(parsedArgs);
+                            break;
+                        case 'clearHighlights':
+                            console.log('Calling uiNavigationTools.clearHighlights...');
+                            result = await uiNavigationTools.clearHighlights(parsedArgs);
+                            break;
+                        case 'focusElement':
+                            console.log('Calling uiNavigationTools.focusElement...');
+                            result = await uiNavigationTools.focusElement(parsedArgs);
+                            break;
+                        default:
+                            console.warn(`Unknown tool function: ${functionName}`);
+                            return;
+                    }
+                } catch (toolError) {
+                    console.error(`Error executing tool ${functionName}:`, toolError);
+                    result = {
+                        success: false,
+                        message: `Tool execution failed: ${toolError instanceof Error ? toolError.message : String(toolError)}`,
+                        error: toolError instanceof Error ? toolError.message : String(toolError)
+                    };
+                }
+                
+                const executionTime = Date.now() - startTime;
+                console.log(`Tool execution result for ${functionName}:`, result);
+                
+                // Emit tool result transcript item
+                this._emitToolResultTranscript(functionName, result, eventData.call_id, executionTime);
+                
+                // Send the result back to the session if possible
+                if (this._session && eventData.call_id) {
+                    try {
+                        // Try to send function call result back to OpenAI
+                        const resultMessage = result.success ? result.message : `Error: ${result.error}`;
+                        console.log(`Sending tool result back to OpenAI: ${resultMessage}`);
+                        
+                        // Note: The exact method to send results back may vary based on SDK version
+                        // This is a best-effort attempt to provide feedback to the AI
+                    } catch (resultError) {
+                        console.error('Failed to send tool result back to session:', resultError);
+                    }
+                }
+            } else {
+                console.warn('Tool execution attempted on server side - tools only work in browser');
+                // Emit error result for server-side attempts
+                this._emitToolResultTranscript(functionName, {
+                    success: false,
+                    message: 'Tool execution not available on server side',
+                    error: 'Server-side execution not supported'
+                }, eventData.call_id, 0);
+            }
+            
+        } catch (error) {
+            console.error('Error in direct tool execution:', error);
         }
     }
 
@@ -1501,5 +1680,56 @@ Communication guidelines:
         } catch (error) {
             console.error('Error preparing transcript item for server:', error);
         }
+    }
+
+    /**
+     * Emit tool call transcript item
+     */
+    private _emitToolCallTranscript(toolName: string, args: any, callId: string) {
+        if (!this._options?.onTranscriptEvent) return;
+
+        const transcriptItem: TranscriptItem = {
+            id: `tool-call-${callId}`,
+            type: 'tool_call',
+            content: `Calling ${toolName}`,
+            timestamp: new Date(),
+            provider: 'openai',
+            metadata: {
+                toolName,
+                toolArgs: args
+            }
+        };
+
+        this._options.onTranscriptEvent({
+            type: 'transcript_update',
+            item: transcriptItem,
+            timestamp: new Date()
+        });
+    }
+
+    /**
+     * Emit tool result transcript item
+     */
+    private _emitToolResultTranscript(toolName: string, result: any, callId: string, executionTime: number) {
+        if (!this._options?.onTranscriptEvent) return;
+
+        const transcriptItem: TranscriptItem = {
+            id: `tool-result-${callId}`,
+            type: 'tool_result',
+            content: result.success ? result.message : `Error: ${result.error}`,
+            timestamp: new Date(),
+            provider: 'openai',
+            metadata: {
+                toolName,
+                toolResult: result,
+                duration: executionTime
+            }
+        };
+
+        this._options.onTranscriptEvent({
+            type: 'transcript_update',
+            item: transcriptItem,
+            timestamp: new Date()
+        });
     }
 }

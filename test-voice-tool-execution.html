@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Tool Execution Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .section {
+            margin: 40px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        #projects {
+            background-color: #f0f8ff;
+        }
+        .test-button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background-color: #0056b3;
+        }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .voice-highlight {
+            outline: 2px solid #3b82f6 !important;
+            outline-offset: 2px !important;
+            background-color: rgba(59, 130, 246, 0.1) !important;
+            border-radius: 4px !important;
+            transition: all 0.3s ease !important;
+            animation: voice-pulse 2s infinite !important;
+        }
+        
+        @keyframes voice-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+            50% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+        }
+    </style>
+</head>
+<body>
+    <h1>Voice Tool Execution Test</h1>
+    
+    <div class="section">
+        <h2>Test Controls</h2>
+        <button class="test-button" onclick="testScrollIntoView()">Test Scroll to Projects</button>
+        <button class="test-button" onclick="testHighlightText()">Test Highlight Text</button>
+        <button class="test-button" onclick="testClearHighlights()">Test Clear Highlights</button>
+        <button class="test-button" onclick="testNavigateTo()">Test Navigate</button>
+        <button class="test-button" onclick="simulateToolCall()">Simulate Voice Tool Call</button>
+    </div>
+
+    <div class="section">
+        <h2>About</h2>
+        <p>This is a portfolio website showcasing various projects and skills.</p>
+    </div>
+
+    <div class="section" id="projects">
+        <h2>Projects</h2>
+        <p>Here are some of the projects I've worked on:</p>
+        <ul>
+            <li>Project 1: Web Application</li>
+            <li>Project 2: Mobile App</li>
+            <li>Project 3: API Development</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>Skills</h2>
+        <p>My technical skills include:</p>
+        <ul>
+            <li>JavaScript/TypeScript</li>
+            <li>React/Next.js</li>
+            <li>Node.js</li>
+            <li>Python</li>
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>Test Log</h2>
+        <div id="testLog" class="log">Test results will appear here...</div>
+    </div>
+
+    <script>
+        // Mock the UINavigationTools for testing
+        class MockUINavigationTools {
+            async scrollIntoView(args) {
+                const { selector, behavior = 'smooth' } = args;
+                
+                try {
+                    const element = document.querySelector(selector);
+                    if (!element) {
+                        return {
+                            success: false,
+                            message: `Element not found: ${selector}`,
+                            error: 'Element does not exist in the DOM'
+                        };
+                    }
+
+                    element.scrollIntoView({ behavior, block: 'center', inline: 'nearest' });
+                    
+                    return {
+                        success: true,
+                        message: `Scrolled to element: ${selector}`,
+                        data: { selector, behavior }
+                    };
+                } catch (error) {
+                    return {
+                        success: false,
+                        message: `Failed to scroll to element: ${selector}`,
+                        error: error.message
+                    };
+                }
+            }
+
+            async highlightText(args) {
+                const { selector, text, className = 'voice-highlight' } = args;
+
+                try {
+                    if (text) {
+                        // Highlight specific text within elements
+                        const elements = document.querySelectorAll(selector);
+                        if (elements.length === 0) {
+                            return {
+                                success: false,
+                                message: `No elements found: ${selector}`,
+                                error: 'Elements do not exist in the DOM'
+                            };
+                        }
+
+                        let highlightCount = 0;
+                        elements.forEach(element => {
+                            const walker = document.createTreeWalker(
+                                element,
+                                NodeFilter.SHOW_TEXT,
+                                null
+                            );
+
+                            const textNodes = [];
+                            let node;
+                            while (node = walker.nextNode()) {
+                                textNodes.push(node);
+                            }
+
+                            textNodes.forEach(textNode => {
+                                if (textNode.textContent && textNode.textContent.toLowerCase().includes(text.toLowerCase())) {
+                                    const parent = textNode.parentElement;
+                                    if (parent) {
+                                        const regex = new RegExp(`(${text})`, 'gi');
+                                        const highlightedHTML = textNode.textContent.replace(regex, 
+                                            `<span class="${className}-text" style="background-color: rgba(59, 130, 246, 0.3); padding: 2px 4px; border-radius: 3px;">$1</span>`
+                                        );
+                                        
+                                        const wrapper = document.createElement('span');
+                                        wrapper.innerHTML = highlightedHTML;
+                                        parent.replaceChild(wrapper, textNode);
+                                        highlightCount++;
+                                    }
+                                }
+                            });
+                        });
+
+                        return {
+                            success: true,
+                            message: `Highlighted text "${text}" in ${highlightCount} locations`,
+                            data: { selector, text, className, count: highlightCount }
+                        };
+                    } else {
+                        // Highlight entire elements
+                        const elements = document.querySelectorAll(selector);
+                        if (elements.length === 0) {
+                            return {
+                                success: false,
+                                message: `No elements found: ${selector}`,
+                                error: 'Elements do not exist in the DOM'
+                            };
+                        }
+
+                        elements.forEach(element => {
+                            element.classList.add(className);
+                            // Auto-remove highlight after 5 seconds
+                            setTimeout(() => {
+                                element.classList.remove(className);
+                            }, 5000);
+                        });
+
+                        return {
+                            success: true,
+                            message: `Highlighted ${elements.length} elements`,
+                            data: { selector, className, count: elements.length }
+                        };
+                    }
+                } catch (error) {
+                    return {
+                        success: false,
+                        message: `Failed to highlight: ${selector}`,
+                        error: error.message
+                    };
+                }
+            }
+
+            async clearHighlights(args = {}) {
+                const { className = 'voice-highlight' } = args;
+
+                try {
+                    // Remove element highlights
+                    const highlighted = document.querySelectorAll(`.${className}`);
+                    highlighted.forEach(el => el.classList.remove(className));
+
+                    // Remove text highlights
+                    const textHighlights = document.querySelectorAll(`.${className}-text`);
+                    textHighlights.forEach(el => {
+                        const parent = el.parentNode;
+                        parent.replaceChild(document.createTextNode(el.textContent), el);
+                        parent.normalize();
+                    });
+
+                    return {
+                        success: true,
+                        message: 'Cleared all highlights',
+                        data: { className }
+                    };
+                } catch (error) {
+                    return {
+                        success: false,
+                        message: 'Failed to clear highlights',
+                        error: error.message
+                    };
+                }
+            }
+
+            async navigateTo(args) {
+                const { path, newTab = false } = args;
+
+                if (!path || typeof path !== 'string') {
+                    return {
+                        success: false,
+                        message: 'Invalid path provided',
+                        error: 'Path must be a non-empty string'
+                    };
+                }
+
+                try {
+                    if (newTab) {
+                        window.open(path, '_blank');
+                    } else {
+                        // For testing, just log instead of actually navigating
+                        console.log(`Would navigate to: ${path}`);
+                    }
+
+                    return {
+                        success: true,
+                        message: `Navigated to ${path}`,
+                        data: { path, newTab }
+                    };
+                } catch (error) {
+                    return {
+                        success: false,
+                        message: `Failed to navigate to ${path}`,
+                        error: error.message
+                    };
+                }
+            }
+        }
+
+        const mockTools = new MockUINavigationTools();
+
+        function log(message) {
+            const logElement = document.getElementById('testLog');
+            const timestamp = new Date().toLocaleTimeString();
+            logElement.innerHTML += `[${timestamp}] ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        async function testScrollIntoView() {
+            log('Testing scrollIntoView...');
+            const result = await mockTools.scrollIntoView({ selector: '#projects', behavior: 'smooth' });
+            log(`Result: ${JSON.stringify(result, null, 2)}`);
+        }
+
+        async function testHighlightText() {
+            log('Testing highlightText...');
+            const result = await mockTools.highlightText({ selector: '#projects', text: 'projects' });
+            log(`Result: ${JSON.stringify(result, null, 2)}`);
+        }
+
+        async function testClearHighlights() {
+            log('Testing clearHighlights...');
+            const result = await mockTools.clearHighlights();
+            log(`Result: ${JSON.stringify(result, null, 2)}`);
+        }
+
+        async function testNavigateTo() {
+            log('Testing navigateTo...');
+            const result = await mockTools.navigateTo({ path: '/test', newTab: false });
+            log(`Result: ${JSON.stringify(result, null, 2)}`);
+        }
+
+        async function simulateToolCall() {
+            log('Simulating voice tool call execution...');
+            
+            // Simulate the tool call event structure from OpenAI Realtime
+            const mockEvent = {
+                type: 'response.function_call_arguments.done',
+                event_id: 'event_test123',
+                item_id: 'item_test456',
+                call_id: 'call_test789',
+                arguments: '{"selector":"#projects","behavior":"smooth"}',
+                output_index: 0,
+                response_id: 'resp_test'
+            };
+
+            log(`Mock event: ${JSON.stringify(mockEvent, null, 2)}`);
+
+            // Simulate the direct tool execution logic
+            try {
+                const functionName = 'scrollIntoView'; // Inferred from arguments
+                const parsedArgs = JSON.parse(mockEvent.arguments);
+                
+                log(`Executing tool: ${functionName} with args: ${JSON.stringify(parsedArgs)}`);
+                
+                const result = await mockTools.scrollIntoView(parsedArgs);
+                log(`Tool execution result: ${JSON.stringify(result, null, 2)}`);
+                
+                if (result.success) {
+                    log('✅ Tool execution successful!');
+                } else {
+                    log('❌ Tool execution failed!');
+                }
+            } catch (error) {
+                log(`❌ Error in tool execution: ${error.message}`);
+            }
+        }
+
+        // Initialize
+        log('Voice tool execution test page loaded');
+        log('Click the buttons above to test individual tool functions');
+    </script>
+</body>
+</html>
