@@ -10,7 +10,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { getClientAIModelManager } from '@/lib/voice/ClientAIModelManager';
 import { contextInjector } from '@/lib/services/ai/context-injector';
-import { createUINavigationToolDefinitions } from '@/lib/voice/UINavigationTools';
 import { getEnvironmentVariable } from '@/types/voice-config';
 import type { ElevenLabsConfig } from '@/types/voice-config';
 
@@ -44,6 +43,122 @@ interface ToolDefinition {
     properties: Record<string, any>;
     required?: string[];
   };
+}
+
+// Server-safe UI navigation tool definitions (no document access)
+function createServerSafeUINavigationToolDefinitions(): ToolDefinition[] {
+  return [
+    {
+      name: 'navigateTo',
+      description: 'Navigate to a specific page or URL',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: {
+            type: 'string',
+            description: 'The path or URL to navigate to'
+          },
+          newTab: {
+            type: 'boolean',
+            description: 'Whether to open in a new tab',
+            default: false
+          }
+        },
+        required: ['path']
+      }
+    },
+    {
+      name: 'showProjectDetails',
+      description: 'Show details for a specific project, optionally highlighting sections',
+      parameters: {
+        type: 'object',
+        properties: {
+          projectId: {
+            type: 'string',
+            description: 'The ID or slug of the project to show'
+          },
+          highlightSections: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Array of section IDs to highlight',
+            default: []
+          }
+        },
+        required: ['projectId']
+      }
+    },
+    {
+      name: 'scrollIntoView',
+      description: 'Scroll to bring a specific element into view',
+      parameters: {
+        type: 'object',
+        properties: {
+          selector: {
+            type: 'string',
+            description: 'CSS selector for the element to scroll to'
+          },
+          behavior: {
+            type: 'string',
+            enum: ['auto', 'smooth'],
+            description: 'Scroll behavior',
+            default: 'smooth'
+          }
+        },
+        required: ['selector']
+      }
+    },
+    {
+      name: 'highlightText',
+      description: 'Highlight specific text or elements on the page',
+      parameters: {
+        type: 'object',
+        properties: {
+          selector: {
+            type: 'string',
+            description: 'CSS selector for elements to search within'
+          },
+          text: {
+            type: 'string',
+            description: 'Specific text to highlight (optional - if not provided, highlights entire elements)'
+          },
+          className: {
+            type: 'string',
+            description: 'CSS class name for highlighting',
+            default: 'voice-highlight'
+          }
+        },
+        required: ['selector']
+      }
+    },
+    {
+      name: 'clearHighlights',
+      description: 'Clear all highlights from the page',
+      parameters: {
+        type: 'object',
+        properties: {
+          className: {
+            type: 'string',
+            description: 'CSS class name to remove',
+            default: 'voice-highlight'
+          }
+        }
+      }
+    },
+    {
+      name: 'focusElement',
+      description: 'Focus on a specific element and bring it into view',
+      parameters: {
+        type: 'object',
+        properties: {
+          selector: {
+            type: 'string',
+            description: 'CSS selector for the element to focus'
+          }
+        },
+        required: ['selector']
+      }
+    }
+  ];
 }
 
 export async function GET(request: NextRequest) {
@@ -96,13 +211,9 @@ export async function GET(request: NextRequest) {
       'Initial conversation setup'
     );
 
-    // Create client tools definitions for dynamic tool registration
-    const uiNavigationToolDefs = createUINavigationToolDefinitions();
-    const clientToolsDefinitions: ToolDefinition[] = uiNavigationToolDefs.map(tool => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters
-    }));
+    // Create client tools definitions for dynamic tool registration (server-safe)
+    const uiNavigationToolDefs = createServerSafeUINavigationToolDefinitions();
+    const clientToolsDefinitions: ToolDefinition[] = [...uiNavigationToolDefs];
 
     // Add server API tools
     clientToolsDefinitions.push(
@@ -344,13 +455,9 @@ export async function POST(request: NextRequest) {
       'Custom conversation setup'
     );
 
-    // Create client tools definitions for dynamic tool registration
-    const uiNavigationToolDefs = createUINavigationToolDefinitions();
-    const clientToolsDefinitions: ToolDefinition[] = uiNavigationToolDefs.map(tool => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters
-    }));
+    // Create client tools definitions for dynamic tool registration (server-safe)
+    const uiNavigationToolDefs = createServerSafeUINavigationToolDefinitions();
+    const clientToolsDefinitions: ToolDefinition[] = [...uiNavigationToolDefs];
 
     // Add server API tools
     clientToolsDefinitions.push(
