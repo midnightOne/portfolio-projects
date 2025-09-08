@@ -24,6 +24,7 @@ import {
 import { IConversationalAgentAdapter, AdapterRegistry } from '@/lib/voice/IConversationalAgentAdapter';
 import { OpenAIRealtimeAdapter } from '@/lib/voice/OpenAIRealtimeAdapter';
 import { ElevenLabsAdapter } from '@/lib/voice/ElevenLabsAdapter';
+import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 
 // Action types for state management
 type ConversationalAgentAction =
@@ -379,6 +380,9 @@ export function ConversationalAgentProvider({
       onTranscriptEvent: (event) => {
         dispatch({ type: 'ADD_TRANSCRIPT_ITEM', item: event.item });
 
+        // Emit debug event for transcript update
+        debugEventEmitter.emitTranscriptUpdate(event.item);
+
         // Log transcript to server asynchronously
         logTranscriptToServer(event.item).catch(console.error);
       },
@@ -491,6 +495,13 @@ export function ConversationalAgentProvider({
 
     try {
       dispatch({ type: 'SET_CONNECTION_STATUS', status: 'connecting' });
+      
+      // Generate session ID for this connection
+      const sessionId = state.conversationMetadata?.sessionId || `sess_${Date.now()}_${state.activeProvider}`;
+      
+      // Emit debug event for voice session start
+      debugEventEmitter.emitVoiceSessionStart(state.activeProvider || 'openai', sessionId);
+      
       await currentAdapterRef.current.connect();
       // Connection status will be updated by the adapter's onConnectionEvent callback
     } catch (error) {
@@ -500,13 +511,24 @@ export function ConversationalAgentProvider({
       dispatch({ type: 'SET_CONNECTION_STATUS', status: 'error' });
       throw voiceError;
     }
-  }, [state.activeProvider]);
+  }, [state.activeProvider, state.conversationMetadata?.sessionId]);
 
   const disconnect = useCallback(async () => {
     try {
       if (currentAdapterRef.current) {
         await currentAdapterRef.current.disconnect();
       }
+      
+      // Emit debug event for voice session end
+      if (state.conversationMetadata?.sessionId && state.conversationMetadata?.startTime) {
+        const duration = Date.now() - state.conversationMetadata.startTime.getTime();
+        debugEventEmitter.emitVoiceSessionEnd(
+          state.activeProvider || 'openai', 
+          state.conversationMetadata.sessionId, 
+          duration
+        );
+      }
+      
       dispatch({ type: 'SET_CONNECTION_STATUS', status: 'disconnected' });
       dispatch({ type: 'SET_SESSION_STATUS', status: 'idle' });
       dispatch({ type: 'SET_AUDIO_STATE', audioState: { isRecording: false, isPlaying: false } });
@@ -515,7 +537,7 @@ export function ConversationalAgentProvider({
       // Still set to disconnected even if there was an error
       dispatch({ type: 'SET_CONNECTION_STATUS', status: 'disconnected' });
     }
-  }, []);
+  }, [state.conversationMetadata, state.activeProvider]);
 
   const reconnect = useCallback(async () => {
     await disconnect();

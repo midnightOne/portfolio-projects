@@ -34,7 +34,7 @@ function AdminDebugTestContent() {
   const [isRunningTests, setIsRunningTests] = useState(false);
   const [currentProvider, setCurrentProvider] = useState<'openai' | 'elevenlabs'>('openai');
 
-  const updateTestResult = (name: string, status: 'success' | 'error', message: string, provider?: 'openai' | 'elevenlabs') => {
+  const updateTestResult = (name: string, status: 'success' | 'error' | 'pending', message: string, provider?: 'openai' | 'elevenlabs') => {
     setTestResults(prev => {
       const existing = prev.find(r => r.name === name);
       if (existing) {

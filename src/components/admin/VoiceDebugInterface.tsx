@@ -626,7 +626,7 @@ function VoiceDebugContent() {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
-                              sessionId: `debug-session-${selectedProvider}`,
+                              sessionId: state.conversationMetadata?.sessionId || `debug-session-${selectedProvider}`,
                               query: 'Tell me about your React projects and experience',
                               sources: ['projects', 'profile'],
                               options: { includeSystemPrompt: true },
@@ -656,25 +656,26 @@ function VoiceDebugContent() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => {
-                        // Simulate sending a message to trigger tool calls
-                        if (isConnected()) {
-                          sendMessage('Can you show me your React projects and navigate to the technical details?').then(() => {
-                            toast({
-                              title: 'Message sent',
-                              description: 'This should trigger tool call monitoring',
-                            });
-                          }).catch((error) => {
-                            toast({
-                              title: 'Send failed',
-                              description: error.message,
-                              variant: 'destructive',
-                            });
+                      onClick={async () => {
+                        // Test MCP tool calls directly
+                        try {
+                          const { mcpClient } = await import('@/lib/mcp/client');
+                          await mcpClient.initialize();
+                          
+                          // Test navigation tool
+                          const result = await mcpClient.executeTool({
+                            name: 'scrollToSection',
+                            arguments: { sectionId: 'projects', smooth: true }
                           });
-                        } else {
+                          
                           toast({
-                            title: 'Not connected',
-                            description: 'Connect to a voice provider first',
+                            title: 'Tool call executed',
+                            description: `Navigation tool ${result.success ? 'succeeded' : 'failed'}`,
+                          });
+                        } catch (error) {
+                          toast({
+                            title: 'Tool call failed',
+                            description: error instanceof Error ? error.message : 'Unknown error',
                             variant: 'destructive',
                           });
                         }
@@ -682,6 +683,110 @@ function VoiceDebugContent() {
                       className="text-xs"
                     >
                       Test Tool Calls
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        // Test server tool call
+                        try {
+                          const { mcpClient } = await import('@/lib/mcp/client');
+                          await mcpClient.initialize();
+                          
+                          const result = await mcpClient.executeTool({
+                            name: 'loadProjectContext',
+                            arguments: { projectId: 'sample-project' }
+                          });
+                          
+                          toast({
+                            title: 'Server tool executed',
+                            description: `Context loading ${result.success ? 'succeeded' : 'failed'}`,
+                          });
+                        } catch (error) {
+                          toast({
+                            title: 'Server tool failed',
+                            description: error instanceof Error ? error.message : 'Unknown error',
+                            variant: 'destructive',
+                          });
+                        }
+                      }}
+                      className="text-xs"
+                    >
+                      Test Server Tools
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        // Test multiple tool calls in sequence
+                        try {
+                          const { mcpClient } = await import('@/lib/mcp/client');
+                          await mcpClient.initialize();
+                          
+                          // Execute multiple tools
+                          const tools = [
+                            { name: 'highlightText', arguments: { selector: '.project-card', text: 'React', color: 'yellow' } },
+                            { name: 'openProjectModal', arguments: { projectId: 'test-project' } },
+                            { name: 'focusElement', arguments: { selector: '#main-content' } }
+                          ];
+                          
+                          for (const tool of tools) {
+                            await mcpClient.executeTool(tool);
+                            await new Promise(resolve => setTimeout(resolve, 100)); // Small delay
+                          }
+                          
+                          toast({
+                            title: 'Multiple tools executed',
+                            description: 'Check the Tool Call Monitor for details',
+                          });
+                        } catch (error) {
+                          toast({
+                            title: 'Multiple tools failed',
+                            description: error instanceof Error ? error.message : 'Unknown error',
+                            variant: 'destructive',
+                          });
+                        }
+                      }}
+                      className="text-xs"
+                    >
+                      Test Multiple Tools
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-1 gap-2 mt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        // Trigger debug events for monitoring system testing
+                        try {
+                          const response = await fetch('/api/debug/test-monitoring', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ testType: 'all' })
+                          });
+                          
+                          if (response.ok) {
+                            const result = await response.json();
+                            toast({
+                              title: 'Debug events triggered',
+                              description: `Triggered ${result.results.length} debug events. Check the monitoring tabs!`,
+                            });
+                          } else {
+                            throw new Error('Failed to trigger debug events');
+                          }
+                        } catch (error) {
+                          toast({
+                            title: 'Debug trigger failed',
+                            description: error instanceof Error ? error.message : 'Unknown error',
+                            variant: 'destructive',
+                          });
+                        }
+                      }}
+                      className="text-xs bg-green-50 border-green-200 text-green-700 hover:bg-green-100"
+                    >
+                      🔥 Trigger All Debug Events (Test Monitoring)
                     </Button>
                   </div>
                 </div>
@@ -848,7 +953,7 @@ function VoiceDebugContent() {
 
       {activeTab === 'context' && (
         <ContextMonitor
-          conversationId={selectedProvider ? `debug-session-${selectedProvider}` : ''}
+          conversationId={state.conversationMetadata?.sessionId || (isConnected() ? `live-session-${selectedProvider}-${Date.now()}` : '')}
           activeProvider={selectedProvider}
           onContextUpdate={(update) => {
             console.log('Context update:', update);
@@ -858,7 +963,7 @@ function VoiceDebugContent() {
 
       {activeTab === 'tools' && (
         <ToolCallMonitor
-          conversationId={selectedProvider ? `debug-session-${selectedProvider}` : ''}
+          conversationId={state.conversationMetadata?.sessionId || (isConnected() ? `live-session-${selectedProvider}-${Date.now()}` : '')}
           activeProvider={selectedProvider}
           onToolCallUpdate={(toolCall) => {
             console.log('Tool call update:', toolCall);
@@ -868,7 +973,7 @@ function VoiceDebugContent() {
 
       {activeTab === 'state' && (
         <ConversationStateInspector
-          conversationId={selectedProvider ? `debug-session-${selectedProvider}` : ''}
+          conversationId={state.conversationMetadata?.sessionId || (isConnected() ? `live-session-${selectedProvider}-${Date.now()}` : '')}
           onStateUpdate={(state) => {
             console.log('State update:', state);
           }}

@@ -139,89 +139,80 @@ export function ToolCallMonitor({ conversationId, activeProvider, onToolCallUpda
     });
   }, [state.transcript, isMonitoring, conversationId, addToolCall, toolCalls]);
 
-  // Monitor for real tool calls when voice agent is active
+  // Listen to debug events for real tool calls
   useEffect(() => {
-    if (!isMonitoring || !conversationId) return;
+    if (!isMonitoring) return;
 
-    // Simulate real tool calls based on voice agent activity
-    const interval = setInterval(() => {
-      if (state.connectionState.status === 'connected' && Math.random() > 0.8) {
-        // Simulate context loading when AI is processing
-        if (state.sessionState.status === 'processing') {
-          const contextCall: ToolCallEvent = {
-            id: `context-${Date.now()}`,
-            toolName: 'loadContext',
-            category: 'context',
-            parameters: { 
-              query: 'user_query_processing',
-              sources: ['projects', 'profile'],
-              accessLevel: state.accessLevel || 'premium'
-            },
-            executionTime: Math.floor(Math.random() * 300) + 100,
-            result: { 
-              contextLoaded: true, 
-              tokenCount: Math.floor(Math.random() * 2000) + 500,
-              sources: ['projects', 'profile']
-            },
-            success: true,
-            timestamp: new Date(),
-            provider: activeProvider || 'openai',
-            metadata: {
-              conversationId,
-              triggeredBy: 'voice_processing',
-              sessionStatus: state.sessionState.status
-            }
-          };
-          
-          addToolCall(contextCall);
+    const handleToolCallStart = (event: any) => {
+      const toolCall: ToolCallEvent = {
+        id: `start-${Date.now()}`,
+        toolName: event.data.toolName,
+        category: event.data.toolName.includes('navigate') || event.data.toolName.includes('scroll') || event.data.toolName.includes('highlight') || event.data.toolName.includes('open') || event.data.toolName.includes('focus') || event.data.toolName.includes('animate')
+          ? 'navigation' 
+          : event.data.toolName.includes('context') || event.data.toolName.includes('load')
+          ? 'context'
+          : event.data.toolName.includes('server') || event.data.toolName.includes('api')
+          ? 'server'
+          : 'system',
+        parameters: event.data.parameters,
+        executionTime: 0, // Will be updated when complete
+        result: null,
+        success: false, // Will be updated when complete
+        timestamp: event.timestamp,
+        provider: activeProvider || 'openai',
+        metadata: {
+          conversationId,
+          status: 'started',
+          source: event.source
         }
-        
-        // Simulate navigation tools when AI is speaking
-        if (state.sessionState.status === 'speaking' && Math.random() > 0.6) {
-          const navigationTools = [
-            {
-              toolName: 'openProjectModal',
-              parameters: { projectId: `proj-${Math.floor(Math.random() * 100)}`, highlightSections: ['overview', 'technical'] },
-              result: { modalOpened: true, projectTitle: 'Sample Project' }
-            },
-            {
-              toolName: 'scrollToSection',
-              parameters: { sectionId: 'technical-details', smooth: true },
-              result: { scrolled: true, sectionFound: true }
-            },
-            {
-              toolName: 'highlightText',
-              parameters: { selector: '.project-description', text: 'React', color: 'yellow' },
-              result: { highlighted: true, matchCount: 3 }
-            }
-          ];
-          
-          const navTool = navigationTools[Math.floor(Math.random() * navigationTools.length)];
-          const navCall: ToolCallEvent = {
-            id: `nav-${Date.now()}`,
-            toolName: navTool.toolName,
-            category: 'navigation',
-            parameters: navTool.parameters,
-            executionTime: Math.floor(Math.random() * 150) + 30,
-            result: navTool.result,
-            success: Math.random() > 0.1, // 90% success rate
-            error: Math.random() > 0.9 ? 'Navigation element not found' : undefined,
-            timestamp: new Date(),
-            provider: activeProvider || 'openai',
-            metadata: {
-              conversationId,
-              triggeredBy: 'ai_speaking',
-              sessionStatus: state.sessionState.status
-            }
-          };
-          
-          addToolCall(navCall);
-        }
-      }
-    }, 2000); // Check every 2 seconds
+      };
+      
+      // Store as pending for now
+      setToolCalls(prev => {
+        const updated = [toolCall, ...prev.slice(0, 99)];
+        return updated;
+      });
+    };
 
-    return () => clearInterval(interval);
-  }, [isMonitoring, conversationId, activeProvider, state.connectionState.status, state.sessionState.status, state.accessLevel, addToolCall]);
+    const handleToolCallComplete = (event: any) => {
+      const toolCall: ToolCallEvent = {
+        id: `complete-${Date.now()}`,
+        toolName: event.data.toolName,
+        category: event.data.toolName.includes('navigate') || event.data.toolName.includes('scroll') || event.data.toolName.includes('highlight') || event.data.toolName.includes('open') || event.data.toolName.includes('focus') || event.data.toolName.includes('animate')
+          ? 'navigation' 
+          : event.data.toolName.includes('context') || event.data.toolName.includes('load')
+          ? 'context'
+          : event.data.toolName.includes('server') || event.data.toolName.includes('api')
+          ? 'server'
+          : 'system',
+        parameters: {}, // Parameters not available in complete event
+        executionTime: event.data.executionTime,
+        result: event.data.result,
+        success: event.data.success,
+        error: event.data.success ? undefined : (event.data.result?.error || 'Tool execution failed'),
+        timestamp: event.timestamp,
+        provider: activeProvider || 'openai',
+        metadata: {
+          conversationId,
+          status: 'completed',
+          source: event.source
+        }
+      };
+      
+      addToolCall(toolCall);
+    };
+
+    // Enable debug events when monitoring starts
+    debugEventEmitter.enable();
+
+    debugEventEmitter.on('tool_call_start', handleToolCallStart);
+    debugEventEmitter.on('tool_call_complete', handleToolCallComplete);
+
+    return () => {
+      debugEventEmitter.off('tool_call_start', handleToolCallStart);
+      debugEventEmitter.off('tool_call_complete', handleToolCallComplete);
+    };
+  }, [isMonitoring, conversationId, activeProvider, addToolCall]);
 
   // Export tool call data
   const exportToolCalls = useCallback(() => {
@@ -342,6 +333,11 @@ export function ToolCallMonitor({ conversationId, activeProvider, onToolCallUpda
                 <RefreshCw className="h-4 w-4 mr-1" />
                 Clear
               </Button>
+              {isMonitoring && (
+                <Badge variant={toolCalls.length > 0 ? 'default' : 'secondary'} className={toolCalls.length > 0 ? 'bg-green-600' : ''}>
+                  {isMonitoring ? 'Monitoring' : 'Stopped'} {toolCalls.length > 0 && `(${toolCalls.length})`}
+                </Badge>
+              )}
             </div>
           </CardTitle>
         </CardHeader>

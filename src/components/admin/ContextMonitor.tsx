@@ -180,7 +180,7 @@ export function ContextMonitor({ conversationId, activeProvider, onContextUpdate
 - Guide users through relevant portfolio sections when appropriate
 
 Current context includes: ${contextSources.filter(s => s.included).map(s => s.name).join(', ')}`,
-          injectedContext: result.data.context || 'No specific context loaded for this query.',
+          injectedContext: typeof result.data.context === 'string' ? result.data.context : JSON.stringify(result.data.context, null, 2) || 'No specific context loaded for this query.',
           contextSources,
           filteringResults: {
             totalSources: contextSources.length,
@@ -197,7 +197,7 @@ Current context includes: ${contextSources.filter(s => s.included).map(s => s.na
         };
 
         setContextData(realContextData);
-        setRealTimeContext(result.data.context || '');
+        setRealTimeContext(typeof result.data.context === 'string' ? result.data.context : JSON.stringify(result.data.context, null, 2));
 
         // Add context update
         const update: ContextUpdate = {
@@ -273,6 +273,9 @@ Current context includes: ${contextSources.filter(s => s.included).map(s => s.na
       onContextUpdate?.(update);
     };
 
+    // Enable debug events when monitoring starts
+    debugEventEmitter.enable();
+
     debugEventEmitter.on('context_request', handleContextRequest);
     debugEventEmitter.on('context_loaded', handleContextLoaded);
 
@@ -282,14 +285,29 @@ Current context includes: ${contextSources.filter(s => s.included).map(s => s.na
     };
   }, [onContextUpdate]);
 
-  // Auto-refresh context data
+  // Auto-refresh context data (only when there's actual activity)
   useEffect(() => {
-    if (autoRefresh && conversationId) {
-      fetchContextData();
-      const interval = setInterval(fetchContextData, 5000); // Refresh every 5 seconds
-      return () => clearInterval(interval);
+    if (autoRefresh && conversationId && state.transcript.length > 0) {
+      // Only auto-refresh if there's been recent activity
+      const lastActivity = state.transcript[0]?.timestamp;
+      const timeSinceLastActivity = lastActivity ? Date.now() - lastActivity.getTime() : Infinity;
+      
+      // Only refresh if there was activity in the last 30 seconds
+      if (timeSinceLastActivity < 30000) {
+        const interval = setInterval(() => {
+          // Check again if there's still recent activity
+          const currentLastActivity = state.transcript[0]?.timestamp;
+          const currentTimeSinceActivity = currentLastActivity ? Date.now() - currentLastActivity.getTime() : Infinity;
+          
+          if (currentTimeSinceActivity < 30000) {
+            fetchContextData();
+          }
+        }, 10000); // Refresh every 10 seconds instead of 5
+        
+        return () => clearInterval(interval);
+      }
     }
-  }, [autoRefresh, conversationId, fetchContextData]);
+  }, [autoRefresh, conversationId, state.transcript.length, fetchContextData]);
 
   // Export context data
   const exportContextData = useCallback(() => {
@@ -364,6 +382,11 @@ Current context includes: ${contextSources.filter(s => s.included).map(s => s.na
                 <RefreshCw className={`h-4 w-4 mr-1 ${autoRefresh ? 'animate-spin' : ''}`} />
                 Auto Refresh
               </Button>
+              {contextUpdates.length > 0 && (
+                <Badge variant="default" className="bg-blue-600">
+                  {contextUpdates.length} events
+                </Badge>
+              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -423,7 +446,7 @@ Current context includes: ${contextSources.filter(s => s.included).map(s => s.na
                   
                   <h4 className="font-medium mb-2">Injected Context</h4>
                   <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg font-mono text-sm max-h-96 overflow-y-auto">
-                    <pre className="whitespace-pre-wrap">{contextData.injectedContext}</pre>
+                    <pre className="whitespace-pre-wrap">{typeof contextData.injectedContext === 'string' ? contextData.injectedContext : JSON.stringify(contextData.injectedContext, null, 2)}</pre>
                   </div>
                 </div>
               ) : (
@@ -556,7 +579,7 @@ Current context includes: ${contextSources.filter(s => s.included).map(s => s.na
                         </span>
                       </div>
                       <div className="text-sm font-mono bg-background p-2 rounded">
-                        <pre>{JSON.stringify(update.data, null, 2)}</pre>
+                        <pre>{typeof update.data === 'string' ? update.data : JSON.stringify(update.data, null, 2)}</pre>
                       </div>
                     </div>
                   ))}

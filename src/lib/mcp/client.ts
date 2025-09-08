@@ -18,6 +18,7 @@ import type {
 } from './types';
 import { navigationTools, getNavigationState } from './navigation-tools';
 import { serverTools } from './server-tools';
+import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 
 class MCPClientImpl implements MCPClient {
   private registry: MCPToolRegistry;
@@ -68,6 +69,9 @@ class MCPClientImpl implements MCPClient {
     }
 
     const startTime = Date.now();
+    
+    // Emit debug event for tool call start
+    debugEventEmitter.emitToolCallStart(toolCall.name, toolCall.arguments, 'current');
     
     try {
       // Validate tool call
@@ -281,6 +285,14 @@ class MCPClientImpl implements MCPClient {
     if (this.registry.executionHistory.length > 100) {
       this.registry.executionHistory = this.registry.executionHistory.slice(-100);
     }
+
+    // Emit debug event for tool call completion
+    debugEventEmitter.emitToolCallComplete(
+      toolCall.name,
+      result,
+      executionTime,
+      result.success
+    );
   }
 
   /**

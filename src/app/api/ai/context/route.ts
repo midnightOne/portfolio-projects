@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 
 interface ContextRequest {
   query: string;
@@ -32,6 +33,11 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Emit debug event for context request
+    const sessionId = (body as any).sessionId || `context-${Date.now()}`;
+    const sources = (body as any).sources || ['projects', 'profile'];
+    debugEventEmitter.emitContextRequest(query, sources, sessionId);
 
     // TODO: Implement actual context loading from ContextProviderService
     // TODO: Apply access control based on reflink permissions
@@ -71,7 +77,23 @@ export async function POST(request: NextRequest) {
     // TODO: Log context request for analytics
     console.log(`Context loaded for query: "${query}" (${contextType || 'general'})`);
 
-    return NextResponse.json(response);
+    // Emit debug event for context loaded
+    const contextString = JSON.stringify(mockContext);
+    const tokenCount = Math.ceil(contextString.length / 4); // Rough token estimate
+    debugEventEmitter.emitContextLoaded(contextString, tokenCount, 45);
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        context: contextString, // Always return as string
+        tokenCount,
+        processingTime: 45,
+        fromCache: false,
+        sources: response.sources,
+        accessLevel: response.accessLevel,
+        timestamp: response.timestamp
+      }
+    });
 
   } catch (error) {
     console.error('Error loading context:', error);
@@ -112,14 +134,21 @@ export async function GET(request: NextRequest) {
       processingTime: '32ms'
     };
 
-    const response: ContextResponse = {
-      context: mockContext,
-      sources: ['projects', 'profile'],
-      accessLevel: 'basic',
-      timestamp: new Date().toISOString()
-    };
+    const contextString = JSON.stringify(mockContext);
+    const tokenCount = Math.ceil(contextString.length / 4);
 
-    return NextResponse.json(response);
+    return NextResponse.json({
+      success: true,
+      data: {
+        context: contextString, // Always return as string
+        tokenCount,
+        processingTime: 32,
+        fromCache: false,
+        sources: ['projects', 'profile'],
+        accessLevel: 'basic',
+        timestamp: new Date().toISOString()
+      }
+    });
 
   } catch (error) {
     console.error('Error loading context:', error);
