@@ -680,6 +680,76 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
       }
     ];
 
+    // MCP Server Tools (Model Context Protocol server tools for context loading)
+    const mcpServerTools = [
+      {
+        name: 'loadProjectContext',
+        description: 'Load detailed context for a specific project',
+        parameters: {
+          type: 'object' as const,
+          properties: {
+            projectId: { type: 'string', description: 'The ID of the project to load context for' },
+            includeContent: { type: 'boolean', description: 'Whether to include full article content' },
+            includeMedia: { type: 'boolean', description: 'Whether to include media information' }
+          },
+          required: ['projectId']
+        },
+        handler: async (args: any) => ({ success: true, message: 'Project context loaded', data: args })
+      },
+      {
+        name: 'loadUserProfile',
+        description: 'Load user profile information for AI context',
+        parameters: {
+          type: 'object' as const,
+          properties: {
+            includePrivate: { type: 'boolean', description: 'Whether to include private profile information' }
+          }
+        },
+        handler: async (args: any) => ({ success: true, message: 'User profile loaded', data: args })
+      },
+      {
+        name: 'processJobSpec',
+        description: 'Process and analyze a job specification',
+        parameters: {
+          type: 'object' as const,
+          properties: {
+            jobSpec: { type: 'string', description: 'The job specification text to analyze' },
+            analysisType: { type: 'string', description: 'Type of analysis to perform' }
+          },
+          required: ['jobSpec']
+        },
+        handler: async (args: any) => ({ success: true, message: 'Job specification processed', data: args })
+      },
+      {
+        name: 'searchProjects',
+        description: 'Search projects by keywords, tags, or content',
+        parameters: {
+          type: 'object' as const,
+          properties: {
+            query: { type: 'string', description: 'Search query' },
+            tags: { type: 'array', items: { type: 'string' }, description: 'Filter by tags' },
+            limit: { type: 'number', description: 'Maximum number of results to return' }
+          },
+          required: ['query']
+        },
+        handler: async (args: any) => ({ success: true, message: 'Projects searched', data: args })
+      },
+      {
+        name: 'analyzeUserIntent',
+        description: 'Analyze user intent from conversation context',
+        parameters: {
+          type: 'object' as const,
+          properties: {
+            userMessage: { type: 'string', description: 'The user message to analyze' },
+            conversationHistory: { type: 'array', description: 'Previous conversation messages' },
+            currentContext: { type: 'object', description: 'Current navigation and UI context' }
+          },
+          required: ['userMessage']
+        },
+        handler: async (args: any) => ({ success: true, message: 'User intent analyzed', data: args })
+      }
+    ];
+
     // Server API Tools (make fetch calls to server endpoints)
     const serverApiTools = [
       {
@@ -726,7 +796,7 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
     ];
 
     // Register all standard tools
-    [...uiNavigationTools, ...serverApiTools].forEach(tool => {
+    [...uiNavigationTools, ...mcpServerTools, ...serverApiTools].forEach(tool => {
       this.registerTool(tool);
     });
   }
@@ -839,6 +909,33 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
               error: navigationResult.success ? undefined : navigationResult.error,
               timestamp: new Date(),
               executionTime: 0 // UINavigationTools handles timing internally
+            };
+
+          // Execute MCP server tools (loadProjectContext, loadUserProfile, processJobSpec, etc.)
+          } else if (['loadProjectContext', 'loadUserProfile', 'processJobSpec', 'getNavigationHistory', 'reportUIState', 'searchProjects', 'getProjectSummary', 'analyzeUserIntent', 'generateNavigationSuggestions'].includes(toolName)) {
+            let mcpResult;
+            try {
+              const response = await fetch('/api/ai/mcp/execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ toolName, parameters })
+              });
+              
+              if (!response.ok) {
+                throw new Error(`MCP server tool failed: ${response.status}`);
+              }
+              
+              mcpResult = await response.json();
+            } catch (error) {
+              mcpResult = { success: false, error: error instanceof Error ? error.message : String(error) };
+            }
+
+            toolResult = {
+              id: toolCall.id,
+              result: mcpResult.success ? mcpResult.data : null,
+              error: mcpResult.success ? undefined : mcpResult.error,
+              timestamp: new Date(),
+              executionTime: 0
             };
 
           // Execute server API calls (loadContext, analyzeJobSpec, submitContactForm)

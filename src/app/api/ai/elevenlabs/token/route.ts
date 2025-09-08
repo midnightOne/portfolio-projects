@@ -12,6 +12,7 @@ import { getClientAIModelManager } from '@/lib/voice/ClientAIModelManager';
 import { contextInjector } from '@/lib/services/ai/context-injector';
 import { getEnvironmentVariable } from '@/types/voice-config';
 import type { ElevenLabsConfig } from '@/types/voice-config';
+import { getServerToolDefinitions } from '@/lib/mcp/server-tools';
 
 interface ElevenLabsTokenRequest {
   contextId?: string;
@@ -215,6 +216,16 @@ export async function GET(request: NextRequest) {
     const uiNavigationToolDefs = createServerSafeUINavigationToolDefinitions();
     const clientToolsDefinitions: ToolDefinition[] = [...uiNavigationToolDefs];
 
+    // Add MCP server tools for context loading and processing
+    const mcpServerTools = getServerToolDefinitions();
+    mcpServerTools.forEach(mcpTool => {
+      clientToolsDefinitions.push({
+        name: mcpTool.name,
+        description: mcpTool.description,
+        parameters: mcpTool.inputSchema
+      });
+    });
+
     // Add server API tools
     clientToolsDefinitions.push(
       {
@@ -296,7 +307,7 @@ export async function GET(request: NextRequest) {
       }
     };
 
-    // Build agent configuration with server-injected context
+    // Build agent configuration with server-injected context and tools
     let agentConfig = {
       name: config.displayName || 'Portfolio AI Assistant',
       prompt: promptData.agent_prompt,
@@ -312,7 +323,9 @@ export async function GET(request: NextRequest) {
         max_duration: config.conversationConfig.maxDuration,
         enable_interruption: config.conversationConfig.enableInterruption,
         enable_backchannel: config.conversationConfig.enableBackchannel
-      }
+      },
+      // Include client tools in agent configuration for server-side registration
+      client_tools: clientToolsDefinitions
     };
 
     let agentId = requestedAgentId;
@@ -517,6 +530,16 @@ export async function POST(request: NextRequest) {
     const uiNavigationToolDefs = createServerSafeUINavigationToolDefinitions();
     const clientToolsDefinitions: ToolDefinition[] = [...uiNavigationToolDefs];
 
+    // Add MCP server tools for context loading and processing
+    const mcpServerTools = getServerToolDefinitions();
+    mcpServerTools.forEach(mcpTool => {
+      clientToolsDefinitions.push({
+        name: mcpTool.name,
+        description: mcpTool.description,
+        parameters: mcpTool.inputSchema
+      });
+    });
+
     // Add server API tools
     clientToolsDefinitions.push(
       {
@@ -598,7 +621,7 @@ export async function POST(request: NextRequest) {
       }
     };
 
-    // Build custom agent configuration with server-injected context
+    // Build custom agent configuration with server-injected context and tools
     let agentConfig = {
       name: config.displayName || 'Portfolio AI Assistant',
       prompt: promptData.agent_prompt,
@@ -614,7 +637,9 @@ export async function POST(request: NextRequest) {
         max_duration: config.conversationConfig.maxDuration,
         enable_interruption: config.conversationConfig.enableInterruption,
         enable_backchannel: config.conversationConfig.enableBackchannel
-      }
+      },
+      // Include client tools in agent configuration for server-side registration
+      client_tools: clientToolsDefinitions
     };
 
     let agentId = body.agentId;

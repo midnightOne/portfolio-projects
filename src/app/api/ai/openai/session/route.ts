@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { getClientAIModelManager } from '../../../../../lib/voice/ClientAIModelManager';
 import { OpenAIRealtimeConfig } from '../../../../../types/voice-config';
+import { getServerToolDefinitions } from '../../../../../lib/mcp/server-tools';
 
 interface OpenAISessionRequest {
   contextId?: string;
@@ -96,8 +97,17 @@ export async function GET(request: NextRequest) {
     }
 
     // Define navigation tools for OpenAI (extend default config tools)
+    const mcpServerTools = getServerToolDefinitions();
+    const mcpToolsForOpenAI = mcpServerTools.map(mcpTool => ({
+      type: 'function' as const,
+      name: mcpTool.name,
+      description: mcpTool.description,
+      parameters: mcpTool.inputSchema
+    }));
+
     const navigationTools = [
       ...defaultConfig.tools, // Include any tools from config
+      ...mcpToolsForOpenAI, // Include MCP server tools
       {
         type: 'function' as const,
         name: 'navigateTo',
@@ -317,7 +327,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Use custom tools or default from config
+    const mcpServerTools = getServerToolDefinitions();
+    const mcpToolsForOpenAI = mcpServerTools.map(mcpTool => ({
+      type: 'function' as const,
+      name: mcpTool.name,
+      description: mcpTool.description,
+      parameters: mcpTool.inputSchema
+    }));
+
     const tools = body.tools || [
+      ...mcpToolsForOpenAI, // Include MCP server tools
       {
         type: 'function' as const,
         name: 'navigateTo',

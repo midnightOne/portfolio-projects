@@ -275,6 +275,71 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             },
         });
 
+        // Create MCP server tools for Model Context Protocol integration
+        const loadProjectContextTool = tool({
+            name: 'loadProjectContext',
+            description: 'Load detailed context for a specific project',
+            parameters: z.object({
+                projectId: z.string().describe('The ID of the project to load context for'),
+                includeContent: z.boolean().nullable().optional().describe('Whether to include full article content'),
+                includeMedia: z.boolean().nullable().optional().describe('Whether to include media information')
+            }),
+            execute: async ({ projectId, includeContent, includeMedia }) => {
+                const includeContentFlag = includeContent ?? false;
+                const includeMediaFlag = includeMedia ?? false;
+                try {
+                    const response = await fetch('/api/ai/mcp/execute', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            toolName: 'loadProjectContext', 
+                            parameters: { projectId, includeContent: includeContentFlag, includeMedia: includeMediaFlag } 
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`MCP server tool failed: ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    return backgroundResult(`Loaded context for project ${projectId}`);
+                } catch (error) {
+                    return backgroundResult(`Failed to load project context: ${error instanceof Error ? error.message : String(error)}`);
+                }
+            },
+        });
+
+        const processJobSpecTool = tool({
+            name: 'processJobSpec',
+            description: 'Process and analyze a job specification',
+            parameters: z.object({
+                jobSpec: z.string().describe('The job specification text to analyze'),
+                analysisType: z.string().nullable().optional().describe('Type of analysis to perform')
+            }),
+            execute: async ({ jobSpec, analysisType }) => {
+                const analysis = analysisType ?? 'quick';
+                try {
+                    const response = await fetch('/api/ai/mcp/execute', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            toolName: 'processJobSpec', 
+                            parameters: { jobSpec, analysisType: analysis } 
+                        })
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`MCP server tool failed: ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    return backgroundResult(`Analyzed job specification`);
+                } catch (error) {
+                    return backgroundResult(`Failed to process job spec: ${error instanceof Error ? error.message : String(error)}`);
+                }
+            },
+        });
+
         // Create client-side backend API tools that make fetch calls to server endpoints
         const loadContextTool = tool({
             name: 'loadContext',
@@ -390,6 +455,8 @@ Communication guidelines:
                 scrollIntoViewTool,
                 highlightTextTool,
                 clearHighlightsTool,
+                loadProjectContextTool,
+                processJobSpecTool,
                 loadContextTool,
                 analyzeJobSpecTool,
                 submitContactFormTool
@@ -461,6 +528,33 @@ Communication guidelines:
                     }
                 },
                 handler: async (args: any) => ({ success: true, message: 'Highlights cleared', data: args })
+            },
+            {
+                name: 'loadProjectContext',
+                description: 'Load detailed context for a specific project',
+                parameters: {
+                    type: 'object' as const,
+                    properties: {
+                        projectId: { type: 'string', description: 'The ID of the project to load context for' },
+                        includeContent: { type: 'boolean', description: 'Whether to include full article content' },
+                        includeMedia: { type: 'boolean', description: 'Whether to include media information' }
+                    },
+                    required: ['projectId']
+                },
+                handler: async (args: any) => ({ success: true, message: 'Project context loaded', data: args })
+            },
+            {
+                name: 'processJobSpec',
+                description: 'Process and analyze a job specification',
+                parameters: {
+                    type: 'object' as const,
+                    properties: {
+                        jobSpec: { type: 'string', description: 'The job specification text to analyze' },
+                        analysisType: { type: 'string', description: 'Type of analysis to perform' }
+                    },
+                    required: ['jobSpec']
+                },
+                handler: async (args: any) => ({ success: true, message: 'Job specification processed', data: args })
             },
             {
                 name: 'loadContext',
