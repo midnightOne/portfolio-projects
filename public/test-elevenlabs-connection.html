@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ElevenLabs Connection Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.success { background-color: #d4edda; color: #155724; }
+        .status.error { background-color: #f8d7da; color: #721c24; }
+        .status.info { background-color: #d1ecf1; color: #0c5460; }
+        .status.warning { background-color: #fff3cd; color: #856404; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #6c757d; cursor: not-allowed; }
+        #log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ElevenLabs WebSocket Connection Test</h1>
+        <p>This page tests the ElevenLabs WebSocket connection using the signed URL from our token endpoint.</p>
+        
+        <div id="status" class="status info">Ready to test connection</div>
+        
+        <button id="testBtn" onclick="testConnection()">Test ElevenLabs Connection</button>
+        <button id="clearBtn" onclick="clearLog()">Clear Log</button>
+        
+        <h3>Connection Log:</h3>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logElement = document.getElementById('log');
+            const prefix = type === 'error' ? '❌' : type === 'success' ? '✅' : type === 'warning' ? '⚠️' : 'ℹ️';
+            logElement.textContent += `[${timestamp}] ${prefix} ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+        
+        function updateStatus(message, type) {
+            const statusElement = document.getElementById('status');
+            statusElement.textContent = message;
+            statusElement.className = `status ${type}`;
+        }
+        
+        function clearLog() {
+            document.getElementById('log').textContent = '';
+        }
+        
+        async function testConnection() {
+            const testBtn = document.getElementById('testBtn');
+            testBtn.disabled = true;
+            
+            try {
+                updateStatus('Fetching signed URL from token endpoint...', 'info');
+                log('Starting ElevenLabs connection test');
+                
+                // Step 1: Get signed URL from our token endpoint
+                log('Fetching signed URL from /api/ai/elevenlabs/token');
+                const tokenResponse = await fetch('/api/ai/elevenlabs/token');
+                
+                if (!tokenResponse.ok) {
+                    throw new Error(`Token endpoint failed: ${tokenResponse.status} ${tokenResponse.statusText}`);
+                }
+                
+                const tokenData = await tokenResponse.json();
+                log(`Token data received - Agent: ${tokenData.agent_id}`);
+                log(`Signed URL: ${tokenData.signed_url ? 'Available' : 'Not available'}`);
+                log(`Expires: ${tokenData.expires_at}`);
+                
+                if (!tokenData.signed_url || tokenData.signed_url.trim() === '') {
+                    updateStatus('No signed URL available - trying public agent connection', 'warning');
+                    log('No signed URL available, this might be a public agent', 'warning');
+                    
+                    if (tokenData.agent_id) {
+                        log(`Agent ID available: ${tokenData.agent_id}`, 'info');
+                        updateStatus('Public agent connection - check ElevenLabs documentation for client setup', 'info');
+                    }
+                    return;
+                }
+                
+                // Step 2: Test WebSocket connection
+                updateStatus('Connecting to ElevenLabs WebSocket...', 'info');
+                log(`Connecting to WebSocket: ${tokenData.signed_url}`);
+                
+                ws = new WebSocket(tokenData.signed_url);
+                
+                const connectionTimeout = setTimeout(() => {
+                    log('Connection timeout after 10 seconds', 'error');
+                    updateStatus('Connection timeout - check network and authentication', 'error');
+                    if (ws) {
+                        ws.close();
+                    }
+                    testBtn.disabled = false;
+                }, 10000);
+                
+                ws.onopen = () => {
+                    clearTimeout(connectionTimeout);
+                    log('WebSocket connection established successfully!', 'success');
+                    updateStatus('Connected to ElevenLabs successfully!', 'success');
+                    
+                    // Send a test message
+                    const testMessage = {
+                        type: 'conversation.item.create',
+                        item: {
+                            type: 'message',
+                            role: 'user',
+                            content: [{
+                                type: 'input_text',
+                                text: 'Hello, this is a test message from the browser'
+                            }]
+                        }
+                    };
+                    
+                    ws.send(JSON.stringify(testMessage));
+                    log('Test message sent to ElevenLabs');
+                    
+                    // Close connection after a short delay
+                    setTimeout(() => {
+                        if (ws) {
+                            ws.close();
+                            log('Connection closed normally');
+                        }
+                    }, 3000);
+                };
+                
+                ws.onmessage = (event) => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        log(`Received message: ${message.type || 'unknown type'}`);
+                        if (message.type === 'error') {
+                            log(`Error from ElevenLabs: ${message.error}`, 'error');
+                        }
+                    } catch (error) {
+                        log(`Received data: ${event.data.substring(0, 100)}...`);
+                    }
+                };
+                
+                ws.onerror = (error) => {
+                    clearTimeout(connectionTimeout);
+                    log(`WebSocket error: ${error.message || 'Unknown error'}`, 'error');
+                    updateStatus('WebSocket connection failed', 'error');
+                    testBtn.disabled = false;
+                };
+                
+                ws.onclose = (event) => {
+                    clearTimeout(connectionTimeout);
+                    log(`WebSocket closed: ${event.code} ${event.reason || 'No reason provided'}`);
+                    
+                    if (event.code === 1000) {
+                        log('Connection closed normally', 'success');
+                        if (document.getElementById('status').className.includes('success')) {
+                            updateStatus('Test completed successfully!', 'success');
+                        }
+                    } else {
+                        log(`Connection closed with error code: ${event.code}`, 'error');
+                        updateStatus(`Connection failed (code: ${event.code})`, 'error');
+                    }
+                    
+                    testBtn.disabled = false;
+                    ws = null;
+                };
+                
+            } catch (error) {
+                log(`Test failed: ${error.message}`, 'error');
+                updateStatus('Test failed - check console for details', 'error');
+                testBtn.disabled = false;
+            }
+        }
+        
+        // Auto-run test on page load
+        window.addEventListener('load', () => {
+            log('Page loaded - ready to test ElevenLabs connection');
+        });
+    </script>
+</body>
+</html>
