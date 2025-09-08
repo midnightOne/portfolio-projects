@@ -257,6 +257,9 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
           this._setConnectionStatus('connected');
           this._reconnectAttempts = 0;
           
+          // Start periodic reporting for unified monitoring
+          this._startPeriodicReporting();
+          
           this._handleConnectionEvent({
             type: 'connected',
             provider: 'elevenlabs',
@@ -266,6 +269,12 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
         
         onDisconnect: (details) => {
           this._setConnectionStatus('disconnected');
+          
+          // Stop periodic reporting and send final report
+          this._stopPeriodicReporting().catch(error => {
+            console.error('Failed to send final conversation report:', error);
+          });
+          
           this._handleConnectionEvent({
             type: 'disconnected',
             provider: 'elevenlabs',
@@ -295,23 +304,7 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
         },
         
         onMessage: ({ message, source }) => {
-          const transcriptItem: TranscriptItem = {
-            id: uuidv4(),
-            type: source === 'user' ? 'user_speech' : 'ai_response',
-            content: message,
-            timestamp: new Date(),
-            provider: 'elevenlabs',
-            metadata: {
-              confidence: 1.0
-            }
-          };
-          
-          this._addTranscriptItem(transcriptItem);
-          this._handleTranscriptEvent({
-            type: 'transcript_update',
-            item: transcriptItem,
-            timestamp: new Date()
-          });
+          this._handleElevenLabsMessage({ message, source });
         },
         
         onModeChange: ({ mode }) => {
@@ -364,6 +357,9 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
       
       // Stop audio input
       await this.stopAudioInput();
+      
+      // Stop periodic reporting and send final report
+      await this._stopPeriodicReporting();
       
       // Clear reconnect timer
       if (this._reconnectTimer) {
@@ -947,6 +943,11 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
             timestamp: new Date()
           });
 
+          // Report tool call to server for unified debugging (same as OpenAI)
+          this._reportTranscriptToServer(transcriptItem).catch(error => {
+            console.error('Failed to report tool call to server:', error);
+          });
+
           // Return result to ElevenLabs agent for conversation continuity
           if (toolResult.error) {
             return `Error: ${toolResult.error}`;
@@ -1008,6 +1009,16 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
             timestamp: new Date()
           });
 
+          // Report tool error to server for unified debugging
+          this._reportTranscriptToServer(errorTranscriptItem).catch(reportError => {
+            console.error('Failed to report tool error to server:', reportError);
+          });
+          this._handleTranscriptEvent({
+            type: 'transcript_update',
+            item: errorTranscriptItem,
+            timestamp: new Date()
+          });
+
           return `Error executing ${toolName}: ${error instanceof Error ? error.message : String(error)}`;
         }
       };
@@ -1016,7 +1027,219 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
     return clientTools;
   }
 
+  /**
+   * Handle ElevenLabs message events with unified TranscriptItem format
+   * Ensures compatibility with OpenAI adapter and admin debug page
+   */
+  private _handleElevenLabsMessage({ message, source }: { message: string; source: any }): void {
+    try {
+      // Create unified transcript item (same format as OpenAI adapter)
+      const transcriptItem: TranscriptItem = {
+        id: uuidv4(),
+        type: (source === 'user' || source === 'human') ? 'user_speech' : 'ai_response',
+        content: message,
+        timestamp: new Date(),
+        provider: 'elevenlabs',
+        metadata: {
+          confidence: 1.0
+        }
+      };
+      
+      // Add to local transcript
+      this._addTranscriptItem(transcriptItem);
+      
+      // Emit transcript event for unified handling
+      this._handleTranscriptEvent({
+        type: 'transcript_update',
+        item: transcriptItem,
+        timestamp: new Date()
+      });
 
+      // Report transcript to server asynchronously (unified with OpenAI)
+      this._reportTranscriptToServer(transcriptItem).catch(error => {
+        console.error('Failed to report ElevenLabs transcript to server:', error);
+      });
+
+    } catch (error) {
+      console.error('Error handling ElevenLabs message:', error);
+      
+      // Create error transcript item
+      const errorItem: TranscriptItem = {
+        id: uuidv4(),
+        type: 'error',
+        content: `Error processing message: ${error instanceof Error ? error.message : String(error)}`,
+        timestamp: new Date(),
+        provider: 'elevenlabs',
+        metadata: {
+          interrupted: true
+        }
+      };
+      
+      this._addTranscriptItem(errorItem);
+      this._handleTranscriptEvent({
+        type: 'transcript_update',
+        item: errorItem,
+        timestamp: new Date()
+      });
+    }
+  }
+
+  /**
+   * Report transcript item to server via unified conversation log endpoint
+   * Includes proper error handling and retry logic
+   */
+  private async _reportTranscriptToServer(item: TranscriptItem, retryCount: number = 0): Promise<void> {
+    const maxRetries = 3;
+    const retryDelay = Math.min(1000 * Math.pow(2, retryCount), 5000); // Exponential backoff, max 5s
+
+    try {
+      // Prepare unified conversation log payload (same format as OpenAI)
+      const sessionId = this._conversationId || `elevenlabs_${Date.now()}`;
+      const payload = {
+        transcriptItem: {
+          ...item,
+          timestamp: item.timestamp.toISOString() // Ensure ISO string format
+        },
+        sessionId,
+        contextId: this._options?.contextId,
+        reflinkId: this._options?.reflinkId,
+        provider: 'elevenlabs' as const,
+        timestamp: new Date().toISOString(),
+        conversationMetadata: {
+          messageCount: this._transcript.length,
+          toolCallCount: this._transcript.filter(t => t.type === 'tool_call').length,
+          provider: 'elevenlabs'
+        }
+      };
+
+      const response = await fetch('/api/ai/conversation/log', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
+      }
+
+      // Success - reset retry count for future calls
+      // (No need to track per-item retry count since this is fire-and-forget)
+
+    } catch (error) {
+      console.error(`Failed to report transcript to server (attempt ${retryCount + 1}/${maxRetries + 1}):`, error);
+      
+      // Retry with exponential backoff if we haven't exceeded max retries
+      if (retryCount < maxRetries) {
+        setTimeout(() => {
+          this._reportTranscriptToServer(item, retryCount + 1).catch(retryError => {
+            console.error(`Final retry failed for transcript reporting:`, retryError);
+          });
+        }, retryDelay);
+      } else {
+        // Max retries exceeded - log final failure but don't throw
+        console.error(`Max retries (${maxRetries}) exceeded for transcript reporting. Item will be lost:`, {
+          itemId: item.id,
+          itemType: item.type,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+  }
+
+  /**
+   * Report conversation metadata and usage metrics to server
+   * Called periodically and on session end
+   */
+  private async _reportConversationMetadata(): Promise<void> {
+    try {
+      if (!this._conversationId) {
+        return; // No active conversation to report
+      }
+
+      // Calculate conversation metrics
+      const now = new Date();
+      const startTime = this._transcript.length > 0 ? this._transcript[0].timestamp : now;
+      const totalDuration = now.getTime() - startTime.getTime();
+      const messageCount = this._transcript.filter(t => t.type === 'user_speech' || t.type === 'ai_response').length;
+      const toolCallCount = this._transcript.filter(t => t.type === 'tool_call').length;
+      const interruptionCount = this._transcript.filter(t => t.metadata?.interrupted).length;
+
+      // Prepare unified conversation metadata payload
+      const payload = {
+        sessionId: this._conversationId,
+        contextId: this._options?.contextId,
+        reflinkId: this._options?.reflinkId,
+        provider: 'elevenlabs' as const,
+        timestamp: now.toISOString(),
+        conversationMetadata: {
+          startTime: startTime.toISOString(),
+          endTime: now.toISOString(),
+          totalDuration,
+          messageCount,
+          toolCallCount,
+          interruptionCount,
+          provider: 'elevenlabs'
+        },
+        usageMetrics: {
+          // ElevenLabs-specific metrics (estimated)
+          audioInputDuration: totalDuration * 0.4, // Rough estimate of user speech time
+          audioOutputDuration: totalDuration * 0.6, // Rough estimate of AI speech time
+          apiCalls: messageCount + toolCallCount,
+          toolExecutions: toolCallCount
+        }
+      };
+
+      const response = await fetch('/api/ai/conversation/log', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
+      }
+
+    } catch (error) {
+      console.error('Failed to report conversation metadata to server:', error);
+      // Don't retry metadata reporting - it's less critical than individual transcripts
+    }
+  }
+
+  /**
+   * Start periodic transcript reporting to server
+   * Ensures unified debugging and monitoring across providers
+   */
+  private _startPeriodicReporting(): void {
+    // Report conversation metadata every 30 seconds
+    const reportingInterval = setInterval(() => {
+      if (this._connectionStatus === 'connected') {
+        this._reportConversationMetadata().catch(error => {
+          console.error('Periodic conversation metadata reporting failed:', error);
+        });
+      }
+    }, 30000); // 30 seconds
+
+    // Store interval for cleanup
+    (this as any)._reportingInterval = reportingInterval;
+  }
+
+  /**
+   * Stop periodic reporting and send final report
+   */
+  private async _stopPeriodicReporting(): Promise<void> {
+    // Clear interval
+    if ((this as any)._reportingInterval) {
+      clearInterval((this as any)._reportingInterval);
+      (this as any)._reportingInterval = null;
+    }
+
+    // Send final conversation metadata report
+    await this._reportConversationMetadata();
+  }
 
   private _scheduleReconnect(): void {
     if (this._reconnectTimer) {
