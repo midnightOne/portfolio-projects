@@ -1,12 +1,13 @@
 /**
  * ElevenLabs Conversational AI Adapter
  * 
- * PRODUCTION implementation using ElevenLabs Conversational AI platform with real conversation tokens.
- * This adapter uses the signed URL approach for real-time conversations with agent management
- * and tool calling through structured command parsing.
+ * PRODUCTION implementation using @elevenlabs/client library for native client-side tool support.
+ * This adapter uses the Conversation.startSession() approach for real-time conversations with
+ * proper WebRTC connection management and native tool execution.
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import { Conversation, type PartialOptions } from '@elevenlabs/client';
 import {
   VoiceProvider,
   AdapterInitOptions,
@@ -25,33 +26,24 @@ import { getClientAIModelManager } from './ClientAIModelManager';
 import { ElevenLabsConfig } from '@/types/voice-config';
 
 interface ElevenLabsTokenResponse {
-  conversation_token: string;
-  agent_id: string;
-  signed_url: string;
-  expires_at: string;
-}
-
-interface ElevenLabsConversationEvent {
-  type: string;
-  message?: string;
-  audio_data?: ArrayBuffer;
-  transcript?: string;
-  tool_calls?: any[];
-  [key: string]: any;
+  conversation_token?: string;
+  agent_id?: string;
+  signed_url?: string;
+  expires_at?: string;
+  // New format for @elevenlabs/client
+  agentId?: string;
+  conversationToken?: string;
+  signedUrl?: string;
 }
 
 export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
-  private _conversationToken: string | null = null;
-  private _agentId: string | null = null;
-  private _signedUrl: string | null = null;
-  private _websocket: WebSocket | null = null;
-  private _mediaStream: MediaStream | null = null;
-  private _isRecording: boolean = false;
+  private _conversationInstance: Conversation | null = null;
   private _config: ElevenLabsConfig | null = null;
   private _reconnectTimer: NodeJS.Timeout | null = null;
   private _reconnectAttempts: number = 0;
   private _maxReconnectAttempts: number = 3;
   private _conversationId: string | null = null;
+  private _isRecording: boolean = false;
 
   constructor() {
     // Initialize with default metadata - will be updated when config is loaded
@@ -188,30 +180,162 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
     try {
       this._setConnectionStatus('connecting');
       
-      // Get conversation token from our server
-      const tokenResponse = await this._getConversationToken();
-      this._conversationToken = tokenResponse.conversation_token;
-      this._agentId = tokenResponse.agent_id;
-      this._signedUrl = tokenResponse.signed_url;
-
-      // Establish WebSocket connection to ElevenLabs
-      await this._connectWebSocket();
-      
-      this._setConnectionStatus('connected');
-      this._reconnectAttempts = 0;
-
-      this._handleConnectionEvent({
-        type: 'connected',
-        provider: 'elevenlabs',
-        timestamp: new Date()
+      // Request microphone permission before starting session (required by @elevenlabs/client)
+      await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 16000,
+          channelCount: 1
+        }
       });
+
+      // Get conversation configuration from our server
+      const tokenResponse = await this._getConversationToken();
+      
+      // Create conversation options for @elevenlabs/client
+      // Determine configuration type based on available tokens
+      const hasSignedUrl = tokenResponse.signedUrl || tokenResponse.signed_url;
+      const hasConversationToken = tokenResponse.conversationToken || tokenResponse.conversation_token;
+      const hasAgentId = tokenResponse.agentId || tokenResponse.agent_id;
+
+      let conversationOptions: PartialOptions;
+
+      if (hasSignedUrl) {
+        // Private WebSocket session configuration
+        conversationOptions = {
+          signedUrl: tokenResponse.signedUrl || tokenResponse.signed_url!,
+          connectionType: 'websocket',
+          // Audio configuration
+          format: 'pcm',
+          sampleRate: 16000,
+          
+          // Client tools for unified tool execution
+          clientTools: this._createClientToolsForElevenLabs(),
+        };
+      } else if (hasConversationToken) {
+        // Private WebRTC session configuration
+        conversationOptions = {
+          conversationToken: tokenResponse.conversationToken || tokenResponse.conversation_token!,
+          connectionType: 'webrtc',
+          
+          // Audio configuration
+          format: 'pcm',
+          sampleRate: 16000,
+          
+          // Client tools for unified tool execution
+          clientTools: this._createClientToolsForElevenLabs(),
+        };
+      } else if (hasAgentId) {
+        // Public session configuration
+        conversationOptions = {
+          agentId: tokenResponse.agentId || tokenResponse.agent_id!,
+          connectionType: 'webrtc',
+          
+          // Audio configuration
+          format: 'pcm',
+          sampleRate: 16000,
+          
+          // Client tools for unified tool execution
+          clientTools: this._createClientToolsForElevenLabs(),
+        };
+      } else {
+        throw new Error('Invalid token response: missing required authentication parameters');
+      }
+
+      // Add common event callbacks to the configuration
+      conversationOptions = {
+        ...conversationOptions,
+        
+        // Event callbacks
+        onConnect: ({ conversationId }) => {
+          this._conversationId = conversationId;
+          this._setConnectionStatus('connected');
+          this._reconnectAttempts = 0;
+          
+          this._handleConnectionEvent({
+            type: 'connected',
+            provider: 'elevenlabs',
+            timestamp: new Date()
+          });
+        },
+        
+        onDisconnect: (details) => {
+          this._setConnectionStatus('disconnected');
+          this._handleConnectionEvent({
+            type: 'disconnected',
+            provider: 'elevenlabs',
+            timestamp: new Date()
+          });
+          
+          // Attempt reconnection if unexpected disconnect
+          if (details.reason === 'error' && this._reconnectAttempts < this._maxReconnectAttempts) {
+            this._scheduleReconnect();
+          }
+        },
+        
+        onError: (message, context) => {
+          const connectionError = new ConnectionError(
+            `ElevenLabs connection error: ${message}`,
+            'elevenlabs',
+            { context }
+          );
+          this._setError(connectionError);
+          
+          this._handleConnectionEvent({
+            type: 'error',
+            provider: 'elevenlabs',
+            error: connectionError.message,
+            timestamp: new Date()
+          });
+        },
+        
+        onMessage: ({ message, source }) => {
+          const transcriptItem: TranscriptItem = {
+            id: uuidv4(),
+            type: source === 'user' ? 'user_speech' : 'ai_response',
+            content: message,
+            timestamp: new Date(),
+            provider: 'elevenlabs',
+            metadata: {
+              confidence: 1.0
+            }
+          };
+          
+          this._addTranscriptItem(transcriptItem);
+          this._handleTranscriptEvent({
+            type: 'transcript_update',
+            item: transcriptItem,
+            timestamp: new Date()
+          });
+        },
+        
+        onModeChange: ({ mode }) => {
+          this._setSessionStatus(mode === 'listening' ? 'listening' : 
+                               mode === 'speaking' ? 'speaking' : 'idle');
+        },
+        
+        onStatusChange: ({ status }) => {
+          if (status === 'connecting') {
+            this._setConnectionStatus('connecting');
+          } else if (status === 'connected') {
+            this._setConnectionStatus('connected');
+          } else if (status === 'disconnected') {
+            this._setConnectionStatus('disconnected');
+          }
+        }
+      };
+
+      // Start the conversation session
+      this._conversationInstance = await Conversation.startSession(conversationOptions);
 
     } catch (error) {
       this._setConnectionStatus('error');
       const connectionError = new ConnectionError(
         `Failed to connect to ElevenLabs Conversational AI: ${error instanceof Error ? error.message : String(error)}`,
         'elevenlabs',
-        { error, agentId: this._agentId }
+        { error }
       );
       this._setError(connectionError);
       
@@ -244,15 +368,11 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
         this._reconnectTimer = null;
       }
 
-      // Close WebSocket connection
-      if (this._websocket) {
-        this._websocket.close();
-        this._websocket = null;
+      // End conversation session
+      if (this._conversationInstance) {
+        await this._conversationInstance.endSession();
+        this._conversationInstance = null;
       }
-
-      this._conversationToken = null;
-      this._agentId = null;
-      this._signedUrl = null;
 
       this._handleConnectionEvent({
         type: 'disconnected',
@@ -284,43 +404,12 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
         return;
       }
 
-      if (!this._websocket || this._websocket.readyState !== WebSocket.OPEN) {
-        throw new AudioError('No active WebSocket connection for audio input', 'elevenlabs');
+      if (!this._conversationInstance || !this._conversationInstance.isOpen()) {
+        throw new AudioError('No active conversation instance for audio input', 'elevenlabs');
       }
 
-      // Request microphone access
-      this._mediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          sampleRate: 16000, // ElevenLabs prefers 16kHz
-          channelCount: 1
-        }
-      });
-
-      // Set up audio processing
-      const audioContext = new AudioContext({ sampleRate: 16000 });
-      const source = audioContext.createMediaStreamSource(this._mediaStream);
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
-
-      processor.onaudioprocess = (event) => {
-        if (this._websocket && this._websocket.readyState === WebSocket.OPEN) {
-          const inputBuffer = event.inputBuffer.getChannelData(0);
-          const audioData = new Float32Array(inputBuffer);
-          
-          // Send audio data to ElevenLabs
-          this._websocket.send(JSON.stringify({
-            type: 'audio_input',
-            audio_data: Array.from(audioData),
-            timestamp: Date.now()
-          }));
-        }
-      };
-
-      source.connect(processor);
-      processor.connect(audioContext.destination);
-
+      // Unmute microphone using conversation instance
+      this._conversationInstance.setMicMuted(false);
       this._isRecording = true;
       this._setSessionStatus('listening');
 
@@ -353,21 +442,13 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
         return;
       }
 
-      if (this._mediaStream) {
-        this._mediaStream.getTracks().forEach(track => track.stop());
-        this._mediaStream = null;
+      if (this._conversationInstance && this._conversationInstance.isOpen()) {
+        // Mute microphone using conversation instance
+        this._conversationInstance.setMicMuted(true);
       }
 
       this._isRecording = false;
       this._setSessionStatus('idle');
-
-      // Notify ElevenLabs that audio input has stopped
-      if (this._websocket && this._websocket.readyState === WebSocket.OPEN) {
-        this._websocket.send(JSON.stringify({
-          type: 'audio_input_end',
-          timestamp: Date.now()
-        }));
-      }
 
       this._handleAudioEvent({
         type: 'audio_end',
@@ -387,8 +468,8 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
 
   async sendMessage(message: string): Promise<void> {
     try {
-      if (!this._websocket || this._websocket.readyState !== WebSocket.OPEN) {
-        throw new VoiceAgentError('No active WebSocket connection', 'elevenlabs');
+      if (!this._conversationInstance || !this._conversationInstance.isOpen()) {
+        throw new VoiceAgentError('No active conversation instance', 'elevenlabs');
       }
 
       // Add user message to transcript
@@ -410,12 +491,8 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
         timestamp: new Date()
       });
 
-      // Send message to ElevenLabs
-      this._websocket.send(JSON.stringify({
-        type: 'text_message',
-        message: message,
-        timestamp: Date.now()
-      }));
+      // Send message using conversation instance
+      this._conversationInstance.sendUserMessage(message);
 
     } catch (error) {
       const voiceError = new VoiceAgentError(
@@ -429,18 +506,13 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
 
   async sendAudioData(audioData: ArrayBuffer): Promise<void> {
     try {
-      if (!this._websocket || this._websocket.readyState !== WebSocket.OPEN) {
-        throw new AudioError('No active WebSocket connection for audio data', 'elevenlabs');
+      if (!this._conversationInstance || !this._conversationInstance.isOpen()) {
+        throw new AudioError('No active conversation instance for audio data', 'elevenlabs');
       }
 
-      // Convert ArrayBuffer to Float32Array for ElevenLabs
-      const audioArray = new Float32Array(audioData);
-      
-      this._websocket.send(JSON.stringify({
-        type: 'audio_input',
-        audio_data: Array.from(audioArray),
-        timestamp: Date.now()
-      }));
+      // Note: @elevenlabs/client handles audio streaming automatically through microphone
+      // This method is kept for interface compatibility but audio is handled by the conversation instance
+      console.warn('sendAudioData called but @elevenlabs/client handles audio streaming automatically');
 
     } catch (error) {
       const audioError = new AudioError(
@@ -455,15 +527,12 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
 
   async interrupt(): Promise<void> {
     try {
-      if (!this._websocket || this._websocket.readyState !== WebSocket.OPEN) {
+      if (!this._conversationInstance || !this._conversationInstance.isOpen()) {
         return;
       }
 
-      this._websocket.send(JSON.stringify({
-        type: 'interrupt',
-        timestamp: Date.now()
-      }));
-
+      // Send user activity to interrupt the AI
+      this._conversationInstance.sendUserActivity();
       this._setSessionStatus('interrupted');
 
       // Add interruption to transcript
@@ -506,13 +575,10 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
         };
       }
 
-      // If connected, update agent configuration
-      if (this._websocket && this._websocket.readyState === WebSocket.OPEN) {
-        this._websocket.send(JSON.stringify({
-          type: 'update_config',
-          config: this._config,
-          timestamp: Date.now()
-        }));
+      // If connected, send contextual update to the conversation
+      if (this._conversationInstance && this._conversationInstance.isOpen()) {
+        // Send contextual update about configuration changes
+        this._conversationInstance.sendContextualUpdate('Configuration updated');
       }
 
     } catch (error) {
@@ -542,255 +608,86 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
     return response.json();
   }
 
-  private async _connectWebSocket(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (!this._signedUrl) {
-        reject(new Error('No signed URL available for WebSocket connection'));
-        return;
-      }
+  /**
+   * Create client tools for ElevenLabs conversation
+   * Converts registered tools into the format expected by @elevenlabs/client
+   */
+  private _createClientToolsForElevenLabs(): Record<string, (parameters: any) => Promise<string | number | void> | string | number | void> {
+    const clientTools: Record<string, (parameters: any) => Promise<string | number | void> | string | number | void> = {};
+    
+    for (const [toolName, toolDef] of Array.from(this._tools.entries())) {
+      clientTools[toolName] = async (parameters: any) => {
+        try {
+          const toolCall: ToolCall = {
+            id: uuidv4(),
+            name: toolName,
+            arguments: parameters,
+            timestamp: new Date()
+          };
 
-      this._websocket = new WebSocket(this._signedUrl);
+          this._handleToolEvent({
+            type: 'tool_call',
+            toolCall,
+            timestamp: new Date()
+          });
 
-      this._websocket.onopen = () => {
-        // Send initial configuration
-        if (this._websocket) {
-          this._websocket.send(JSON.stringify({
-            type: 'init',
-            conversation_token: this._conversationToken,
-            agent_id: this._agentId,
-            config: this._config,
-            tools: this._convertToolsToElevenLabsFormat(),
-            timestamp: Date.now()
-          }));
-        }
-        resolve();
-      };
-
-      this._websocket.onerror = (error) => {
-        reject(new Error(`WebSocket connection error: ${error}`));
-      };
-
-      this._websocket.onclose = (event) => {
-        this._setConnectionStatus('disconnected');
-        this._handleConnectionEvent({
-          type: 'disconnected',
-          provider: 'elevenlabs',
-          timestamp: new Date()
-        });
-
-        // Attempt reconnection if unexpected close
-        if (event.code !== 1000 && this._reconnectAttempts < this._maxReconnectAttempts) {
-          this._scheduleReconnect();
-        }
-      };
-
-      this._websocket.onmessage = (event) => {
-        this._handleWebSocketMessage(event);
-      };
-    });
-  }
-
-  private _handleWebSocketMessage(event: MessageEvent): void {
-    try {
-      const data: ElevenLabsConversationEvent = JSON.parse(event.data);
-
-      switch (data.type) {
-        case 'transcript':
-          this._handleTranscriptMessage(data);
-          break;
-        case 'audio_response':
-          this._handleAudioResponse(data);
-          break;
-        case 'tool_call':
-          this._handleToolCall(data);
-          break;
-        case 'error':
-          this._handleError(data);
-          break;
-        case 'status':
-          this._handleStatusUpdate(data);
-          break;
-        default:
-          console.log('Unknown ElevenLabs message type:', data.type);
-      }
-    } catch (error) {
-      console.error('Failed to parse ElevenLabs WebSocket message:', error);
-    }
-  }
-
-  private _handleTranscriptMessage(data: ElevenLabsConversationEvent): void {
-    if (!data.transcript) return;
-
-    const transcriptItem: TranscriptItem = {
-      id: uuidv4(),
-      type: data.message_type === 'user' ? 'user_speech' : 'ai_response',
-      content: data.transcript,
-      timestamp: new Date(),
-      provider: 'elevenlabs',
-      metadata: {
-        confidence: data.confidence,
-        duration: data.duration
-      }
-    };
-
-    this._addTranscriptItem(transcriptItem);
-    this._handleTranscriptEvent({
-      type: 'transcript_update',
-      item: transcriptItem,
-      timestamp: new Date()
-    });
-  }
-
-  private _handleAudioResponse(data: ElevenLabsConversationEvent): void {
-    if (!data.audio_data || !this._audioElement) return;
-
-    try {
-      // Convert audio data to playable format
-      const audioBlob = new Blob([data.audio_data], { type: 'audio/wav' });
-      const audioUrl = URL.createObjectURL(audioBlob);
-      
-      this._audioElement.src = audioUrl;
-      this._audioElement.play();
-
-      this._setSessionStatus('speaking');
-      this._handleAudioEvent({
-        type: 'audio_start',
-        timestamp: new Date()
-      });
-
-      // Clean up URL when audio ends
-      this._audioElement.onended = () => {
-        URL.revokeObjectURL(audioUrl);
-        this._setSessionStatus('idle');
-        this._handleAudioEvent({
-          type: 'audio_end',
-          timestamp: new Date()
-        });
-      };
-
-    } catch (error) {
-      const audioError = new AudioError(
-        `Failed to play audio response: ${error instanceof Error ? error.message : String(error)}`,
-        'elevenlabs',
-        { error }
-      );
-      this._setError(audioError);
-    }
-  }
-
-  private async _handleToolCall(data: ElevenLabsConversationEvent): Promise<void> {
-    if (!data.tool_calls || !Array.isArray(data.tool_calls)) return;
-
-    for (const toolCallData of data.tool_calls) {
-      try {
-        const toolCall: ToolCall = {
-          id: toolCallData.id || uuidv4(),
-          name: toolCallData.name,
-          arguments: toolCallData.arguments,
-          timestamp: new Date()
-        };
-
-        this._handleToolEvent({
-          type: 'tool_call',
-          toolCall,
-          timestamp: new Date()
-        });
-
-        // Execute tool
-        const toolResult = await this._executeTool(toolCall);
-        
-        // Send result back to ElevenLabs
-        if (this._websocket && this._websocket.readyState === WebSocket.OPEN) {
-          this._websocket.send(JSON.stringify({
+          // Execute tool using the base adapter's tool execution method
+          const toolResult = await this._executeTool(toolCall);
+          
+          this._handleToolEvent({
             type: 'tool_result',
-            tool_call_id: toolCall.id,
-            result: toolResult.result,
-            error: toolResult.error,
-            timestamp: Date.now()
-          }));
+            toolResult,
+            timestamp: new Date()
+          });
+
+          // Add to transcript
+          const transcriptItem: TranscriptItem = {
+            id: uuidv4(),
+            type: 'tool_call',
+            content: `Called ${toolCall.name} with ${JSON.stringify(toolCall.arguments)}`,
+            timestamp: new Date(),
+            provider: 'elevenlabs',
+            metadata: {
+              toolName: toolCall.name,
+              toolArgs: toolCall.arguments,
+              toolResult: toolResult.result
+            }
+          };
+
+          this._addTranscriptItem(transcriptItem);
+          this._handleTranscriptEvent({
+            type: 'transcript_update',
+            item: transcriptItem,
+            timestamp: new Date()
+          });
+
+          // Return result to ElevenLabs
+          return toolResult.error ? `Error: ${toolResult.error}` : toolResult.result;
+
+        } catch (error) {
+          const toolError = new ToolError(
+            `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
+            'elevenlabs',
+            toolName,
+            { error, parameters }
+          );
+          this._setError(toolError);
+
+          this._handleToolEvent({
+            type: 'tool_error',
+            error: toolError.message,
+            timestamp: new Date()
+          });
+
+          return `Error executing ${toolName}: ${error instanceof Error ? error.message : String(error)}`;
         }
-
-        this._handleToolEvent({
-          type: 'tool_result',
-          toolResult,
-          timestamp: new Date()
-        });
-
-        // Add to transcript
-        const transcriptItem: TranscriptItem = {
-          id: uuidv4(),
-          type: 'tool_call',
-          content: `Called ${toolCall.name} with ${JSON.stringify(toolCall.arguments)}`,
-          timestamp: new Date(),
-          provider: 'elevenlabs',
-          metadata: {
-            toolName: toolCall.name,
-            toolArgs: toolCall.arguments,
-            toolResult: toolResult.result
-          }
-        };
-
-        this._addTranscriptItem(transcriptItem);
-        this._handleTranscriptEvent({
-          type: 'transcript_update',
-          item: transcriptItem,
-          timestamp: new Date()
-        });
-
-      } catch (error) {
-        const toolError = new ToolError(
-          `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
-          'elevenlabs',
-          toolCallData.name,
-          { error, toolCall: toolCallData }
-        );
-        this._setError(toolError);
-
-        this._handleToolEvent({
-          type: 'tool_error',
-          error: toolError.message,
-          timestamp: new Date()
-        });
-      }
+      };
     }
+    
+    return clientTools;
   }
 
-  private _handleError(data: ElevenLabsConversationEvent): void {
-    const error = new VoiceAgentError(
-      data.message || 'Unknown ElevenLabs error',
-      'elevenlabs',
-      data.error_code,
-      data
-    );
-    this._setError(error);
 
-    this._handleConnectionEvent({
-      type: 'error',
-      provider: 'elevenlabs',
-      error: error.message,
-      timestamp: new Date()
-    });
-  }
-
-  private _handleStatusUpdate(data: ElevenLabsConversationEvent): void {
-    if (data.status === 'speaking') {
-      this._setSessionStatus('speaking');
-    } else if (data.status === 'listening') {
-      this._setSessionStatus('listening');
-    } else if (data.status === 'processing') {
-      this._setSessionStatus('processing');
-    } else {
-      this._setSessionStatus('idle');
-    }
-  }
-
-  private _convertToolsToElevenLabsFormat(): any[] {
-    return Array.from(this._tools.values()).map(tool => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters
-    }));
-  }
 
   private _scheduleReconnect(): void {
     if (this._reconnectTimer) {
