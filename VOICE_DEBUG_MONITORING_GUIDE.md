@@ -36,7 +36,10 @@ The Voice Debug Monitoring System provides real-time monitoring of AI voice conv
 - Server tools (context loading, API calls)
 - Tool execution times and success/failure rates
 
+**IMPORTANT:** You must click "Start Monitoring" to enable real-time tool call tracking. Tool calls will appear in the conversation transcript regardless, but the detailed monitoring view requires manual activation.
+
 **How to test:**
+- **First:** Click "Start Monitoring" button to enable tracking
 - Click "Test Tool Calls" to execute a navigation tool
 - Click "Test Server Tools" to execute a server-side tool
 - Click "Test Multiple Tools" to execute several tools in sequence
@@ -133,10 +136,11 @@ The monitoring system uses a debug event emitter that captures:
 2. Try manual refresh buttons
 3. Ensure debug event emitter is enabled (happens automatically)
 
-### Tool Calls Not Appearing
-1. Click "Start Monitoring" in Tool Call Monitor
-2. Execute test tool calls using the debug buttons
-3. Check that MCP client is properly initialized
+### Tool Calls Not Appearing in Monitor
+1. **Most Common Issue:** Click "Start Monitoring" button in Tool Call Monitor (monitoring is disabled by default)
+2. Tool calls will still appear in the conversation transcript even without monitoring enabled
+3. Execute test tool calls using the debug buttons to verify functionality
+4. Check that MCP client is properly initialized
 
 ## API Endpoints
 

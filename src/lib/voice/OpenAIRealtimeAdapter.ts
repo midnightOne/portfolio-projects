@@ -29,6 +29,7 @@ import {
     backgroundResult,
 } from '@openai/agents/realtime';
 import { z } from 'zod';
+import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 import { number } from 'framer-motion';
 
 
@@ -952,6 +953,11 @@ Communication guidelines:
             // Emit tool call transcript item
             this._emitToolCallTranscript(functionName, parsedArgs, eventData.call_id);
             
+            // Emit debug event for tool call monitor
+            const sessionId = this._sessionId || eventData.call_id || 'unknown';
+            console.log('Emitting tool call start debug event:', { functionName, parsedArgs, sessionId });
+            debugEventEmitter.emitToolCallStart(functionName, parsedArgs, sessionId);
+            
             // Import UI navigation tools (only in browser environment)
             if (typeof window !== 'undefined') {
                 console.log('Browser environment detected, importing UINavigationTools...');
@@ -1007,6 +1013,10 @@ Communication guidelines:
                 // Emit tool result transcript item
                 this._emitToolResultTranscript(functionName, result, eventData.call_id, executionTime);
                 
+                // Emit debug event for tool call monitor
+                console.log('Emitting tool call complete debug event:', { functionName, result, executionTime, success: result.success });
+                debugEventEmitter.emitToolCallComplete(functionName, result, executionTime, result.success);
+                
                 // Send the result back to the session if possible
                 if (this._session && eventData.call_id) {
                     try {
@@ -1022,12 +1032,18 @@ Communication guidelines:
                 }
             } else {
                 console.warn('Tool execution attempted on server side - tools only work in browser');
-                // Emit error result for server-side attempts
-                this._emitToolResultTranscript(functionName, {
+                const serverError = {
                     success: false,
                     message: 'Tool execution not available on server side',
                     error: 'Server-side execution not supported'
-                }, eventData.call_id, 0);
+                };
+                
+                // Emit error result for server-side attempts
+                this._emitToolResultTranscript(functionName, serverError, eventData.call_id, 0);
+                
+                // Emit debug event for tool call monitor
+                console.log('Emitting tool call complete debug event (server error):', { functionName, serverError });
+                debugEventEmitter.emitToolCallComplete(functionName, serverError, 0, false);
             }
             
         } catch (error) {

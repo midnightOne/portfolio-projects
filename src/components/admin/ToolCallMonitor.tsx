@@ -144,8 +144,10 @@ export function ToolCallMonitor({ conversationId, activeProvider, onToolCallUpda
     if (!isMonitoring) return;
 
     const handleToolCallStart = (event: any) => {
+      const toolCallId = `${event.data.toolName}-${event.data.sessionId}-${event.timestamp.getTime()}`;
+      
       const toolCall: ToolCallEvent = {
-        id: `start-${Date.now()}`,
+        id: toolCallId,
         toolName: event.data.toolName,
         category: event.data.toolName.includes('navigate') || event.data.toolName.includes('scroll') || event.data.toolName.includes('highlight') || event.data.toolName.includes('open') || event.data.toolName.includes('focus') || event.data.toolName.includes('animate')
           ? 'navigation' 
@@ -167,39 +169,65 @@ export function ToolCallMonitor({ conversationId, activeProvider, onToolCallUpda
         }
       };
       
-      // Store as pending for now
-      setToolCalls(prev => {
-        const updated = [toolCall, ...prev.slice(0, 99)];
-        return updated;
-      });
+      console.log('Tool call started:', toolCall);
+      addToolCall(toolCall);
     };
 
     const handleToolCallComplete = (event: any) => {
-      const toolCall: ToolCallEvent = {
-        id: `complete-${Date.now()}`,
-        toolName: event.data.toolName,
-        category: event.data.toolName.includes('navigate') || event.data.toolName.includes('scroll') || event.data.toolName.includes('highlight') || event.data.toolName.includes('open') || event.data.toolName.includes('focus') || event.data.toolName.includes('animate')
-          ? 'navigation' 
-          : event.data.toolName.includes('context') || event.data.toolName.includes('load')
-          ? 'context'
-          : event.data.toolName.includes('server') || event.data.toolName.includes('api')
-          ? 'server'
-          : 'system',
-        parameters: {}, // Parameters not available in complete event
-        executionTime: event.data.executionTime,
-        result: event.data.result,
-        success: event.data.success,
-        error: event.data.success ? undefined : (event.data.result?.error || 'Tool execution failed'),
-        timestamp: event.timestamp,
-        provider: activeProvider || 'openai',
-        metadata: {
-          conversationId,
-          status: 'completed',
-          source: event.source
-        }
-      };
+      console.log('Tool call completed:', event);
       
-      addToolCall(toolCall);
+      // Try to find and update the existing tool call
+      setToolCalls(prev => {
+        const existingIndex = prev.findIndex(call => 
+          call.toolName === event.data.toolName && 
+          call.metadata?.status === 'started' &&
+          Math.abs(call.timestamp.getTime() - event.timestamp.getTime()) < 10000 // Within 10 seconds
+        );
+        
+        if (existingIndex >= 0) {
+          // Update existing tool call
+          const updated = [...prev];
+          updated[existingIndex] = {
+            ...updated[existingIndex],
+            executionTime: event.data.executionTime,
+            result: event.data.result,
+            success: event.data.success,
+            error: event.data.success ? undefined : (event.data.result?.error || 'Tool execution failed'),
+            metadata: {
+              ...updated[existingIndex].metadata,
+              status: 'completed'
+            }
+          };
+          return updated;
+        } else {
+          // Create new complete tool call if start wasn't found
+          const toolCall: ToolCallEvent = {
+            id: `complete-${Date.now()}`,
+            toolName: event.data.toolName,
+            category: event.data.toolName.includes('navigate') || event.data.toolName.includes('scroll') || event.data.toolName.includes('highlight') || event.data.toolName.includes('open') || event.data.toolName.includes('focus') || event.data.toolName.includes('animate')
+              ? 'navigation' 
+              : event.data.toolName.includes('context') || event.data.toolName.includes('load')
+              ? 'context'
+              : event.data.toolName.includes('server') || event.data.toolName.includes('api')
+              ? 'server'
+              : 'system',
+            parameters: {}, // Parameters not available in complete event
+            executionTime: event.data.executionTime,
+            result: event.data.result,
+            success: event.data.success,
+            error: event.data.success ? undefined : (event.data.result?.error || 'Tool execution failed'),
+            timestamp: event.timestamp,
+            provider: activeProvider || 'openai',
+            metadata: {
+              conversationId,
+              status: 'completed',
+              source: event.source
+            }
+          };
+          
+          return [toolCall, ...prev.slice(0, 99)];
+        }
+      });
     };
 
     // Enable debug events when monitoring starts
