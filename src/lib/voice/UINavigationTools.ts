@@ -189,16 +189,15 @@ export class UINavigationTools {
       }
 
       try {
-        if (newTab) {
-          window.open(path, '_blank');
-        } else {
-          window.location.href = path;
-        }
+        // DEBUG: Temporarily force all navigation to open in new tab for debugging
+        // Original logic: if (newTab) { window.open(path, '_blank'); } else { window.location.href = path; }
+        window.open(path, '_blank');
+        const actualNewTab = true; // Force to true for debugging
 
         return {
           success: true,
-          message: `Navigated to ${path}`,
-          data: { path, newTab }
+          message: `Navigated to ${path} (DEBUG: forced new tab)`,
+          data: { path, newTab: actualNewTab }
         };
       } catch (error) {
         return {

@@ -1017,12 +1017,21 @@ Communication guidelines:
                     if (args.selector && args.behavior) {
                         functionName = 'scrollIntoView';
                         console.log('Inferred function name as scrollIntoView based on arguments structure');
-                    } else if (args.path) {
+                    } else if (args.path && !args.projectId) {
                         functionName = 'navigateTo';
                         console.log('Inferred function name as navigateTo based on arguments structure');
+                    } else if (args.projectId && (args.includeContent !== undefined || args.includeMedia !== undefined)) {
+                        functionName = 'loadProjectContext';
+                        console.log('Inferred function name as loadProjectContext based on arguments structure');
                     } else if (args.projectId) {
                         functionName = 'showProjectDetails';
                         console.log('Inferred function name as showProjectDetails based on arguments structure');
+                    } else if (args.specPath || args.jobSpec) {
+                        functionName = 'processJobSpec';
+                        console.log('Inferred function name as processJobSpec based on arguments structure');
+                    } else if (args.contextType || args.includeFiles) {
+                        functionName = 'loadContext';
+                        console.log('Inferred function name as loadContext based on arguments structure');
                     }
                 } catch (e) {
                     console.warn('Could not parse arguments to infer function name:', e);
@@ -1063,34 +1072,44 @@ Communication guidelines:
                 // Execute the appropriate tool function
                 let result;
                 try {
-                    switch (functionName) {
-                        case 'scrollIntoView':
-                            console.log('Calling uiNavigationTools.scrollIntoView...');
-                            result = await uiNavigationTools.scrollIntoView(parsedArgs);
-                            break;
-                        case 'navigateTo':
-                            console.log('Calling uiNavigationTools.navigateTo...');
-                            result = await uiNavigationTools.navigateTo(parsedArgs);
-                            break;
-                        case 'showProjectDetails':
-                            console.log('Calling uiNavigationTools.showProjectDetails...');
-                            result = await uiNavigationTools.showProjectDetails(parsedArgs);
-                            break;
-                        case 'highlightText':
-                            console.log('Calling uiNavigationTools.highlightText...');
-                            result = await uiNavigationTools.highlightText(parsedArgs);
-                            break;
-                        case 'clearHighlights':
-                            console.log('Calling uiNavigationTools.clearHighlights...');
-                            result = await uiNavigationTools.clearHighlights(parsedArgs);
-                            break;
-                        case 'focusElement':
-                            console.log('Calling uiNavigationTools.focusElement...');
-                            result = await uiNavigationTools.focusElement(parsedArgs);
-                            break;
-                        default:
-                            console.warn(`Unknown tool function: ${functionName}`);
-                            return;
+                    // Check if this is an MCP tool first
+                    if (this._mcpTools.includes(functionName) || 
+                        functionName === 'loadProjectContext' || 
+                        functionName === 'processJobSpec' || 
+                        functionName === 'loadContext') {
+                        console.log(`Executing MCP tool: ${functionName}`);
+                        result = await this._executeMcpTool(functionName, parsedArgs);
+                    } else {
+                        // Handle UI navigation tools
+                        switch (functionName) {
+                            case 'scrollIntoView':
+                                console.log('Calling uiNavigationTools.scrollIntoView...');
+                                result = await uiNavigationTools.scrollIntoView(parsedArgs);
+                                break;
+                            case 'navigateTo':
+                                console.log('Calling uiNavigationTools.navigateTo...');
+                                result = await uiNavigationTools.navigateTo(parsedArgs);
+                                break;
+                            case 'showProjectDetails':
+                                console.log('Calling uiNavigationTools.showProjectDetails...');
+                                result = await uiNavigationTools.showProjectDetails(parsedArgs);
+                                break;
+                            case 'highlightText':
+                                console.log('Calling uiNavigationTools.highlightText...');
+                                result = await uiNavigationTools.highlightText(parsedArgs);
+                                break;
+                            case 'clearHighlights':
+                                console.log('Calling uiNavigationTools.clearHighlights...');
+                                result = await uiNavigationTools.clearHighlights(parsedArgs);
+                                break;
+                            case 'focusElement':
+                                console.log('Calling uiNavigationTools.focusElement...');
+                                result = await uiNavigationTools.focusElement(parsedArgs);
+                                break;
+                            default:
+                                console.warn(`Unknown tool function: ${functionName}`);
+                                return;
+                        }
                     }
                 } catch (toolError) {
                     console.error(`Error executing tool ${functionName}:`, toolError);
@@ -1142,6 +1161,46 @@ Communication guidelines:
             
         } catch (error) {
             console.error('Error in direct tool execution:', error);
+        }
+    }
+
+    /**
+     * Execute MCP tool by making API call to MCP server
+     */
+    private async _executeMcpTool(functionName: string, args: any): Promise<any> {
+        try {
+            console.log(`Executing MCP tool ${functionName} with args:`, args);
+            
+            const response = await fetch('/api/ai/mcp/execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    toolName: functionName, 
+                    parameters: args 
+                })
+            });
+            
+            if (!response.ok) {
+                throw new Error(`MCP server tool failed: ${response.status}`);
+            }
+            
+            const result = await response.json();
+            console.log(`MCP tool ${functionName} result:`, result);
+            
+            return {
+                success: result.success,
+                message: result.success ? 'MCP tool executed successfully' : result.error,
+                data: result.data,
+                error: result.error
+            };
+            
+        } catch (error) {
+            console.error(`Error executing MCP tool ${functionName}:`, error);
+            return {
+                success: false,
+                message: `MCP tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
+                error: error instanceof Error ? error.message : String(error)
+            };
         }
     }
 
