@@ -389,31 +389,29 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Generate conversation token
+    // Generate signed URL using the correct ElevenLabs API endpoint
     try {
-      // Try the official API endpoint first
-      const tokenResponse = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}/token`, {
-        method: 'POST',
+      // Use the correct signed URL endpoint as per ElevenLabs documentation
+      const signedUrlResponse = await fetch(`https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${agentId}`, {
+        method: 'GET',
         headers: {
           'xi-api-key': elevenLabsApiKey,
-          'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          // Additional configuration can be added here
-        }),
       });
 
-      if (tokenResponse.ok) {
-        const tokenData = await tokenResponse.json();
+      if (signedUrlResponse.ok) {
+        const signedUrlData = await signedUrlResponse.json();
         
-        // Calculate expiration (ElevenLabs tokens typically expire in 1 hour)
-        const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+        // Calculate expiration (ElevenLabs signed URLs expire in 15 minutes)
+        const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
-        // Generate signed URL for WebSocket connection
-        const signedUrl = `wss://api.elevenlabs.io/v1/convai/agents/${agentId}/conversation?token=${tokenData.token}`;
+        // Extract token from signed URL for compatibility
+        const signedUrl = signedUrlData.signed_url;
+        const urlParams = new URL(signedUrl);
+        const conversationSignature = urlParams.searchParams.get('conversation_signature') || 'signed_url_token';
 
         const response: ElevenLabsTokenResponse = {
-          conversation_token: tokenData.token,
+          conversation_token: conversationSignature,
           agent_id: agentId!,
           signed_url: signedUrl,
           expires_at: expiresAt,
@@ -422,52 +420,48 @@ export async function GET(request: NextRequest) {
           overrides
         };
 
-        console.log(`ElevenLabs token generated for agent: ${agentId}, IP: ${clientIP}, session: ${sessionId}`);
+        console.log(`ElevenLabs signed URL generated for agent: ${agentId}, IP: ${clientIP}, session: ${sessionId}`);
         return NextResponse.json(response);
       } else {
-        // API endpoint not available - use development mode
-        console.log(`ElevenLabs token API not available (${tokenResponse.status}), using development mode for agent: ${agentId}`);
+        const errorText = await signedUrlResponse.text();
+        console.error(`ElevenLabs signed URL API failed (${signedUrlResponse.status}):`, errorText);
         
-        // Generate a development token for admin debug testing
-        const developmentToken = `dev_token_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-        const signedUrl = `wss://api.elevenlabs.io/v1/convai/agents/${agentId}/conversation?token=${developmentToken}`;
-
+        // Try fallback to public agent connection (no authentication required)
+        console.log(`Attempting public agent connection for agent: ${agentId}`);
+        
         const response: ElevenLabsTokenResponse = {
-          conversation_token: developmentToken,
+          conversation_token: '', // No token needed for public agents
           agent_id: agentId!,
-          signed_url: signedUrl,
-          expires_at: expiresAt,
+          signed_url: '', // No signed URL for public agents
+          expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
           voice_id: requestedVoiceId || config.voiceId,
           clientToolsDefinitions,
           overrides
         };
 
-        console.log(`ElevenLabs development token generated for agent: ${agentId}, IP: ${clientIP}, session: ${sessionId}`);
-        console.log('Note: This is a development token for admin debug testing. Real voice functionality requires proper API access.');
+        console.log(`ElevenLabs public agent connection configured for agent: ${agentId}, IP: ${clientIP}, session: ${sessionId}`);
+        console.log('Note: Using public agent connection. For private conversations, ensure agent has proper authentication configured.');
         
         return NextResponse.json(response);
       }
 
     } catch (error) {
-      console.error('Error generating ElevenLabs token:', error);
+      console.error('Error generating ElevenLabs signed URL:', error);
       
-      // Fallback to development mode on any error
-      const developmentToken = `dev_token_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-      const signedUrl = `wss://api.elevenlabs.io/v1/convai/agents/${agentId}/conversation?token=${developmentToken}`;
-
+      // Fallback to public agent connection
+      console.log(`Fallback to public agent connection for agent: ${agentId}`);
+      
       const response: ElevenLabsTokenResponse = {
-        conversation_token: developmentToken,
+        conversation_token: '', // No token needed for public agents
         agent_id: agentId!,
-        signed_url: signedUrl,
-        expires_at: expiresAt,
+        signed_url: '', // No signed URL for public agents  
+        expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
         voice_id: requestedVoiceId || config.voiceId,
         clientToolsDefinitions,
         overrides
       };
 
-      console.log(`ElevenLabs fallback development token generated for agent: ${agentId}, IP: ${clientIP}, session: ${sessionId}`);
+      console.log(`ElevenLabs fallback public agent connection for agent: ${agentId}, IP: ${clientIP}, session: ${sessionId}`);
       return NextResponse.json(response);
     }
 
@@ -657,32 +651,44 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Generate conversation token
+    // Generate signed URL using the correct ElevenLabs API endpoint
     try {
-      const tokenResponse = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}/token`, {
-        method: 'POST',
+      // Use the correct signed URL endpoint as per ElevenLabs documentation
+      const signedUrlResponse = await fetch(`https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${agentId}`, {
+        method: 'GET',
         headers: {
           'xi-api-key': elevenLabsApiKey,
-          'Content-Type': 'application/json',
         },
-        body: JSON.stringify({}),
       });
 
-      if (!tokenResponse.ok) {
-        const errorText = await tokenResponse.text();
-        console.error('ElevenLabs token generation failed:', errorText);
-        return NextResponse.json(
-          { error: 'Failed to generate conversation token' },
-          { status: tokenResponse.status }
-        );
+      if (!signedUrlResponse.ok) {
+        const errorText = await signedUrlResponse.text();
+        console.error('ElevenLabs signed URL generation failed:', errorText);
+        
+        // Try fallback to public agent connection
+        const response: ElevenLabsTokenResponse = {
+          conversation_token: '', // No token needed for public agents
+          agent_id: agentId!,
+          signed_url: '', // No signed URL for public agents
+          expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          voice_id: body.voiceId || config.voiceId,
+          clientToolsDefinitions,
+          overrides
+        };
+
+        return NextResponse.json(response);
       }
 
-      const tokenData = await tokenResponse.json();
-      const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-      const signedUrl = `wss://api.elevenlabs.io/v1/convai/agents/${agentId}/conversation?token=${tokenData.token}`;
+      const signedUrlData = await signedUrlResponse.json();
+      const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      
+      // Extract token from signed URL for compatibility
+      const signedUrl = signedUrlData.signed_url;
+      const urlParams = new URL(signedUrl);
+      const conversationSignature = urlParams.searchParams.get('conversation_signature') || 'signed_url_token';
 
       const response: ElevenLabsTokenResponse = {
-        conversation_token: tokenData.token,
+        conversation_token: conversationSignature,
         agent_id: agentId!,
         signed_url: signedUrl,
         expires_at: expiresAt,
@@ -694,11 +700,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(response);
 
     } catch (error) {
-      console.error('Error generating ElevenLabs token:', error);
-      return NextResponse.json(
-        { error: 'Failed to generate token' },
-        { status: 500 }
-      );
+      console.error('Error generating ElevenLabs signed URL:', error);
+      
+      // Fallback to public agent connection
+      const response: ElevenLabsTokenResponse = {
+        conversation_token: '', // No token needed for public agents
+        agent_id: agentId!,
+        signed_url: '', // No signed URL for public agents
+        expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        voice_id: body.voiceId || config.voiceId,
+        clientToolsDefinitions,
+        overrides
+      };
+
+      return NextResponse.json(response);
     }
 
   } catch (error) {

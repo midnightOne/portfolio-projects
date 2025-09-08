@@ -199,16 +199,17 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
       
       // Create conversation options for @elevenlabs/client
       // Determine configuration type based on available tokens
-      const hasSignedUrl = tokenResponse.signedUrl || tokenResponse.signed_url;
-      const hasConversationToken = tokenResponse.conversationToken || tokenResponse.conversation_token;
-      const hasAgentId = tokenResponse.agentId || tokenResponse.agent_id;
+      const signedUrl = tokenResponse.signedUrl || tokenResponse.signed_url;
+      const conversationToken = tokenResponse.conversationToken || tokenResponse.conversation_token;
+      const agentId = tokenResponse.agentId || tokenResponse.agent_id;
 
       let conversationOptions: PartialOptions;
 
-      if (hasSignedUrl) {
-        // Private WebSocket session configuration
+      if (signedUrl && signedUrl.trim() !== '') {
+        // Private WebSocket session configuration with signed URL
+        console.log('Using signed URL authentication for ElevenLabs connection');
         conversationOptions = {
-          signedUrl: tokenResponse.signedUrl || tokenResponse.signed_url!,
+          signedUrl: signedUrl,
           connectionType: 'websocket',
           // Audio configuration
           format: 'pcm',
@@ -217,10 +218,11 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
           // Client tools for unified tool execution
           clientTools: this._createClientToolsForElevenLabs(),
         };
-      } else if (hasConversationToken) {
-        // Private WebRTC session configuration
+      } else if (conversationToken && conversationToken.trim() !== '') {
+        // Private WebRTC session configuration with conversation token
+        console.log('Using conversation token authentication for ElevenLabs connection');
         conversationOptions = {
-          conversationToken: tokenResponse.conversationToken || tokenResponse.conversation_token!,
+          conversationToken: conversationToken,
           connectionType: 'webrtc',
           
           // Audio configuration
@@ -230,10 +232,11 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
           // Client tools for unified tool execution
           clientTools: this._createClientToolsForElevenLabs(),
         };
-      } else if (hasAgentId) {
-        // Public session configuration
+      } else if (agentId && agentId.trim() !== '') {
+        // Public session configuration (no authentication required)
+        console.log('Using public agent connection for ElevenLabs (no authentication)');
         conversationOptions = {
-          agentId: tokenResponse.agentId || tokenResponse.agent_id!,
+          agentId: agentId,
           connectionType: 'webrtc',
           
           // Audio configuration
@@ -244,7 +247,7 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
           clientTools: this._createClientToolsForElevenLabs(),
         };
       } else {
-        throw new Error('Invalid token response: missing required authentication parameters');
+        throw new Error('Invalid token response: missing required authentication parameters (agentId, conversationToken, or signedUrl)');
       }
 
       // Add common event callbacks to the configuration
