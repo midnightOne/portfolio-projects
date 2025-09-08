@@ -42,6 +42,25 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     protected _isRecording: boolean = false;
     protected _isInitialized: boolean = false;
     private _config: OpenAIRealtimeConfig | null = null;
+    
+    // Analytics and debugging properties
+    private _conversationAnalytics: {
+        tokensUsed: number;
+        costUsd: number;
+        messageCount: number;
+        lastUpdated: Date;
+    } | null = null;
+    private _toolCalls: ToolCall[] = [];
+    private _guardrailEvents: Array<{
+        type: string;
+        message: string;
+        severity: string;
+        timestamp: Date;
+        context?: any;
+    }> = [];
+    private _lastReportedCost: number = 0;
+    private _conversationStartTime: Date | null = null;
+    private _sessionId: string | null = null;
 
     constructor() {
         // Initialize with default metadata - will be updated when config is loaded
@@ -535,9 +554,10 @@ Communication guidelines:
     private _setupEventListeners() {
         if (!this._session) return;
 
+        // Enhanced transport event handling with comprehensive logging
         this._session.on('transport_event', (event: TransportEvent) => {
             this._events.push(event);
-            console.log('Transport event:', event.type);
+            console.log('Transport event:', event.type, event);
             
             // Handle transcript events
             if (event.type === 'conversation.item.input_audio_transcription.completed') {
@@ -555,6 +575,14 @@ Communication guidelines:
                 console.log('AI is generating audio');
             } else if (event.type === 'response.done') {
                 console.log('AI response completed');
+                // Process usage metrics when response is complete
+                this._processResponseMetrics(event);
+            }
+            
+            // Handle tool call events
+            if (event.type === 'response.function_call_arguments.done') {
+                console.log('Function call arguments completed:', event);
+                this._processToolCallEvent(event);
             }
             
             // Emit connection events based on transport events
@@ -576,15 +604,32 @@ Communication guidelines:
             console.log('MCP tools changed:', this._mcpTools);
         });
 
+        // Enhanced history update handling with analytics processing
         this._session.on('history_updated', (history: RealtimeItem[]) => {
             console.log('History updated, items:', history.length);
             this._history = history;
             this._processHistoryUpdate(history);
+            
+            // Process conversation analytics from history
+            this._processConversationAnalytics(history);
         });
 
+        // Auto-approval flow for seamless UX
         this._session.on('tool_approval_requested', (_context, _agent, approvalRequest) => {
-            // For now, auto-approve all tools. In production, you might want user confirmation
+            console.log('Tool approval requested - auto-approving for seamless UX:', approvalRequest);
+            
+            // Log the tool call for debugging
+            this._logToolCall(approvalRequest);
+            
+            // Automatically approve all tool calls without user confirmation
             this._session?.approve(approvalRequest.approvalItem);
+            console.log('Tool call auto-approved:', approvalRequest.approvalItem);
+        });
+
+        // Enhanced guardrail handling
+        this._session.on('guardrail_tripped', (guardrailEvent) => {
+            console.log('Guardrail tripped:', guardrailEvent);
+            this._handleGuardrailEvent(guardrailEvent);
         });
 
         // Listen for audio interruption events (if available)
@@ -592,6 +637,7 @@ Communication guidelines:
             try {
                 (this._session as any).on('audio_interrupted', () => {
                     console.log('Audio interrupted event received');
+                    this._emitAudioEvent('audio_end');
                 });
             } catch (error) {
                 console.log('audio_interrupted event not available:', error);
@@ -691,7 +737,181 @@ Communication guidelines:
         newTranscriptItems.forEach(item => {
             console.log('Emitting transcript event for:', item.type, item.content.substring(0, 50));
             this._emitTranscriptEvent(item);
+            
+            // Report individual transcript items to server for real-time logging
+            this._reportTranscriptItemToServer(item);
         });
+    }
+
+    /**
+     * Process conversation analytics from history including tokens and cost metrics
+     */
+    private _processConversationAnalytics(history: RealtimeItem[]) {
+        try {
+            // Extract usage metrics from the conversation history
+            let totalTokensUsed = 0;
+            let estimatedCostUsd = 0;
+            
+            // Look for usage information in the history items
+            for (const item of history) {
+                if ('usage' in item && item.usage) {
+                    const usage = item.usage as any;
+                    if (usage.total_tokens) {
+                        totalTokensUsed += usage.total_tokens;
+                    }
+                    if (usage.cost_usd) {
+                        estimatedCostUsd += usage.cost_usd;
+                    }
+                }
+                
+                // Also check for response-level usage data
+                if ('response' in item && item.response && typeof item.response === 'object' && item.response !== null && 'usage' in item.response) {
+                    const responseUsage = (item.response as any).usage;
+                    if (responseUsage.total_tokens) {
+                        totalTokensUsed += responseUsage.total_tokens;
+                    }
+                    if (responseUsage.cost_usd) {
+                        estimatedCostUsd += responseUsage.cost_usd;
+                    }
+                }
+            }
+            
+            // Store analytics for reporting
+            this._conversationAnalytics = {
+                tokensUsed: totalTokensUsed,
+                costUsd: estimatedCostUsd,
+                messageCount: history.length,
+                lastUpdated: new Date()
+            };
+            
+            console.log('Conversation analytics updated:', this._conversationAnalytics);
+            
+            // Report to server periodically (every 10 messages or significant cost increase)
+            if (history.length % 10 === 0 || estimatedCostUsd > (this._lastReportedCost || 0) + 0.01) {
+                this._reportConversationDataToServer();
+            }
+            
+        } catch (error) {
+            console.error('Error processing conversation analytics:', error);
+        }
+    }
+
+    /**
+     * Process response completion metrics
+     */
+    private _processResponseMetrics(event: TransportEvent) {
+        try {
+            const eventData = event as any;
+            
+            // Extract usage data from the response event
+            if (eventData.response && eventData.response.usage) {
+                const usage = eventData.response.usage;
+                console.log('Response usage metrics:', usage);
+                
+                // Update our analytics
+                if (this._conversationAnalytics) {
+                    if (usage.total_tokens) {
+                        this._conversationAnalytics.tokensUsed += usage.total_tokens;
+                    }
+                    if (usage.cost_usd) {
+                        this._conversationAnalytics.costUsd += usage.cost_usd;
+                    }
+                    this._conversationAnalytics.lastUpdated = new Date();
+                }
+            }
+            
+        } catch (error) {
+            console.error('Error processing response metrics:', error);
+        }
+    }
+
+    /**
+     * Process tool call events for logging and debugging
+     */
+    private _processToolCallEvent(event: TransportEvent) {
+        try {
+            const eventData = event as any;
+            console.log('Processing tool call event:', eventData);
+            
+            // Extract tool call information
+            if (eventData.name && eventData.arguments) {
+                const toolCall: ToolCall = {
+                    id: eventData.call_id || `tool-${Date.now()}`,
+                    name: eventData.name,
+                    arguments: eventData.arguments,
+                    timestamp: new Date()
+                };
+                
+                console.log('Tool call detected:', toolCall);
+                
+                // Store for debugging and analytics
+                this._toolCalls.push(toolCall);
+            }
+            
+        } catch (error) {
+            console.error('Error processing tool call event:', error);
+        }
+    }
+
+    /**
+     * Log tool call for debugging purposes
+     */
+    private _logToolCall(approvalRequest: any) {
+        try {
+            console.log('Tool call approval request details:', {
+                item: approvalRequest.approvalItem,
+                context: approvalRequest.context,
+                timestamp: new Date().toISOString()
+            });
+            
+            // Extract tool information for logging
+            const item = approvalRequest.approvalItem;
+            if (item && 'name' in item) {
+                const toolCall: ToolCall = {
+                    id: item.id || `approval-${Date.now()}`,
+                    name: item.name,
+                    arguments: item.arguments || {},
+                    timestamp: new Date()
+                };
+                
+                this._toolCalls.push(toolCall);
+                console.log('Tool call logged for debugging:', toolCall);
+            }
+            
+        } catch (error) {
+            console.error('Error logging tool call:', error);
+        }
+    }
+
+    /**
+     * Handle guardrail events
+     */
+    private _handleGuardrailEvent(guardrailEvent: any) {
+        try {
+            console.log('Guardrail event details:', guardrailEvent);
+            
+            // Log guardrail violations for debugging and safety monitoring
+            const guardrailLog = {
+                type: guardrailEvent.type || 'unknown',
+                message: guardrailEvent.message || 'Guardrail triggered',
+                severity: guardrailEvent.severity || 'warning',
+                timestamp: new Date(),
+                context: guardrailEvent.context
+            };
+            
+            console.warn('Guardrail triggered:', guardrailLog);
+            
+            // Store guardrail events for admin review
+            this._guardrailEvents.push(guardrailLog);
+            
+            // Report serious guardrail violations immediately
+            if (guardrailLog.severity === 'error' || guardrailLog.severity === 'critical') {
+                this._reportGuardrailViolation(guardrailLog);
+            }
+            
+        } catch (error) {
+            console.error('Error handling guardrail event:', error);
+        }
     }
 
     // Helper methods to emit events to the context
@@ -868,6 +1088,16 @@ Communication guidelines:
 
             this._isConnected = true;
             this._connectionStatus = 'connected';
+            
+            // Initialize conversation tracking
+            this._conversationStartTime = new Date();
+            this._conversationAnalytics = {
+                tokensUsed: 0,
+                costUsd: 0,
+                messageCount: 0,
+                lastUpdated: new Date()
+            };
+            
             console.log('OpenAIRealtimeAdapter: Connected successfully, emitting event');
             this._emitConnectionEvent('connected');
 
@@ -883,6 +1113,11 @@ Communication guidelines:
     async disconnect(): Promise<void> {
         if (this._session && this._isConnected) {
             try {
+                // Report final conversation data before disconnecting
+                if (this._conversationAnalytics && this._conversationAnalytics.messageCount > 0) {
+                    await this._reportConversationDataToServer();
+                }
+                
                 this._session.close();
                 this._isConnected = false;
                 this._connectionStatus = 'disconnected';
@@ -1079,5 +1314,188 @@ Communication guidelines:
         // If we need to update the session config, we would need to reconnect
         // For now, just store the config
         console.log('Config updated:', config);
+    }
+
+    /**
+     * Report conversation data to server for persistent storage and cost tracking
+     */
+    private async _reportConversationDataToServer(): Promise<void> {
+        try {
+            if (!this._conversationAnalytics) {
+                console.log('No conversation analytics to report');
+                return;
+            }
+
+            // Calculate total audio duration from transcript
+            const audioInputDuration = this._transcript
+                .filter(item => item.type === 'user_speech')
+                .reduce((total, item) => total + (item.content.length * 100), 0); // Rough estimate
+            
+            const audioOutputDuration = this._transcript
+                .filter(item => item.type === 'ai_response')
+                .reduce((total, item) => total + (item.content.length * 100), 0); // Rough estimate
+
+            const conversationData = {
+                sessionId: this._generateSessionId(),
+                provider: 'openai' as const,
+                timestamp: new Date().toISOString(),
+                conversationMetadata: {
+                    startTime: this._conversationStartTime?.toISOString(),
+                    endTime: new Date().toISOString(),
+                    totalDuration: this._conversationStartTime ? 
+                        Date.now() - this._conversationStartTime.getTime() : 0,
+                    messageCount: this._conversationAnalytics.messageCount,
+                    toolCallCount: this._toolCalls.length,
+                    interruptionCount: this._events.filter(e => e.type.includes('interrupt')).length,
+                    costEstimate: this._conversationAnalytics.costUsd
+                },
+                usageMetrics: {
+                    audioInputDuration,
+                    audioOutputDuration,
+                    tokensUsed: this._conversationAnalytics.tokensUsed,
+                    apiCalls: this._events.filter(e => e.type.includes('response')).length,
+                    toolExecutions: this._toolCalls.length
+                }
+            };
+
+            console.log('Reporting conversation data to server:', {
+                tokensUsed: conversationData.usageMetrics.tokensUsed,
+                costEstimate: conversationData.conversationMetadata.costEstimate,
+                messageCount: conversationData.conversationMetadata.messageCount,
+                toolCallCount: conversationData.conversationMetadata.toolCallCount
+            });
+
+            const response = await fetch('/api/ai/conversation/log', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(conversationData)
+            });
+
+            if (!response.ok) {
+                throw new Error(`Server responded with ${response.status}`);
+            }
+
+            // Update last reported cost to avoid duplicate reporting
+            this._lastReportedCost = this._conversationAnalytics.costUsd;
+            
+            console.log('Conversation data reported successfully');
+
+        } catch (error) {
+            console.error('Failed to report conversation data to server:', error);
+            // Don't throw - this is a background operation that shouldn't break the conversation
+        }
+    }
+
+    /**
+     * Report guardrail violations to server for admin review
+     */
+    private async _reportGuardrailViolation(guardrailLog: any): Promise<void> {
+        try {
+            console.log('Reporting guardrail violation to server:', guardrailLog);
+
+            const response = await fetch('/api/ai/guardrail/violation', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    provider: 'openai',
+                    sessionId: this._generateSessionId(),
+                    violation: guardrailLog,
+                    context: {
+                        recentTranscript: this._transcript.slice(-5), // Last 5 messages for context
+                        recentToolCalls: this._toolCalls.slice(-3)    // Last 3 tool calls for context
+                    }
+                })
+            });
+
+            if (!response.ok) {
+                console.error('Failed to report guardrail violation:', response.status);
+            } else {
+                console.log('Guardrail violation reported successfully');
+            }
+
+        } catch (error) {
+            console.error('Error reporting guardrail violation:', error);
+            // Don't throw - this is a background operation
+        }
+    }
+
+    /**
+     * Generate a consistent session ID for tracking
+     */
+    private _generateSessionId(): string {
+        // Use a combination of timestamp and random string for uniqueness
+        if (!this._sessionId) {
+            this._sessionId = `openai-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        }
+        return this._sessionId;
+    }
+
+    /**
+     * Get current conversation analytics
+     */
+    public getConversationAnalytics() {
+        return {
+            ...this._conversationAnalytics,
+            toolCallCount: this._toolCalls.length,
+            guardrailEventCount: this._guardrailEvents.length,
+            sessionDuration: this._conversationStartTime ? 
+                Date.now() - this._conversationStartTime.getTime() : 0
+        };
+    }
+
+    /**
+     * Get tool calls for debugging
+     */
+    public getToolCalls(): ToolCall[] {
+        return [...this._toolCalls];
+    }
+
+    /**
+     * Get guardrail events for debugging
+     */
+    public getGuardrailEvents() {
+        return [...this._guardrailEvents];
+    }
+
+    /**
+     * Report individual transcript items to server for real-time logging
+     */
+    private async _reportTranscriptItemToServer(item: TranscriptItem): Promise<void> {
+        try {
+            const transcriptData = {
+                sessionId: this._generateSessionId(),
+                provider: 'openai' as const,
+                timestamp: new Date().toISOString(),
+                transcriptItem: {
+                    id: item.id,
+                    type: item.type,
+                    content: item.content,
+                    timestamp: item.timestamp.toISOString(),
+                    provider: item.provider,
+                    metadata: {
+                        confidence: 0.95, // Default confidence for OpenAI Realtime
+                        interrupted: false // Could be enhanced to detect interruptions
+                    }
+                }
+            };
+
+            // Don't await this to avoid blocking the conversation flow
+            fetch('/api/ai/conversation/log', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(transcriptData)
+            }).catch(error => {
+                console.error('Failed to report transcript item to server:', error);
+            });
+
+        } catch (error) {
+            console.error('Error preparing transcript item for server:', error);
+        }
     }
 }
