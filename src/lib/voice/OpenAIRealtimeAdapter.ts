@@ -679,8 +679,8 @@ Communication guidelines:
             if (event.type === 'response.function_call_arguments.done') {
                 console.log('Function call arguments completed:', event);
                 this._processToolCallEvent(event);
-                // Try to execute the tool call directly since approval flow might not be working
-                this._executeToolCallDirectly(event);
+                // Execute tool call using unified execution pipeline
+                this._executeToolCallUnified(event);
             }
             
             // Emit connection events based on transport events
@@ -971,12 +971,12 @@ Communication guidelines:
     }
 
     /**
-     * Execute tool call directly when approval flow doesn't work
+     * Execute tool call using unified execution pipeline
      */
-    private async _executeToolCallDirectly(event: TransportEvent) {
+    private async _executeToolCallUnified(event: TransportEvent) {
         try {
             const eventData = event as any;
-            console.log('Attempting direct tool execution:', eventData);
+            console.log('Attempting unified tool execution:', eventData);
             console.log('Event keys:', Object.keys(eventData));
             console.log('Event type:', eventData.type);
             console.log('Event call_id:', eventData.call_id);
@@ -1051,116 +1051,61 @@ Communication guidelines:
                 return;
             }
             
-            console.log(`Executing tool: ${functionName} with args:`, parsedArgs);
+            console.log(`Executing tool via unified pipeline: ${functionName} with args:`, parsedArgs);
             
             // Emit tool call transcript item
             this._emitToolCallTranscript(functionName, parsedArgs, eventData.call_id);
             
-            // Emit debug event for tool call monitor
-            const sessionId = this._sessionId || eventData.call_id || 'unknown';
-            console.log('Emitting tool call start debug event:', { functionName, parsedArgs, sessionId });
-            debugEventEmitter.emitToolCallStart(functionName, parsedArgs, sessionId);
-            
-            // Import UI navigation tools (only in browser environment)
-            if (typeof window !== 'undefined') {
-                console.log('Browser environment detected, importing UINavigationTools...');
-                const { uiNavigationTools } = require('./UINavigationTools');
-                console.log('UINavigationTools imported successfully:', !!uiNavigationTools);
+            try {
+                // Execute tool using unified execution pipeline
+                const result = await this._executeUnifiedTool(functionName, parsedArgs);
                 
-                const startTime = Date.now();
-                
-                // Execute the appropriate tool function
-                let result;
-                try {
-                    // Check if this is an MCP tool first
-                    if (this._mcpTools.includes(functionName) || 
-                        functionName === 'loadProjectContext' || 
-                        functionName === 'processJobSpec' || 
-                        functionName === 'loadContext') {
-                        console.log(`Executing MCP tool: ${functionName}`);
-                        result = await this._executeMcpTool(functionName, parsedArgs);
-                    } else {
-                        // Handle UI navigation tools
-                        switch (functionName) {
-                            case 'scrollIntoView':
-                                console.log('Calling uiNavigationTools.scrollIntoView...');
-                                result = await uiNavigationTools.scrollIntoView(parsedArgs);
-                                break;
-                            case 'navigateTo':
-                                console.log('Calling uiNavigationTools.navigateTo...');
-                                result = await uiNavigationTools.navigateTo(parsedArgs);
-                                break;
-                            case 'showProjectDetails':
-                                console.log('Calling uiNavigationTools.showProjectDetails...');
-                                result = await uiNavigationTools.showProjectDetails(parsedArgs);
-                                break;
-                            case 'highlightText':
-                                console.log('Calling uiNavigationTools.highlightText...');
-                                result = await uiNavigationTools.highlightText(parsedArgs);
-                                break;
-                            case 'clearHighlights':
-                                console.log('Calling uiNavigationTools.clearHighlights...');
-                                result = await uiNavigationTools.clearHighlights(parsedArgs);
-                                break;
-                            case 'focusElement':
-                                console.log('Calling uiNavigationTools.focusElement...');
-                                result = await uiNavigationTools.focusElement(parsedArgs);
-                                break;
-                            default:
-                                console.warn(`Unknown tool function: ${functionName}`);
-                                return;
-                        }
-                    }
-                } catch (toolError) {
-                    console.error(`Error executing tool ${functionName}:`, toolError);
-                    result = {
-                        success: false,
-                        message: `Tool execution failed: ${toolError instanceof Error ? toolError.message : String(toolError)}`,
-                        error: toolError instanceof Error ? toolError.message : String(toolError)
-                    };
-                }
-                
-                const executionTime = Date.now() - startTime;
-                console.log(`Tool execution result for ${functionName}:`, result);
+                console.log(`Unified tool ${functionName} executed successfully:`, result);
                 
                 // Emit tool result transcript item
-                this._emitToolResultTranscript(functionName, result, eventData.call_id, executionTime);
-                
-                // Emit debug event for tool call monitor
-                console.log('Emitting tool call complete debug event:', { functionName, result, executionTime, success: result.success });
-                debugEventEmitter.emitToolCallComplete(functionName, result, executionTime, result.success);
+                this._emitToolResultTranscript(functionName, { 
+                    success: true, 
+                    message: typeof result === 'string' ? result : 'Tool executed successfully',
+                    data: result 
+                }, eventData.call_id, 0);
                 
                 // Send the result back to the session if possible
                 if (this._session && eventData.call_id) {
                     try {
-                        // Try to send function call result back to OpenAI
-                        const resultMessage = result.success ? result.message : `Error: ${result.error}`;
-                        console.log(`Sending tool result back to OpenAI: ${resultMessage}`);
-                        
-                        // Note: The exact method to send results back may vary based on SDK version
-                        // This is a best-effort attempt to provide feedback to the AI
+                        const resultMessage = typeof result === 'string' ? result : JSON.stringify(result);
+                        console.log(`Sending unified tool result back to OpenAI: ${resultMessage}`);
+                        this._session.sendToolOutput(eventData.call_id, resultMessage);
                     } catch (resultError) {
                         console.error('Failed to send tool result back to session:', resultError);
                     }
                 }
-            } else {
-                console.warn('Tool execution attempted on server side - tools only work in browser');
-                const serverError = {
+                
+            } catch (error) {
+                console.error(`Failed to execute unified tool ${functionName}:`, error);
+                
+                // Emit error result transcript item
+                this._emitToolResultTranscript(functionName, {
                     success: false,
-                    message: 'Tool execution not available on server side',
-                    error: 'Server-side execution not supported'
-                };
+                    message: `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
+                    error: error instanceof Error ? error.message : String(error)
+                }, eventData.call_id, 0);
                 
-                // Emit error result for server-side attempts
-                this._emitToolResultTranscript(functionName, serverError, eventData.call_id, 0);
-                
-                // Emit debug event for tool call monitor
-                console.log('Emitting tool call complete debug event (server error):', { functionName, serverError });
-                debugEventEmitter.emitToolCallComplete(functionName, serverError, 0, false);
+                // Send error back to session
+                if (this._session && eventData.call_id) {
+                    try {
+                        const errorOutput = JSON.stringify({
+                            success: false,
+                            error: error instanceof Error ? error.message : String(error)
+                        });
+                        this._session.sendToolOutput(eventData.call_id, errorOutput);
+                    } catch (outputError) {
+                        console.error('Failed to send error output to session:', outputError);
+                    }
+                }
             }
             
         } catch (error) {
-            console.error('Error in direct tool execution:', error);
+            console.error('Error in unified tool execution:', error);
         }
     }
 

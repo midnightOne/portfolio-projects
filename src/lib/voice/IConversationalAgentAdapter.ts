@@ -270,6 +270,121 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
     }
   }
 
+  /**
+   * Unified Tool Execution Pipeline
+   * 
+   * Provides single, predictable execution path for all tools regardless of provider.
+   * Routes client tools to UINavigationTools and server tools to /api/ai/tools/execute.
+   * Includes comprehensive debug event emission with toolCallId correlation.
+   */
+  protected async _executeUnifiedTool(toolName: string, args: any): Promise<any> {
+    // Import dependencies dynamically to avoid circular imports
+    const { unifiedToolRegistry } = await import('@/lib/ai/tools/UnifiedToolRegistry');
+    const { debugEventEmitter } = await import('@/lib/debug/debugEventEmitter');
+    const { v4: uuidv4 } = await import('uuid');
+
+    const toolDef = unifiedToolRegistry.getToolDefinition(toolName);
+    if (!toolDef) {
+      throw new Error(`Tool '${toolName}' not found in unified registry.`);
+    }
+
+    const toolCallId = uuidv4();
+    const sessionId = this._options?.contextId || 'unknown-session';
+    const startTime = Date.now();
+    
+    // Emit debug event for tool call start with correlation ID
+    debugEventEmitter.emit('tool_call_start', {
+      toolName,
+      args,
+      sessionId,
+      toolCallId,
+      executionContext: toolDef.executionContext,
+      provider: this._provider
+    }, `${this._provider}-adapter`);
+
+    try {
+      let result: any;
+      
+      if (toolDef.executionContext === 'client') {
+        // Execute client-side tools using UINavigationTools
+        if (typeof window === 'undefined') {
+          throw new Error(`Client-side tool '${toolName}' cannot be executed in server environment`);
+        }
+
+        const { uiNavigationTools } = await import('./UINavigationTools');
+        const uiToolHandler = (uiNavigationTools as any)[toolName];
+        
+        if (typeof uiToolHandler === 'function') {
+          const uiResult = await uiToolHandler(args);
+          result = uiResult.data || uiResult.message;
+        } else {
+          throw new Error(`Client-side UI tool handler for '${toolName}' not found.`);
+        }
+      } else if (toolDef.executionContext === 'server') {
+        // Execute server-side tools via unified API endpoint
+        const response = await fetch('/api/ai/tools/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            toolName: toolName,
+            parameters: args,
+            sessionId: sessionId,
+            toolCallId: toolCallId,
+            reflinkId: this._options?.reflinkId
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Server tool '${toolName}' failed: ${response.status} - ${errorText}`);
+        }
+
+        const serverResult = await response.json();
+        if (!serverResult.success) {
+          throw new Error(serverResult.error || 'Server tool execution failed');
+        }
+        
+        result = serverResult.data;
+      } else {
+        throw new Error(`Invalid execution context '${toolDef.executionContext}' for tool '${toolName}'`);
+      }
+
+      const executionTime = Date.now() - startTime;
+
+      // Emit debug event for successful tool call completion
+      debugEventEmitter.emit('tool_call_complete', {
+        toolName,
+        result,
+        executionTime,
+        success: true,
+        sessionId,
+        toolCallId,
+        executionContext: toolDef.executionContext,
+        provider: this._provider
+      }, `${this._provider}-adapter`);
+
+      return result;
+    } catch (error) {
+      const executionTime = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // Emit debug event for failed tool call completion
+      debugEventEmitter.emit('tool_call_complete', {
+        toolName,
+        result: null,
+        error: errorMessage,
+        executionTime,
+        success: false,
+        sessionId,
+        toolCallId,
+        executionContext: toolDef.executionContext,
+        provider: this._provider
+      }, `${this._provider}-adapter`);
+
+      throw error;
+    }
+  }
+
   // Abstract methods that must be implemented by concrete adapters
   abstract init(options: AdapterInitOptions): Promise<void>;
   abstract connect(): Promise<void>;

@@ -87,12 +87,12 @@ class DebugEventEmitter {
     this.emit('context_loaded', { context, tokenCount, processingTime }, 'context-api');
   }
 
-  emitToolCallStart(toolName: string, parameters: any, sessionId: string) {
-    this.emit('tool_call_start', { toolName, parameters, sessionId }, 'tool-monitor');
+  emitToolCallStart(toolName: string, parameters: any, sessionId: string, toolCallId?: string) {
+    this.emit('tool_call_start', { toolName, parameters, sessionId, toolCallId }, 'tool-monitor');
   }
 
-  emitToolCallComplete(toolName: string, result: any, executionTime: number, success: boolean) {
-    this.emit('tool_call_complete', { toolName, result, executionTime, success }, 'tool-monitor');
+  emitToolCallComplete(toolName: string, result: any, executionTime: number, success: boolean, sessionId?: string, toolCallId?: string) {
+    this.emit('tool_call_complete', { toolName, result, executionTime, success, sessionId, toolCallId }, 'tool-monitor');
   }
 
   emitVoiceSessionStart(provider: string, sessionId: string) {

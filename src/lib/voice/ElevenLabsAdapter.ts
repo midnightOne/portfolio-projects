@@ -817,42 +817,13 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
   }
 
   /**
-   * Create client tools for ElevenLabs conversation
+   * Create client tools for ElevenLabs conversation using unified execution pipeline
    * Converts server-provided tool definitions into executable client-side functions
    * Uses unified ToolCall and ToolResult interfaces (same format as OpenAI adapter)
-   * Implements tool execution for UI navigation tools using shared UINavigationTools
-   * Implements tool execution for server API calls (loadContext, analyzeJobSpec, submitContactForm)
+   * All tool execution now goes through the unified _executeUnifiedTool method
    */
   private _createClientToolsForElevenLabs(): Record<string, (parameters: any) => Promise<string | number | void> | string | number | void> {
     const clientTools: Record<string, (parameters: any) => Promise<string | number | void> | string | number | void> = {};
-    
-    // Import UI navigation tools (only in browser environment)
-    let uiNavigationTools: any = null;
-    if (typeof window !== 'undefined') {
-      try {
-        const { uiNavigationTools: tools } = require('./UINavigationTools');
-        uiNavigationTools = tools;
-      } catch (error) {
-        console.warn('UINavigationTools not available:', error);
-      }
-    }
-
-    // Define UI navigation tools with shared UINavigationTools execution (same as OpenAI)
-    const uiNavigationToolNames = [
-      'navigateTo',
-      'showProjectDetails', 
-      'scrollIntoView',
-      'highlightText',
-      'clearHighlights',
-      'focusElement'
-    ];
-
-    // Define server API tools that make fetch calls to server endpoints
-    const serverApiToolNames = [
-      'loadContext',
-      'analyzeJobSpec', 
-      'submitContactForm'
-    ];
 
     for (const [toolName, toolDef] of Array.from(this._tools.entries())) {
       clientTools[toolName] = async (parameters: any) => {
@@ -871,156 +842,8 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
         });
 
         try {
-          let toolResult: ToolResult;
-
-          // Execute UI navigation tools using shared UINavigationTools (same as OpenAI)
-          if (uiNavigationToolNames.includes(toolName)) {
-            if (!uiNavigationTools) {
-              throw new Error('UI navigation tools not available in this environment');
-            }
-
-            let navigationResult;
-            switch (toolName) {
-              case 'navigateTo':
-                navigationResult = await uiNavigationTools.navigateTo(parameters);
-                break;
-              case 'showProjectDetails':
-                navigationResult = await uiNavigationTools.showProjectDetails(parameters);
-                break;
-              case 'scrollIntoView':
-                navigationResult = await uiNavigationTools.scrollIntoView(parameters);
-                break;
-              case 'highlightText':
-                navigationResult = await uiNavigationTools.highlightText(parameters);
-                break;
-              case 'clearHighlights':
-                navigationResult = await uiNavigationTools.clearHighlights(parameters);
-                break;
-              case 'focusElement':
-                navigationResult = await uiNavigationTools.focusElement(parameters);
-                break;
-              default:
-                throw new Error(`Unknown UI navigation tool: ${toolName}`);
-            }
-
-            toolResult = {
-              id: toolCall.id,
-              result: navigationResult.success ? navigationResult.message : null,
-              error: navigationResult.success ? undefined : navigationResult.error,
-              timestamp: new Date(),
-              executionTime: 0 // UINavigationTools handles timing internally
-            };
-
-          // Execute MCP server tools (loadProjectContext, loadUserProfile, processJobSpec, etc.)
-          } else if (['loadProjectContext', 'loadUserProfile', 'processJobSpec', 'getNavigationHistory', 'reportUIState', 'searchProjects', 'getProjectSummary', 'analyzeUserIntent', 'generateNavigationSuggestions'].includes(toolName)) {
-            let mcpResult;
-            try {
-              const response = await fetch('/api/ai/mcp/execute', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ toolName, parameters })
-              });
-              
-              if (!response.ok) {
-                throw new Error(`MCP server tool failed: ${response.status}`);
-              }
-              
-              mcpResult = await response.json();
-            } catch (error) {
-              mcpResult = { success: false, error: error instanceof Error ? error.message : String(error) };
-            }
-
-            toolResult = {
-              id: toolCall.id,
-              result: mcpResult.success ? mcpResult.data : null,
-              error: mcpResult.success ? undefined : mcpResult.error,
-              timestamp: new Date(),
-              executionTime: 0
-            };
-
-          // Execute server API calls (loadContext, analyzeJobSpec, submitContactForm)
-          } else if (serverApiToolNames.includes(toolName)) {
-            const startTime = Date.now();
-            
-            try {
-              let response: Response;
-              
-              switch (toolName) {
-                case 'loadContext':
-                  response = await fetch('/api/ai/context', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      query: parameters.query,
-                      contextType: parameters.contextType
-                    })
-                  });
-                  break;
-                  
-                case 'analyzeJobSpec':
-                  response = await fetch('/api/ai/analyze-job', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      jobDescription: parameters.jobDescription,
-                      focusAreas: parameters.focusAreas || []
-                    })
-                  });
-                  break;
-                  
-                case 'submitContactForm':
-                  response = await fetch('/api/public/contact', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      name: parameters.name,
-                      email: parameters.email,
-                      message: parameters.message,
-                      subject: parameters.subject
-                    })
-                  });
-                  break;
-                  
-                default:
-                  throw new Error(`Unknown server API tool: ${toolName}`);
-              }
-
-              if (!response.ok) {
-                throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
-              }
-
-              const responseData = await response.json();
-              const executionTime = Date.now() - startTime;
-
-              toolResult = {
-                id: toolCall.id,
-                result: responseData,
-                timestamp: new Date(),
-                executionTime
-              };
-
-            } catch (error) {
-              const executionTime = Date.now() - startTime;
-              toolResult = {
-                id: toolCall.id,
-                result: null,
-                error: error instanceof Error ? error.message : String(error),
-                timestamp: new Date(),
-                executionTime
-              };
-            }
-
-          // Execute other tools using the base adapter's tool execution method
-          } else {
-            toolResult = await this._executeTool(toolCall);
-          }
-
-          // Log tool result for unified transcript system (admin debug page compatibility)
-          this._handleToolEvent({
-            type: 'tool_result',
-            toolResult,
-            timestamp: new Date()
-          });
+          // Execute tool using unified execution pipeline
+          const result = await this._executeUnifiedTool(toolName, parameters);
 
           // Add to unified transcript system for admin debug page compatibility
           const transcriptItem: TranscriptItem = {
@@ -1032,7 +855,7 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
             metadata: {
               toolName: toolCall.name,
               toolArgs: toolCall.arguments,
-              toolResult: toolResult.result
+              toolResult: result
             }
           };
 
@@ -1049,43 +872,29 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
           });
 
           // Return result to ElevenLabs agent for conversation continuity
-          if (toolResult.error) {
-            return `Error: ${toolResult.error}`;
-          }
-
-          // Format result for ElevenLabs based on tool type
-          if (uiNavigationToolNames.includes(toolName)) {
-            return toolResult.result || 'Navigation action completed';
-          } else if (serverApiToolNames.includes(toolName)) {
-            // Provide meaningful summary for server API results
-            switch (toolName) {
-              case 'loadContext':
-                return `Loaded context for "${parameters.query}": ${JSON.stringify(toolResult.result).substring(0, 100)}...`;
-              case 'analyzeJobSpec':
-                const analysis = toolResult.result as any;
-                return `Job analysis completed with ${analysis.analysis?.overallMatch || 'unknown'} match score`;
-              case 'submitContactForm':
-                return 'Contact form submitted successfully';
-              default:
-                return JSON.stringify(toolResult.result).substring(0, 200);
+          // Format result appropriately for ElevenLabs
+          if (typeof result === 'string') {
+            return result;
+          } else if (result && typeof result === 'object') {
+            // For complex results, provide a meaningful summary
+            if (result.message) {
+              return result.message;
+            } else if (result.data) {
+              return JSON.stringify(result.data).substring(0, 200);
+            } else {
+              return JSON.stringify(result).substring(0, 200);
             }
           } else {
-            return toolResult.result;
+            return 'Tool executed successfully';
           }
 
         } catch (error) {
-          // Proper error handling and result reporting using shared tool execution pipeline
-          const toolError = new ToolError(
-            `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
-            'elevenlabs',
-            toolName,
-            { error, parameters }
-          );
-          this._setError(toolError);
-
+          // Proper error handling and result reporting using unified pipeline
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          
           this._handleToolEvent({
             type: 'tool_error',
-            error: toolError.message,
+            error: errorMessage,
             timestamp: new Date()
           });
 
@@ -1093,11 +902,31 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
           const errorTranscriptItem: TranscriptItem = {
             id: uuidv4(),
             type: 'error',
-            content: `Tool ${toolName} failed: ${toolError.message}`,
+            content: `Tool ${toolName} failed: ${errorMessage}`,
             timestamp: new Date(),
             provider: 'elevenlabs',
             metadata: {
               toolName: toolCall.name,
+              toolArgs: toolCall.arguments,
+              toolError: errorMessage
+            }
+          };
+
+          this._addTranscriptItem(errorTranscriptItem);
+          this._handleTranscriptEvent({
+            type: 'transcript_update',
+            item: errorTranscriptItem,
+            timestamp: new Date()
+          });
+
+          // Return error message to ElevenLabs agent
+          return `Error: ${errorMessage}`;
+        }
+      };
+    }
+
+    return clientTools;
+  }
               toolArgs: toolCall.arguments
             }
           };
