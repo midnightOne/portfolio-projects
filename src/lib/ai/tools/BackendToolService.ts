@@ -9,6 +9,7 @@
 import { UnifiedToolDefinition, UnifiedToolResult, ServerToolExecutionContext } from './types';
 import { serverToolDefinitions } from './server-tools';
 import { contextInjector } from '@/lib/services/ai/context-injector';
+import { projectIndexer } from '@/lib/services/project-indexer';
 
 export interface BackendToolExecutionRequest {
   toolName: string;
