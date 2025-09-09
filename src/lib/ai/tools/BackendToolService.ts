@@ -305,79 +305,108 @@ export class BackendToolService {
     const { query, tags, category, limit = 10, includeContent = true } = args;
 
     try {
-      // Use context injector for access-controlled project search
-      const filteredContext = await contextInjector.loadFilteredContext(
-        context.sessionId,
-        `Search projects: ${query}`,
-        context.reflinkId,
-        {
-          searchQuery: query,
-          tags,
-          category,
-          limit,
-          includeContent: includeContent && context.accessLevel !== 'basic',
-          accessLevel: context.accessLevel
-        }
-      );
+      // Fetch real projects from the database
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/projects?limit=${limit * 2}`);
 
-      // Mock search results that can be enhanced with real project indexing
-      const mockResults = [
-        {
-          id: 'project-1',
-          title: 'React Dashboard Application',
-          description: 'Modern dashboard built with React and TypeScript',
-          tags: ['react', 'typescript', 'dashboard'],
-          relevanceScore: 0.95,
-          matchingSections: [
-            {
-              title: 'Technical Implementation',
-              summary: 'Built using React hooks and TypeScript for type safety',
-              importance: 0.9
-            }
-          ]
-        },
-        {
-          id: 'project-2',
-          title: 'Node.js API Gateway',
-          description: 'Microservices API gateway with authentication',
-          tags: ['nodejs', 'api', 'microservices'],
-          relevanceScore: 0.78,
-          matchingSections: [
-            {
-              title: 'Architecture Overview',
-              summary: 'RESTful API with JWT authentication and rate limiting',
-              importance: 0.8
-            }
-          ]
-        }
-      ];
+      if (!response.ok) {
+        throw new Error(`Failed to fetch projects: ${response.statusText}`);
+      }
 
-      // Apply filtering based on query and tags
-      let filteredResults = mockResults;
+      const projectsData = await response.json();
+      const projects = projectsData.data?.items || [];
 
+      // Convert projects to search result format
+      let searchResults = projects.map((project: any) => ({
+        id: project.slug,
+        title: project.title,
+        description: project.description || project.briefOverview || '',
+        slug: project.slug,
+        tags: typeof project.tags === 'string' ? project.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : [],
+        status: project.status,
+        viewCount: project.viewCount || 0,
+        workDate: project.workDate,
+        thumbnailUrl: project.thumbnailImage?.thumbnailUrl || project.thumbnailImage?.url,
+        relevanceScore: 1.0, // Will be calculated based on query match
+        url: `/projects?project=${project.slug}`, // Correct URL format
+        matchingSections: []
+      }));
+
+      // Apply search filtering
       if (query) {
         const queryLower = query.toLowerCase();
-        filteredResults = mockResults.filter(project =>
-          project.title.toLowerCase().includes(queryLower) ||
-          project.description.toLowerCase().includes(queryLower) ||
-          project.tags.some(tag => tag.toLowerCase().includes(queryLower))
+        const queryTerms = queryLower.split(/\s+/).filter(Boolean);
+
+        searchResults = searchResults.map((project: any) => {
+          let score = 0;
+          const titleLower = project.title.toLowerCase();
+          const descLower = project.description.toLowerCase();
+
+          // Exact title match gets highest score
+          if (titleLower === queryLower) {
+            score = 1.0;
+          }
+          // Title contains full query
+          else if (titleLower.includes(queryLower)) {
+            score = 0.9;
+          }
+          // Description contains full query
+          else if (descLower.includes(queryLower)) {
+            score = 0.8;
+          }
+          // Check individual terms
+          else {
+            let termMatches = 0;
+            queryTerms.forEach(term => {
+              if (titleLower.includes(term)) termMatches += 2;
+              else if (descLower.includes(term)) termMatches += 1;
+              else if (project.tags.some((tag: string) => tag.toLowerCase().includes(term))) termMatches += 1;
+            });
+            score = Math.min(0.7, termMatches / (queryTerms.length * 2));
+          }
+
+          // Special mappings for common user terms
+          const specialMappings: Record<string, string[]> = {
+            'ecommerce': ['e-commerce-platform'],
+            'e-commerce': ['e-commerce-platform'],
+            'shop': ['e-commerce-platform'],
+            'store': ['e-commerce-platform'],
+            'shopping': ['e-commerce-platform'],
+            'task': ['task-management-app'],
+            'todo': ['task-management-app'],
+            'portfolio': ['portfolio-website'],
+            'website': ['portfolio-website']
+          };
+
+          Object.entries(specialMappings).forEach(([term, slugs]) => {
+            if (queryLower.includes(term) && slugs.includes(project.slug)) {
+              score = Math.max(score, 0.95);
+            }
+          });
+
+          return { ...project, relevanceScore: score };
+        }).filter((project: any) => project.relevanceScore > 0.1);
+      }
+
+      // Apply tag filtering
+      if (tags && tags.length > 0) {
+        searchResults = searchResults.filter((project: any) =>
+          project.tags.some((tag: string) => tags.includes(tag))
         );
       }
 
-      if (tags && tags.length > 0) {
-        filteredResults = filteredResults.filter(project =>
-          project.tags.some(tag => tags.includes(tag))
-        );
-      }
+      // Sort by relevance score and limit results
+      searchResults.sort((a: any, b: any) => b.relevanceScore - a.relevanceScore);
+      const finalResults = searchResults.slice(0, limit);
 
       return {
         query,
         tags,
         category,
-        results: filteredResults.slice(0, limit),
-        totalResults: filteredResults.length,
+        results: finalResults,
+        totalResults: searchResults.length,
         accessLevel: context.accessLevel,
-        filteredForReflink: !!context.reflinkId
+        filteredForReflink: !!context.reflinkId,
+        searchPerformed: true
       };
 
     } catch (error) {
@@ -392,55 +421,81 @@ export class BackendToolService {
     const { includePrivate = false, maxProjects = 20, sortBy = 'date' } = args;
 
     try {
-      // Use context injector for access-controlled project summary
-      const filteredContext = await contextInjector.loadFilteredContext(
-        context.sessionId,
-        'Get project summary',
-        context.reflinkId,
-        {
-          includePrivate: includePrivate && context.accessLevel === 'premium',
-          maxProjects,
-          sortBy,
-          accessLevel: context.accessLevel
-        }
-      );
+      // Fetch real projects from the database
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001'}/api/projects?limit=${maxProjects}`);
 
-      // Mock project summary data
+      if (!response.ok) {
+        throw new Error(`Failed to fetch projects: ${response.statusText}`);
+      }
+
+      const projectsData = await response.json();
+      const projects = projectsData.data?.items || [];
+
+      // Process projects for summary
+      const recentProjects = projects.map((project: any) => ({
+        id: project.slug,
+        title: project.title,
+        description: project.description || project.briefOverview || '',
+        slug: project.slug,
+        tags: typeof project.tags === 'string' ? project.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : [],
+        lastUpdated: project.updatedAt,
+        workDate: project.workDate,
+        visibility: project.visibility || 'PUBLIC',
+        status: project.status,
+        viewCount: project.viewCount || 0,
+        url: `/projects?project=${project.slug}`, // Correct URL format
+        thumbnailUrl: project.thumbnailImage?.thumbnailUrl || project.thumbnailImage?.url
+      }));
+
+      // Calculate statistics
+      const allTags = recentProjects.flatMap((p: any) => p.tags);
+      const tagCounts = allTags.reduce((acc: any, tag: string) => {
+        acc[tag] = (acc[tag] || 0) + 1;
+        return acc;
+      }, {});
+
+      const topTags = Object.entries(tagCounts)
+        .sort(([, a]: any, [, b]: any) => b - a)
+        .slice(0, 10)
+        .map(([tag]: any) => tag);
+
+      // Categorize projects (basic categorization based on tags/titles)
+      const categories: Record<string, number> = {};
+      recentProjects.forEach((project: any) => {
+        const title = project.title.toLowerCase();
+        const tags = project.tags.map((t: string) => t.toLowerCase());
+
+        if (tags.includes('react') || tags.includes('web') || title.includes('website') || title.includes('web')) {
+          categories['web development'] = (categories['web development'] || 0) + 1;
+        }
+        if (tags.includes('mobile') || tags.includes('app') || title.includes('app')) {
+          categories['mobile development'] = (categories['mobile development'] || 0) + 1;
+        }
+        if (tags.includes('api') || tags.includes('backend') || title.includes('api')) {
+          categories['api development'] = (categories['api development'] || 0) + 1;
+        }
+        if (tags.includes('ai') || tags.includes('ml') || title.includes('ai') || title.includes('machine learning')) {
+          categories['artificial intelligence'] = (categories['artificial intelligence'] || 0) + 1;
+        }
+        if (tags.includes('ecommerce') || tags.includes('e-commerce') || title.includes('ecommerce') || title.includes('e-commerce')) {
+          categories['e-commerce'] = (categories['e-commerce'] || 0) + 1;
+        }
+      });
+
       const summaryData = {
-        totalProjects: 12,
-        categories: {
-          'web development': 8,
-          'mobile development': 2,
-          'api development': 4,
-          'artificial intelligence': 3
-        },
-        recentProjects: [
-          {
-            id: 'project-1',
-            title: 'React Dashboard Application',
-            description: 'Modern dashboard built with React and TypeScript',
-            tags: ['react', 'typescript', 'dashboard'],
-            lastUpdated: '2024-01-15',
-            visibility: 'PUBLIC'
-          },
-          {
-            id: 'project-2',
-            title: 'Node.js API Gateway',
-            description: 'Microservices API gateway with authentication',
-            tags: ['nodejs', 'api', 'microservices'],
-            lastUpdated: '2024-01-10',
-            visibility: 'PUBLIC'
-          }
-        ],
-        topTags: ['react', 'typescript', 'nodejs', 'python', 'javascript', 'api', 'dashboard'],
-        topTechnologies: ['react', 'typescript', 'nodejs', 'python', 'javascript', 'postgresql', 'docker'],
+        totalProjects: projects.length,
+        categories,
+        recentProjects: recentProjects.slice(0, maxProjects),
+        topTags,
+        topTechnologies: topTags, // For now, same as tags
         projectsByVisibility: {
-          public: includePrivate && context.accessLevel === 'premium' ? 10 : 12,
-          private: includePrivate && context.accessLevel === 'premium' ? 2 : 0
+          public: projects.filter((p: any) => p.visibility === 'PUBLIC').length,
+          private: includePrivate ? projects.filter((p: any) => p.visibility === 'PRIVATE').length : 0
         },
-        lastUpdated: '2024-01-15',
+        lastUpdated: projects.length > 0 ? projects[0].updatedAt : new Date().toISOString(),
         accessLevel: context.accessLevel,
-        filteredForReflink: !!context.reflinkId
+        filteredForReflink: !!context.reflinkId,
+        realDataFetched: true
       };
 
       return summaryData;
@@ -454,12 +509,12 @@ export class BackendToolService {
     args: any,
     context: ServerToolExecutionContext
   ): Promise<any> {
-    const { 
-      jobSpec, 
-      analysisType = 'detailed', 
-      includeSkillsMatch = true, 
-      includeExperienceMatch = true, 
-      generateReport = true 
+    const {
+      jobSpec,
+      analysisType = 'detailed',
+      includeSkillsMatch = true,
+      includeExperienceMatch = true,
+      generateReport = true
     } = args;
 
     // Check if job analysis is allowed for this access level
@@ -478,7 +533,7 @@ export class BackendToolService {
       const jobRequirements = this.extractJobRequirements(jobSpec);
 
       // Analyze skills match
-      const skillsAnalysis = includeSkillsMatch ? 
+      const skillsAnalysis = includeSkillsMatch ?
         this.analyzeSkillsMatch(profileData.skills, jobRequirements.skills) : null;
 
       // Analyze technology match

@@ -233,16 +233,48 @@ export class UINavigationTools {
       }
 
       try {
-        // DEBUG: Temporarily force all navigation to open in new tab for debugging
-        // Original logic: if (newTab) { window.open(path, '_blank'); } else { window.location.href = path; }
-        window.open(path, '_blank');
-        const actualNewTab = true; // Force to true for debugging
-
-        return {
-          success: true,
-          message: `Navigated to ${path} (DEBUG: forced new tab)`,
-          data: { path, newTab: actualNewTab }
-        };
+        // Check if this is a project-related navigation that should use the modal system
+        const isProjectNavigation = path.includes('/projects') && path.includes('project=');
+        const isCurrentlyOnProjectsPage = window.location.pathname === '/projects';
+        
+        if (isProjectNavigation && isCurrentlyOnProjectsPage) {
+          // We're on projects page and trying to open a project - use modal system
+          const url = new URL(path, window.location.origin);
+          const projectSlug = url.searchParams.get('project');
+          
+          if (projectSlug) {
+            // Update URL without full navigation to maintain voice session
+            window.history.pushState({}, '', path);
+            
+            // Trigger the project modal by dispatching a popstate event
+            window.dispatchEvent(new PopStateEvent('popstate'));
+            
+            return {
+              success: true,
+              message: `Opened project ${projectSlug} in modal`,
+              data: { path, newTab: false, method: 'modal' }
+            };
+          }
+        }
+        
+        // For voice sessions, prefer new tab to avoid disconnecting
+        const shouldUseNewTab = newTab || sessionId !== undefined;
+        
+        if (shouldUseNewTab) {
+          window.open(path, '_blank');
+          return {
+            success: true,
+            message: `Opened ${path} in new tab (preserving voice session)`,
+            data: { path, newTab: true, reason: 'voice_session_preservation' }
+          };
+        } else {
+          window.location.href = path;
+          return {
+            success: true,
+            message: `Navigated to ${path}`,
+            data: { path, newTab: false }
+          };
+        }
       } catch (error) {
         return {
           success: false,
@@ -266,12 +298,22 @@ export class UINavigationTools {
       }
 
       try {
-        // Look for existing project modal or create navigation
-        const projectLink = UIElementManager.findElement(`[data-project-id="${projectId}"]`) ||
-                           UIElementManager.findElement(`[href*="${projectId}"]`);
-
-        if (projectLink && projectLink instanceof HTMLElement) {
-          projectLink.click();
+        // First, try to find and map the project ID to the correct slug
+        const mappedProjectSlug = await this.mapProjectIdToSlug(projectId);
+        
+        // Check if we're already on the projects page
+        const isOnProjectsPage = window.location.pathname === '/projects';
+        
+        if (isOnProjectsPage) {
+          // We're on the projects page, use the modal system
+          const currentUrl = new URL(window.location.href);
+          currentUrl.searchParams.set('project', mappedProjectSlug);
+          
+          // Update URL without full navigation to maintain voice session
+          window.history.pushState({}, '', currentUrl.toString());
+          
+          // Trigger the project modal by dispatching a popstate event
+          window.dispatchEvent(new PopStateEvent('popstate'));
           
           // Wait for modal to open and highlight sections if specified
           if (highlightSections.length > 0) {
@@ -284,23 +326,23 @@ export class UINavigationTools {
                   UIElementManager.scrollIntoView(section);
                 }
               });
-            }, 500);
+            }, 1000); // Increased timeout to allow modal to load
           }
 
           return {
             success: true,
-            message: `Opened project details for ${projectId}`,
-            data: { projectId, highlightSections }
+            message: `Opened project details for ${mappedProjectSlug} in modal`,
+            data: { projectId: mappedProjectSlug, highlightSections, method: 'modal' }
           };
         } else {
-          // Navigate to project page if no modal available
-          const projectPath = `/projects/${projectId}`;
-          window.location.href = projectPath;
+          // Navigate to projects page with project parameter (in new tab to preserve voice session)
+          const projectUrl = `/projects?project=${mappedProjectSlug}`;
+          window.open(projectUrl, '_blank');
           
           return {
             success: true,
-            message: `Navigated to project page for ${projectId}`,
-            data: { projectId, path: projectPath }
+            message: `Opened project details for ${mappedProjectSlug} in new tab`,
+            data: { projectId: mappedProjectSlug, path: projectUrl, method: 'new_tab' }
           };
         }
       } catch (error) {
@@ -311,6 +353,79 @@ export class UINavigationTools {
         };
       }
     });
+  }
+
+  // Helper method to map user input to actual project slugs
+  private async mapProjectIdToSlug(projectId: string): Promise<string> {
+    // Normalize the input
+    const normalizedInput = projectId.toLowerCase().trim();
+    
+    // Common mappings for user-friendly names to actual slugs
+    const projectMappings: Record<string, string> = {
+      'e-commerce': 'e-commerce-platform',
+      'ecommerce': 'e-commerce-platform',
+      'e-commerce website': 'e-commerce-platform',
+      'e-commerce platform': 'e-commerce-platform',
+      'ecommerce platform': 'e-commerce-platform',
+      'ecommerce website': 'e-commerce-platform',
+      'shop': 'e-commerce-platform',
+      'store': 'e-commerce-platform',
+      'shopping': 'e-commerce-platform',
+      
+      'task management': 'task-management-app',
+      'task manager': 'task-management-app',
+      'tasks': 'task-management-app',
+      'todo': 'task-management-app',
+      'todo app': 'task-management-app',
+      
+      'portfolio': 'portfolio-website',
+      'portfolio site': 'portfolio-website',
+      'personal website': 'portfolio-website',
+      'website': 'portfolio-website'
+    };
+    
+    // Check direct mapping first
+    if (projectMappings[normalizedInput]) {
+      return projectMappings[normalizedInput];
+    }
+    
+    // Try to fetch projects and find a match
+    try {
+      const response = await fetch('/api/projects?limit=50');
+      if (response.ok) {
+        const data = await response.json();
+        const projects = data.data?.items || [];
+        
+        // Look for exact slug match
+        const exactMatch = projects.find((p: any) => p.slug === normalizedInput);
+        if (exactMatch) {
+          return exactMatch.slug;
+        }
+        
+        // Look for partial title match
+        const titleMatch = projects.find((p: any) => 
+          p.title.toLowerCase().includes(normalizedInput) ||
+          normalizedInput.includes(p.title.toLowerCase())
+        );
+        if (titleMatch) {
+          return titleMatch.slug;
+        }
+        
+        // Look for partial slug match
+        const slugMatch = projects.find((p: any) => 
+          p.slug.includes(normalizedInput) ||
+          normalizedInput.includes(p.slug)
+        );
+        if (slugMatch) {
+          return slugMatch.slug;
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to fetch projects for mapping:', error);
+    }
+    
+    // If no mapping found, return the input as-is (might be a valid slug)
+    return normalizedInput;
   }
 
   async scrollIntoView(args: { selector: string; behavior?: ScrollBehavior }, sessionId?: string): Promise<NavigationResult> {
