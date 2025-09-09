@@ -907,8 +907,7 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
             provider: 'elevenlabs',
             metadata: {
               toolName: toolCall.name,
-              toolArgs: toolCall.arguments,
-              toolError: errorMessage
+              toolArgs: toolCall.arguments
             }
           };
 
@@ -925,34 +924,6 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
       };
     }
 
-    return clientTools;
-  }
-              toolArgs: toolCall.arguments
-            }
-          };
-
-          this._addTranscriptItem(errorTranscriptItem);
-          this._handleTranscriptEvent({
-            type: 'transcript_update',
-            item: errorTranscriptItem,
-            timestamp: new Date()
-          });
-
-          // Report tool error to server for unified debugging
-          this._reportTranscriptToServer(errorTranscriptItem).catch(reportError => {
-            console.error('Failed to report tool error to server:', reportError);
-          });
-          this._handleTranscriptEvent({
-            type: 'transcript_update',
-            item: errorTranscriptItem,
-            timestamp: new Date()
-          });
-
-          return `Error executing ${toolName}: ${error instanceof Error ? error.message : String(error)}`;
-        }
-      };
-    }
-    
     return clientTools;
   }
 

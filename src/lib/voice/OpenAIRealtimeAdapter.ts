@@ -1074,7 +1074,8 @@ Communication guidelines:
                     try {
                         const resultMessage = typeof result === 'string' ? result : JSON.stringify(result);
                         console.log(`Sending unified tool result back to OpenAI: ${resultMessage}`);
-                        this._session.sendToolOutput(eventData.call_id, resultMessage);
+                        // TODO: Implement proper tool result reporting to OpenAI session
+                        // this._session.sendToolOutput(eventData.call_id, resultMessage);
                     } catch (resultError) {
                         console.error('Failed to send tool result back to session:', resultError);
                     }
@@ -1097,7 +1098,8 @@ Communication guidelines:
                             success: false,
                             error: error instanceof Error ? error.message : String(error)
                         });
-                        this._session.sendToolOutput(eventData.call_id, errorOutput);
+                        // TODO: Implement proper tool error reporting to OpenAI session
+                        // this._session.sendToolOutput(eventData.call_id, errorOutput);
                     } catch (outputError) {
                         console.error('Failed to send error output to session:', outputError);
                     }
