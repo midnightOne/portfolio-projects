@@ -563,10 +563,16 @@ class ProjectContentProvider implements ContentSourceProvider {
   }
 
   async searchContent(query: string, options: SearchOptions = {}): Promise<RelevantContent[]> {
-    // Use existing project search functionality
-    const response = await fetch(`/api/projects/search/ai-context?q=${encodeURIComponent(query)}&limit=${options.maxResults || 20}`);
-    const data = await response.json();
-    return data.data?.results || [];
+    try {
+      // Use existing project search functionality with absolute URL
+      const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+      const response = await fetch(`${baseUrl}/api/projects/search/ai-context?q=${encodeURIComponent(query)}&limit=${options.maxResults || 20}`);
+      const data = await response.json();
+      return data.data?.results || [];
+    } catch (error) {
+      console.error('Error searching project content:', error);
+      return [];
+    }
   }
 }
 
@@ -634,19 +640,25 @@ class AboutContentProvider implements ContentSourceProvider {
   }
 
   async searchContent(query: string, options: SearchOptions = {}): Promise<RelevantContent[]> {
-    const response = await fetch('/api/homepage-config-public');
-    const data = await response.json();
-    const aboutSection = data.data?.config?.sections?.find((s: any) => s.type === 'about');
-    
-    if (!aboutSection) return [];
+    try {
+      const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+      const response = await fetch(`${baseUrl}/api/homepage-config-public`);
+      const data = await response.json();
+      const aboutSection = data.data?.config?.sections?.find((s: any) => s.type === 'about');
+      
+      if (!aboutSection) return [];
 
-    const content = aboutSection.config?.content || '';
-    const skills = aboutSection.config?.skills || [];
-    
-    // Simple relevance scoring
-    const queryLower = query.toLowerCase();
-    const contentLower = content.toLowerCase();
-    const skillsText = skills.join(' ').toLowerCase();
+      const content = aboutSection.config?.content || '';
+      const skills = aboutSection.config?.skills || [];
+      
+      // Simple relevance scoring
+      const queryLower = query.toLowerCase();
+      const contentLower = content.toLowerCase();
+      const skillsText = skills.join(' ').toLowerCase();
+    } catch (error) {
+      console.error('Error searching about content:', error);
+      return [];
+    }
     
     let relevanceScore = 0;
     const queryTerms = queryLower.split(/\s+/).filter(term => term.length > 2);
@@ -873,14 +885,20 @@ class SkillsContentProvider implements ContentSourceProvider {
   }
 
   async searchContent(query: string, options: SearchOptions = {}): Promise<RelevantContent[]> {
-    const response = await fetch('/api/homepage-config-public');
-    const data = await response.json();
-    const aboutSection = data.data?.config?.sections?.find((s: any) => s.type === 'about');
-    
-    if (!aboutSection) return [];
+    try {
+      const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+      const response = await fetch(`${baseUrl}/api/homepage-config-public`);
+      const data = await response.json();
+      const aboutSection = data.data?.config?.sections?.find((s: any) => s.type === 'about');
+      
+      if (!aboutSection) return [];
 
-    const skills = aboutSection.config?.skills || [];
-    const queryLower = query.toLowerCase();
+      const skills = aboutSection.config?.skills || [];
+      const queryLower = query.toLowerCase();
+    } catch (error) {
+      console.error('Error searching skills content:', error);
+      return [];
+    }
     
     const matchingSkills = skills.filter((skill: string) => 
       skill.toLowerCase().includes(queryLower) ||

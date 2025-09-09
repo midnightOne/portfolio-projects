@@ -188,12 +188,94 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                         case 'array':
                             if (prop.items?.type === 'string') {
                                 zodType = z.array(z.string());
+                            } else if (prop.items?.type === 'object' && prop.items.properties) {
+                                // Handle complex object schemas in arrays
+                                const itemSchema = z.object(
+                                    Object.entries(prop.items.properties).reduce((itemAcc, [itemKey, itemProp]: [string, any]) => {
+                                        let itemZodType: any;
+                                        
+                                        switch (itemProp.type) {
+                                            case 'string':
+                                                itemZodType = z.string();
+                                                if (itemProp.enum) {
+                                                    itemZodType = z.enum(itemProp.enum);
+                                                }
+                                                break;
+                                            case 'number':
+                                                itemZodType = z.number();
+                                                break;
+                                            case 'boolean':
+                                                itemZodType = z.boolean();
+                                                break;
+                                            default:
+                                                itemZodType = z.any();
+                                        }
+                                        
+                                        // Handle optional fields in array items
+                                        if (!prop.items.required?.includes(itemKey)) {
+                                            itemZodType = itemZodType.nullable().optional();
+                                        }
+                                        
+                                        // Add description
+                                        if (itemProp.description) {
+                                            itemZodType = itemZodType.describe(itemProp.description);
+                                        }
+                                        
+                                        itemAcc[itemKey] = itemZodType;
+                                        return itemAcc;
+                                    }, {} as Record<string, any>)
+                                );
+                                zodType = z.array(itemSchema);
                             } else {
                                 zodType = z.array(z.any());
                             }
                             break;
                         case 'object':
-                            zodType = z.object({});
+                            if (prop.properties) {
+                                // Handle nested object schemas
+                                const nestedSchema = z.object(
+                                    Object.entries(prop.properties).reduce((nestedAcc, [nestedKey, nestedProp]: [string, any]) => {
+                                        let nestedZodType: any;
+                                        
+                                        switch (nestedProp.type) {
+                                            case 'string':
+                                                nestedZodType = z.string();
+                                                break;
+                                            case 'number':
+                                                nestedZodType = z.number();
+                                                break;
+                                            case 'boolean':
+                                                nestedZodType = z.boolean();
+                                                break;
+                                            case 'array':
+                                                if (nestedProp.items?.type === 'string') {
+                                                    nestedZodType = z.array(z.string());
+                                                } else {
+                                                    nestedZodType = z.array(z.any());
+                                                }
+                                                break;
+                                            default:
+                                                nestedZodType = z.any();
+                                        }
+                                        
+                                        // Handle optional nested fields
+                                        if (!prop.required?.includes(nestedKey)) {
+                                            nestedZodType = nestedZodType.nullable().optional();
+                                        }
+                                        
+                                        // Add description
+                                        if (nestedProp.description) {
+                                            nestedZodType = nestedZodType.describe(nestedProp.description);
+                                        }
+                                        
+                                        nestedAcc[nestedKey] = nestedZodType;
+                                        return nestedAcc;
+                                    }, {} as Record<string, any>)
+                                );
+                                zodType = nestedSchema;
+                            } else {
+                                zodType = z.object({});
+                            }
                             break;
                         default:
                             zodType = z.any();
@@ -1230,34 +1312,48 @@ Communication guidelines:
                 .filter(item => item.type === 'ai_response')
                 .reduce((total, item) => total + (item.content.length * 100), 0); // Rough estimate
 
+            const sessionId = this._generateSessionId();
+            const startTime = this._conversationStartTime?.toISOString() || new Date().toISOString();
+            const endTime = new Date().toISOString();
+            
+            // Convert internal data to the expected API format
             const conversationData = {
-                sessionId: this._generateSessionId(),
+                sessionId,
                 provider: 'openai' as const,
-                timestamp: new Date().toISOString(),
-                conversationMetadata: {
-                    startTime: this._conversationStartTime?.toISOString(),
-                    endTime: new Date().toISOString(),
-                    totalDuration: this._conversationStartTime ? 
-                        Date.now() - this._conversationStartTime.getTime() : 0,
-                    messageCount: this._conversationAnalytics.messageCount,
-                    toolCallCount: this._toolCalls.length,
-                    interruptionCount: this._events.filter(e => e.type.includes('interrupt')).length,
-                    costEstimate: this._conversationAnalytics.costUsd
+                conversationData: {
+                    startTime,
+                    endTime,
+                    entries: [], // TODO: Convert internal events to entries format
+                    toolCallSummary: {
+                        totalCalls: this._toolCalls.length,
+                        successfulCalls: this._toolCalls.filter(tc => tc.success).length,
+                        failedCalls: this._toolCalls.filter(tc => !tc.success).length,
+                        clientCalls: this._toolCalls.filter(tc => tc.executionContext === 'client').length,
+                        serverCalls: this._toolCalls.filter(tc => tc.executionContext === 'server').length,
+                        averageExecutionTime: this._toolCalls.length > 0 ? 
+                            this._toolCalls.reduce((sum, tc) => sum + (tc.executionTime || 0), 0) / this._toolCalls.length : 0
+                    },
+                    conversationMetrics: {
+                        totalTranscriptItems: this._transcript.length,
+                        totalConnectionEvents: this._events.filter(e => e.type.includes('connection')).length,
+                        totalContextRequests: this._events.filter(e => e.type.includes('context')).length,
+                        sessionDuration: this._conversationStartTime ? 
+                            Date.now() - this._conversationStartTime.getTime() : 0
+                    }
                 },
-                usageMetrics: {
-                    audioInputDuration,
-                    audioOutputDuration,
-                    tokensUsed: this._conversationAnalytics.tokensUsed,
-                    apiCalls: this._events.filter(e => e.type.includes('response')).length,
-                    toolExecutions: this._toolCalls.length
+                metadata: {
+                    userAgent: navigator.userAgent,
+                    clientTimestamp: new Date().toISOString(),
+                    reportType: 'session-end' as const
                 }
             };
 
             console.log('Reporting conversation data to server:', {
-                tokensUsed: conversationData.usageMetrics.tokensUsed,
-                costEstimate: conversationData.conversationMetadata.costEstimate,
-                messageCount: conversationData.conversationMetadata.messageCount,
-                toolCallCount: conversationData.conversationMetadata.toolCallCount
+                sessionId: conversationData.sessionId,
+                provider: conversationData.provider,
+                entriesCount: conversationData.conversationData.entries.length,
+                toolCallCount: conversationData.conversationData.toolCallSummary.totalCalls,
+                sessionDuration: conversationData.conversationData.conversationMetrics.sessionDuration
             });
 
             const response = await fetch('/api/ai/conversation/log', {

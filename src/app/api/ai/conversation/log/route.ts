@@ -88,7 +88,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
     } = body;
 
     sessionId = requestSessionId;
-    entriesCount = conversationData.entries.length;
+    entriesCount = conversationData?.entries?.length || 0;
 
     // Validate required fields
     if (!sessionId || typeof sessionId !== 'string') {
@@ -117,10 +117,23 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
       }, { status: 400 });
     }
 
-    if (!conversationData || !Array.isArray(conversationData.entries)) {
+    if (!conversationData) {
       return NextResponse.json({
         success: false,
-        error: 'Conversation data with entries array is required.',
+        error: 'Conversation data is required.',
+        metadata: {
+          timestamp: Date.now(),
+          sessionId,
+          entriesProcessed: 0,
+          storedSuccessfully: false
+        }
+      }, { status: 400 });
+    }
+
+    if (!Array.isArray(conversationData.entries)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Conversation data entries must be an array.',
         metadata: {
           timestamp: Date.now(),
           sessionId,

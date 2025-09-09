@@ -209,7 +209,8 @@ export class ContextManager {
   private async searchProjectContent(query: string, minRelevanceScore: number): Promise<RelevantContent[]> {
     try {
       // Get all public projects
-      const response = await fetch('/api/projects?status=PUBLISHED&visibility=PUBLIC&limit=100');
+      const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+      const response = await fetch(`${baseUrl}/api/projects?status=PUBLISHED&visibility=PUBLIC&limit=100`);
       if (!response.ok) {
         throw new Error('Failed to fetch public projects');
       }
@@ -268,7 +269,8 @@ export class ContextManager {
   private async searchAboutContent(query: string, minRelevanceScore: number): Promise<RelevantContent[]> {
     try {
       // Get homepage config which contains about section
-      const response = await fetch('/api/homepage-config-public');
+      const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+      const response = await fetch(`${baseUrl}/api/homepage-config-public`);
       if (!response.ok) {
         throw new Error('Failed to fetch homepage config');
       }

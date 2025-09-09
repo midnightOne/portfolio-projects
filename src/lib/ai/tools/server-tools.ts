@@ -46,7 +46,7 @@ export const loadProjectContextToolDefinition: UnifiedToolDefinition = {
         properties: {
           project: { type: 'object' },
           content: { type: 'string' },
-          media: { type: 'array' },
+          media: { type: 'array', items: { type: 'object' } },
           technicalDetails: { type: 'object' }
         }
       },
@@ -87,9 +87,9 @@ export const loadUserProfileToolDefinition: UnifiedToolDefinition = {
         type: 'object',
         properties: {
           profile: { type: 'object' },
-          skills: { type: 'array' },
-          experience: { type: 'array' },
-          education: { type: 'array' }
+          skills: { type: 'array', items: { type: 'string' } },
+          experience: { type: 'array', items: { type: 'object' } },
+          education: { type: 'array', items: { type: 'object' } }
         }
       },
       message: { type: 'string' }
@@ -137,7 +137,7 @@ export const searchProjectsToolDefinition: UnifiedToolDefinition = {
       data: {
         type: 'object',
         properties: {
-          projects: { type: 'array' },
+          projects: { type: 'array', items: { type: 'object' } },
           totalResults: { type: 'number' },
           searchQuery: { type: 'string' }
         }
@@ -179,10 +179,10 @@ export const getProjectSummaryToolDefinition: UnifiedToolDefinition = {
       data: {
         type: 'object',
         properties: {
-          projects: { type: 'array' },
+          projects: { type: 'array', items: { type: 'object' } },
           totalCount: { type: 'number' },
-          categories: { type: 'array' },
-          tags: { type: 'array' }
+          categories: { type: 'array', items: { type: 'string' } },
+          tags: { type: 'array', items: { type: 'string' } }
         }
       },
       message: { type: 'string' }
@@ -274,9 +274,11 @@ export const analyzeUserIntentToolDefinition: UnifiedToolDefinition = {
               type: 'number',
               description: 'Message timestamp'
             }
-          }
+          },
+          required: ['role', 'content', 'timestamp']
         },
-        description: 'Previous conversation messages for context'
+        description: 'Previous conversation messages for context',
+        default: []
       },
       currentContext: {
         type: 'object',
@@ -284,7 +286,11 @@ export const analyzeUserIntentToolDefinition: UnifiedToolDefinition = {
         properties: {
           currentPage: { type: 'string' },
           currentModal: { type: 'string' },
-          recentActions: { type: 'array' }
+          recentActions: { 
+            type: 'array',
+            items: { type: 'string' },
+            description: 'List of recent user actions'
+          }
         }
       }
     },
@@ -300,8 +306,16 @@ export const analyzeUserIntentToolDefinition: UnifiedToolDefinition = {
         properties: {
           intent: { type: 'string' },
           confidence: { type: 'number' },
-          entities: { type: 'array' },
-          suggestedActions: { type: 'array' }
+          entities: { 
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Extracted entities from user message'
+          },
+          suggestedActions: { 
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Suggested actions based on intent'
+          }
         }
       },
       message: { type: 'string' }
@@ -352,9 +366,9 @@ export const generateNavigationSuggestionsToolDefinition: UnifiedToolDefinition 
       data: {
         type: 'object',
         properties: {
-          suggestions: { type: 'array' },
+          suggestions: { type: 'array', items: { type: 'object' } },
           reasoning: { type: 'string' },
-          priority: { type: 'array' }
+          priority: { type: 'array', items: { type: 'string' } }
         }
       },
       message: { type: 'string' }
@@ -393,7 +407,7 @@ export const getNavigationHistoryToolDefinition: UnifiedToolDefinition = {
       data: {
         type: 'object',
         properties: {
-          history: { type: 'array' },
+          history: { type: 'array', items: { type: 'object' } },
           sessionId: { type: 'string' },
           totalEntries: { type: 'number' }
         }
@@ -495,7 +509,7 @@ export const processUploadedFileToolDefinition: UnifiedToolDefinition = {
         properties: {
           extractedText: { type: 'string' },
           analysis: { type: 'object' },
-          skills: { type: 'array' },
+          skills: { type: 'array', items: { type: 'string' } },
           summary: { type: 'string' }
         }
       },
