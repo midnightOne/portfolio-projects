@@ -46,7 +46,7 @@ const addToHistory = (action: string, target: string, metadata?: Record<string, 
     timestamp: Date.now(),
     metadata
   });
-  
+
   // Keep only last 50 entries
   if (navigationState.history.length > 50) {
     navigationState.history = navigationState.history.slice(-50);
@@ -92,35 +92,35 @@ const openProjectModalTool: MCPNavigationTool = {
   executor: async (args: OpenProjectModalArgs): Promise<MCPToolResult> => {
     try {
       const startTime = Date.now();
-      
+
       // Find project modal trigger (could be a button or link)
       const projectTrigger = document.querySelector(`[data-project-id="${args.projectId}"]`) ||
-                           document.querySelector(`[href*="${args.projectId}"]`) ||
-                           document.querySelector(`[data-testid="project-${args.projectId}"]`);
-      
+        document.querySelector(`[href*="${args.projectId}"]`) ||
+        document.querySelector(`[data-testid="project-${args.projectId}"]`);
+
       if (!projectTrigger) {
         throw new Error(`Project trigger not found for ID: ${args.projectId}`);
       }
-      
+
       // Click the trigger to open modal
       if (projectTrigger instanceof HTMLElement) {
         projectTrigger.click();
       }
-      
+
       // Wait for modal to open
       await new Promise(resolve => setTimeout(resolve, 300));
-      
+
       // Update navigation state
       updateNavigationState({
         currentModal: `project-${args.projectId}`,
         currentSection: null
       });
-      
+
       // Add to history
       addToHistory('openProjectModal', args.projectId, {
         highlightSections: args.highlightSections
       });
-      
+
       // Apply highlights if specified
       if (args.highlightSections && args.highlightSections.length > 0) {
         for (const sectionId of args.highlightSections) {
@@ -132,10 +132,10 @@ const openProjectModalTool: MCPNavigationTool = {
           });
         }
       }
-      
+
       // Report state to server
       await reportStateToServer(navigationState);
-      
+
       return {
         success: true,
         data: {
@@ -164,7 +164,7 @@ const openProjectModalTool: MCPNavigationTool = {
   fallback: async (args: OpenProjectModalArgs, error: Error): Promise<MCPToolResult> => {
     // Fallback: try to navigate to project page instead
     try {
-      window.location.href = `/projects/${args.projectId}`;
+      window.location.href = `/projects?project=${args.projectId}`;
       return {
         success: true,
         data: { fallbackUsed: true, navigatedToPage: true },
@@ -209,22 +209,22 @@ const navigateToProjectTool: MCPNavigationTool = {
   executor: async (args: NavigateToProjectArgs): Promise<MCPToolResult> => {
     try {
       const startTime = Date.now();
-      
+
       // Navigate to project page
-      window.location.href = `/projects/${args.projectSlug}`;
-      
+      window.location.href = `/projects?project=${args.projectSlug}`;
+
       // Update navigation state
       updateNavigationState({
         currentModal: null,
         currentSection: `project-${args.projectSlug}`
       });
-      
+
       // Add to history
       addToHistory('navigateToProject', args.projectSlug);
-      
+
       // Report state to server
       await reportStateToServer(navigationState);
-      
+
       return {
         success: true,
         data: {
@@ -282,38 +282,38 @@ const scrollToSectionTool: MCPNavigationTool = {
   executor: async (args: ScrollToSectionArgs): Promise<MCPToolResult> => {
     try {
       const startTime = Date.now();
-      
+
       // Find the target element
       const targetElement = document.getElementById(args.sectionId) ||
-                          document.querySelector(`[data-section="${args.sectionId}"]`) ||
-                          document.querySelector(`[data-testid="${args.sectionId}"]`);
-      
+        document.querySelector(`[data-section="${args.sectionId}"]`) ||
+        document.querySelector(`[data-testid="${args.sectionId}"]`);
+
       if (!targetElement) {
         throw new Error(`Section not found: ${args.sectionId}`);
       }
-      
+
       // Scroll to element
       targetElement.scrollIntoView({
         behavior: args.behavior || 'smooth',
         block: args.block || 'start',
         inline: 'nearest'
       });
-      
+
       // Update navigation state
       updateNavigationState({
         currentSection: args.sectionId,
         scrollPosition: window.scrollY
       });
-      
+
       // Add to history
       addToHistory('scrollToSection', args.sectionId, {
         behavior: args.behavior,
         block: args.block
       });
-      
+
       // Report state to server
       await reportStateToServer(navigationState);
-      
+
       return {
         success: true,
         data: {
@@ -385,41 +385,41 @@ const highlightTextTool: MCPNavigationTool = {
   executor: async (args: HighlightTextArgs): Promise<MCPToolResult> => {
     try {
       const startTime = Date.now();
-      
+
       // Find target elements
       const elements = document.querySelectorAll(args.selector);
-      
+
       if (elements.length === 0) {
         throw new Error(`No elements found for selector: ${args.selector}`);
       }
-      
+
       const highlightId = `highlight-${Date.now()}`;
       const type = args.type || 'outline';
       const intensity = args.intensity || 'medium';
-      
+
       // Apply highlight styles
       elements.forEach((element, index) => {
         if (element instanceof HTMLElement) {
           const elementId = `${highlightId}-${index}`;
           element.setAttribute('data-highlight-id', elementId);
-          
+
           // Apply highlight based on type and intensity
           switch (type) {
             case 'outline':
               element.style.outline = intensity === 'subtle' ? '1px solid rgba(59, 130, 246, 0.5)' :
-                                    intensity === 'medium' ? '2px solid rgba(59, 130, 246, 0.8)' :
-                                    '3px solid rgba(59, 130, 246, 1)';
+                intensity === 'medium' ? '2px solid rgba(59, 130, 246, 0.8)' :
+                  '3px solid rgba(59, 130, 246, 1)';
               element.style.outlineOffset = '2px';
               break;
             case 'color':
               element.style.backgroundColor = intensity === 'subtle' ? 'rgba(59, 130, 246, 0.1)' :
-                                            intensity === 'medium' ? 'rgba(59, 130, 246, 0.2)' :
-                                            'rgba(59, 130, 246, 0.3)';
+                intensity === 'medium' ? 'rgba(59, 130, 246, 0.2)' :
+                  'rgba(59, 130, 246, 0.3)';
               break;
             case 'glow':
               element.style.boxShadow = intensity === 'subtle' ? '0 0 5px rgba(59, 130, 246, 0.5)' :
-                                      intensity === 'medium' ? '0 0 10px rgba(59, 130, 246, 0.8)' :
-                                      '0 0 15px rgba(59, 130, 246, 1)';
+                intensity === 'medium' ? '0 0 10px rgba(59, 130, 246, 0.8)' :
+                  '0 0 15px rgba(59, 130, 246, 1)';
               break;
             case 'spotlight':
               // Create spotlight overlay
@@ -433,20 +433,20 @@ const highlightTextTool: MCPNavigationTool = {
               spotlight.style.pointerEvents = 'none';
               spotlight.style.zIndex = '9999';
               spotlight.setAttribute('data-highlight-id', elementId);
-              
+
               const rect = element.getBoundingClientRect();
               const clipPath = `circle(${Math.max(rect.width, rect.height) / 2 + 20}px at ${rect.left + rect.width / 2}px ${rect.top + rect.height / 2}px)`;
               spotlight.style.clipPath = `polygon(0% 0%, 0% 100%, ${rect.left}px 100%, ${rect.left}px ${rect.top}px, ${rect.right}px ${rect.top}px, ${rect.right}px ${rect.bottom}px, ${rect.left}px ${rect.bottom}px, ${rect.left}px 100%, 100% 100%, 100% 0%)`;
-              
+
               document.body.appendChild(spotlight);
               break;
           }
-          
+
           // Add transition for smooth appearance
           element.style.transition = 'all 0.3s ease-in-out';
         }
       });
-      
+
       // Store highlight state
       const highlightState: HighlightState = {
         selector: args.selector,
@@ -455,16 +455,16 @@ const highlightTextTool: MCPNavigationTool = {
         startTime: Date.now(),
         duration: args.duration === 'timed' ? args.timing : undefined
       };
-      
+
       navigationState.activeHighlights[highlightId] = highlightState;
-      
+
       // Set up automatic removal for timed highlights
       if (args.duration === 'timed' && args.timing) {
         setTimeout(() => {
           clearHighlightsTool.executor({ selector: args.selector });
         }, args.timing);
       }
-      
+
       // Add to history
       addToHistory('highlightText', args.selector, {
         type,
@@ -472,10 +472,10 @@ const highlightTextTool: MCPNavigationTool = {
         duration: args.duration,
         timing: args.timing
       });
-      
+
       // Report state to server
       await reportStateToServer(navigationState);
-      
+
       return {
         success: true,
         data: {
@@ -526,7 +526,7 @@ const clearHighlightsTool: MCPNavigationTool = {
     try {
       const startTime = Date.now();
       let clearedCount = 0;
-      
+
       if (args.selector) {
         // Clear specific highlights
         const elements = document.querySelectorAll(args.selector);
@@ -541,7 +541,7 @@ const clearHighlightsTool: MCPNavigationTool = {
             clearedCount++;
           }
         });
-        
+
         // Remove spotlight overlays for this selector
         document.querySelectorAll(`[data-highlight-id*="${args.selector}"]`).forEach(overlay => {
           overlay.remove();
@@ -559,24 +559,24 @@ const clearHighlightsTool: MCPNavigationTool = {
             clearedCount++;
           }
         });
-        
+
         // Remove all spotlight overlays
         document.querySelectorAll('[data-highlight-id]').forEach(overlay => {
           if (overlay.parentElement === document.body) {
             overlay.remove();
           }
         });
-        
+
         // Clear all highlight state
         navigationState.activeHighlights = {};
       }
-      
+
       // Add to history
       addToHistory('clearHighlights', args.selector || 'all');
-      
+
       // Report state to server
       await reportStateToServer(navigationState);
-      
+
       return {
         success: true,
         data: {
@@ -621,16 +621,16 @@ const focusElementTool: MCPNavigationTool = {
   executor: async (args: FocusElementArgs): Promise<MCPToolResult> => {
     try {
       const startTime = Date.now();
-      
+
       const element = document.querySelector(args.selector);
-      
+
       if (!element) {
         throw new Error(`Element not found for selector: ${args.selector}`);
       }
-      
+
       if (element instanceof HTMLElement) {
         element.focus();
-        
+
         // Scroll into view if needed
         element.scrollIntoView({
           behavior: 'smooth',
@@ -638,13 +638,13 @@ const focusElementTool: MCPNavigationTool = {
           inline: 'nearest'
         });
       }
-      
+
       // Add to history
       addToHistory('focusElement', args.selector);
-      
+
       // Report state to server
       await reportStateToServer(navigationState);
-      
+
       return {
         success: true,
         data: {
@@ -714,20 +714,20 @@ const animateElementTool: MCPNavigationTool = {
   executor: async (args: AnimateElementArgs): Promise<MCPToolResult> => {
     try {
       const startTime = Date.now();
-      
+
       const elements = document.querySelectorAll(args.selector);
-      
+
       if (elements.length === 0) {
         throw new Error(`No elements found for selector: ${args.selector}`);
       }
-      
+
       const { type, duration = 500, easing = 'ease-in-out', delay = 0 } = args.animation;
-      
+
       // Apply animation to each element
       elements.forEach((element, index) => {
         if (element instanceof HTMLElement) {
           const elementDelay = delay + (index * 100); // Stagger animations
-          
+
           setTimeout(() => {
             // Apply animation based on type
             switch (type) {
@@ -757,7 +757,7 @@ const animateElementTool: MCPNavigationTool = {
               default:
                 element.style.animation = `${type} ${duration}ms ${easing}`;
             }
-            
+
             // Clean up after animation
             setTimeout(() => {
               element.style.animation = '';
@@ -766,7 +766,7 @@ const animateElementTool: MCPNavigationTool = {
           }, elementDelay);
         }
       });
-      
+
       // Add to history
       addToHistory('animateElement', args.selector, {
         animationType: type,
@@ -774,10 +774,10 @@ const animateElementTool: MCPNavigationTool = {
         easing,
         delay
       });
-      
+
       // Report state to server
       await reportStateToServer(navigationState);
-      
+
       return {
         success: true,
         data: {
@@ -807,10 +807,10 @@ const animateElementTool: MCPNavigationTool = {
     }
   },
   validation: (args: any): boolean => {
-    return typeof args.selector === 'string' && 
-           args.selector.length > 0 && 
-           typeof args.animation === 'object' && 
-           typeof args.animation.type === 'string';
+    return typeof args.selector === 'string' &&
+      args.selector.length > 0 &&
+      typeof args.animation === 'object' &&
+      typeof args.animation.type === 'string';
   }
 };
 

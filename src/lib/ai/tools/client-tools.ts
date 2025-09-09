@@ -10,13 +10,13 @@ import { UnifiedToolDefinition } from './types';
 // Navigation Tools - Direct browser execution
 export const navigateToToolDefinition: UnifiedToolDefinition = {
   name: 'navigateTo',
-  description: 'Navigate to a specific page or URL in the portfolio.',
+  description: 'Navigate to a specific page or URL in the portfolio. For projects, use exact URLs like "/projects?project=slug" or search first with searchProjects to find the correct slug.',
   parameters: {
     type: 'object',
     properties: {
       path: {
         type: 'string',
-        description: 'The URL path to navigate to (e.g., "/projects", "/about", "/contact")'
+        description: 'The exact URL path to navigate to. For projects, use "/projects?project=exact-slug" format. For other pages: "/about", "/contact", etc.'
       },
       newTab: {
         type: 'boolean',
@@ -39,13 +39,13 @@ export const navigateToToolDefinition: UnifiedToolDefinition = {
 
 export const showProjectDetailsToolDefinition: UnifiedToolDefinition = {
   name: 'showProjectDetails',
-  description: 'Show details for a specific project in a modal, optionally highlighting sections.',
+  description: 'Show details for a specific project in a modal. Use searchProjects first to find the exact project slug if you only have a partial name.',
   parameters: {
     type: 'object',
     properties: {
       projectId: {
         type: 'string',
-        description: 'The ID or slug of the project to show'
+        description: 'The exact project slug (e.g., "e-commerce-platform", "task-management-app"). Use searchProjects to find the correct slug if uncertain.'
       },
       highlightSections: {
         type: 'array',
@@ -67,6 +67,8 @@ export const showProjectDetailsToolDefinition: UnifiedToolDefinition = {
     }
   }
 };
+
+
 
 export const scrollIntoViewToolDefinition: UnifiedToolDefinition = {
   name: 'scrollIntoView',

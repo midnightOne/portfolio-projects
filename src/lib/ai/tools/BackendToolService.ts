@@ -131,6 +131,10 @@ export class BackendToolService {
           result = await this.handleGetProjectSummary(parameters, context);
           break;
 
+        case 'openProject':
+          result = await this.handleOpenProject(parameters, context);
+          break;
+
         case 'processJobSpec':
           result = await this.handleProcessJobSpec(parameters, context);
           break;
@@ -306,7 +310,9 @@ export class BackendToolService {
 
     try {
       // Fetch real projects from the database
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/projects?limit=${limit * 2}`);
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ||
+        (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
+      const response = await fetch(`${baseUrl}/api/projects?limit=${limit * 2}`);
 
       if (!response.ok) {
         throw new Error(`Failed to fetch projects: ${response.statusText}`);
@@ -374,7 +380,8 @@ export class BackendToolService {
             'task': ['task-management-app'],
             'todo': ['task-management-app'],
             'portfolio': ['portfolio-website'],
-            'website': ['portfolio-website']
+            'website': ['portfolio-website'],
+            'personal': ['portfolio-website']
           };
 
           Object.entries(specialMappings).forEach(([term, slugs]) => {
@@ -414,6 +421,92 @@ export class BackendToolService {
     }
   }
 
+  /**
+   * Handle opening a project by searching first
+   */
+  private async handleOpenProject(parameters: any, context: ToolExecutionContext): Promise<ToolExecutionResult> {
+    try {
+      const { projectName, newTab = false } = parameters;
+
+      if (!projectName || typeof projectName !== 'string') {
+        return {
+          success: false,
+          error: 'Project name is required and must be a string',
+          data: null,
+          metadata: {
+            timestamp: Date.now(),
+            source: 'backend-tool-service',
+            toolName: 'openProject',
+            executionTime: 0,
+            accessLevel: context.accessLevel
+          }
+        };
+      }
+
+      // First, search for the project
+      const searchResult = await this.handleSearchProjects({
+        query: projectName,
+        limit: 1
+      }, context);
+
+      if (!searchResult.results || searchResult.results.length === 0) {
+        return {
+          success: false,
+          error: `No project found matching "${projectName}". Try searching with different keywords.`,
+          data: {
+            projectFound: false,
+            searchQuery: projectName,
+            suggestions: ['Try "e-commerce", "task management", or "portfolio"']
+          },
+          metadata: {
+            timestamp: Date.now(),
+            source: 'backend-tool-service',
+            toolName: 'openProject',
+            executionTime: Date.now() - Date.now(),
+            accessLevel: context.accessLevel
+          }
+        };
+      }
+
+      const project = searchResult.results[0];
+      const navigationUrl = `/projects?project=${project.slug}`;
+
+      return {
+        success: true,
+        data: {
+          projectFound: true,
+          projectSlug: project.slug,
+          projectTitle: project.title,
+          navigationUrl,
+          shouldNavigate: true,
+          newTab,
+          message: `Found "${project.title}". Navigate to: ${navigationUrl}`
+        },
+        metadata: {
+          timestamp: Date.now(),
+          source: 'backend-tool-service',
+          toolName: 'openProject',
+          executionTime: Date.now() - Date.now(),
+          accessLevel: context.accessLevel
+        }
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        error: `Failed to open project: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        data: null,
+        metadata: {
+          timestamp: Date.now(),
+          source: 'backend-tool-service',
+          toolName: 'openProject',
+          executionTime: 0,
+          accessLevel: context.accessLevel
+        }
+      };
+    }
+  }
+
   private async handleGetProjectSummary(
     args: any,
     context: ServerToolExecutionContext
@@ -422,7 +515,9 @@ export class BackendToolService {
 
     try {
       // Fetch real projects from the database
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001'}/api/projects?limit=${maxProjects}`);
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ||
+        (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
+      const response = await fetch(`${baseUrl}/api/projects?limit=${maxProjects}`);
 
       if (!response.ok) {
         throw new Error(`Failed to fetch projects: ${response.statusText}`);
