@@ -29,8 +29,6 @@ import {
     backgroundResult,
 } from '@openai/agents/realtime';
 import { z } from 'zod';
-import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
-import { number } from 'framer-motion';
 
 
 
@@ -107,7 +105,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             };
             
             // Initialize agent with loaded configuration
-            this._initializeAgent();
+            await this._initializeAgent();
         } catch (error) {
             console.error('Failed to load OpenAI configuration, using fallback defaults:', error);
             
@@ -156,279 +154,79 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             } as OpenAIRealtimeConfig;
             
             // Initialize with fallback configuration
-            this._initializeAgent();
+            await this._initializeAgent();
         }
     }
 
-    private _initializeAgent() {
-        // Import UI navigation tools (only in browser environment)
-        let uiNavigationTools: any = null;
-        if (typeof window !== 'undefined') {
-            const { uiNavigationTools: tools } = require('./UINavigationTools');
-            uiNavigationTools = tools;
-        }
-
-        // Create client-side UI navigation tools with direct execution
-        const navigateToTool = tool({
-            name: 'navigateTo',
-            description: 'Navigate to a specific page or URL in the portfolio',
-            parameters: z.object({
-                path: z.string().describe('The path or URL to navigate to'),
-                newTab: z.boolean().nullable().optional().describe('Whether to open in a new tab')
-            }),
-            execute: async ({ path, newTab }) => {
-                const shouldOpenNewTab = newTab ?? false;
-                try {
-                    if (!uiNavigationTools) {
-                        return backgroundResult('Navigation tools not available in this environment');
-                    }
-                    const result = await uiNavigationTools.navigateTo({ path, newTab: shouldOpenNewTab });
-                    return backgroundResult(result.message);
-                } catch (error) {
-                    return backgroundResult(`Failed to navigate: ${error instanceof Error ? error.message : String(error)}`);
-                }
-            },
-        });
-
-        const showProjectDetailsTool = tool({
-            name: 'showProjectDetails',
-            description: 'Show details for a specific project, optionally highlighting sections',
-            parameters: z.object({
-                projectId: z.string().describe('The ID or slug of the project to show'),
-                highlightSections: z.array(z.string()).nullable().optional().describe('Array of section IDs to highlight')
-            }),
-            execute: async ({ projectId, highlightSections }) => {
-                const sections = highlightSections ?? [];
-                try {
-                    if (!uiNavigationTools) {
-                        return backgroundResult('Navigation tools not available in this environment');
-                    }
-                    const result = await uiNavigationTools.showProjectDetails({ projectId, highlightSections: sections });
-                    return backgroundResult(result.message);
-                } catch (error) {
-                    return backgroundResult(`Failed to show project: ${error instanceof Error ? error.message : String(error)}`);
-                }
-            },
-        });
-
-        const scrollIntoViewTool = tool({
-            name: 'scrollIntoView',
-            description: 'Scroll to bring a specific element into view',
-            parameters: z.object({
-                selector: z.string().describe('CSS selector for the element to scroll to'),
-                behavior: z.enum(['auto', 'smooth']).nullable().optional().describe('Scroll behavior')
-            }),
-            execute: async (params) => {
-                const { selector, behavior } = params;
-                const scrollBehavior = behavior ?? 'smooth';
-                try {
-                    if (!uiNavigationTools) {
-                        return backgroundResult('Navigation tools not available in this environment');
-                    }
-                    const result = await uiNavigationTools.scrollIntoView({ selector, behavior: scrollBehavior });
-                    return backgroundResult(result.message);
-                } catch (error) {
-                    return backgroundResult(`Failed to scroll: ${error instanceof Error ? error.message : String(error)}`);
-                }
-            },
-        });
-
-        const highlightTextTool = tool({
-            name: 'highlightText',
-            description: 'Highlight specific text or elements on the page',
-            parameters: z.object({
-                selector: z.string().describe('CSS selector for elements to search within'),
-                text: z.string().nullable().optional().describe('Specific text to highlight (optional)'),
-                className: z.string().nullable().optional().describe('CSS class name for highlighting')
-            }),
-            execute: async ({ selector, text, className }) => {
-                const cssClass = className ?? 'voice-highlight';
-                try {
-                    if (!uiNavigationTools) {
-                        return backgroundResult('Navigation tools not available in this environment');
-                    }
-                    const result = await uiNavigationTools.highlightText({ selector, text, className: cssClass });
-                    return backgroundResult(result.message);
-                } catch (error) {
-                    return backgroundResult(`Failed to highlight: ${error instanceof Error ? error.message : String(error)}`);
-                }
-            },
-        });
-
-        const clearHighlightsTool = tool({
-            name: 'clearHighlights',
-            description: 'Clear all highlights from the page',
-            parameters: z.object({
-                className: z.string().nullable().optional().describe('CSS class name to remove')
-            }),
-            execute: async ({ className }) => {
-                const cssClass = className ?? 'voice-highlight';
-                try {
-                    if (!uiNavigationTools) {
-                        return backgroundResult('Navigation tools not available in this environment');
-                    }
-                    const result = await uiNavigationTools.clearHighlights({ className: cssClass });
-                    return backgroundResult(result.message);
-                } catch (error) {
-                    return backgroundResult(`Failed to clear highlights: ${error instanceof Error ? error.message : String(error)}`);
-                }
-            },
-        });
-
-        // Create MCP server tools for Model Context Protocol integration
-        const loadProjectContextTool = tool({
-            name: 'loadProjectContext',
-            description: 'Load detailed context for a specific project',
-            parameters: z.object({
-                projectId: z.string().describe('The ID of the project to load context for'),
-                includeContent: z.boolean().nullable().optional().describe('Whether to include full article content'),
-                includeMedia: z.boolean().nullable().optional().describe('Whether to include media information')
-            }),
-            execute: async ({ projectId, includeContent, includeMedia }) => {
-                const includeContentFlag = includeContent ?? false;
-                const includeMediaFlag = includeMedia ?? false;
-                try {
-                    const response = await fetch('/api/ai/tools/execute', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            toolName: 'loadProjectContext', 
-                            parameters: { projectId, includeContent: includeContentFlag, includeMedia: includeMediaFlag },
-                            sessionId: this._options?.contextId || 'openai-session',
-                            reflinkId: this._options?.reflinkId
-                        })
-                    });
+    private async _initializeAgent() {
+        // Import unified tool registry
+        const { unifiedToolRegistry } = await import('@/lib/ai/tools/UnifiedToolRegistry');
+        
+        // Get all tool definitions from unified registry
+        const allToolDefinitions = unifiedToolRegistry.getAllToolDefinitions();
+        
+        // Create OpenAI tools using unified execution pipeline
+        const openaiTools = allToolDefinitions.map(toolDef => {
+            // Convert unified tool definition to OpenAI tool format
+            const parametersSchema = z.object(
+                Object.entries(toolDef.parameters.properties).reduce((acc, [key, prop]: [string, any]) => {
+                    let zodType: any;
                     
-                    if (!response.ok) {
-                        throw new Error(`Unified tool execution failed: ${response.status}`);
+                    switch (prop.type) {
+                        case 'string':
+                            zodType = z.string();
+                            if (prop.enum) {
+                                zodType = z.enum(prop.enum);
+                            }
+                            break;
+                        case 'number':
+                            zodType = z.number();
+                            break;
+                        case 'boolean':
+                            zodType = z.boolean();
+                            break;
+                        case 'array':
+                            if (prop.items?.type === 'string') {
+                                zodType = z.array(z.string());
+                            } else {
+                                zodType = z.array(z.any());
+                            }
+                            break;
+                        case 'object':
+                            zodType = z.object({});
+                            break;
+                        default:
+                            zodType = z.any();
                     }
                     
-                    const data = await response.json();
-                    return backgroundResult(`Loaded context for project ${projectId}`);
-                } catch (error) {
-                    return backgroundResult(`Failed to load project context: ${error instanceof Error ? error.message : String(error)}`);
-                }
-            },
-        });
-
-        const processJobSpecTool = tool({
-            name: 'processJobSpec',
-            description: 'Process and analyze a job specification',
-            parameters: z.object({
-                jobSpec: z.string().describe('The job specification text to analyze'),
-                analysisType: z.string().nullable().optional().describe('Type of analysis to perform')
-            }),
-            execute: async ({ jobSpec, analysisType }) => {
-                const analysis = analysisType ?? 'quick';
-                try {
-                    const response = await fetch('/api/ai/tools/execute', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            toolName: 'processJobSpec', 
-                            parameters: { jobSpec, analysisType: analysis },
-                            sessionId: this._options?.contextId || 'openai-session',
-                            reflinkId: this._options?.reflinkId
-                        })
-                    });
-                    
-                    if (!response.ok) {
-                        throw new Error(`Unified tool execution failed: ${response.status}`);
+                    // Handle optional fields
+                    if (!toolDef.parameters.required?.includes(key)) {
+                        zodType = zodType.nullable().optional();
                     }
                     
-                    const data = await response.json();
-                    return backgroundResult(`Analyzed job specification`);
-                } catch (error) {
-                    return backgroundResult(`Failed to process job spec: ${error instanceof Error ? error.message : String(error)}`);
-                }
-            },
-        });
-
-        // Create client-side backend API tools that make fetch calls to server endpoints
-        const loadContextTool = tool({
-            name: 'loadContext',
-            description: 'Load additional context from the server based on query or topic',
-            parameters: z.object({
-                query: z.string().describe('The query or topic to load context for'),
-                contextType: z.enum(['projects', 'profile', 'skills', 'experience']).nullable().optional().describe('Type of context to load')
-            }),
-            execute: async ({ query, contextType }) => {
-                const type = contextType ?? undefined;
-                try {
-                    const response = await fetch('/api/ai/context', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ query, contextType: type })
-                    });
-                    
-                    if (!response.ok) {
-                        throw new Error(`Server responded with ${response.status}`);
+                    // Add description
+                    if (prop.description) {
+                        zodType = zodType.describe(prop.description);
                     }
                     
-                    const contextData = await response.json();
-                    return backgroundResult(`Loaded context for "${query}": ${JSON.stringify(contextData).substring(0, 100)}...`);
-                } catch (error) {
-                    return backgroundResult(`Failed to load context: ${error instanceof Error ? error.message : String(error)}`);
-                }
-            },
-        });
-
-        const analyzeJobSpecTool = tool({
-            name: 'analyzeJobSpec',
-            description: 'Analyze a job specification against the portfolio owner\'s background',
-            parameters: z.object({
-                jobDescription: z.string().describe('The job description or requirements to analyze'),
-                focusAreas: z.array(z.string()).nullable().optional().describe('Specific areas to focus the analysis on')
-            }),
-            execute: async ({ jobDescription, focusAreas }) => {
-                const areas = focusAreas ?? [];
-                try {
-                    const response = await fetch('/api/ai/analyze-job', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ jobDescription, focusAreas: areas })
-                    });
-                    
-                    if (!response.ok) {
-                        throw new Error(`Server responded with ${response.status}`);
+                    acc[key] = zodType;
+                    return acc;
+                }, {} as Record<string, any>)
+            );
+            
+            return tool({
+                name: toolDef.name,
+                description: toolDef.description,
+                parameters: parametersSchema,
+                execute: async (parameters: any) => {
+                    try {
+                        const result = await this._executeUnifiedTool(toolDef.name, parameters);
+                        return backgroundResult(typeof result === 'string' ? result : JSON.stringify(result));
+                    } catch (error) {
+                        return backgroundResult(`Failed to execute ${toolDef.name}: ${error instanceof Error ? error.message : String(error)}`);
                     }
-                    
-                    const analysis = await response.json();
-                    return backgroundResult(`Job analysis completed with ${analysis.analysis?.overallMatch || 'unknown'} match score`);
-                } catch (error) {
-                    return backgroundResult(`Failed to analyze job: ${error instanceof Error ? error.message : String(error)}`);
-                }
-            },
-        });
-
-        const submitContactFormTool = tool({
-            name: 'submitContactForm',
-            description: 'Submit a contact form on behalf of the user with their provided information',
-            parameters: z.object({
-                name: z.string().describe('User\'s name'),
-                email: z.string().email().describe('User\'s email address'),
-                message: z.string().describe('The message to send'),
-                subject: z.string().nullable().optional().describe('Optional subject line')
-            }),
-            execute: async ({ name, email, message, subject }) => {
-                const subjectLine = subject ?? undefined;
-                try {
-                    const response = await fetch('/api/public/contact', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ name, email, message, subject: subjectLine })
-                    });
-                    
-                    if (!response.ok) {
-                        throw new Error(`Server responded with ${response.status}`);
-                    }
-                    
-                    const result = await response.json();
-                    return backgroundResult('Contact form submitted successfully');
-                } catch (error) {
-                    return backgroundResult(`Failed to submit contact form: ${error instanceof Error ? error.message : String(error)}`);
-                }
-            },
+                },
+            });
         });
 
         // Create the main agent with configuration from ClientAIModelManager
@@ -453,159 +251,7 @@ Communication guidelines:
         this._agent = new RealtimeAgent({
             name: agentName,
             instructions: instructions,
-            tools: [
-                navigateToTool,
-                showProjectDetailsTool,
-                scrollIntoViewTool,
-                highlightTextTool,
-                clearHighlightsTool,
-                loadProjectContextTool,
-                processJobSpecTool,
-                loadContextTool,
-                analyzeJobSpecTool,
-                submitContactFormTool
-            ],
-        });
-
-        // Register tools in the adapter's tool registry for interface compatibility
-        const toolDefinitions = [
-            {
-                name: 'navigateTo',
-                description: 'Navigate to a specific page or URL in the portfolio',
-                parameters: {
-                    type: 'object' as const,
-                    properties: {
-                        path: { type: 'string', description: 'The path or URL to navigate to' },
-                        newTab: { type: 'boolean', description: 'Whether to open in a new tab' }
-                    },
-                    required: ['path']
-                },
-                handler: async (args: any) => ({ success: true, message: 'Navigation executed', data: args })
-            },
-            {
-                name: 'showProjectDetails',
-                description: 'Show details for a specific project, optionally highlighting sections',
-                parameters: {
-                    type: 'object' as const,
-                    properties: {
-                        projectId: { type: 'string', description: 'The ID or slug of the project to show' },
-                        highlightSections: { type: 'array', items: { type: 'string' }, description: 'Array of section IDs to highlight' }
-                    },
-                    required: ['projectId']
-                },
-                handler: async (args: any) => ({ success: true, message: 'Project details shown', data: args })
-            },
-            {
-                name: 'scrollIntoView',
-                description: 'Scroll to bring a specific element into view',
-                parameters: {
-                    type: 'object' as const,
-                    properties: {
-                        selector: { type: 'string', description: 'CSS selector for the element to scroll to' },
-                        behavior: { type: 'string', enum: ['auto', 'smooth'], description: 'Scroll behavior' }
-                    },
-                    required: ['selector']
-                },
-                handler: async (args: any) => ({ success: true, message: 'Scrolled to element', data: args })
-            },
-            {
-                name: 'highlightText',
-                description: 'Highlight specific text or elements on the page',
-                parameters: {
-                    type: 'object' as const,
-                    properties: {
-                        selector: { type: 'string', description: 'CSS selector for elements to search within' },
-                        text: { type: 'string', description: 'Specific text to highlight (optional)' },
-                        className: { type: 'string', description: 'CSS class name for highlighting' }
-                    },
-                    required: ['selector']
-                },
-                handler: async (args: any) => ({ success: true, message: 'Text highlighted', data: args })
-            },
-            {
-                name: 'clearHighlights',
-                description: 'Clear all highlights from the page',
-                parameters: {
-                    type: 'object' as const,
-                    properties: {
-                        className: { type: 'string', description: 'CSS class name to remove' }
-                    }
-                },
-                handler: async (args: any) => ({ success: true, message: 'Highlights cleared', data: args })
-            },
-            {
-                name: 'loadProjectContext',
-                description: 'Load detailed context for a specific project',
-                parameters: {
-                    type: 'object' as const,
-                    properties: {
-                        projectId: { type: 'string', description: 'The ID of the project to load context for' },
-                        includeContent: { type: 'boolean', description: 'Whether to include full article content' },
-                        includeMedia: { type: 'boolean', description: 'Whether to include media information' }
-                    },
-                    required: ['projectId']
-                },
-                handler: async (args: any) => ({ success: true, message: 'Project context loaded', data: args })
-            },
-            {
-                name: 'processJobSpec',
-                description: 'Process and analyze a job specification',
-                parameters: {
-                    type: 'object' as const,
-                    properties: {
-                        jobSpec: { type: 'string', description: 'The job specification text to analyze' },
-                        analysisType: { type: 'string', description: 'Type of analysis to perform' }
-                    },
-                    required: ['jobSpec']
-                },
-                handler: async (args: any) => ({ success: true, message: 'Job specification processed', data: args })
-            },
-            {
-                name: 'loadContext',
-                description: 'Load additional context from the server based on query or topic',
-                parameters: {
-                    type: 'object' as const,
-                    properties: {
-                        query: { type: 'string', description: 'The query or topic to load context for' },
-                        contextType: { type: 'string', enum: ['projects', 'profile', 'skills', 'experience'], description: 'Type of context to load' }
-                    },
-                    required: ['query']
-                },
-                handler: async (args: any) => ({ success: true, message: 'Context loaded', data: args })
-            },
-            {
-                name: 'analyzeJobSpec',
-                description: 'Analyze a job specification against the portfolio owner\'s background',
-                parameters: {
-                    type: 'object' as const,
-                    properties: {
-                        jobDescription: { type: 'string', description: 'The job description or requirements to analyze' },
-                        focusAreas: { type: 'array', items: { type: 'string' }, description: 'Specific areas to focus the analysis on' }
-                    },
-                    required: ['jobDescription']
-                },
-                handler: async (args: any) => ({ success: true, message: 'Job analysis completed', data: args })
-            },
-            {
-                name: 'submitContactForm',
-                description: 'Submit a contact form on behalf of the user with their provided information',
-                parameters: {
-                    type: 'object' as const,
-                    properties: {
-                        name: { type: 'string', description: 'User\'s name' },
-                        email: { type: 'string', description: 'User\'s email address' },
-                        message: { type: 'string', description: 'The message to send' },
-                        subject: { type: 'string', description: 'Optional subject line' }
-                    },
-                    required: ['name', 'email', 'message']
-                },
-                handler: async (args: any) => ({ success: true, message: 'Contact form submitted', data: args })
-            }
-        ];
-
-        // Register all tools
-        toolDefinitions.forEach(tool => {
-            this.registerTool(tool);
+            tools: openaiTools,
         });
     }
 

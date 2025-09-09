@@ -147,7 +147,7 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
       }
 
       // Register standard tools (same as OpenAI adapter for unified experience)
-      this._registerStandardTools();
+      await this._registerStandardTools();
 
       // Register additional tools from options
       if (options.tools) {
@@ -203,6 +203,9 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
       const conversationToken = tokenResponse.conversationToken || tokenResponse.conversation_token;
       const agentId = tokenResponse.agentId || tokenResponse.agent_id;
 
+      // Create client tools using unified tool registry
+      const clientTools = await this._createClientToolsForElevenLabs();
+
       let conversationOptions: PartialOptions;
 
       if (signedUrl && signedUrl.trim() !== '') {
@@ -216,7 +219,7 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
           sampleRate: 16000,
           
           // Client tools for unified tool execution
-          clientTools: this._createClientToolsForElevenLabs(),
+          clientTools: clientTools,
         };
       } else if (conversationToken && conversationToken.trim() !== '') {
         // Private WebRTC session configuration with conversation token
@@ -230,7 +233,7 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
           sampleRate: 16000,
           
           // Client tools for unified tool execution
-          clientTools: this._createClientToolsForElevenLabs(),
+          clientTools: clientTools,
         };
       } else if (agentId && agentId.trim() !== '') {
         // Public session configuration (no authentication required)
@@ -244,7 +247,7 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
           sampleRate: 16000,
           
           // Client tools for unified tool execution
-          clientTools: this._createClientToolsForElevenLabs(),
+          clientTools: clientTools,
         };
       } else {
         throw new Error('Invalid token response: missing required authentication parameters (agentId, conversationToken, or signedUrl)');
@@ -596,208 +599,39 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
   // Private methods
 
   /**
-   * Register standard tools (same as OpenAI adapter for unified experience)
+   * Register standard tools using unified tool registry
    * Ensures both adapters have the same tool capabilities for seamless switching
    */
-  private _registerStandardTools(): void {
-    // UI Navigation Tools (client-side execution using shared UINavigationTools)
-    const uiNavigationTools = [
-      {
-        name: 'navigateTo',
-        description: 'Navigate to a specific page or URL in the portfolio',
-        parameters: {
-          type: 'object' as const,
-          properties: {
-            path: { type: 'string', description: 'The path or URL to navigate to' },
-            newTab: { type: 'boolean', description: 'Whether to open in a new tab' }
-          },
-          required: ['path']
-        },
-        handler: async (args: any) => ({ success: true, message: 'Navigation executed', data: args })
-      },
-      {
-        name: 'showProjectDetails',
-        description: 'Show details for a specific project, optionally highlighting sections',
-        parameters: {
-          type: 'object' as const,
-          properties: {
-            projectId: { type: 'string', description: 'The ID or slug of the project to show' },
-            highlightSections: { type: 'array', items: { type: 'string' }, description: 'Array of section IDs to highlight' }
-          },
-          required: ['projectId']
-        },
-        handler: async (args: any) => ({ success: true, message: 'Project details shown', data: args })
-      },
-      {
-        name: 'scrollIntoView',
-        description: 'Scroll to bring a specific element into view',
-        parameters: {
-          type: 'object' as const,
-          properties: {
-            selector: { type: 'string', description: 'CSS selector for the element to scroll to' },
-            behavior: { type: 'string', enum: ['auto', 'smooth'], description: 'Scroll behavior' }
-          },
-          required: ['selector']
-        },
-        handler: async (args: any) => ({ success: true, message: 'Scrolled to element', data: args })
-      },
-      {
-        name: 'highlightText',
-        description: 'Highlight specific text or elements on the page',
-        parameters: {
-          type: 'object' as const,
-          properties: {
-            selector: { type: 'string', description: 'CSS selector for elements to search within' },
-            text: { type: 'string', description: 'Specific text to highlight (optional)' },
-            className: { type: 'string', description: 'CSS class name for highlighting' }
-          },
-          required: ['selector']
-        },
-        handler: async (args: any) => ({ success: true, message: 'Text highlighted', data: args })
-      },
-      {
-        name: 'clearHighlights',
-        description: 'Clear all highlights from the page',
-        parameters: {
-          type: 'object' as const,
-          properties: {
-            className: { type: 'string', description: 'CSS class name to remove' }
+  private async _registerStandardTools(): Promise<void> {
+    // Import unified tool registry
+    const { unifiedToolRegistry } = await import('@/lib/ai/tools/UnifiedToolRegistry');
+    
+    // Get all tool definitions from unified registry
+    const allToolDefinitions = unifiedToolRegistry.getAllToolDefinitions();
+    
+    // Register all tools from unified registry
+    allToolDefinitions.forEach(toolDef => {
+      // Convert unified tool definition to adapter tool format
+      const adapterTool = {
+        name: toolDef.name,
+        description: toolDef.description,
+        parameters: toolDef.parameters,
+        handler: async (args: any) => {
+          // Use unified execution pipeline
+          try {
+            const result = await this._executeUnifiedTool(toolDef.name, args);
+            return { success: true, message: `${toolDef.name} executed successfully`, data: result };
+          } catch (error) {
+            return { 
+              success: false, 
+              message: `Failed to execute ${toolDef.name}: ${error instanceof Error ? error.message : String(error)}`,
+              error: error instanceof Error ? error.message : String(error)
+            };
           }
-        },
-        handler: async (args: any) => ({ success: true, message: 'Highlights cleared', data: args })
-      },
-      {
-        name: 'focusElement',
-        description: 'Focus on a specific element and bring it into view',
-        parameters: {
-          type: 'object' as const,
-          properties: {
-            selector: { type: 'string', description: 'CSS selector for the element to focus' }
-          },
-          required: ['selector']
-        },
-        handler: async (args: any) => ({ success: true, message: 'Element focused', data: args })
-      }
-    ];
-
-    // MCP Server Tools (Model Context Protocol server tools for context loading)
-    const mcpServerTools = [
-      {
-        name: 'loadProjectContext',
-        description: 'Load detailed context for a specific project',
-        parameters: {
-          type: 'object' as const,
-          properties: {
-            projectId: { type: 'string', description: 'The ID of the project to load context for' },
-            includeContent: { type: 'boolean', description: 'Whether to include full article content' },
-            includeMedia: { type: 'boolean', description: 'Whether to include media information' }
-          },
-          required: ['projectId']
-        },
-        handler: async (args: any) => ({ success: true, message: 'Project context loaded', data: args })
-      },
-      {
-        name: 'loadUserProfile',
-        description: 'Load user profile information for AI context',
-        parameters: {
-          type: 'object' as const,
-          properties: {
-            includePrivate: { type: 'boolean', description: 'Whether to include private profile information' }
-          }
-        },
-        handler: async (args: any) => ({ success: true, message: 'User profile loaded', data: args })
-      },
-      {
-        name: 'processJobSpec',
-        description: 'Process and analyze a job specification',
-        parameters: {
-          type: 'object' as const,
-          properties: {
-            jobSpec: { type: 'string', description: 'The job specification text to analyze' },
-            analysisType: { type: 'string', description: 'Type of analysis to perform' }
-          },
-          required: ['jobSpec']
-        },
-        handler: async (args: any) => ({ success: true, message: 'Job specification processed', data: args })
-      },
-      {
-        name: 'searchProjects',
-        description: 'Search projects by keywords, tags, or content',
-        parameters: {
-          type: 'object' as const,
-          properties: {
-            query: { type: 'string', description: 'Search query' },
-            tags: { type: 'array', items: { type: 'string' }, description: 'Filter by tags' },
-            limit: { type: 'number', description: 'Maximum number of results to return' }
-          },
-          required: ['query']
-        },
-        handler: async (args: any) => ({ success: true, message: 'Projects searched', data: args })
-      },
-      {
-        name: 'analyzeUserIntent',
-        description: 'Analyze user intent from conversation context',
-        parameters: {
-          type: 'object' as const,
-          properties: {
-            userMessage: { type: 'string', description: 'The user message to analyze' },
-            conversationHistory: { type: 'array', description: 'Previous conversation messages' },
-            currentContext: { type: 'object', description: 'Current navigation and UI context' }
-          },
-          required: ['userMessage']
-        },
-        handler: async (args: any) => ({ success: true, message: 'User intent analyzed', data: args })
-      }
-    ];
-
-    // Server API Tools (make fetch calls to server endpoints)
-    const serverApiTools = [
-      {
-        name: 'loadContext',
-        description: 'Load additional context from the server based on query or topic',
-        parameters: {
-          type: 'object' as const,
-          properties: {
-            query: { type: 'string', description: 'The query or topic to load context for' },
-            contextType: { type: 'string', enum: ['projects', 'profile', 'skills', 'experience'], description: 'Type of context to load' }
-          },
-          required: ['query']
-        },
-        handler: async (args: any) => ({ success: true, message: 'Context loaded', data: args })
-      },
-      {
-        name: 'analyzeJobSpec',
-        description: 'Analyze a job specification against the portfolio owner\'s background',
-        parameters: {
-          type: 'object' as const,
-          properties: {
-            jobDescription: { type: 'string', description: 'The job description or requirements to analyze' },
-            focusAreas: { type: 'array', items: { type: 'string' }, description: 'Specific areas to focus the analysis on' }
-          },
-          required: ['jobDescription']
-        },
-        handler: async (args: any) => ({ success: true, message: 'Job analysis completed', data: args })
-      },
-      {
-        name: 'submitContactForm',
-        description: 'Submit a contact form on behalf of the user with their provided information',
-        parameters: {
-          type: 'object' as const,
-          properties: {
-            name: { type: 'string', description: 'User\'s name' },
-            email: { type: 'string', description: 'User\'s email address' },
-            message: { type: 'string', description: 'The message to send' },
-            subject: { type: 'string', description: 'Optional subject line' }
-          },
-          required: ['name', 'email', 'message']
-        },
-        handler: async (args: any) => ({ success: true, message: 'Contact form submitted', data: args })
-      }
-    ];
-
-    // Register all standard tools
-    [...uiNavigationTools, ...mcpServerTools, ...serverApiTools].forEach(tool => {
-      this.registerTool(tool);
+        }
+      };
+      
+      this.registerTool(adapterTool);
     });
   }
 
@@ -818,113 +652,26 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
 
   /**
    * Create client tools for ElevenLabs conversation using unified execution pipeline
-   * Converts server-provided tool definitions into executable client-side functions
-   * Uses unified ToolCall and ToolResult interfaces (same format as OpenAI adapter)
-   * All tool execution now goes through the unified _executeUnifiedTool method
+   * Uses unified tool registry to get tool definitions and executor function
+   * All tool execution goes through the unified _executeUnifiedTool method
    */
-  private _createClientToolsForElevenLabs(): Record<string, (parameters: any) => Promise<string | number | void> | string | number | void> {
-    const clientTools: Record<string, (parameters: any) => Promise<string | number | void> | string | number | void> = {};
-
-    for (const [toolName, toolDef] of Array.from(this._tools.entries())) {
-      clientTools[toolName] = async (parameters: any) => {
-        const toolCall: ToolCall = {
-          id: uuidv4(),
-          name: toolName,
-          arguments: parameters,
-          timestamp: new Date()
-        };
-
-        // Log tool call start for unified transcript system (admin debug page compatibility)
-        this._handleToolEvent({
-          type: 'tool_call',
-          toolCall,
-          timestamp: new Date()
-        });
-
-        try {
-          // Execute tool using unified execution pipeline
-          const result = await this._executeUnifiedTool(toolName, parameters);
-
-          // Add to unified transcript system for admin debug page compatibility
-          const transcriptItem: TranscriptItem = {
-            id: uuidv4(),
-            type: 'tool_call',
-            content: `Called ${toolCall.name} with ${JSON.stringify(toolCall.arguments)}`,
-            timestamp: new Date(),
-            provider: 'elevenlabs',
-            metadata: {
-              toolName: toolCall.name,
-              toolArgs: toolCall.arguments,
-              toolResult: result
-            }
-          };
-
-          this._addTranscriptItem(transcriptItem);
-          this._handleTranscriptEvent({
-            type: 'transcript_update',
-            item: transcriptItem,
-            timestamp: new Date()
-          });
-
-          // Report tool call to server for unified debugging (same as OpenAI)
-          this._reportTranscriptToServer(transcriptItem).catch(error => {
-            console.error('Failed to report tool call to server:', error);
-          });
-
-          // Return result to ElevenLabs agent for conversation continuity
-          // Format result appropriately for ElevenLabs
-          if (typeof result === 'string') {
-            return result;
-          } else if (result && typeof result === 'object') {
-            // For complex results, provide a meaningful summary
-            if (result.message) {
-              return result.message;
-            } else if (result.data) {
-              return JSON.stringify(result.data).substring(0, 200);
-            } else {
-              return JSON.stringify(result).substring(0, 200);
-            }
-          } else {
-            return 'Tool executed successfully';
-          }
-
-        } catch (error) {
-          // Proper error handling and result reporting using unified pipeline
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          
-          this._handleToolEvent({
-            type: 'tool_error',
-            error: errorMessage,
-            timestamp: new Date()
-          });
-
-          // Add error to unified transcript system
-          const errorTranscriptItem: TranscriptItem = {
-            id: uuidv4(),
-            type: 'error',
-            content: `Tool ${toolName} failed: ${errorMessage}`,
-            timestamp: new Date(),
-            provider: 'elevenlabs',
-            metadata: {
-              toolName: toolCall.name,
-              toolArgs: toolCall.arguments
-            }
-          };
-
-          this._addTranscriptItem(errorTranscriptItem);
-          this._handleTranscriptEvent({
-            type: 'transcript_update',
-            item: errorTranscriptItem,
-            timestamp: new Date()
-          });
-
-          // Return error message to ElevenLabs agent
-          return `Error: ${errorMessage}`;
-        }
-      };
-    }
-
-    return clientTools;
+  private async _createClientToolsForElevenLabs(): Promise<Record<string, (parameters: any) => Promise<string | number | void> | string | number | void>> {
+    // Import unified tool registry
+    const { unifiedToolRegistry } = await import('@/lib/ai/tools/UnifiedToolRegistry');
+    
+    // Create executor function that uses unified execution pipeline
+    const executor = async (toolCall: { name: string; arguments: any }) => {
+      try {
+        const result = await this._executeUnifiedTool(toolCall.name, toolCall.arguments);
+        return result;
+      } catch (error) {
+        console.error(`Tool execution failed for ${toolCall.name}:`, error);
+        throw error;
+      }
+    };
+    
+    // Use unified tool registry to create ElevenLabs client tools
+    return unifiedToolRegistry.getElevenLabsClientToolsExecutor(executor);
   }
 
   /**
