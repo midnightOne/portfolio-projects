@@ -657,24 +657,23 @@ function VoiceDebugContent() {
                       variant="outline"
                       size="sm"
                       onClick={async () => {
-                        // Test MCP tool calls directly
+                        // Test unified client-side tool calls directly
                         try {
-                          const { mcpClient } = await import('@/lib/mcp/client');
-                          await mcpClient.initialize();
+                          const { uiNavigationTools } = await import('@/lib/voice/UINavigationTools');
                           
-                          // Test navigation tool
-                          const result = await mcpClient.executeTool({
-                            name: 'scrollToSection',
-                            arguments: { sectionId: 'projects', smooth: true }
-                          });
+                          // Test navigation tool using unified system
+                          const result = await uiNavigationTools.scrollIntoView(
+                            { selector: '#projects', behavior: 'smooth' },
+                            `debug-session-${selectedProvider}`
+                          );
                           
                           toast({
-                            title: 'Tool call executed',
+                            title: 'Unified tool executed',
                             description: `Navigation tool ${result.success ? 'succeeded' : 'failed'}`,
                           });
                         } catch (error) {
                           toast({
-                            title: 'Tool call failed',
+                            title: 'Unified tool failed',
                             description: error instanceof Error ? error.message : 'Unknown error',
                             variant: 'destructive',
                           });
@@ -682,7 +681,7 @@ function VoiceDebugContent() {
                       }}
                       className="text-xs"
                     >
-                      Test Tool Calls
+                      Test Unified Tools
                     </Button>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-2">
@@ -690,23 +689,28 @@ function VoiceDebugContent() {
                       variant="outline"
                       size="sm"
                       onClick={async () => {
-                        // Test server tool call
+                        // Test unified server tool call
                         try {
-                          const { mcpClient } = await import('@/lib/mcp/client');
-                          await mcpClient.initialize();
-                          
-                          const result = await mcpClient.executeTool({
-                            name: 'loadProjectContext',
-                            arguments: { projectId: 'sample-project' }
+                          const response = await fetch('/api/ai/tools/execute', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              toolName: 'loadProjectContext',
+                              parameters: { projectId: 'sample-project' },
+                              sessionId: `debug-session-${selectedProvider}`,
+                              toolCallId: `debug-${Date.now()}`
+                            })
                           });
                           
+                          const result = await response.json();
+                          
                           toast({
-                            title: 'Server tool executed',
+                            title: 'Unified server tool executed',
                             description: `Context loading ${result.success ? 'succeeded' : 'failed'}`,
                           });
                         } catch (error) {
                           toast({
-                            title: 'Server tool failed',
+                            title: 'Unified server tool failed',
                             description: error instanceof Error ? error.message : 'Unknown error',
                             variant: 'destructive',
                           });
@@ -714,36 +718,36 @@ function VoiceDebugContent() {
                       }}
                       className="text-xs"
                     >
-                      Test Server Tools
+                      Test Unified Server Tools
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={async () => {
-                        // Test multiple tool calls in sequence
+                        // Test multiple unified tool calls in sequence
                         try {
-                          const { mcpClient } = await import('@/lib/mcp/client');
-                          await mcpClient.initialize();
+                          const { uiNavigationTools } = await import('@/lib/voice/UINavigationTools');
+                          const sessionId = `debug-session-${selectedProvider}`;
                           
-                          // Execute multiple tools
+                          // Execute multiple unified tools
                           const tools = [
-                            { name: 'highlightText', arguments: { selector: '.project-card', text: 'React', color: 'yellow' } },
-                            { name: 'openProjectModal', arguments: { projectId: 'test-project' } },
-                            { name: 'focusElement', arguments: { selector: '#main-content' } }
+                            { name: 'highlightText', handler: () => uiNavigationTools.highlightText({ selector: '.project-card', text: 'React' }, sessionId) },
+                            { name: 'showProjectDetails', handler: () => uiNavigationTools.showProjectDetails({ projectId: 'test-project' }, sessionId) },
+                            { name: 'focusElement', handler: () => uiNavigationTools.focusElement({ selector: '#main-content' }, sessionId) }
                           ];
                           
                           for (const tool of tools) {
-                            await mcpClient.executeTool(tool);
+                            await tool.handler();
                             await new Promise(resolve => setTimeout(resolve, 100)); // Small delay
                           }
                           
                           toast({
-                            title: 'Multiple tools executed',
+                            title: 'Multiple unified tools executed',
                             description: 'Check the Tool Call Monitor for details',
                           });
                         } catch (error) {
                           toast({
-                            title: 'Multiple tools failed',
+                            title: 'Multiple unified tools failed',
                             description: error instanceof Error ? error.message : 'Unknown error',
                             variant: 'destructive',
                           });
@@ -751,7 +755,7 @@ function VoiceDebugContent() {
                       }}
                       className="text-xs"
                     >
-                      Test Multiple Tools
+                      Test Multiple Unified Tools
                     </Button>
                   </div>
                   <div className="grid grid-cols-1 gap-2 mt-2">

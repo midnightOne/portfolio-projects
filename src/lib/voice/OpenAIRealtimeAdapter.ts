@@ -719,13 +719,18 @@ Communication guidelines:
                     data: result 
                 }, eventData.call_id, 0);
                 
-                // Send the result back to the session if possible
+                // Send the result back to the session using proper OpenAI SDK method
                 if (this._session && eventData.call_id) {
                     try {
                         const resultMessage = typeof result === 'string' ? result : JSON.stringify(result);
                         console.log(`Sending unified tool result back to OpenAI: ${resultMessage}`);
-                        // TODO: Implement proper tool result reporting to OpenAI session
-                        // this._session.sendToolOutput(eventData.call_id, resultMessage);
+                        
+                        // Use the proper OpenAI SDK method for tool result reporting
+                        if (typeof this._session.sendToolOutput === 'function') {
+                            this._session.sendToolOutput(eventData.call_id, resultMessage);
+                        } else {
+                            console.warn('sendToolOutput method not available on session');
+                        }
                     } catch (resultError) {
                         console.error('Failed to send tool result back to session:', resultError);
                     }
@@ -741,15 +746,20 @@ Communication guidelines:
                     error: error instanceof Error ? error.message : String(error)
                 }, eventData.call_id, 0);
                 
-                // Send error back to session
+                // Send error back to session using proper OpenAI SDK method
                 if (this._session && eventData.call_id) {
                     try {
                         const errorOutput = JSON.stringify({
                             success: false,
                             error: error instanceof Error ? error.message : String(error)
                         });
-                        // TODO: Implement proper tool error reporting to OpenAI session
-                        // this._session.sendToolOutput(eventData.call_id, errorOutput);
+                        
+                        // Use the proper OpenAI SDK method for tool error reporting
+                        if (typeof this._session.sendToolOutput === 'function') {
+                            this._session.sendToolOutput(eventData.call_id, errorOutput);
+                        } else {
+                            console.warn('sendToolOutput method not available on session');
+                        }
                     } catch (outputError) {
                         console.error('Failed to send error output to session:', outputError);
                     }
@@ -761,47 +771,7 @@ Communication guidelines:
         }
     }
 
-    /**
-     * Execute unified server tool by making API call to unified tools endpoint
-     */
-    private async _executeMcpTool(functionName: string, args: any): Promise<any> {
-        try {
-            console.log(`Executing unified server tool ${functionName} with args:`, args);
-            
-            const response = await fetch('/api/ai/tools/execute', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    toolName: functionName, 
-                    parameters: args,
-                    sessionId: this._options?.contextId || 'openai-session',
-                    reflinkId: this._options?.reflinkId
-                })
-            });
-            
-            if (!response.ok) {
-                throw new Error(`Unified tool execution failed: ${response.status}`);
-            }
-            
-            const result = await response.json();
-            console.log(`MCP tool ${functionName} result:`, result);
-            
-            return {
-                success: result.success,
-                message: result.success ? 'MCP tool executed successfully' : result.error,
-                data: result.data,
-                error: result.error
-            };
-            
-        } catch (error) {
-            console.error(`Error executing MCP tool ${functionName}:`, error);
-            return {
-                success: false,
-                message: `MCP tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
-                error: error instanceof Error ? error.message : String(error)
-            };
-        }
-    }
+
 
     /**
      * Log tool call for debugging purposes
