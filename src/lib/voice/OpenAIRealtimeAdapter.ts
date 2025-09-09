@@ -719,22 +719,10 @@ Communication guidelines:
                     data: result 
                 }, eventData.call_id, 0);
                 
-                // Send the result back to the session using proper OpenAI SDK method
-                if (this._session && eventData.call_id) {
-                    try {
-                        const resultMessage = typeof result === 'string' ? result : JSON.stringify(result);
-                        console.log(`Sending unified tool result back to OpenAI: ${resultMessage}`);
-                        
-                        // Use the proper OpenAI SDK method for tool result reporting
-                        if (typeof this._session.sendToolOutput === 'function') {
-                            this._session.sendToolOutput(eventData.call_id, resultMessage);
-                        } else {
-                            console.warn('sendToolOutput method not available on session');
-                        }
-                    } catch (resultError) {
-                        console.error('Failed to send tool result back to session:', resultError);
-                    }
-                }
+                // Note: Tool result reporting is handled automatically by the OpenAI SDK
+                // when tools are defined with execute functions using the tool() helper.
+                // The backgroundResult() return value from the execute function provides the result.
+                console.log(`Unified tool ${functionName} executed successfully, result handled by SDK`);
                 
             } catch (error) {
                 console.error(`Failed to execute unified tool ${functionName}:`, error);
@@ -746,24 +734,10 @@ Communication guidelines:
                     error: error instanceof Error ? error.message : String(error)
                 }, eventData.call_id, 0);
                 
-                // Send error back to session using proper OpenAI SDK method
-                if (this._session && eventData.call_id) {
-                    try {
-                        const errorOutput = JSON.stringify({
-                            success: false,
-                            error: error instanceof Error ? error.message : String(error)
-                        });
-                        
-                        // Use the proper OpenAI SDK method for tool error reporting
-                        if (typeof this._session.sendToolOutput === 'function') {
-                            this._session.sendToolOutput(eventData.call_id, errorOutput);
-                        } else {
-                            console.warn('sendToolOutput method not available on session');
-                        }
-                    } catch (outputError) {
-                        console.error('Failed to send error output to session:', outputError);
-                    }
-                }
+                // Note: Tool error reporting is handled automatically by the OpenAI SDK
+                // when tools throw errors in their execute functions. The error is automatically
+                // converted to a backgroundResult() with error information.
+                console.log(`Unified tool ${functionName} failed, error handled by SDK`);
             }
             
         } catch (error) {
