@@ -117,7 +117,82 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
       }, { status: 400 });
     }
 
+    // Handle both full conversation format and individual transcript items
     if (!conversationData) {
+      // Check if this is an individual transcript item (legacy format)
+      if (body.transcriptItem) {
+        // Convert individual transcript item to conversation format
+        const transcriptItem = body.transcriptItem;
+        const conversationData = {
+          startTime: body.timestamp || new Date().toISOString(),
+          entries: [{
+            id: transcriptItem.id || `item_${Date.now()}`,
+            timestamp: transcriptItem.timestamp || body.timestamp || new Date().toISOString(),
+            type: 'transcript_item' as const,
+            provider: body.provider,
+            data: transcriptItem
+          }],
+          toolCallSummary: {
+            totalCalls: 0,
+            successfulCalls: 0,
+            failedCalls: 0,
+            clientCalls: 0,
+            serverCalls: 0,
+            averageExecutionTime: 0
+          },
+          conversationMetrics: {
+            totalTranscriptItems: 1,
+            totalConnectionEvents: 0,
+            totalContextRequests: 0
+          }
+        };
+        
+        // Process the converted data
+        console.log(`Individual transcript item received for session ${sessionId}:`, {
+          provider,
+          itemType: transcriptItem.type,
+          content: transcriptItem.content?.substring(0, 100) + (transcriptItem.content?.length > 100 ? '...' : '')
+        });
+
+        return NextResponse.json({
+          success: true,
+          message: `Transcript item processed successfully for session ${sessionId}`,
+          metadata: {
+            timestamp: Date.now(),
+            sessionId,
+            entriesProcessed: 1,
+            storedSuccessfully: true
+          }
+        });
+      }
+      
+      // Check if this is a tool call item (legacy format)
+      if (body.toolName || body.toolArgs) {
+        // Convert individual tool call to conversation format
+        const toolCallData = {
+          toolName: body.toolName,
+          toolArgs: body.toolArgs,
+          metadata: body.metadata
+        };
+        
+        console.log(`Individual tool call received for session ${sessionId}:`, {
+          provider,
+          toolName: body.toolName,
+          hasArgs: !!body.toolArgs
+        });
+
+        return NextResponse.json({
+          success: true,
+          message: `Tool call processed successfully for session ${sessionId}`,
+          metadata: {
+            timestamp: Date.now(),
+            sessionId,
+            entriesProcessed: 1,
+            storedSuccessfully: true
+          }
+        });
+      }
+      
       return NextResponse.json({
         success: false,
         error: 'Conversation data is required.',
