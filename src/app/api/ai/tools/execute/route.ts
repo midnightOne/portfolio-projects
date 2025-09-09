@@ -150,7 +150,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
     }
 
     // Emit debug event for server-side tool call start with correlation ID
-    const correlationId = `server_tool_${toolCallId}`;
+    const toolCorrelationId = `server_tool_${toolCallId}`;
     debugEventEmitter.emit('tool_call_start', {
       toolName,
       args: parameters,
@@ -160,13 +160,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
       provider: 'unified-tools-api',
       reflinkId,
       timestamp: new Date()
-    }, 'unified-tools-api', correlationId, sessionId, toolCallId);
+    }, 'unified-tools-api', toolCorrelationId, sessionId, toolCallId);
 
     // Validate tool exists and is server-side
     const toolDef = unifiedToolRegistry.getToolDefinition(toolName);
     if (!toolDef) {
       const error = `Tool '${toolName}' not found in registry.`;
-      const correlationId = `server_tool_${toolCallId}`;
+      const notFoundCorrelationId = `server_tool_${toolCallId}`;
       
       debugEventEmitter.emit('tool_call_complete', {
         toolName,
@@ -179,7 +179,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
         executionContext: 'server',
         provider: 'unified-tools-api',
         timestamp: new Date()
-      }, 'unified-tools-api', correlationId, sessionId, toolCallId);
+      }, 'unified-tools-api', notFoundCorrelationId, sessionId, toolCallId);
 
       return NextResponse.json({ 
         success: false, 
@@ -196,7 +196,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
 
     if (toolDef.executionContext !== 'server') {
       const error = `Tool '${toolName}' is not a server-side tool.`;
-      const correlationId = `server_tool_${toolCallId}`;
+      const serverSideCorrelationId = `server_tool_${toolCallId}`;
       
       debugEventEmitter.emit('tool_call_complete', {
         toolName,
@@ -209,7 +209,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
         executionContext: 'server',
         provider: 'unified-tools-api',
         timestamp: new Date()
-      }, 'unified-tools-api', correlationId, sessionId, toolCallId);
+      }, 'unified-tools-api', serverSideCorrelationId, sessionId, toolCallId);
 
       return NextResponse.json({ 
         success: false, 
@@ -228,7 +228,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
     const validation = await contextInjector.validateAndFilterContext(sessionId, reflinkId);
     if (!validation.valid) {
       const error = validation.error || 'Access denied.';
-      const correlationId = `server_tool_${toolCallId}`;
+      const accessDeniedCorrelationId = `server_tool_${toolCallId}`;
       
       debugEventEmitter.emit('tool_call_complete', {
         toolName,
@@ -241,7 +241,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
         executionContext: 'server',
         provider: 'unified-tools-api',
         timestamp: new Date()
-      }, 'unified-tools-api', correlationId, sessionId, toolCallId);
+      }, 'unified-tools-api', accessDeniedCorrelationId, sessionId, toolCallId);
 
       return NextResponse.json({ 
         success: false, 
@@ -268,7 +268,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
     );
 
     const executionTime = Date.now() - startTime;
-    const correlationId = `server_tool_${toolCallId}`;
+    const successCorrelationId = `server_tool_${toolCallId}`;
 
     // Emit debug event for server-side tool call completion with correlation ID
     debugEventEmitter.emit('tool_call_complete', {
@@ -283,7 +283,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
       provider: 'unified-tools-api',
       accessLevel: validation.accessLevel,
       timestamp: new Date()
-    }, 'unified-tools-api', correlationId, sessionId, toolCallId);
+    }, 'unified-tools-api', successCorrelationId, sessionId, toolCallId);
 
     // TODO: Implement cost tracking and budget deduction for reflinks
     const costTracking = reflinkId ? {
@@ -315,7 +315,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
 
     // Emit debug event for server-side tool call error with correlation ID
     if (toolName && sessionId && toolCallId) {
-      const correlationId = `server_tool_${toolCallId}`;
+      const errorCorrelationId = `server_tool_${toolCallId}`;
       debugEventEmitter.emit('tool_call_complete', {
         toolName,
         result: null,
@@ -327,7 +327,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
         executionContext: 'server',
         provider: 'unified-tools-api',
         timestamp: new Date()
-      }, 'unified-tools-api', correlationId, sessionId, toolCallId);
+      }, 'unified-tools-api', errorCorrelationId, sessionId, toolCallId);
     }
 
     console.error('Unified tool execution error:', {

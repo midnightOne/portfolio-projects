@@ -341,7 +341,10 @@ export function ToolCallMonitor({ conversationId, activeProvider, onToolCallUpda
       failedCalls: 0,
       averageExecutionTime: 0,
       callsByCategory: {},
-      callsByTool: {}
+      callsByTool: {},
+      callsByExecutionContext: {},
+      callsByProvider: {},
+      correlatedCallPairs: 0
     });
     toast({
       title: 'Tool calls cleared',
