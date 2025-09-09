@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { getClientAIModelManager } from '../../../../../lib/voice/ClientAIModelManager';
 import { OpenAIRealtimeConfig } from '../../../../../types/voice-config';
-import { getServerToolDefinitions } from '../../../../../lib/mcp/server-tools';
+import { unifiedToolRegistry } from '../../../../../lib/ai/tools/UnifiedToolRegistry';
 
 interface OpenAISessionRequest {
   contextId?: string;
@@ -96,92 +96,8 @@ export async function GET(request: NextRequest) {
       // TODO: Add personalized context based on reflink
     }
 
-    // Define navigation tools for OpenAI (extend default config tools)
-    const mcpServerTools = getServerToolDefinitions();
-    const mcpToolsForOpenAI = mcpServerTools.map(mcpTool => ({
-      type: 'function' as const,
-      name: mcpTool.name,
-      description: mcpTool.description,
-      parameters: mcpTool.inputSchema
-    }));
-
-    const navigationTools = [
-      ...defaultConfig.tools, // Include any tools from config
-      ...mcpToolsForOpenAI, // Include MCP server tools
-      {
-        type: 'function' as const,
-        name: 'navigateTo',
-        description: 'Navigate to a specific page or URL',
-        parameters: {
-          type: 'object',
-          properties: {
-            path: {
-              type: 'string',
-              description: 'The path or URL to navigate to'
-            },
-            newTab: {
-              type: 'boolean',
-              description: 'Whether to open in a new tab'
-            }
-          },
-          required: ['path']
-        }
-      },
-      {
-        type: 'function' as const,
-        name: 'showProjectDetails',
-        description: 'Show details for a specific project, optionally highlighting sections',
-        parameters: {
-          type: 'object',
-          properties: {
-            projectId: {
-              type: 'string',
-              description: 'The ID or slug of the project to show'
-            },
-            highlightSections: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Array of section IDs to highlight'
-            }
-          },
-          required: ['projectId']
-        }
-      },
-      {
-        type: 'function' as const,
-        name: 'highlightText',
-        description: 'Highlight specific text or elements on the page',
-        parameters: {
-          type: 'object',
-          properties: {
-            selector: {
-              type: 'string',
-              description: 'CSS selector for elements to search within'
-            },
-            text: {
-              type: 'string',
-              description: 'Specific text to highlight (optional)'
-            }
-          },
-          required: ['selector']
-        }
-      },
-      {
-        type: 'function' as const,
-        name: 'scrollIntoView',
-        description: 'Scroll to bring a specific element into view',
-        parameters: {
-          type: 'object',
-          properties: {
-            selector: {
-              type: 'string',
-              description: 'CSS selector for the element to scroll to'
-            }
-          },
-          required: ['selector']
-        }
-      }
-    ];
+    // Get all tools from unified tool registry (no duplicates)
+    const allTools = unifiedToolRegistry.getOpenAIToolsArray();
 
     // Create OpenAI Realtime session using config system
     const sessionResponse = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
@@ -198,7 +114,7 @@ export async function GET(request: NextRequest) {
           // Server-side context injection - instructions are injected here and not visible to client
           instructions: systemInstructions,
           // Server-side tool definitions injection
-          tools: navigationTools,
+          tools: allTools,
           // Audio configuration from config system
           audio: {
             input: {
@@ -326,30 +242,8 @@ export async function POST(request: NextRequest) {
       instructions += `\n\nContext ID: ${body.contextId}`;
     }
 
-    // Use custom tools or default from config
-    const mcpServerTools = getServerToolDefinitions();
-    const mcpToolsForOpenAI = mcpServerTools.map(mcpTool => ({
-      type: 'function' as const,
-      name: mcpTool.name,
-      description: mcpTool.description,
-      parameters: mcpTool.inputSchema
-    }));
-
-    const tools = body.tools || [
-      ...mcpToolsForOpenAI, // Include MCP server tools
-      {
-        type: 'function' as const,
-        name: 'navigateTo',
-        description: 'Navigate to a specific page or URL',
-        parameters: {
-          type: 'object',
-          properties: {
-            path: { type: 'string', description: 'The path or URL to navigate to' }
-          },
-          required: ['path']
-        }
-      }
-    ];
+    // Use custom tools or default from unified registry
+    const tools = body.tools || unifiedToolRegistry.getOpenAIToolsArray();
 
     const sessionResponse = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
       method: 'POST',

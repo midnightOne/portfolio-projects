@@ -4,6 +4,7 @@
  * Generates ElevenLabs conversation tokens for signed URL conversations.
  * Manages agents and provides secure token generation with context injection.
  * Updated to use ClientAIModelManager and contextInjector for dynamic configuration.
+ * Uses UnifiedToolRegistry for consistent tool definitions without duplicates.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -12,7 +13,7 @@ import { getClientAIModelManager } from '@/lib/voice/ClientAIModelManager';
 import { contextInjector } from '@/lib/services/ai/context-injector';
 import { getEnvironmentVariable } from '@/types/voice-config';
 import type { ElevenLabsConfig } from '@/types/voice-config';
-import { getServerToolDefinitions } from '@/lib/mcp/server-tools';
+import { unifiedToolRegistry } from '@/lib/ai/tools/UnifiedToolRegistry';
 
 interface ElevenLabsTokenRequest {
   contextId?: string;
@@ -46,121 +47,7 @@ interface ToolDefinition {
   };
 }
 
-// Server-safe UI navigation tool definitions (no document access)
-function createServerSafeUINavigationToolDefinitions(): ToolDefinition[] {
-  return [
-    {
-      name: 'navigateTo',
-      description: 'Navigate to a specific page or URL',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: {
-            type: 'string',
-            description: 'The path or URL to navigate to'
-          },
-          newTab: {
-            type: 'boolean',
-            description: 'Whether to open in a new tab',
-            default: false
-          }
-        },
-        required: ['path']
-      }
-    },
-    {
-      name: 'showProjectDetails',
-      description: 'Show details for a specific project, optionally highlighting sections',
-      parameters: {
-        type: 'object',
-        properties: {
-          projectId: {
-            type: 'string',
-            description: 'The ID or slug of the project to show'
-          },
-          highlightSections: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Array of section IDs to highlight',
-            default: []
-          }
-        },
-        required: ['projectId']
-      }
-    },
-    {
-      name: 'scrollIntoView',
-      description: 'Scroll to bring a specific element into view',
-      parameters: {
-        type: 'object',
-        properties: {
-          selector: {
-            type: 'string',
-            description: 'CSS selector for the element to scroll to'
-          },
-          behavior: {
-            type: 'string',
-            enum: ['auto', 'smooth'],
-            description: 'Scroll behavior',
-            default: 'smooth'
-          }
-        },
-        required: ['selector']
-      }
-    },
-    {
-      name: 'highlightText',
-      description: 'Highlight specific text or elements on the page',
-      parameters: {
-        type: 'object',
-        properties: {
-          selector: {
-            type: 'string',
-            description: 'CSS selector for elements to search within'
-          },
-          text: {
-            type: 'string',
-            description: 'Specific text to highlight (optional - if not provided, highlights entire elements)'
-          },
-          className: {
-            type: 'string',
-            description: 'CSS class name for highlighting',
-            default: 'voice-highlight'
-          }
-        },
-        required: ['selector']
-      }
-    },
-    {
-      name: 'clearHighlights',
-      description: 'Clear all highlights from the page',
-      parameters: {
-        type: 'object',
-        properties: {
-          className: {
-            type: 'string',
-            description: 'CSS class name to remove',
-            default: 'voice-highlight'
-          }
-        }
-      }
-    },
-    {
-      name: 'focusElement',
-      description: 'Focus on a specific element and bring it into view',
-      parameters: {
-        type: 'object',
-        properties: {
-          selector: {
-            type: 'string',
-            description: 'CSS selector for the element to focus'
-          }
-        },
-        required: ['selector']
-      }
-    }
-  ];
-}
+// Tool definitions are now managed by UnifiedToolRegistry - no duplicates needed
 
 export async function GET(request: NextRequest) {
   try {
@@ -212,87 +99,13 @@ export async function GET(request: NextRequest) {
       'Initial conversation setup'
     );
 
-    // Create client tools definitions for dynamic tool registration (server-safe)
-    const uiNavigationToolDefs = createServerSafeUINavigationToolDefinitions();
-    const clientToolsDefinitions: ToolDefinition[] = [...uiNavigationToolDefs];
-
-    // Add MCP server tools for context loading and processing
-    const mcpServerTools = getServerToolDefinitions();
-    mcpServerTools.forEach(mcpTool => {
-      clientToolsDefinitions.push({
-        name: mcpTool.name,
-        description: mcpTool.description,
-        parameters: mcpTool.inputSchema
-      });
-    });
-
-    // Add server API tools
-    clientToolsDefinitions.push(
-      {
-        name: 'loadContext',
-        description: 'Load additional context from the server based on user query',
-        parameters: {
-          type: 'object',
-          properties: {
-            query: {
-              type: 'string',
-              description: 'The user query to load context for'
-            },
-            contextType: {
-              type: 'string',
-              enum: ['projects', 'experience', 'skills', 'general'],
-              description: 'Type of context to load'
-            }
-          },
-          required: ['query']
-        }
-      },
-      {
-        name: 'analyzeJobSpec',
-        description: 'Analyze a job specification against the portfolio owner\'s background',
-        parameters: {
-          type: 'object',
-          properties: {
-            jobDescription: {
-              type: 'string',
-              description: 'The job description or specification to analyze'
-            },
-            focusAreas: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Specific areas to focus the analysis on'
-            }
-          },
-          required: ['jobDescription']
-        }
-      },
-      {
-        name: 'submitContactForm',
-        description: 'Submit a contact form with user information',
-        parameters: {
-          type: 'object',
-          properties: {
-            name: {
-              type: 'string',
-              description: 'User\'s name'
-            },
-            email: {
-              type: 'string',
-              description: 'User\'s email address'
-            },
-            message: {
-              type: 'string',
-              description: 'Message content'
-            },
-            subject: {
-              type: 'string',
-              description: 'Subject line'
-            }
-          },
-          required: ['name', 'email', 'message']
-        }
-      }
-    );
+    // Get all tool definitions from unified registry (no duplicates)
+    const allToolDefinitions = unifiedToolRegistry.getAllToolDefinitions();
+    const clientToolsDefinitions: ToolDefinition[] = allToolDefinitions.map(toolDef => ({
+      name: toolDef.name,
+      description: toolDef.description,
+      parameters: toolDef.parameters
+    }));
 
     // Build comprehensive overrides object with agent prompt, first message, language, and TTS settings
     const overrides = {
@@ -526,87 +339,13 @@ export async function POST(request: NextRequest) {
       'Custom conversation setup'
     );
 
-    // Create client tools definitions for dynamic tool registration (server-safe)
-    const uiNavigationToolDefs = createServerSafeUINavigationToolDefinitions();
-    const clientToolsDefinitions: ToolDefinition[] = [...uiNavigationToolDefs];
-
-    // Add MCP server tools for context loading and processing
-    const mcpServerTools = getServerToolDefinitions();
-    mcpServerTools.forEach(mcpTool => {
-      clientToolsDefinitions.push({
-        name: mcpTool.name,
-        description: mcpTool.description,
-        parameters: mcpTool.inputSchema
-      });
-    });
-
-    // Add server API tools
-    clientToolsDefinitions.push(
-      {
-        name: 'loadContext',
-        description: 'Load additional context from the server based on user query',
-        parameters: {
-          type: 'object',
-          properties: {
-            query: {
-              type: 'string',
-              description: 'The user query to load context for'
-            },
-            contextType: {
-              type: 'string',
-              enum: ['projects', 'experience', 'skills', 'general'],
-              description: 'Type of context to load'
-            }
-          },
-          required: ['query']
-        }
-      },
-      {
-        name: 'analyzeJobSpec',
-        description: 'Analyze a job specification against the portfolio owner\'s background',
-        parameters: {
-          type: 'object',
-          properties: {
-            jobDescription: {
-              type: 'string',
-              description: 'The job description or specification to analyze'
-            },
-            focusAreas: {
-              type: 'array',
-              items: { type: 'string' },
-              description: 'Specific areas to focus the analysis on'
-            }
-          },
-          required: ['jobDescription']
-        }
-      },
-      {
-        name: 'submitContactForm',
-        description: 'Submit a contact form with user information',
-        parameters: {
-          type: 'object',
-          properties: {
-            name: {
-              type: 'string',
-              description: 'User\'s name'
-            },
-            email: {
-              type: 'string',
-              description: 'User\'s email address'
-            },
-            message: {
-              type: 'string',
-              description: 'Message content'
-            },
-            subject: {
-              type: 'string',
-              description: 'Subject line'
-            }
-          },
-          required: ['name', 'email', 'message']
-        }
-      }
-    );
+    // Get all tool definitions from unified registry (no duplicates)
+    const allToolDefinitions = unifiedToolRegistry.getAllToolDefinitions();
+    const clientToolsDefinitions: ToolDefinition[] = allToolDefinitions.map(toolDef => ({
+      name: toolDef.name,
+      description: toolDef.description,
+      parameters: toolDef.parameters
+    }));
 
     // Build comprehensive overrides object
     const overrides = {

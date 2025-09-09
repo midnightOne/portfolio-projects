@@ -39,7 +39,7 @@ const loadProjectContextTool: MCPServerTool = {
       required: ['projectId']
     }
   },
-  endpoint: '/api/ai/mcp/load-project-context',
+  endpoint: '/api/ai/tools/execute', // Updated to use unified endpoint
   method: 'POST',
   validation: (args: any): boolean => {
     return typeof args.projectId === 'string' && args.projectId.length > 0;
@@ -60,7 +60,7 @@ const loadUserProfileTool: MCPServerTool = {
       }
     }
   },
-  endpoint: '/api/ai/mcp/load-user-profile',
+  endpoint: '/api/ai/tools/execute', // Updated to use unified endpoint
   method: 'POST',
   validation: (args: any): boolean => {
     return true; // No required arguments
@@ -87,7 +87,7 @@ const processJobSpecTool: MCPServerTool = {
       required: ['jobSpec']
     }
   },
-  endpoint: '/api/ai/mcp/process-job-spec',
+  endpoint: '/api/ai/tools/execute', // Updated to use unified endpoint
   method: 'POST',
   validation: (args: any): boolean => {
     return typeof args.jobSpec === 'string' && args.jobSpec.length > 0;
@@ -112,7 +112,7 @@ const getNavigationHistoryTool: MCPServerTool = {
       }
     }
   },
-  endpoint: '/api/ai/mcp/get-navigation-history',
+  endpoint: '/api/ai/tools/execute', // Updated to use unified endpoint
   method: 'POST',
   validation: (args: any): boolean => {
     return true; // No required arguments
@@ -160,7 +160,7 @@ const reportUIStateTool: MCPServerTool = {
       required: ['state']
     }
   },
-  endpoint: '/api/ai/mcp/report-ui-state',
+  endpoint: '/api/ai/tools/execute', // Updated to use unified endpoint
   method: 'POST',
   validation: (args: any): boolean => {
     return typeof args.state === 'object' && 
@@ -196,7 +196,7 @@ const searchProjectsTool: MCPServerTool = {
       required: ['query']
     }
   },
-  endpoint: '/api/ai/mcp/search-projects',
+  endpoint: '/api/ai/tools/execute', // Updated to use unified endpoint
   method: 'POST',
   validation: (args: any): boolean => {
     return typeof args.query === 'string' && args.query.length > 0;
@@ -221,7 +221,7 @@ const getProjectSummaryTool: MCPServerTool = {
       }
     }
   },
-  endpoint: '/api/ai/mcp/get-project-summary',
+  endpoint: '/api/ai/tools/execute', // Updated to use unified endpoint
   method: 'POST',
   validation: (args: any): boolean => {
     return true; // No required arguments
@@ -270,7 +270,7 @@ const analyzeUserIntentTool: MCPServerTool = {
       required: ['userMessage']
     }
   },
-  endpoint: '/api/ai/mcp/analyze-user-intent',
+  endpoint: '/api/ai/tools/execute', // Updated to use unified endpoint
   method: 'POST',
   validation: (args: any): boolean => {
     return typeof args.userMessage === 'string' && args.userMessage.length > 0;
@@ -313,7 +313,7 @@ const generateNavigationSuggestionsTool: MCPServerTool = {
       required: ['userIntent']
     }
   },
-  endpoint: '/api/ai/mcp/generate-navigation-suggestions',
+  endpoint: '/api/ai/tools/execute', // Updated to use unified endpoint
   method: 'POST',
   validation: (args: any): boolean => {
     return typeof args.userIntent === 'string' && args.userIntent.length > 0;
@@ -333,10 +333,8 @@ export const serverTools = new Map<string, MCPServerTool>([
   ['generateNavigationSuggestions', generateNavigationSuggestionsTool]
 ]);
 
-// Export tool definitions for MCP server registration
-export const getServerToolDefinitions = (): MCPTool[] => {
-  return Array.from(serverTools.values()).map(tool => tool.definition);
-};
+// Note: getServerToolDefinitions function has been removed
+// Use UnifiedToolRegistry.getServerToolDefinitions() instead
 
 // Export individual tools for easier access
 export {

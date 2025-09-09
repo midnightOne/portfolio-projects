@@ -157,7 +157,7 @@ describe('MCP Navigation System', () => {
       
       expect(result.success).toBe(true);
       expect(global.fetch).toHaveBeenCalledWith(
-        '/api/ai/mcp/load-project-context',
+        '/api/ai/tools/execute', // Updated to use unified endpoint
         expect.objectContaining({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' }
@@ -311,7 +311,7 @@ describe('MCP Navigation System', () => {
       const loadProjectTool = serverTools.get('loadProjectContext');
       expect(loadProjectTool).toBeDefined();
       expect(loadProjectTool!.definition.name).toBe('loadProjectContext');
-      expect(loadProjectTool!.endpoint).toBe('/api/ai/mcp/load-project-context');
+      expect(loadProjectTool!.endpoint).toBe('/api/ai/tools/execute'); // Updated to use unified endpoint
       expect(loadProjectTool!.method).toBe('POST');
     });
 

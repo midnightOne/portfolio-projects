@@ -7,7 +7,8 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ToolDefinition, ToolResult } from '@/types/voice-agent';
-import { UINavigationTools, createUINavigationToolDefinitions, uiNavigationTools } from '@/lib/voice/UINavigationTools';
+import { UINavigationTools, uiNavigationTools } from '@/lib/voice/UINavigationTools';
+import { unifiedToolRegistry } from '@/lib/ai/tools/UnifiedToolRegistry';
 
 interface NavigationState {
   currentPage: {
@@ -96,8 +97,23 @@ export function useNavigationTools(
 
     // Register default navigation tools
     if (autoRegisterTools) {
-      const defaultTools = createUINavigationToolDefinitions();
-      defaultTools.forEach(tool => {
+      const clientToolDefinitions = unifiedToolRegistry.getClientToolDefinitions();
+      clientToolDefinitions.forEach(toolDef => {
+        // Convert UnifiedToolDefinition to ToolDefinition format
+        const tool: ToolDefinition = {
+          name: toolDef.name,
+          description: toolDef.description,
+          parameters: toolDef.parameters,
+          handler: async (args, sessionId?: string) => {
+            // Execute via UINavigationTools
+            const uiTools = UINavigationTools.getInstance();
+            const method = (uiTools as any)[toolDef.name];
+            if (typeof method === 'function') {
+              return await method.call(uiTools, args, sessionId);
+            }
+            throw new Error(`Tool handler not found: ${toolDef.name}`);
+          }
+        };
         toolsMapRef.current.set(tool.name, tool);
       });
       setTools(Array.from(toolsMapRef.current.values()));

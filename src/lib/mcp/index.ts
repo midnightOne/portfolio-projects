@@ -41,7 +41,7 @@ import type { MCPToolCall, MCPError, MCPConfig } from './types';
 
 // Client and server instances
 export { mcpClient, MCPClientImpl } from './client';
-export { mcpServer, MCPServerImpl } from './server';
+// Note: MCPServerImpl is now internal - use BackendToolService for tool execution
 
 // Navigation tools
 export {
@@ -55,7 +55,7 @@ export {
 // Server tools
 export {
   serverTools,
-  getServerToolDefinitions,
+  // getServerToolDefinitions removed - use UnifiedToolRegistry instead
   loadProjectContextTool,
   loadUserProfileTool,
   processJobSpecTool,

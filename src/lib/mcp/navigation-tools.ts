@@ -55,7 +55,7 @@ const addToHistory = (action: string, target: string, metadata?: Record<string, 
 
 const reportStateToServer = async (state: NavigationState) => {
   try {
-    await fetch('/api/ai/mcp/navigation-state', {
+    await fetch('/api/ai/tools/execute', { // Updated to use unified endpoint
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ state })

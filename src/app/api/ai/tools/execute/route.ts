@@ -13,61 +13,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { unifiedToolRegistry } from '@/lib/ai/tools/UnifiedToolRegistry';
 import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 import { contextInjector } from '@/lib/services/ai/context-injector';
-import { mcpServer } from '@/lib/mcp/server';
-import type { MCPToolCall } from '@/lib/mcp/types';
+import { BackendToolService } from '@/lib/ai/tools/BackendToolService';
 
-/**
- * Backend Tool Service - Simplified replacement for MCP server complexity
- * Handles server-side tool execution with direct service integration
- */
-class BackendToolService {
-  private static instance: BackendToolService;
-
-  static getInstance(): BackendToolService {
-    if (!BackendToolService.instance) {
-      BackendToolService.instance = new BackendToolService();
-    }
-    return BackendToolService.instance;
-  }
-
-  async executeTool(
-    toolName: string,
-    parameters: Record<string, any>,
-    sessionId: string,
-    accessLevel: string,
-    reflinkId?: string
-  ): Promise<{ success: boolean; data?: any; error?: string }> {
-    
-    const toolDef = unifiedToolRegistry.getToolDefinition(toolName);
-    if (!toolDef || toolDef.executionContext === 'client') {
-      return { success: false, error: `Tool '${toolName}' not found or is client-only.` };
-    }
-
-    try {
-      // For now, delegate to existing MCP server implementation
-      // This provides compatibility while we transition to the unified system
-      const mcpToolCall: MCPToolCall = {
-        id: `unified_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        name: toolName,
-        arguments: parameters
-      };
-
-      const result = await mcpServer.executeTool(mcpToolCall);
-      
-      return {
-        success: result.success,
-        data: result.data,
-        error: result.error
-      };
-
-    } catch (error) {
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : String(error) 
-      };
-    }
-  }
-}
+// BackendToolService is imported from @/lib/ai/tools/BackendToolService
 
 /**
  * Unified tool execution request interface
@@ -263,7 +211,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
       toolName, 
       parameters, 
       sessionId, 
-      validation.accessLevel, 
+      validation.accessLevel as 'basic' | 'limited' | 'premium', 
       reflinkId
     );
 

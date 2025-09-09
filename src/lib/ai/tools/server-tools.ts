@@ -518,4 +518,5 @@ export const serverToolDefinitions: UnifiedToolDefinition[] = [
   processUploadedFileToolDefinition
 ];
 
-// Individual tools are already exported above with their definitions
+// Note: getServerToolDefinitions function has been removed
+// Use UnifiedToolRegistry.getServerToolDefinitions() instead
