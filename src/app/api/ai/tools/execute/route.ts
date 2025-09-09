@@ -12,9 +12,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { unifiedToolRegistry } from '@/lib/ai/tools/UnifiedToolRegistry';
 import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
+import { contextInjector } from '@/lib/services/ai/context-injector';
+import { mcpServer } from '@/lib/mcp/server';
+import type { MCPToolCall } from '@/lib/mcp/types';
 
-// Import BackendToolService when it's available
-// For now, we'll create a placeholder implementation
+/**
+ * Backend Tool Service - Simplified replacement for MCP server complexity
+ * Handles server-side tool execution with direct service integration
+ */
 class BackendToolService {
   private static instance: BackendToolService;
 
@@ -39,30 +44,22 @@ class BackendToolService {
     }
 
     try {
-      // For now, implement basic handlers for common server tools
-      // This will be expanded when BackendToolService is fully implemented
-      switch (toolName) {
-        case 'loadProjectContext':
-          return await this.handleLoadProjectContext(parameters, accessLevel);
-        case 'loadUserProfile':
-          return await this.handleLoadUserProfile(parameters, accessLevel);
-        case 'processJobSpec':
-          return await this.handleProcessJobSpec(parameters, sessionId, reflinkId);
-        case 'searchProjects':
-          return await this.handleSearchProjects(parameters, accessLevel);
-        case 'submitContactForm':
-          return await this.handleSubmitContactForm(parameters);
-        case 'analyzeUserIntent':
-          return await this.handleAnalyzeUserIntent(parameters);
-        case 'generateNavigationSuggestions':
-          return await this.handleGenerateNavigationSuggestions(parameters);
-        case 'getNavigationHistory':
-          return await this.handleGetNavigationHistory(parameters, sessionId);
-        case 'reportUIState':
-          return await this.handleReportUIState(parameters, sessionId);
-        default:
-          return { success: false, error: `Unknown server tool: ${toolName}` };
-      }
+      // For now, delegate to existing MCP server implementation
+      // This provides compatibility while we transition to the unified system
+      const mcpToolCall: MCPToolCall = {
+        id: `unified_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        name: toolName,
+        arguments: parameters
+      };
+
+      const result = await mcpServer.executeTool(mcpToolCall);
+      
+      return {
+        success: result.success,
+        data: result.data,
+        error: result.error
+      };
+
     } catch (error) {
       return { 
         success: false, 
@@ -70,172 +67,185 @@ class BackendToolService {
       };
     }
   }
-
-  // Placeholder implementations for server tool handlers
-  private async handleLoadProjectContext(args: any, accessLevel: string) {
-    // TODO: Implement using projectIndexer and contextManager services
-    return { 
-      success: true, 
-      data: { 
-        message: `Loaded context for project ${args.projectId}`,
-        context: `Project context for ${args.projectId} (access level: ${accessLevel})`
-      } 
-    };
-  }
-
-  private async handleLoadUserProfile(args: any, accessLevel: string) {
-    // TODO: Implement user profile loading
-    return { 
-      success: true, 
-      data: { 
-        message: 'User profile loaded',
-        profile: { name: 'Portfolio Owner', role: 'Developer' }
-      } 
-    };
-  }
-
-  private async handleProcessJobSpec(args: any, sessionId: string, reflinkId?: string) {
-    // TODO: Implement job specification processing
-    return { 
-      success: true, 
-      data: { 
-        message: 'Job specification processed',
-        analysis: { match: 'high', skills: ['JavaScript', 'React', 'Node.js'] }
-      } 
-    };
-  }
-
-  private async handleSearchProjects(args: any, accessLevel: string) {
-    // TODO: Implement project search
-    return { 
-      success: true, 
-      data: { 
-        message: `Found projects matching "${args.query}"`,
-        projects: [{ id: '1', title: 'Sample Project', match: 0.9 }]
-      } 
-    };
-  }
-
-  private async handleSubmitContactForm(args: any) {
-    // TODO: Implement contact form submission
-    return { 
-      success: true, 
-      data: { 
-        message: 'Contact form submitted successfully',
-        submissionId: `contact_${Date.now()}`
-      } 
-    };
-  }
-
-  private async handleAnalyzeUserIntent(args: any) {
-    // TODO: Implement user intent analysis
-    return { 
-      success: true, 
-      data: { 
-        message: 'User intent analyzed',
-        intent: { category: 'information_seeking', confidence: 0.8 }
-      } 
-    };
-  }
-
-  private async handleGenerateNavigationSuggestions(args: any) {
-    // TODO: Implement navigation suggestions
-    return { 
-      success: true, 
-      data: { 
-        message: 'Navigation suggestions generated',
-        suggestions: [{ action: 'showProject', params: { id: 'featured' } }]
-      } 
-    };
-  }
-
-  private async handleGetNavigationHistory(args: any, sessionId: string) {
-    // TODO: Implement navigation history retrieval
-    return { 
-      success: true, 
-      data: { 
-        message: 'Navigation history retrieved',
-        history: [{ action: 'navigateTo', timestamp: new Date(), params: { path: '/' } }]
-      } 
-    };
-  }
-
-  private async handleReportUIState(args: any, sessionId: string) {
-    // TODO: Implement UI state reporting
-    return { 
-      success: true, 
-      data: { 
-        message: 'UI state reported',
-        state: { currentPage: args.currentPage || '/', timestamp: new Date() }
-      } 
-    };
-  }
 }
 
-export async function POST(request: NextRequest) {
+/**
+ * Unified tool execution request interface
+ */
+interface UnifiedToolExecuteRequest {
+  toolName: string;
+  parameters: Record<string, any>;
+  sessionId?: string;
+  toolCallId?: string;
+  reflinkId?: string;
+}
+
+/**
+ * Unified tool execution response interface
+ */
+interface UnifiedToolExecuteResponse {
+  success: boolean;
+  data?: any;
+  error?: string;
+  metadata: {
+    timestamp: number;
+    source: string;
+    sessionId?: string;
+    toolCallId?: string;
+    executionTime: number;
+    accessLevel?: string;
+    costTracking?: {
+      reflinkId?: string;
+      estimatedCost?: number;
+      remainingBudget?: number;
+    };
+  };
+}
+
+export async function POST(request: NextRequest): Promise<NextResponse<UnifiedToolExecuteResponse>> {
   const startTime = Date.now();
   let toolCallId: string | undefined;
   let sessionId: string | undefined;
   let toolName: string | undefined;
+  let reflinkId: string | undefined;
 
   try {
-    const body = await request.json();
-    const { toolName: requestedToolName, parameters, sessionId: requestSessionId, toolCallId: requestToolCallId, reflinkId } = body;
+    const body: UnifiedToolExecuteRequest = await request.json();
+    const { 
+      toolName: requestedToolName, 
+      parameters, 
+      sessionId: requestSessionId, 
+      toolCallId: requestToolCallId, 
+      reflinkId: requestReflinkId 
+    } = body;
     
     toolName = requestedToolName;
-    sessionId = requestSessionId;
-    toolCallId = requestToolCallId;
+    sessionId = requestSessionId || 'anonymous';
+    toolCallId = requestToolCallId || `tool_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    reflinkId = requestReflinkId;
 
     // Validate required parameters
     if (!toolName || typeof toolName !== 'string') {
       return NextResponse.json({ 
         success: false, 
-        error: 'Tool name is required and must be a string.' 
+        error: 'Tool name is required and must be a string.',
+        metadata: {
+          timestamp: Date.now(),
+          source: 'unified-tools-api',
+          executionTime: Date.now() - startTime
+        }
       }, { status: 400 });
     }
 
     if (!parameters || typeof parameters !== 'object') {
       return NextResponse.json({ 
         success: false, 
-        error: 'Parameters are required and must be an object.' 
+        error: 'Parameters are required and must be an object.',
+        metadata: {
+          timestamp: Date.now(),
+          source: 'unified-tools-api',
+          executionTime: Date.now() - startTime
+        }
       }, { status: 400 });
     }
 
     // Emit debug event for server-side tool call start
-    if (toolCallId && sessionId) {
-      debugEventEmitter.emit('tool_call_start', {
-        toolName,
-        args: parameters,
-        sessionId,
-        toolCallId,
-        executionContext: 'server',
-        provider: 'server'
-      }, 'unified-tools-api');
-    }
+    debugEventEmitter.emit('tool_call_start', {
+      toolName,
+      args: parameters,
+      sessionId,
+      toolCallId,
+      executionContext: 'server',
+      provider: 'unified-tools-api',
+      reflinkId
+    }, 'unified-tools-api');
 
     // Validate tool exists and is server-side
     const toolDef = unifiedToolRegistry.getToolDefinition(toolName);
     if (!toolDef) {
+      const error = `Tool '${toolName}' not found in registry.`;
+      
+      debugEventEmitter.emit('tool_call_complete', {
+        toolName,
+        result: null,
+        error,
+        executionTime: Date.now() - startTime,
+        success: false,
+        sessionId,
+        toolCallId,
+        executionContext: 'server',
+        provider: 'unified-tools-api'
+      }, 'unified-tools-api');
+
       return NextResponse.json({ 
         success: false, 
-        error: `Tool '${toolName}' not found in registry.` 
+        error,
+        metadata: {
+          timestamp: Date.now(),
+          source: 'unified-tools-api',
+          sessionId,
+          toolCallId,
+          executionTime: Date.now() - startTime
+        }
       }, { status: 404 });
     }
 
     if (toolDef.executionContext !== 'server') {
+      const error = `Tool '${toolName}' is not a server-side tool.`;
+      
+      debugEventEmitter.emit('tool_call_complete', {
+        toolName,
+        result: null,
+        error,
+        executionTime: Date.now() - startTime,
+        success: false,
+        sessionId,
+        toolCallId,
+        executionContext: 'server',
+        provider: 'unified-tools-api'
+      }, 'unified-tools-api');
+
       return NextResponse.json({ 
         success: false, 
-        error: `Tool '${toolName}' is not a server-side tool.` 
+        error,
+        metadata: {
+          timestamp: Date.now(),
+          source: 'unified-tools-api',
+          sessionId,
+          toolCallId,
+          executionTime: Date.now() - startTime
+        }
       }, { status: 400 });
     }
 
-    // TODO: Implement reflink validation and access control
-    // For now, we'll use a basic validation placeholder
-    const validation = await validateAndFilterContext(sessionId, reflinkId);
+    // Validate reflink and access control using contextInjector
+    const validation = await contextInjector.validateAndFilterContext(sessionId, reflinkId);
     if (!validation.valid) {
+      const error = validation.error || 'Access denied.';
+      
+      debugEventEmitter.emit('tool_call_complete', {
+        toolName,
+        result: null,
+        error,
+        executionTime: Date.now() - startTime,
+        success: false,
+        sessionId,
+        toolCallId,
+        executionContext: 'server',
+        provider: 'unified-tools-api'
+      }, 'unified-tools-api');
+
       return NextResponse.json({ 
         success: false, 
-        error: validation.error || 'Access denied.' 
+        error,
+        metadata: {
+          timestamp: Date.now(),
+          source: 'unified-tools-api',
+          sessionId,
+          toolCallId,
+          executionTime: Date.now() - startTime,
+          accessLevel: validation.accessLevel
+        }
       }, { status: 403 });
     }
 
@@ -244,7 +254,7 @@ export async function POST(request: NextRequest) {
     const toolResult = await backendService.executeTool(
       toolName, 
       parameters, 
-      sessionId || 'unknown-session', 
+      sessionId, 
       validation.accessLevel, 
       reflinkId
     );
@@ -252,39 +262,49 @@ export async function POST(request: NextRequest) {
     const executionTime = Date.now() - startTime;
 
     // Emit debug event for server-side tool call completion
-    if (toolCallId && sessionId) {
-      debugEventEmitter.emit('tool_call_complete', {
-        toolName,
-        result: toolResult.data,
-        error: toolResult.error,
-        executionTime,
-        success: toolResult.success,
-        sessionId,
-        toolCallId,
-        executionContext: 'server',
-        provider: 'server'
-      }, 'unified-tools-api');
-    }
+    debugEventEmitter.emit('tool_call_complete', {
+      toolName,
+      result: toolResult.data,
+      error: toolResult.error,
+      executionTime,
+      success: toolResult.success,
+      sessionId,
+      toolCallId,
+      executionContext: 'server',
+      provider: 'unified-tools-api',
+      accessLevel: validation.accessLevel
+    }, 'unified-tools-api');
 
-    return NextResponse.json({
+    // TODO: Implement cost tracking and budget deduction for reflinks
+    const costTracking = reflinkId ? {
+      reflinkId,
+      estimatedCost: 0.001, // Placeholder cost estimation
+      remainingBudget: undefined // Will be implemented with reflink manager integration
+    } : undefined;
+
+    const response: UnifiedToolExecuteResponse = {
       success: toolResult.success,
       data: toolResult.data,
       error: toolResult.error,
       metadata: {
         timestamp: Date.now(),
-        source: 'server',
+        source: 'unified-tools-api',
         sessionId,
         toolCallId,
-        executionTime
+        executionTime,
+        accessLevel: validation.accessLevel,
+        costTracking
       }
-    });
+    };
+
+    return NextResponse.json(response);
 
   } catch (error) {
     const executionTime = Date.now() - startTime;
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     // Emit debug event for server-side tool call error
-    if (toolCallId && sessionId && toolName) {
+    if (toolName && sessionId && toolCallId) {
       debugEventEmitter.emit('tool_call_complete', {
         toolName,
         result: null,
@@ -294,36 +314,67 @@ export async function POST(request: NextRequest) {
         sessionId,
         toolCallId,
         executionContext: 'server',
-        provider: 'server'
+        provider: 'unified-tools-api'
       }, 'unified-tools-api');
     }
 
-    console.error('Unified tool execution error:', error);
+    console.error('Unified tool execution error:', {
+      toolName,
+      sessionId,
+      toolCallId,
+      reflinkId,
+      error: errorMessage,
+      executionTime
+    });
     
-    return NextResponse.json({
+    const response: UnifiedToolExecuteResponse = {
       success: false,
       error: errorMessage,
       metadata: {
         timestamp: Date.now(),
-        source: 'server',
+        source: 'unified-tools-api',
         sessionId,
         toolCallId,
         executionTime
       }
-    }, { status: 500 });
+    };
+
+    return NextResponse.json(response, { status: 500 });
   }
 }
 
-// Placeholder for reflink validation - will be replaced with actual implementation
-async function validateAndFilterContext(sessionId?: string, reflinkId?: string): Promise<{
-  valid: boolean;
-  error?: string;
-  accessLevel: string;
-}> {
-  // TODO: Implement actual reflink validation using contextInjector or reflinkManager
-  // For now, return basic validation
-  return {
-    valid: true,
-    accessLevel: reflinkId ? 'premium' : 'basic'
-  };
+/**
+ * GET endpoint to retrieve available server-side tools
+ */
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  try {
+    const serverTools = unifiedToolRegistry.getServerToolDefinitions();
+    
+    return NextResponse.json({
+      success: true,
+      tools: serverTools.map(tool => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+        executionContext: tool.executionContext
+      })),
+      count: serverTools.length,
+      metadata: {
+        timestamp: Date.now(),
+        source: 'unified-tools-api'
+      }
+    });
+
+  } catch (error) {
+    console.error('Failed to get server tools:', error);
+    
+    return NextResponse.json({
+      success: false,
+      error: 'Failed to retrieve available server tools',
+      metadata: {
+        timestamp: Date.now(),
+        source: 'unified-tools-api'
+      }
+    }, { status: 500 });
+  }
 }

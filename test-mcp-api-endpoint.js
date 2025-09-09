@@ -7,8 +7,8 @@ async function testMcpApiEndpoint() {
     
     try {
         // Test 1: Get available tools
-        console.log('1. Testing GET /api/ai/mcp/execute (available tools)...');
-        const toolsResponse = await fetch('http://localhost:3002/api/ai/mcp/execute', {
+        console.log('1. Testing GET /api/ai/tools/execute (available tools)...');
+        const toolsResponse = await fetch('http://localhost:3002/api/ai/tools/execute', {
             method: 'GET'
         });
         
@@ -23,10 +23,10 @@ async function testMcpApiEndpoint() {
             console.log('Error:', error);
         }
         
-        console.log('\n2. Testing POST /api/ai/mcp/execute (loadProjectContext)...');
+        console.log('\n2. Testing POST /api/ai/tools/execute (loadProjectContext)...');
         
         // Test 2: Execute loadProjectContext tool
-        const executeResponse = await fetch('http://localhost:3002/api/ai/mcp/execute', {
+        const executeResponse = await fetch('http://localhost:3002/api/ai/tools/execute', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -54,7 +54,7 @@ async function testMcpApiEndpoint() {
         console.log('\n3. Testing with wrong tool name...');
         
         // Test 3: Test with invalid tool name
-        const invalidResponse = await fetch('http://localhost:3002/api/ai/mcp/execute', {
+        const invalidResponse = await fetch('http://localhost:3002/api/ai/tools/execute', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 

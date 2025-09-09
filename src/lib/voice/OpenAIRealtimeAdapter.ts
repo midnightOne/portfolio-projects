@@ -288,17 +288,19 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 const includeContentFlag = includeContent ?? false;
                 const includeMediaFlag = includeMedia ?? false;
                 try {
-                    const response = await fetch('/api/ai/mcp/execute', {
+                    const response = await fetch('/api/ai/tools/execute', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ 
                             toolName: 'loadProjectContext', 
-                            parameters: { projectId, includeContent: includeContentFlag, includeMedia: includeMediaFlag } 
+                            parameters: { projectId, includeContent: includeContentFlag, includeMedia: includeMediaFlag },
+                            sessionId: this._options?.contextId || 'openai-session',
+                            reflinkId: this._options?.reflinkId
                         })
                     });
                     
                     if (!response.ok) {
-                        throw new Error(`MCP server tool failed: ${response.status}`);
+                        throw new Error(`Unified tool execution failed: ${response.status}`);
                     }
                     
                     const data = await response.json();
@@ -319,17 +321,19 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             execute: async ({ jobSpec, analysisType }) => {
                 const analysis = analysisType ?? 'quick';
                 try {
-                    const response = await fetch('/api/ai/mcp/execute', {
+                    const response = await fetch('/api/ai/tools/execute', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ 
                             toolName: 'processJobSpec', 
-                            parameters: { jobSpec, analysisType: analysis } 
+                            parameters: { jobSpec, analysisType: analysis },
+                            sessionId: this._options?.contextId || 'openai-session',
+                            reflinkId: this._options?.reflinkId
                         })
                     });
                     
                     if (!response.ok) {
-                        throw new Error(`MCP server tool failed: ${response.status}`);
+                        throw new Error(`Unified tool execution failed: ${response.status}`);
                     }
                     
                     const data = await response.json();
@@ -1112,23 +1116,25 @@ Communication guidelines:
     }
 
     /**
-     * Execute MCP tool by making API call to MCP server
+     * Execute unified server tool by making API call to unified tools endpoint
      */
     private async _executeMcpTool(functionName: string, args: any): Promise<any> {
         try {
-            console.log(`Executing MCP tool ${functionName} with args:`, args);
+            console.log(`Executing unified server tool ${functionName} with args:`, args);
             
-            const response = await fetch('/api/ai/mcp/execute', {
+            const response = await fetch('/api/ai/tools/execute', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     toolName: functionName, 
-                    parameters: args 
+                    parameters: args,
+                    sessionId: this._options?.contextId || 'openai-session',
+                    reflinkId: this._options?.reflinkId
                 })
             });
             
             if (!response.ok) {
-                throw new Error(`MCP server tool failed: ${response.status}`);
+                throw new Error(`Unified tool execution failed: ${response.status}`);
             }
             
             const result = await response.json();

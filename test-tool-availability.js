@@ -29,7 +29,7 @@ async function testToolAvailability() {
 
     // Test MCP server tools
     console.log('🔧 Testing MCP server tools...');
-    const mcpResponse = await fetch('http://localhost:3000/api/ai/mcp/execute', {
+    const mcpResponse = await fetch('http://localhost:3000/api/ai/tools/execute', {
       method: 'GET'
     });
 
@@ -48,7 +48,7 @@ async function testToolAvailability() {
 
     // Test a sample MCP tool execution
     console.log('🧪 Testing MCP tool execution...');
-    const testExecution = await fetch('http://localhost:3000/api/ai/mcp/execute', {
+    const testExecution = await fetch('http://localhost:3000/api/ai/tools/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

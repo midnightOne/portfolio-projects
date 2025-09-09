@@ -36,7 +36,7 @@ async function testElevenLabsToolsIntegration() {
     // Simulate what the ElevenLabs agent would do:
     // 1. Analyze user intent
     console.log('   🧠 Agent analyzing user intent...');
-    const intentResponse = await fetch('http://localhost:3000/api/ai/mcp/execute', {
+    const intentResponse = await fetch('http://localhost:3000/api/ai/tools/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -56,7 +56,7 @@ async function testElevenLabsToolsIntegration() {
 
     // 2. Search for React projects
     console.log('   🔍 Agent searching for React projects...');
-    const searchResponse = await fetch('http://localhost:3000/api/ai/mcp/execute', {
+    const searchResponse = await fetch('http://localhost:3000/api/ai/tools/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -79,7 +79,7 @@ async function testElevenLabsToolsIntegration() {
 
     // 3. Load detailed context for a project
     console.log('   📄 Agent loading detailed project context...');
-    const contextResponse = await fetch('http://localhost:3000/api/ai/mcp/execute', {
+    const contextResponse = await fetch('http://localhost:3000/api/ai/tools/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -115,7 +115,7 @@ async function testElevenLabsToolsIntegration() {
     `;
 
     console.log('   📋 Agent processing job specification...');
-    const jobAnalysisResponse = await fetch('http://localhost:3000/api/ai/mcp/execute', {
+    const jobAnalysisResponse = await fetch('http://localhost:3000/api/ai/tools/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -141,7 +141,7 @@ async function testElevenLabsToolsIntegration() {
     console.log('4️⃣ Testing navigation suggestions...');
     console.log('   Scenario: User wants to see relevant projects');
     
-    const navResponse = await fetch('http://localhost:3000/api/ai/mcp/execute', {
+    const navResponse = await fetch('http://localhost:3000/api/ai/tools/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
