@@ -21,7 +21,8 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useConversationalAgent } from '@/contexts/ConversationalAgentContext';
-import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
+import { debugEventEmitter, DebugEvent } from '@/lib/debug/debugEventEmitter';
+import { unifiedConversationLogger } from '@/lib/debug/UnifiedConversationLogger';
 
 interface ToolCallEvent {
   id: string;
@@ -34,6 +35,10 @@ interface ToolCallEvent {
   error?: string;
   timestamp: Date;
   provider?: 'openai' | 'elevenlabs';
+  executionContext?: 'client' | 'server';
+  toolCallId?: string;
+  correlationId?: string;
+  sessionId?: string;
   metadata?: Record<string, any>;
 }
 
@@ -44,6 +49,9 @@ interface ToolCallStats {
   averageExecutionTime: number;
   callsByCategory: Record<string, number>;
   callsByTool: Record<string, number>;
+  callsByExecutionContext: Record<string, number>;
+  callsByProvider: Record<string, number>;
+  correlatedCallPairs: number;
 }
 
 interface ToolCallMonitorProps {
@@ -63,11 +71,14 @@ export function ToolCallMonitor({ conversationId, activeProvider, onToolCallUpda
     failedCalls: 0,
     averageExecutionTime: 0,
     callsByCategory: {},
-    callsByTool: {}
+    callsByTool: {},
+    callsByExecutionContext: {},
+    callsByProvider: {},
+    correlatedCallPairs: 0
   });
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
-  // Calculate stats from tool calls
+  // Calculate enhanced stats from tool calls
   const calculateStats = useCallback((calls: ToolCallEvent[]): ToolCallStats => {
     const totalCalls = calls.length;
     const successfulCalls = calls.filter(call => call.success).length;
@@ -78,10 +89,29 @@ export function ToolCallMonitor({ conversationId, activeProvider, onToolCallUpda
 
     const callsByCategory: Record<string, number> = {};
     const callsByTool: Record<string, number> = {};
+    const callsByExecutionContext: Record<string, number> = {};
+    const callsByProvider: Record<string, number> = {};
+
+    // Count correlated call pairs (client-server tool call pairs)
+    const correlationIds = new Set<string>();
+    calls.forEach(call => {
+      if (call.correlationId) {
+        correlationIds.add(call.correlationId);
+      }
+    });
+    const correlatedCallPairs = correlationIds.size;
 
     calls.forEach(call => {
       callsByCategory[call.category] = (callsByCategory[call.category] || 0) + 1;
       callsByTool[call.toolName] = (callsByTool[call.toolName] || 0) + 1;
+      
+      if (call.executionContext) {
+        callsByExecutionContext[call.executionContext] = (callsByExecutionContext[call.executionContext] || 0) + 1;
+      }
+      
+      if (call.provider) {
+        callsByProvider[call.provider] = (callsByProvider[call.provider] || 0) + 1;
+      }
     });
 
     return {
@@ -90,7 +120,10 @@ export function ToolCallMonitor({ conversationId, activeProvider, onToolCallUpda
       failedCalls,
       averageExecutionTime,
       callsByCategory,
-      callsByTool
+      callsByTool,
+      callsByExecutionContext,
+      callsByProvider,
+      correlatedCallPairs
     };
   }, []);
 
@@ -139,12 +172,12 @@ export function ToolCallMonitor({ conversationId, activeProvider, onToolCallUpda
     });
   }, [state.transcript, isMonitoring, conversationId, addToolCall, toolCalls]);
 
-  // Listen to debug events for real tool calls
+  // Listen to enhanced debug events for unified tool calls
   useEffect(() => {
     if (!isMonitoring) return;
 
-    const handleToolCallStart = (event: any) => {
-      const toolCallId = `${event.data.toolName}-${event.data.sessionId}-${event.timestamp.getTime()}`;
+    const handleToolCallStart = (event: DebugEvent) => {
+      const toolCallId = event.toolCallId || `${event.data.toolName}-${event.sessionId}-${event.timestamp.getTime()}`;
       
       const toolCall: ToolCallEvent = {
         id: toolCallId,
@@ -156,12 +189,16 @@ export function ToolCallMonitor({ conversationId, activeProvider, onToolCallUpda
           : event.data.toolName.includes('server') || event.data.toolName.includes('api')
           ? 'server'
           : 'system',
-        parameters: event.data.parameters,
+        parameters: event.data.args || event.data.parameters,
         executionTime: 0, // Will be updated when complete
         result: null,
         success: false, // Will be updated when complete
         timestamp: event.timestamp,
-        provider: activeProvider || 'openai',
+        provider: event.data.provider || activeProvider || 'openai',
+        executionContext: event.data.executionContext,
+        toolCallId: event.toolCallId,
+        correlationId: event.correlationId,
+        sessionId: event.sessionId,
         metadata: {
           conversationId,
           status: 'started',
@@ -173,15 +210,17 @@ export function ToolCallMonitor({ conversationId, activeProvider, onToolCallUpda
       addToolCall(toolCall);
     };
 
-    const handleToolCallComplete = (event: any) => {
+    const handleToolCallComplete = (event: DebugEvent) => {
       console.log('Tool call completed:', event);
       
-      // Try to find and update the existing tool call
+      // Try to find and update the existing tool call using toolCallId or correlationId
       setToolCalls(prev => {
         const existingIndex = prev.findIndex(call => 
-          call.toolName === event.data.toolName && 
-          call.metadata?.status === 'started' &&
-          Math.abs(call.timestamp.getTime() - event.timestamp.getTime()) < 10000 // Within 10 seconds
+          (event.toolCallId && call.toolCallId === event.toolCallId) ||
+          (event.correlationId && call.correlationId === event.correlationId) ||
+          (call.toolName === event.data.toolName && 
+           call.metadata?.status === 'started' &&
+           Math.abs(call.timestamp.getTime() - event.timestamp.getTime()) < 10000) // Within 10 seconds
         );
         
         if (existingIndex >= 0) {
@@ -192,17 +231,20 @@ export function ToolCallMonitor({ conversationId, activeProvider, onToolCallUpda
             executionTime: event.data.executionTime,
             result: event.data.result,
             success: event.data.success,
-            error: event.data.success ? undefined : (event.data.result?.error || 'Tool execution failed'),
+            error: event.data.success ? undefined : (event.data.error || 'Tool execution failed'),
             metadata: {
               ...updated[existingIndex].metadata,
-              status: 'completed'
+              status: 'completed',
+              accessLevel: event.data.accessLevel,
+              reflinkId: event.data.reflinkId
             }
           };
+          setStats(calculateStats(updated));
           return updated;
         } else {
           // Create new complete tool call if start wasn't found
           const toolCall: ToolCallEvent = {
-            id: `complete-${Date.now()}`,
+            id: event.toolCallId || `complete-${Date.now()}`,
             toolName: event.data.toolName,
             category: event.data.toolName.includes('navigate') || event.data.toolName.includes('scroll') || event.data.toolName.includes('highlight') || event.data.toolName.includes('open') || event.data.toolName.includes('focus') || event.data.toolName.includes('animate')
               ? 'navigation' 
@@ -215,17 +257,25 @@ export function ToolCallMonitor({ conversationId, activeProvider, onToolCallUpda
             executionTime: event.data.executionTime,
             result: event.data.result,
             success: event.data.success,
-            error: event.data.success ? undefined : (event.data.result?.error || 'Tool execution failed'),
+            error: event.data.success ? undefined : (event.data.error || 'Tool execution failed'),
             timestamp: event.timestamp,
-            provider: activeProvider || 'openai',
+            provider: event.data.provider || activeProvider || 'openai',
+            executionContext: event.data.executionContext,
+            toolCallId: event.toolCallId,
+            correlationId: event.correlationId,
+            sessionId: event.sessionId,
             metadata: {
               conversationId,
               status: 'completed',
-              source: event.source
+              source: event.source,
+              accessLevel: event.data.accessLevel,
+              reflinkId: event.data.reflinkId
             }
           };
           
-          return [toolCall, ...prev.slice(0, 99)];
+          const updated = [toolCall, ...prev.slice(0, 99)];
+          setStats(calculateStats(updated));
+          return updated;
         }
       });
     };
@@ -242,13 +292,27 @@ export function ToolCallMonitor({ conversationId, activeProvider, onToolCallUpda
     };
   }, [isMonitoring, conversationId, activeProvider, addToolCall]);
 
-  // Export tool call data
+  // Get tool execution metrics from debug event emitter
+  const getToolExecutionMetrics = useCallback(() => {
+    return debugEventEmitter.getToolExecutionMetrics();
+  }, []);
+
+  // Get conversation logger data
+  const getConversationLoggerData = useCallback(() => {
+    const session = unifiedConversationLogger.getActiveSession(conversationId);
+    return session ? unifiedConversationLogger.exportSessionData(session) : null;
+  }, [conversationId]);
+
+  // Export enhanced tool call data
   const exportToolCalls = useCallback(() => {
     const exportData = {
       conversationId,
       activeProvider,
       toolCalls,
       stats,
+      toolExecutionMetrics: getToolExecutionMetrics(),
+      conversationLoggerData: getConversationLoggerData(),
+      debugEventHistory: debugEventEmitter.getEventHistory().slice(-100), // Last 100 events
       exportedAt: new Date().toISOString()
     };
 
@@ -256,7 +320,7 @@ export function ToolCallMonitor({ conversationId, activeProvider, onToolCallUpda
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `tool-calls-debug-${conversationId}-${new Date().toISOString().slice(0, 19)}.json`;
+    a.download = `unified-tool-debug-${conversationId}-${new Date().toISOString().slice(0, 19)}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

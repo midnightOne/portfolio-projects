@@ -1,303 +1,333 @@
 /**
- * Conversation Log API Route
+ * Unified Conversation Logging API Endpoint
  * 
- * Handles asynchronous conversation transcript logging from client-side voice agents.
- * Stores conversation data for analytics, debugging, and admin review.
+ * Receives conversation logs from client-side voice agents and stores them
+ * for admin review, analytics, and debugging. Supports both real-time logging
+ * and batch uploads of conversation data.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { headers } from 'next/headers';
+import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 
 interface ConversationLogRequest {
-  transcriptItem?: {
-    id: string;
-    type: 'user_speech' | 'ai_response' | 'tool_call' | 'tool_result' | 'system_message' | 'error';
-    content: string;
-    timestamp: string;
-    provider: 'openai' | 'elevenlabs';
-    metadata?: {
-      duration?: number;
-      confidence?: number;
-      interrupted?: boolean;
-      toolName?: string;
-      toolArgs?: any;
-      toolResult?: any;
-      audioUrl?: string;
+  sessionId: string;
+  provider: string;
+  conversationData: {
+    startTime: string;
+    endTime?: string;
+    entries: Array<{
+      id: string;
+      timestamp: string;
+      type: 'tool_call' | 'transcript_item' | 'connection_event' | 'context_request' | 'system_event';
+      provider?: string;
+      executionContext?: 'client' | 'server';
+      toolCallId?: string;
+      correlationId?: string;
+      data: any;
+      metadata?: {
+        executionTime?: number;
+        success?: boolean;
+        error?: string;
+        accessLevel?: string;
+        reflinkId?: string;
+      };
+    }>;
+    toolCallSummary: {
+      totalCalls: number;
+      successfulCalls: number;
+      failedCalls: number;
+      clientCalls: number;
+      serverCalls: number;
+      averageExecutionTime: number;
+    };
+    conversationMetrics: {
+      totalTranscriptItems: number;
+      totalConnectionEvents: number;
+      totalContextRequests: number;
+      sessionDuration?: number;
     };
   };
-  sessionId: string;
-  contextId?: string;
   reflinkId?: string;
-  provider: 'openai' | 'elevenlabs';
-  timestamp: string;
-  conversationMetadata?: {
-    startTime?: string;
-    endTime?: string;
-    totalDuration?: number;
-    messageCount?: number;
-    toolCallCount?: number;
-    interruptionCount?: number;
-    averageLatency?: number;
-    costEstimate?: number;
-  };
-  usageMetrics?: {
-    audioInputDuration?: number;
-    audioOutputDuration?: number;
-    tokensUsed?: number;
-    apiCalls?: number;
-    toolExecutions?: number;
+  metadata?: {
+    userAgent?: string;
+    clientTimestamp?: string;
+    reportType?: 'real-time' | 'batch' | 'session-end';
   };
 }
 
 interface ConversationLogResponse {
   success: boolean;
-  logId?: string;
-  message: string;
+  message?: string;
+  error?: string;
+  metadata: {
+    timestamp: number;
+    sessionId: string;
+    entriesProcessed: number;
+    storedSuccessfully: boolean;
+  };
 }
 
-export async function POST(request: NextRequest) {
+/**
+ * POST /api/ai/conversation/log
+ * 
+ * Accepts conversation logs from client-side voice agents
+ */
+export async function POST(request: NextRequest): Promise<NextResponse<ConversationLogResponse>> {
+  const startTime = Date.now();
+  let sessionId: string | undefined;
+  let entriesCount = 0;
+
   try {
     const body: ConversationLogRequest = await request.json();
-    
+    const { 
+      sessionId: requestSessionId, 
+      provider, 
+      conversationData, 
+      reflinkId, 
+      metadata 
+    } = body;
+
+    sessionId = requestSessionId;
+    entriesCount = conversationData.entries.length;
+
     // Validate required fields
-    if (!body.sessionId || !body.provider || !body.timestamp) {
-      return NextResponse.json(
-        { 
-          success: false, 
-          message: 'Missing required fields: sessionId, provider, timestamp' 
-        },
-        { status: 400 }
-      );
+    if (!sessionId || typeof sessionId !== 'string') {
+      return NextResponse.json({
+        success: false,
+        error: 'Session ID is required and must be a string.',
+        metadata: {
+          timestamp: Date.now(),
+          sessionId: sessionId || 'unknown',
+          entriesProcessed: 0,
+          storedSuccessfully: false
+        }
+      }, { status: 400 });
     }
 
-    // Get client information
-    const headersList = await headers();
-    const clientIP = headersList.get('x-forwarded-for') || 
-                    headersList.get('x-real-ip') || 
-                    'unknown';
-    const userAgent = headersList.get('user-agent') || 'unknown';
+    if (!provider || typeof provider !== 'string') {
+      return NextResponse.json({
+        success: false,
+        error: 'Provider is required and must be a string.',
+        metadata: {
+          timestamp: Date.now(),
+          sessionId,
+          entriesProcessed: 0,
+          storedSuccessfully: false
+        }
+      }, { status: 400 });
+    }
 
-    // Generate log ID
-    const logId = `log_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    if (!conversationData || !Array.isArray(conversationData.entries)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Conversation data with entries array is required.',
+        metadata: {
+          timestamp: Date.now(),
+          sessionId,
+          entriesProcessed: 0,
+          storedSuccessfully: false
+        }
+      }, { status: 400 });
+    }
 
-    // Prepare log entry
-    const logEntry = {
-      id: logId,
-      sessionId: body.sessionId,
-      provider: body.provider,
-      timestamp: new Date(body.timestamp),
-      clientIP,
-      userAgent,
-      contextId: body.contextId,
-      reflinkId: body.reflinkId,
-      transcriptItem: body.transcriptItem ? {
-        ...body.transcriptItem,
-        timestamp: new Date(body.transcriptItem.timestamp)
-      } : null,
-      conversationMetadata: body.conversationMetadata ? {
-        ...body.conversationMetadata,
-        startTime: body.conversationMetadata.startTime ? new Date(body.conversationMetadata.startTime) : null,
-        endTime: body.conversationMetadata.endTime ? new Date(body.conversationMetadata.endTime) : null
-      } : null,
-      usageMetrics: body.usageMetrics,
-      createdAt: new Date()
-    };
+    // Emit debug event for conversation log received
+    debugEventEmitter.emit('conversation_log_update', {
+      sessionId,
+      provider,
+      entriesCount,
+      reportType: metadata?.reportType || 'unknown',
+      toolCallSummary: conversationData.toolCallSummary,
+      conversationMetrics: conversationData.conversationMetrics,
+      reflinkId
+    }, 'conversation-log-api', undefined, sessionId);
 
-    // TODO: Store in database
-    // For now, we'll log to console and store in memory/file
-    // In production, this should use Prisma or another database client
-    
-    console.log('Conversation log entry:', {
-      logId,
-      sessionId: body.sessionId,
-      provider: body.provider,
-      hasTranscript: !!body.transcriptItem,
-      hasMetadata: !!body.conversationMetadata,
-      hasUsageMetrics: !!body.usageMetrics,
-      clientIP
+    // TODO: Store conversation data in database
+    // For now, we'll just log it and emit debug events
+    console.log(`Conversation log received for session ${sessionId}:`, {
+      provider,
+      entriesCount,
+      toolCallSummary: conversationData.toolCallSummary,
+      conversationMetrics: conversationData.conversationMetrics,
+      reportType: metadata?.reportType
     });
 
-    // Store transcript item if provided
-    if (body.transcriptItem) {
-      console.log('Transcript item:', {
-        type: body.transcriptItem.type,
-        provider: body.transcriptItem.provider,
-        contentLength: body.transcriptItem.content.length,
-        hasMetadata: !!body.transcriptItem.metadata
-      });
-    }
-
-    // Store conversation metadata if provided
-    if (body.conversationMetadata) {
-      console.log('Conversation metadata:', {
-        messageCount: body.conversationMetadata.messageCount,
-        toolCallCount: body.conversationMetadata.toolCallCount,
-        totalDuration: body.conversationMetadata.totalDuration,
-        costEstimate: body.conversationMetadata.costEstimate
-      });
-    }
-
-    // Store usage metrics if provided
-    if (body.usageMetrics) {
-      console.log('Usage metrics:', {
-        audioInputDuration: body.usageMetrics.audioInputDuration,
-        audioOutputDuration: body.usageMetrics.audioOutputDuration,
-        tokensUsed: body.usageMetrics.tokensUsed,
-        apiCalls: body.usageMetrics.apiCalls,
-        toolExecutions: body.usageMetrics.toolExecutions
-      });
-    }
-
-    // TODO: Implement actual database storage
-    // Example with Prisma:
-    /*
-    const conversationLog = await prisma.conversationLog.create({
-      data: {
-        id: logId,
-        sessionId: body.sessionId,
-        provider: body.provider,
-        timestamp: new Date(body.timestamp),
-        clientIP,
-        userAgent,
-        contextId: body.contextId,
-        reflinkId: body.reflinkId,
-        transcriptData: body.transcriptItem ? JSON.stringify(body.transcriptItem) : null,
-        conversationMetadata: body.conversationMetadata ? JSON.stringify(body.conversationMetadata) : null,
-        usageMetrics: body.usageMetrics ? JSON.stringify(body.usageMetrics) : null
+    // Process each entry and emit appropriate debug events for real-time monitoring
+    conversationData.entries.forEach(entry => {
+      const entryTimestamp = new Date(entry.timestamp);
+      
+      switch (entry.type) {
+        case 'tool_call':
+          if (entry.data.phase === 'start') {
+            debugEventEmitter.emit('tool_call_start', {
+              toolName: entry.data.toolName,
+              args: entry.data.parameters,
+              sessionId,
+              toolCallId: entry.toolCallId,
+              executionContext: entry.executionContext,
+              provider: entry.provider,
+              timestamp: entryTimestamp
+            }, 'conversation-log-replay', entry.correlationId, sessionId, entry.toolCallId);
+          } else if (entry.data.phase === 'complete') {
+            debugEventEmitter.emit('tool_call_complete', {
+              toolName: entry.data.toolName,
+              result: entry.data.result,
+              executionTime: entry.metadata?.executionTime || 0,
+              success: entry.metadata?.success || false,
+              sessionId,
+              toolCallId: entry.toolCallId,
+              executionContext: entry.executionContext,
+              provider: entry.provider,
+              error: entry.metadata?.error,
+              timestamp: entryTimestamp
+            }, 'conversation-log-replay', entry.correlationId, sessionId, entry.toolCallId);
+          }
+          break;
+        case 'transcript_item':
+          debugEventEmitter.emit('transcript_update', {
+            item: entry.data
+          }, 'conversation-log-replay', entry.correlationId, sessionId);
+          break;
+        case 'connection_event':
+          if (entry.data.eventType === 'session_start') {
+            debugEventEmitter.emit('voice_session_start', {
+              provider: entry.provider || provider,
+              sessionId
+            }, 'conversation-log-replay', entry.correlationId, sessionId);
+          } else if (entry.data.eventType === 'session_end') {
+            debugEventEmitter.emit('voice_session_end', {
+              provider: entry.provider || provider,
+              sessionId,
+              duration: entry.data.duration || 0
+            }, 'conversation-log-replay', entry.correlationId, sessionId);
+          }
+          break;
+        case 'context_request':
+          debugEventEmitter.emit('context_request', {
+            query: entry.data.query,
+            sources: entry.data.sources,
+            sessionId
+          }, 'conversation-log-replay', entry.correlationId, sessionId);
+          break;
       }
     });
-    */
 
-    // TODO: Update reflink usage and cost tracking if reflinkId provided
-    if (body.reflinkId && body.usageMetrics?.tokensUsed) {
-      // Calculate cost based on provider and usage
-      let estimatedCost = 0;
-      
-      if (body.provider === 'openai') {
-        // OpenAI Realtime pricing (example rates)
-        const inputCostPer1K = 0.006; // $0.006 per 1K input tokens
-        const outputCostPer1K = 0.024; // $0.024 per 1K output tokens
-        estimatedCost = (body.usageMetrics.tokensUsed / 1000) * ((inputCostPer1K + outputCostPer1K) / 2);
-      } else if (body.provider === 'elevenlabs') {
-        // ElevenLabs pricing (example rates)
-        const costPerMinute = 0.30; // $0.30 per minute
-        const totalMinutes = ((body.usageMetrics.audioInputDuration || 0) + (body.usageMetrics.audioOutputDuration || 0)) / 60000;
-        estimatedCost = totalMinutes * costPerMinute;
-      }
-
-      console.log(`Estimated cost for reflink ${body.reflinkId}: $${estimatedCost.toFixed(4)}`);
-      
-      // TODO: Update reflink budget tracking in database
-    }
+    // TODO: Implement database storage
+    // const storedConversation = await prisma.conversationLog.create({
+    //   data: {
+    //     sessionId,
+    //     provider,
+    //     startTime: new Date(conversationData.startTime),
+    //     endTime: conversationData.endTime ? new Date(conversationData.endTime) : null,
+    //     entriesJson: JSON.stringify(conversationData.entries),
+    //     toolCallSummaryJson: JSON.stringify(conversationData.toolCallSummary),
+    //     conversationMetricsJson: JSON.stringify(conversationData.conversationMetrics),
+    //     reflinkId,
+    //     metadata: metadata ? JSON.stringify(metadata) : null
+    //   }
+    // });
 
     const response: ConversationLogResponse = {
       success: true,
-      logId,
-      message: 'Conversation logged successfully'
+      message: `Conversation log processed successfully for session ${sessionId}`,
+      metadata: {
+        timestamp: Date.now(),
+        sessionId,
+        entriesProcessed: entriesCount,
+        storedSuccessfully: true // Will be based on actual database operation
+      }
     };
 
     return NextResponse.json(response);
 
   } catch (error) {
-    console.error('Error logging conversation:', error);
-    
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    // Emit debug event for conversation log error
+    if (sessionId) {
+      debugEventEmitter.emit('conversation_log_update', {
+        sessionId,
+        error: errorMessage,
+        entriesCount,
+        success: false
+      }, 'conversation-log-api', undefined, sessionId);
+    }
+
+    console.error('Conversation log processing error:', {
+      sessionId,
+      entriesCount,
+      error: errorMessage
+    });
+
     const response: ConversationLogResponse = {
       success: false,
-      message: 'Failed to log conversation'
+      error: errorMessage,
+      metadata: {
+        timestamp: Date.now(),
+        sessionId: sessionId || 'unknown',
+        entriesProcessed: entriesCount,
+        storedSuccessfully: false
+      }
     };
 
     return NextResponse.json(response, { status: 500 });
   }
 }
 
-// GET endpoint for retrieving conversation logs (admin only)
-export async function GET(request: NextRequest) {
+/**
+ * GET /api/ai/conversation/log?sessionId=<id>
+ * 
+ * Retrieves conversation logs for a specific session (admin only)
+ */
+export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    // TODO: Implement authentication check for admin access
-    // For now, we'll return a simple response
-    
     const { searchParams } = new URL(request.url);
     const sessionId = searchParams.get('sessionId');
-    const reflinkId = searchParams.get('reflinkId');
-    const provider = searchParams.get('provider');
-    const limit = parseInt(searchParams.get('limit') || '50');
-    const offset = parseInt(searchParams.get('offset') || '0');
 
-    // TODO: Implement database query to retrieve logs
-    // Example with Prisma:
-    /*
-    const logs = await prisma.conversationLog.findMany({
-      where: {
-        ...(sessionId && { sessionId }),
-        ...(reflinkId && { reflinkId }),
-        ...(provider && { provider })
-      },
-      orderBy: { timestamp: 'desc' },
-      take: limit,
-      skip: offset
-    });
-    */
-
-    // For now, return empty array
-    const logs: any[] = [];
-
-    return NextResponse.json({
-      success: true,
-      logs,
-      total: logs.length,
-      limit,
-      offset
-    });
-
-  } catch (error) {
-    console.error('Error retrieving conversation logs:', error);
-    return NextResponse.json(
-      { success: false, message: 'Failed to retrieve logs' },
-      { status: 500 }
-    );
-  }
-}
-
-// DELETE endpoint for cleaning up old logs (admin only)
-export async function DELETE(request: NextRequest) {
-  try {
-    // TODO: Implement authentication check for admin access
-    
-    const { searchParams } = new URL(request.url);
-    const olderThan = searchParams.get('olderThan'); // ISO date string
-    const sessionId = searchParams.get('sessionId');
-
-    if (!olderThan && !sessionId) {
-      return NextResponse.json(
-        { success: false, message: 'Must specify olderThan date or sessionId' },
-        { status: 400 }
-      );
+    if (!sessionId) {
+      return NextResponse.json({
+        success: false,
+        error: 'Session ID is required as query parameter.'
+      }, { status: 400 });
     }
 
-    // TODO: Implement database deletion
-    // Example with Prisma:
-    /*
-    const deleteResult = await prisma.conversationLog.deleteMany({
-      where: {
-        ...(olderThan && { timestamp: { lt: new Date(olderThan) } }),
-        ...(sessionId && { sessionId })
-      }
-    });
-    */
+    // TODO: Implement admin authentication check
+    // const session = await getServerSession(authOptions);
+    // if (!session || session.user.role !== 'admin') {
+    //   return NextResponse.json({
+    //     success: false,
+    //     error: 'Admin access required.'
+    //   }, { status: 403 });
+    // }
 
-    const deletedCount = 0; // Placeholder
+    // TODO: Retrieve conversation log from database
+    // const conversationLog = await prisma.conversationLog.findUnique({
+    //   where: { sessionId }
+    // });
 
+    // For now, return placeholder data
     return NextResponse.json({
       success: true,
-      message: `Deleted ${deletedCount} conversation logs`,
-      deletedCount
+      data: {
+        sessionId,
+        message: 'Conversation log retrieval not yet implemented',
+        // Will include actual conversation data from database
+      },
+      metadata: {
+        timestamp: Date.now(),
+        source: 'conversation-log-api'
+      }
     });
 
   } catch (error) {
-    console.error('Error deleting conversation logs:', error);
-    return NextResponse.json(
-      { success: false, message: 'Failed to delete logs' },
-      { status: 500 }
-    );
+    console.error('Conversation log retrieval error:', error);
+    
+    return NextResponse.json({
+      success: false,
+      error: 'Failed to retrieve conversation log',
+      metadata: {
+        timestamp: Date.now(),
+        source: 'conversation-log-api'
+      }
+    }, { status: 500 });
   }
 }

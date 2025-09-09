@@ -32,8 +32,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.57.0",
     "@aws-sdk/client-s3": "^3.850.0",
-    "@elevenlabs/client": "^0.6.1",
     "@aws-sdk/s3-request-presigner": "^3.850.0",
+    "@elevenlabs/client": "^0.6.1",
     "@hookform/resolvers": "^5.1.1",
     "@octokit/rest": "^22.0.0",
     "@openai/agents": "^0.1.0",

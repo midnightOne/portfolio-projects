@@ -7,6 +7,8 @@
  */
 
 import { ToolDefinition, ToolResult } from '@/types/voice-agent';
+import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
+import { v4 as uuidv4 } from 'uuid';
 
 // Navigation result types
 interface NavigationResult {
@@ -122,9 +124,22 @@ export class UINavigationTools {
     this.toolResultCallbacks.set(toolName, callback);
   }
 
-  // Execute tool and report result
-  private async executeAndReport(toolName: string, args: any, handler: () => Promise<NavigationResult>): Promise<NavigationResult> {
+  // Execute tool and report result with enhanced debugging
+  private async executeAndReport(toolName: string, args: any, handler: () => Promise<NavigationResult>, sessionId?: string): Promise<NavigationResult> {
     const startTime = Date.now();
+    const toolCallId = uuidv4();
+    const correlationId = `ui_nav_${toolCallId}`;
+    
+    // Emit tool call start event
+    debugEventEmitter.emitToolCallStart(
+      toolName, 
+      args, 
+      sessionId || 'ui-navigation', 
+      toolCallId, 
+      'client', 
+      'ui-navigation-tools',
+      correlationId
+    );
     
     try {
       const result = await handler();
@@ -137,11 +152,25 @@ export class UINavigationTools {
         timestamp: new Date()
       });
 
+      // Emit tool call complete event
+      debugEventEmitter.emitToolCallComplete(
+        toolName,
+        result.data || result.message,
+        executionTime,
+        result.success,
+        sessionId || 'ui-navigation',
+        toolCallId,
+        'client',
+        'ui-navigation-tools',
+        result.error,
+        correlationId
+      );
+
       // Report result to callback if registered
       const callback = this.toolResultCallbacks.get(toolName);
       if (callback) {
         callback({
-          id: `${toolName}_${Date.now()}`,
+          id: toolCallId,
           result: result.data || result.message,
           error: result.error,
           timestamp: new Date(),
@@ -152,19 +181,34 @@ export class UINavigationTools {
       return result;
     } catch (error) {
       const executionTime = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : String(error);
       const errorResult: NavigationResult = {
         success: false,
-        message: `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
-        error: error instanceof Error ? error.message : String(error)
+        message: `Tool execution failed: ${errorMessage}`,
+        error: errorMessage
       };
+
+      // Emit tool call complete event with error
+      debugEventEmitter.emitToolCallComplete(
+        toolName,
+        null,
+        executionTime,
+        false,
+        sessionId || 'ui-navigation',
+        toolCallId,
+        'client',
+        'ui-navigation-tools',
+        errorMessage,
+        correlationId
+      );
 
       // Report error to callback if registered
       const callback = this.toolResultCallbacks.get(toolName);
       if (callback) {
         callback({
-          id: `${toolName}_${Date.now()}`,
+          id: toolCallId,
           result: null,
-          error: errorResult.error,
+          error: errorMessage,
           timestamp: new Date(),
           executionTime
         });
@@ -176,7 +220,7 @@ export class UINavigationTools {
 
   // Navigation tools
 
-  async navigateTo(args: { path: string; newTab?: boolean }): Promise<NavigationResult> {
+  async navigateTo(args: { path: string; newTab?: boolean }, sessionId?: string): Promise<NavigationResult> {
     return this.executeAndReport('navigateTo', args, async () => {
       const { path, newTab = false } = args;
 
@@ -206,10 +250,10 @@ export class UINavigationTools {
           error: error instanceof Error ? error.message : String(error)
         };
       }
-    });
+    }, sessionId);
   }
 
-  async showProjectDetails(args: { projectId: string; highlightSections?: string[] }): Promise<NavigationResult> {
+  async showProjectDetails(args: { projectId: string; highlightSections?: string[] }, sessionId?: string): Promise<NavigationResult> {
     return this.executeAndReport('showProjectDetails', args, async () => {
       const { projectId, highlightSections = [] } = args;
 
@@ -269,7 +313,7 @@ export class UINavigationTools {
     });
   }
 
-  async scrollIntoView(args: { selector: string; behavior?: ScrollBehavior }): Promise<NavigationResult> {
+  async scrollIntoView(args: { selector: string; behavior?: ScrollBehavior }, sessionId?: string): Promise<NavigationResult> {
     return this.executeAndReport('scrollIntoView', args, async () => {
       const { selector, behavior = 'smooth' } = args;
 
@@ -305,10 +349,10 @@ export class UINavigationTools {
           error: error instanceof Error ? error.message : String(error)
         };
       }
-    });
+    }, sessionId);
   }
 
-  async highlightText(args: { selector: string; text?: string; className?: string }): Promise<NavigationResult> {
+  async highlightText(args: { selector: string; text?: string; className?: string }, sessionId?: string): Promise<NavigationResult> {
     return this.executeAndReport('highlightText', args, async () => {
       const { selector, text, className = 'voice-highlight' } = args;
 
@@ -400,7 +444,7 @@ export class UINavigationTools {
     });
   }
 
-  async clearHighlights(args: { className?: string } = {}): Promise<NavigationResult> {
+  async clearHighlights(args: { className?: string } = {}, sessionId?: string): Promise<NavigationResult> {
     return this.executeAndReport('clearHighlights', args, async () => {
       const { className = 'voice-highlight' } = args;
 
@@ -423,7 +467,7 @@ export class UINavigationTools {
     });
   }
 
-  async focusElement(args: { selector: string }): Promise<NavigationResult> {
+  async focusElement(args: { selector: string }, sessionId?: string): Promise<NavigationResult> {
     return this.executeAndReport('focusElement', args, async () => {
       const { selector } = args;
 
@@ -463,7 +507,7 @@ export class UINavigationTools {
           error: error instanceof Error ? error.message : String(error)
         };
       }
-    });
+    }, sessionId);
   }
 
   // Utility methods
@@ -515,7 +559,7 @@ export function createUINavigationToolDefinitions(): ToolDefinition[] {
         },
         required: ['path']
       },
-      handler: async (args) => tools.navigateTo(args)
+      handler: async (args, sessionId?: string) => tools.navigateTo(args, sessionId)
     },
     {
       name: 'showProjectDetails',
@@ -536,7 +580,7 @@ export function createUINavigationToolDefinitions(): ToolDefinition[] {
         },
         required: ['projectId']
       },
-      handler: async (args) => tools.showProjectDetails(args)
+      handler: async (args, sessionId?: string) => tools.showProjectDetails(args, sessionId)
     },
     {
       name: 'scrollIntoView',
@@ -557,7 +601,7 @@ export function createUINavigationToolDefinitions(): ToolDefinition[] {
         },
         required: ['selector']
       },
-      handler: async (args) => tools.scrollIntoView(args)
+      handler: async (args, sessionId?: string) => tools.scrollIntoView(args, sessionId)
     },
     {
       name: 'highlightText',
@@ -581,7 +625,7 @@ export function createUINavigationToolDefinitions(): ToolDefinition[] {
         },
         required: ['selector']
       },
-      handler: async (args) => tools.highlightText(args)
+      handler: async (args, sessionId?: string) => tools.highlightText(args, sessionId)
     },
     {
       name: 'clearHighlights',
@@ -596,7 +640,7 @@ export function createUINavigationToolDefinitions(): ToolDefinition[] {
           }
         }
       },
-      handler: async (args) => tools.clearHighlights(args)
+      handler: async (args, sessionId?: string) => tools.clearHighlights(args, sessionId)
     },
     {
       name: 'focusElement',
@@ -611,7 +655,7 @@ export function createUINavigationToolDefinitions(): ToolDefinition[] {
         },
         required: ['selector']
       },
-      handler: async (args) => tools.focusElement(args)
+      handler: async (args, sessionId?: string) => tools.focusElement(args, sessionId)
     }
   ];
 }
