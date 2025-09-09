@@ -492,7 +492,7 @@ export function ToolCallMonitor({ conversationId, activeProvider, onToolCallUpda
                 const Icon = getCategoryIcon(toolCall.category);
                 return (
                   <div
-                    key={toolCall.id}
+                    key={`${toolCall.toolName}-${toolCall.id || 'unknown'}-${toolCall.timestamp.getTime()}`}
                     className={`p-4 rounded-lg border ${
                       toolCall.success
                         ? 'bg-green-50 border-green-200'

@@ -315,7 +315,8 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
         const uiToolHandler = (uiNavigationTools as any)[toolName];
         
         if (typeof uiToolHandler === 'function') {
-          const uiResult = await uiToolHandler(args);
+          // Call the method with proper 'this' context and pass sessionId
+          const uiResult = await uiToolHandler.call(uiNavigationTools, args, sessionId);
           result = uiResult.data || uiResult.message;
         } else {
           throw new Error(`Client-side UI tool handler for '${toolName}' not found.`);
