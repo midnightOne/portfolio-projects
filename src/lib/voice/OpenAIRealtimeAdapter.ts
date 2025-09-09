@@ -478,6 +478,69 @@ Communication guidelines:
         }
     }
 
+    private _logToolCallToConversation(functionCallItem: any) {
+        try {
+            const toolCallData = {
+                sessionId: this._sessionId || 'unknown',
+                provider: 'openai',
+                conversationData: {
+                    startTime: new Date().toISOString(),
+                    entries: [{
+                        id: `tool_call_${functionCallItem.call_id || Date.now()}`,
+                        timestamp: new Date().toISOString(),
+                        type: 'tool_call' as const,
+                        provider: 'openai',
+                        executionContext: 'server' as const,
+                        toolCallId: functionCallItem.call_id,
+                        correlationId: `openai_tool_${functionCallItem.call_id}`,
+                        data: {
+                            phase: 'start',
+                            toolName: functionCallItem.name,
+                            parameters: functionCallItem.arguments ? JSON.parse(functionCallItem.arguments) : {},
+                            callId: functionCallItem.call_id
+                        },
+                        metadata: {
+                            success: true,
+                            executionTime: 0,
+                            accessLevel: 'basic'
+                        }
+                    }],
+                    toolCallSummary: {
+                        totalCalls: 1,
+                        successfulCalls: 1,
+                        failedCalls: 0,
+                        clientCalls: 0,
+                        serverCalls: 1,
+                        averageExecutionTime: 0
+                    },
+                    conversationMetrics: {
+                        totalTranscriptItems: 0,
+                        totalConnectionEvents: 0,
+                        totalContextRequests: 0
+                    }
+                },
+                metadata: {
+                    reportType: 'real-time' as const,
+                    clientTimestamp: new Date().toISOString()
+                }
+            };
+
+            // Send to conversation log API
+            fetch('/api/ai/conversation/log', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(toolCallData)
+            }).catch(error => {
+                console.error('Failed to log tool call to conversation:', error);
+            });
+
+        } catch (error) {
+            console.error('Error logging tool call to conversation:', error);
+        }
+    }
+
     private _processHistoryUpdate(history: RealtimeItem[]) {
         // Only process new items to avoid duplication
         
@@ -497,14 +560,17 @@ Communication guidelines:
                 continue;
             }
             
-            // Skip function call items - they should not be processed as transcript items
+            // Handle function call items separately - log them but don't add to transcript
             if (item.type === 'function_call') {
-                console.log('Skipping function call item in transcript processing:', {
+                console.log('Processing function call item for conversation log:', {
                     index,
                     type: item.type,
                     name: (item as any).name,
                     call_id: (item as any).call_id
                 });
+                
+                // Log the tool call to the conversation system
+                this._logToolCallToConversation(item as any);
                 continue;
             }
             
@@ -749,6 +815,9 @@ Communication guidelines:
                     if (args.selector && args.behavior) {
                         functionName = 'scrollIntoView';
                         console.log('Inferred function name as scrollIntoView based on arguments structure');
+                    } else if (args.projectName) {
+                        functionName = 'openProject';
+                        console.log('Inferred function name as openProject based on arguments structure');
                     } else if (args.path && !args.projectId) {
                         functionName = 'navigateTo';
                         console.log('Inferred function name as navigateTo based on arguments structure');

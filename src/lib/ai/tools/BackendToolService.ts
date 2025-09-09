@@ -386,12 +386,20 @@ export class BackendToolService {
 
           Object.entries(specialMappings).forEach(([term, slugs]) => {
             if (queryLower.includes(term) && slugs.includes(project.slug)) {
+              console.log(`Special mapping match: "${term}" → ${project.slug}, score boosted to 0.95`);
               score = Math.max(score, 0.95);
             }
           });
 
+          console.log(`Project ${project.slug} scored ${score} for query "${query}"`);
           return { ...project, relevanceScore: score };
-        }).filter((project: any) => project.relevanceScore > 0.1);
+        }).filter((project: any) => {
+          const passed = project.relevanceScore > 0.1;
+          if (!passed) {
+            console.log(`Project ${project.slug} filtered out with score ${project.relevanceScore}`);
+          }
+          return passed;
+        });
       }
 
       // Apply tag filtering
@@ -444,10 +452,37 @@ export class BackendToolService {
       }
 
       // First, search for the project
-      const searchResult = await this.handleSearchProjects({
-        query: projectName,
-        limit: 1
-      }, context);
+      let searchResult;
+      try {
+        searchResult = await this.handleSearchProjects({
+          query: projectName,
+          limit: 10  // Increased to ensure we get all projects
+        }, context);
+      } catch (searchError) {
+        console.error('Search error in openProject:', searchError);
+        return {
+          success: false,
+          error: `Search failed: ${searchError instanceof Error ? searchError.message : 'Unknown error'}`,
+          data: {
+            projectFound: false,
+            searchQuery: projectName,
+            suggestions: ['Try "e-commerce", "task management", or "portfolio"']
+          },
+          metadata: {
+            timestamp: Date.now(),
+            source: 'backend-tool-service',
+            toolName: 'openProject',
+            executionTime: Date.now() - Date.now(),
+            accessLevel: context.accessLevel
+          }
+        };
+      }
+
+      console.log('Search result in openProject:', {
+        hasResults: !!searchResult.results,
+        resultsLength: searchResult.results?.length,
+        firstResult: searchResult.results?.[0]?.title
+      });
 
       if (!searchResult.results || searchResult.results.length === 0) {
         return {
