@@ -518,16 +518,4 @@ export const serverToolDefinitions: UnifiedToolDefinition[] = [
   processUploadedFileToolDefinition
 ];
 
-// Export individual tools for easier access
-export {
-  loadProjectContextToolDefinition,
-  loadUserProfileToolDefinition,
-  searchProjectsToolDefinition,
-  getProjectSummaryToolDefinition,
-  processJobSpecToolDefinition,
-  analyzeUserIntentToolDefinition,
-  generateNavigationSuggestionsToolDefinition,
-  getNavigationHistoryToolDefinition,
-  submitContactFormToolDefinition,
-  processUploadedFileToolDefinition
-};
+// Individual tools are already exported above with their definitions

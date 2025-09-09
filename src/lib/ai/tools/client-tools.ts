@@ -379,16 +379,4 @@ export const clientToolDefinitions: UnifiedToolDefinition[] = [
   animateElementToolDefinition
 ];
 
-// Export individual tools for easier access
-export {
-  navigateToToolDefinition,
-  showProjectDetailsToolDefinition,
-  scrollIntoViewToolDefinition,
-  highlightTextToolDefinition,
-  clearHighlightsToolDefinition,
-  focusElementToolDefinition,
-  reportUIStateToolDefinition,
-  fillFormFieldToolDefinition,
-  submitFormToolDefinition,
-  animateElementToolDefinition
-};
+// Individual tools are already exported above with their definitions
