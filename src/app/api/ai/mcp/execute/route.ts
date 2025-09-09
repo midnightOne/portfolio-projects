@@ -43,8 +43,7 @@ export async function POST(request: NextRequest) {
     const toolCall: MCPToolCall = {
       id: `mcp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       name: toolName,
-      arguments: parameters || {},
-      timestamp: new Date()
+      arguments: parameters || {}
     };
 
     // Execute the tool using MCP server
