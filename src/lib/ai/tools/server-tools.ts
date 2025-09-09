@@ -99,7 +99,7 @@ export const loadUserProfileToolDefinition: UnifiedToolDefinition = {
 
 export const searchProjectsToolDefinition: UnifiedToolDefinition = {
   name: 'searchProjects',
-  description: 'Search projects by keywords, tags, or content for relevant matches.',
+  description: 'Search projects by keywords, tags, or content for relevant matches. For navigation, use openProject instead.',
   parameters: {
     type: 'object',
     properties: {
@@ -186,6 +186,38 @@ export const getProjectSummaryToolDefinition: UnifiedToolDefinition = {
         }
       },
       message: { type: 'string' }
+    }
+  }
+};
+
+export const openProjectToolDefinition: UnifiedToolDefinition = {
+  name: 'openProject',
+  description: 'PREFERRED: Open a project by searching for it first, then providing the correct navigation URL. Use this when user asks to "open", "navigate to", or "show me" any project instead of searchProjects + navigateTo.',
+  parameters: {
+    type: 'object',
+    properties: {
+      projectName: {
+        type: 'string',
+        description: 'The project name or description to search for (e.g., "e-commerce website", "task management", "portfolio")'
+      },
+      newTab: {
+        type: 'boolean',
+        description: 'Whether to open in a new tab',
+        default: false
+      }
+    },
+    required: ['projectName']
+  },
+  executionContext: 'server',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean' },
+      message: { type: 'string' },
+      projectFound: { type: 'boolean' },
+      projectSlug: { type: 'string' },
+      navigationUrl: { type: 'string' },
+      shouldNavigate: { type: 'boolean' }
     }
   }
 };
@@ -514,38 +546,6 @@ export const processUploadedFileToolDefinition: UnifiedToolDefinition = {
         }
       },
       message: { type: 'string' }
-    }
-  }
-};
-
-export const openProjectToolDefinition: UnifiedToolDefinition = {
-  name: 'openProject',
-  description: 'Open a project by searching for it first, then providing the correct navigation URL. Use this when user asks to "open [project name]" instead of guessing URLs.',
-  parameters: {
-    type: 'object',
-    properties: {
-      projectName: {
-        type: 'string',
-        description: 'The project name or description to search for (e.g., "e-commerce website", "task management", "portfolio")'
-      },
-      newTab: {
-        type: 'boolean',
-        description: 'Whether to open in a new tab',
-        default: false
-      }
-    },
-    required: ['projectName']
-  },
-  executionContext: 'server',
-  outputSchema: {
-    type: 'object',
-    properties: {
-      success: { type: 'boolean' },
-      message: { type: 'string' },
-      projectFound: { type: 'boolean' },
-      projectSlug: { type: 'string' },
-      navigationUrl: { type: 'string' },
-      shouldNavigate: { type: 'boolean' }
     }
   }
 };

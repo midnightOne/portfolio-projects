@@ -85,6 +85,14 @@ export async function GET(request: NextRequest) {
 
     // Build system instructions with context (using config as base)
     let systemInstructions = defaultConfig.instructions;
+    
+    // Add specific guidance for project navigation
+    systemInstructions += `\n\nIMPORTANT TOOL USAGE GUIDELINES:
+- When users ask to "open", "navigate to", "show me", or "go to" any project, ALWAYS use the "openProject" tool first
+- Do NOT use "searchProjects" followed by "navigateTo" - use "openProject" instead as it handles both steps
+- The "openProject" tool will search for the project and provide the correct navigation URL
+- Only use "navigateTo" with exact URLs that you already know are correct
+- Examples: "open e-commerce project" → use openProject("e-commerce project")`;
 
     // TODO: Inject actual context from ContextProviderService based on contextId and reflinkId
     if (contextId) {
