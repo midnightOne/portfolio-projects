@@ -56,7 +56,7 @@ export type OpenAIVoice = 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimme
 /**
  * OpenAI Realtime model options
  */
-export type OpenAIRealtimeModel = 'gpt-realtime' | 'gpt-4o-realtime' | string;
+export type OpenAIRealtimeModel = 'gpt-realtime' | 'gpt-4o-realtime-preview-2025-06-03' | string;
 
 /**
  * Voice Activity Detection configuration for OpenAI

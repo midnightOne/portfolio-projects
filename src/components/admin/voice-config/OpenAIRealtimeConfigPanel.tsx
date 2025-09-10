@@ -54,8 +54,8 @@ const OPENAI_VOICES: { value: OpenAIVoice; label: string; description: string }[
 ];
 
 const OPENAI_MODELS: { value: OpenAIRealtimeModel; label: string; description: string }[] = [
-  { value: 'gpt-realtime', label: 'GPT Realtime', description: 'Standard realtime model' },
-  { value: 'gpt-4o-realtime-preview-2024-10-01', label: 'GPT-4o Realtime Preview', description: 'Latest preview model' }
+  { value: 'gpt-realtime', label: 'GPT Realtime', description: 'Newest realtime model' },
+  { value: 'gpt-4o-realtime-preview-2025-06-03', label: 'GPT-4o Realtime (old model)', description: 'fallback old model' }
 ];
 
 const TRANSPORT_TYPES: { value: TransportType; label: string; description: string }[] = [

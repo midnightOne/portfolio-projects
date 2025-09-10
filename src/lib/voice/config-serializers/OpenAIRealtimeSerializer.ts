@@ -208,7 +208,7 @@ export class OpenAIRealtimeSerializer implements VoiceConfigSerializer<OpenAIRea
           type: 'string',
           title: 'Model',
           description: 'OpenAI model to use for realtime conversations',
-          enum: ['gpt-realtime', 'gpt-4o-realtime-preview-2024-10-01'],
+          enum: ['gpt-realtime', 'gpt-4o-realtime-preview-2025-06-03'],
           default: 'gpt-realtime'
         },
         temperature: {
