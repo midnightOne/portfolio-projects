@@ -40,10 +40,10 @@ class UIElementManager {
 
   static isElementVisible(element: Element): boolean {
     const rect = element.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0 && 
-           rect.top >= 0 && rect.left >= 0 &&
-           rect.bottom <= window.innerHeight && 
-           rect.right <= window.innerWidth;
+    return rect.width > 0 && rect.height > 0 &&
+      rect.top >= 0 && rect.left >= 0 &&
+      rect.bottom <= window.innerHeight &&
+      rect.right <= window.innerWidth;
   }
 
   static scrollIntoView(element: Element, behavior: ScrollBehavior = 'smooth'): void {
@@ -52,7 +52,7 @@ class UIElementManager {
 
   static highlightElement(element: Element, className: string = 'voice-highlight'): void {
     element.classList.add(className);
-    
+
     // Auto-remove highlight after 5 seconds
     setTimeout(() => {
       element.classList.remove(className);
@@ -129,22 +129,22 @@ export class UINavigationTools {
     const startTime = Date.now();
     const toolCallId = uuidv4();
     const correlationId = `ui_nav_${toolCallId}`;
-    
+
     // Emit tool call start event
     debugEventEmitter.emitToolCallStart(
-      toolName, 
-      args, 
-      sessionId || 'ui-navigation', 
-      toolCallId, 
-      'client', 
+      toolName,
+      args,
+      sessionId || 'ui-navigation',
+      toolCallId,
+      'client',
       'ui-navigation-tools',
       correlationId
     );
-    
+
     try {
       const result = await handler();
       const executionTime = Date.now() - startTime;
-      
+
       // Add to navigation history
       this.navigationHistory.push({
         action: toolName,
@@ -236,19 +236,19 @@ export class UINavigationTools {
         // Check if this is a project-related navigation that should use the modal system
         const isProjectNavigation = path.includes('/projects') && path.includes('project=');
         const isCurrentlyOnProjectsPage = window.location.pathname === '/projects';
-        
+
         if (isProjectNavigation && isCurrentlyOnProjectsPage) {
           // We're on projects page and trying to open a project - use modal system
           const url = new URL(path, window.location.origin);
           const projectSlug = url.searchParams.get('project');
-          
+
           if (projectSlug) {
             // Update URL without full navigation to maintain voice session
             window.history.pushState({}, '', path);
-            
+
             // Trigger the project modal by dispatching a popstate event
             window.dispatchEvent(new PopStateEvent('popstate'));
-            
+
             return {
               success: true,
               message: `Opened project ${projectSlug} in modal`,
@@ -256,10 +256,10 @@ export class UINavigationTools {
             };
           }
         }
-        
+
         // For voice sessions, prefer new tab to avoid disconnecting
         const shouldUseNewTab = newTab || sessionId !== undefined;
-        
+
         if (shouldUseNewTab) {
           window.open(path, '_blank');
           return {
@@ -300,27 +300,27 @@ export class UINavigationTools {
       try {
         // First, try to find and map the project ID to the correct slug
         const mappedProjectSlug = await this.mapProjectIdToSlug(projectId);
-        
+
         // Check if we're already on the projects page
         const isOnProjectsPage = window.location.pathname === '/projects';
-        
+
         if (isOnProjectsPage) {
           // We're on the projects page, use the modal system
           const currentUrl = new URL(window.location.href);
           currentUrl.searchParams.set('project', mappedProjectSlug);
-          
+
           // Update URL without full navigation to maintain voice session
           window.history.pushState({}, '', currentUrl.toString());
-          
+
           // Trigger the project modal by dispatching a popstate event
           window.dispatchEvent(new PopStateEvent('popstate'));
-          
+
           // Wait for modal to open and highlight sections if specified
           if (highlightSections.length > 0) {
             setTimeout(() => {
               highlightSections.forEach(sectionId => {
                 const section = UIElementManager.findElement(`#${sectionId}`) ||
-                               UIElementManager.findElement(`[data-section="${sectionId}"]`);
+                  UIElementManager.findElement(`[data-section="${sectionId}"]`);
                 if (section) {
                   UIElementManager.highlightElement(section);
                   UIElementManager.scrollIntoView(section);
@@ -338,7 +338,7 @@ export class UINavigationTools {
           // Navigate to projects page with project parameter (in new tab to preserve voice session)
           const projectUrl = `/projects?project=${mappedProjectSlug}`;
           window.open(projectUrl, '_blank');
-          
+
           return {
             success: true,
             message: `Opened project details for ${mappedProjectSlug} in new tab`,
@@ -359,7 +359,7 @@ export class UINavigationTools {
   private async mapProjectIdToSlug(projectId: string): Promise<string> {
     // Normalize the input
     const normalizedInput = projectId.toLowerCase().trim();
-    
+
     // Common mappings for user-friendly names to actual slugs
     const projectMappings: Record<string, string> = {
       'e-commerce': 'e-commerce-platform',
@@ -371,48 +371,48 @@ export class UINavigationTools {
       'shop': 'e-commerce-platform',
       'store': 'e-commerce-platform',
       'shopping': 'e-commerce-platform',
-      
+
       'task management': 'task-management-app',
       'task manager': 'task-management-app',
       'tasks': 'task-management-app',
       'todo': 'task-management-app',
       'todo app': 'task-management-app',
-      
+
       'portfolio': 'portfolio-website',
       'portfolio site': 'portfolio-website',
       'personal website': 'portfolio-website',
       'website': 'portfolio-website'
     };
-    
+
     // Check direct mapping first
     if (projectMappings[normalizedInput]) {
       return projectMappings[normalizedInput];
     }
-    
+
     // Try to fetch projects and find a match
     try {
       const response = await fetch('/api/projects?limit=50');
       if (response.ok) {
         const data = await response.json();
         const projects = data.data?.items || [];
-        
+
         // Look for exact slug match
         const exactMatch = projects.find((p: any) => p.slug === normalizedInput);
         if (exactMatch) {
           return exactMatch.slug;
         }
-        
+
         // Look for partial title match
-        const titleMatch = projects.find((p: any) => 
+        const titleMatch = projects.find((p: any) =>
           p.title.toLowerCase().includes(normalizedInput) ||
           normalizedInput.includes(p.title.toLowerCase())
         );
         if (titleMatch) {
           return titleMatch.slug;
         }
-        
+
         // Look for partial slug match
-        const slugMatch = projects.find((p: any) => 
+        const slugMatch = projects.find((p: any) =>
           p.slug.includes(normalizedInput) ||
           normalizedInput.includes(p.slug)
         );
@@ -423,7 +423,7 @@ export class UINavigationTools {
     } catch (error) {
       console.warn('Failed to fetch projects for mapping:', error);
     }
-    
+
     // If no mapping found, return the input as-is (might be a valid slug)
     return normalizedInput;
   }
@@ -451,7 +451,7 @@ export class UINavigationTools {
 
       try {
         UIElementManager.scrollIntoView(element, behavior);
-        
+
         return {
           success: true,
           message: `Scrolled to element: ${selector}`,
@@ -510,10 +510,10 @@ export class UINavigationTools {
                 const parent = textNode.parentElement;
                 if (parent) {
                   const regex = new RegExp(`(${text})`, 'gi');
-                  const highlightedHTML = textNode.textContent.replace(regex, 
+                  const highlightedHTML = textNode.textContent.replace(regex,
                     `<span class="${className}-text">$1</span>`
                   );
-                  
+
                   const wrapper = document.createElement('span');
                   wrapper.innerHTML = highlightedHTML;
                   parent.replaceChild(wrapper, textNode);
@@ -646,7 +646,7 @@ export class UINavigationTools {
   getVisibleElements(selector: string): Element[] {
     const elements = UIElementManager.findElements(selector);
     if (!elements) return [];
-    
+
     return Array.from(elements).filter(el => UIElementManager.isElementVisible(el));
   }
 }

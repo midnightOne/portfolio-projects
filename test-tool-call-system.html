@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tool Call System Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .test-button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background: #0056b3;
+        }
+        .result {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 10px 0;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+        .error {
+            background: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+        .success {
+            background: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+    </style>
+</head>
+<body>
+    <h1>Tool Call System Test</h1>
+    <p>This page tests the unified tool call system to identify what needs to be implemented for proper AI conversation flow.</p>
+
+    <div class="test-section">
+        <h2>1. Test Unified Tool Registry</h2>
+        <button class="test-button" onclick="testToolRegistry()">Test Tool Registry</button>
+        <div id="registry-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. Test Client-Side Tool Execution</h2>
+        <button class="test-button" onclick="testClientTools()">Test Navigation Tools</button>
+        <button class="test-button" onclick="testUITools()">Test UI Tools</button>
+        <div id="client-tools-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>3. Test Server-Side Tool Execution</h2>
+        <button class="test-button" onclick="testServerTools()">Test Server Tools</button>
+        <div id="server-tools-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>4. Test Tool Call Chaining</h2>
+        <button class="test-button" onclick="testToolChaining()">Test Sequential Tool Calls</button>
+        <div id="chaining-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>5. Test OpenAI Session Creation</h2>
+        <button class="test-button" onclick="testOpenAISession()">Test OpenAI Session</button>
+        <div id="openai-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>6. Test ElevenLabs Token</h2>
+        <button class="test-button" onclick="testElevenLabsToken()">Test ElevenLabs Token</button>
+        <div id="elevenlabs-result" class="result"></div>
+    </div>
+
+    <script>
+        // Helper function to display results
+        function displayResult(elementId, result, isError = false) {
+            const element = document.getElementById(elementId);
+            element.textContent = JSON.stringify(result, null, 2);
+            element.className = `result ${isError ? 'error' : 'success'}`;
+        }
+
+        // Test 1: Tool Registry
+        async function testToolRegistry() {
+            try {
+                // Test if we can access the unified tool registry
+                const response = await fetch('/api/ai/tools/registry', {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    displayResult('registry-result', {
+                        status: 'SUCCESS',
+                        message: 'Tool registry accessible',
+                        toolCount: data.tools?.length || 0,
+                        tools: data.tools?.map(t => t.name) || []
+                    });
+                } else {
+                    // Registry endpoint might not exist, try direct import test
+                    displayResult('registry-result', {
+                        status: 'INFO',
+                        message: 'Registry endpoint not found - this is expected',
+                        note: 'Tool registry is client-side only'
+                    });
+                }
+            } catch (error) {
+                displayResult('registry-result', {
+                    status: 'ERROR',
+                    message: error.message,
+                    note: 'This test requires the tool registry to be accessible'
+                }, true);
+            }
+        }
+
+        // Test 2: Client-Side Tools
+        async function testClientTools() {
+            try {
+                // Test navigation tool
+                const result = await fetch('/api/ai/tools/execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        toolName: 'navigateTo',
+                        parameters: { path: '/projects' },
+                        sessionId: 'test-session'
+                    })
+                });
+
+                const data = await result.json();
+                displayResult('client-tools-result', {
+                    status: result.ok ? 'SUCCESS' : 'ERROR',
+                    response: data,
+                    note: 'Client tools should execute via server endpoint'
+                }, !result.ok);
+            } catch (error) {
+                displayResult('client-tools-result', {
+                    status: 'ERROR',
+                    message: error.message
+                }, true);
+            }
+        }
+
+        async function testUITools() {
+            try {
+                // Test UI highlighting tool
+                const result = await fetch('/api/ai/tools/execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        toolName: 'highlightText',
+                        parameters: { 
+                            selector: 'h1',
+                            text: 'Tool Call System Test'
+                        },
+                        sessionId: 'test-session'
+                    })
+                });
+
+                const data = await result.json();
+                displayResult('client-tools-result', {
+                    status: result.ok ? 'SUCCESS' : 'ERROR',
+                    response: data,
+                    note: 'UI tools should execute and provide feedback'
+                }, !result.ok);
+            } catch (error) {
+                displayResult('client-tools-result', {
+                    status: 'ERROR',
+                    message: error.message
+                }, true);
+            }
+        }
+
+        // Test 3: Server-Side Tools
+        async function testServerTools() {
+            try {
+                // Test server-side context loading
+                const result = await fetch('/api/ai/tools/execute', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        toolName: 'loadProjectContext',
+                        parameters: { projectId: 'test-project' },
+                        sessionId: 'test-session'
+                    })
+                });
+
+                const data = await result.json();
+                displayResult('server-tools-result', {
+                    status: result.ok ? 'SUCCESS' : 'ERROR',
+                    response: data,
+                    note: 'Server tools should execute backend logic'
+                }, !result.ok);
+            } catch (error) {
+                displayResult('server-tools-result', {
+                    status: 'ERROR',
+                    message: error.message
+                }, true);
+            }
+        }
+
+        // Test 4: Tool Chaining
+        async function testToolChaining() {
+            try {
+                // Simulate a sequence of tool calls like an AI would make
+                const tools = [
+                    { name: 'searchProjects', params: { query: 'react' } },
+                    { name: 'navigateTo', params: { path: '/projects' } },
+                    { name: 'highlightText', params: { selector: '.project-card', text: 'React' } }
+                ];
+
+                const results = [];
+                for (const tool of tools) {
+                    const result = await fetch('/api/ai/tools/execute', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            toolName: tool.name,
+                            parameters: tool.params,
+                            sessionId: 'test-chaining-session'
+                        })
+                    });
+                    
+                    const data = await result.json();
+                    results.push({
+                        tool: tool.name,
+                        success: result.ok,
+                        response: data
+                    });
+                }
+
+                displayResult('chaining-result', {
+                    status: 'COMPLETED',
+                    message: 'Tool chaining test completed',
+                    results: results,
+                    note: 'Check if all tools executed in sequence'
+                });
+            } catch (error) {
+                displayResult('chaining-result', {
+                    status: 'ERROR',
+                    message: error.message
+                }, true);
+            }
+        }
+
+        // Test 5: OpenAI Session
+        async function testOpenAISession() {
+            try {
+                const result = await fetch('/api/ai/openai/session', {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const data = await result.json();
+                displayResult('openai-result', {
+                    status: result.ok ? 'SUCCESS' : 'ERROR',
+                    response: data,
+                    note: 'OpenAI session should include tools and context'
+                }, !result.ok);
+            } catch (error) {
+                displayResult('openai-result', {
+                    status: 'ERROR',
+                    message: error.message
+                }, true);
+            }
+        }
+
+        // Test 6: ElevenLabs Token
+        async function testElevenLabsToken() {
+            try {
+                const result = await fetch('/api/ai/elevenlabs/token', {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                const data = await result.json();
+                displayResult('elevenlabs-result', {
+                    status: result.ok ? 'SUCCESS' : 'ERROR',
+                    response: data,
+                    note: 'ElevenLabs token should include agent configuration'
+                }, !result.ok);
+            } catch (error) {
+                displayResult('elevenlabs-result', {
+                    status: 'ERROR',
+                    message: error.message
+                }, true);
+            }
+        }
+
+        // Auto-run basic tests on page load
+        window.addEventListener('load', () => {
+            console.log('Tool Call System Test Page Loaded');
+            console.log('Click buttons to test different aspects of the tool call system');
+        });
+    </script>
+</body>
+</html>
