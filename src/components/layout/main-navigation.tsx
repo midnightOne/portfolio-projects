@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useRouter, usePathname } from 'next/navigation';
 import { Menu, X, Home, FolderOpen, User, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -119,27 +119,6 @@ function handleNavigation(href: string, router: any) {
 // ANIMATION VARIANTS
 // ============================================================================
 
-const navVariants = {
-  hidden: { opacity: 0, y: -20 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: {
-      duration: 0.3,
-      staggerChildren: 0.1
-    }
-  }
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: -10 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.2 }
-  }
-};
-
 const mobileMenuVariants = {
   hidden: {
     opacity: 0,
@@ -175,13 +154,12 @@ interface LogoProps {
 
 function Logo({ text, href, onClick }: LogoProps) {
   return (
-    <motion.button
-      variants={itemVariants}
+    <button
       onClick={onClick}
       className="text-xl font-bold text-foreground hover:text-primary transition-colors"
     >
       {text}
-    </motion.button>
+    </button>
   );
 }
 
@@ -193,16 +171,13 @@ interface DesktopNavigationProps {
 
 function DesktopNavigation({ items, pathname, onItemClick }: DesktopNavigationProps) {
   return (
-    <motion.nav
-      variants={itemVariants}
-      className="hidden md:flex items-center space-x-8"
-    >
+    <nav className="hidden md:flex items-center space-x-8">
       {items.map((item) => {
         const Icon = item.icon;
         const isActive = isActiveLink(item.href, pathname);
         
         return (
-          <motion.button
+          <button
             key={item.id}
             onClick={() => onItemClick(item.href)}
             className={cn(
@@ -210,15 +185,13 @@ function DesktopNavigation({ items, pathname, onItemClick }: DesktopNavigationPr
               'hover:bg-accent hover:text-accent-foreground',
               isActive && 'bg-accent text-accent-foreground'
             )}
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
           >
             {Icon && <Icon className="h-4 w-4" />}
             {item.label}
-          </motion.button>
+          </button>
         );
       })}
-    </motion.nav>
+    </nav>
   );
 }
 
@@ -264,9 +237,8 @@ function MobileNavigation({ items, pathname, isOpen, onItemClick, onClose }: Mob
                   const isActive = isActiveLink(item.href, pathname);
                   
                   return (
-                    <motion.button
+                    <button
                       key={item.id}
-                      variants={itemVariants}
                       onClick={() => handleItemClick(item.href)}
                       className={cn(
                         'w-full flex items-center gap-3 px-4 py-3 rounded-md text-left transition-all duration-200',
@@ -283,20 +255,17 @@ function MobileNavigation({ items, pathname, isOpen, onItemClick, onClose }: Mob
                           </div>
                         )}
                       </div>
-                    </motion.button>
+                    </button>
                   );
                 })}
                 
                 {/* Theme Toggle in Mobile Menu */}
-                <motion.div
-                  variants={itemVariants}
-                  className="px-4 py-3 border-t border-border mt-2 pt-4"
-                >
+                <div className="px-4 py-3 border-t border-border mt-2 pt-4">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium">Theme</span>
                     <SimpleThemeToggle size="sm" />
                   </div>
-                </motion.div>
+                </div>
               </div>
             </nav>
           </motion.div>
@@ -394,43 +363,14 @@ export function MainNavigation({
     }
   };
 
-  // Prevent hydration mismatch by not rendering until mounted
-  if (!mounted) {
-    return (
-      <header className={cn(getPositionClasses(), 'bg-background border-b', className)}>
-        <div className={CONTAINERS.default}>
-          <div className={cn(FLEX.between, 'h-16')}>
-            {showLogo && (
-              <div className="text-xl font-bold text-foreground">
-                {logoText}
-              </div>
-            )}
-            <div className="flex items-center gap-4">
-              <nav className="hidden md:flex items-center space-x-8">
-                {items.map((item) => (
-                  <div key={item.id} className="px-3 py-2 text-sm font-medium">
-                    {item.label}
-                  </div>
-                ))}
-              </nav>
-              <div className="w-10 h-10" /> {/* Theme toggle placeholder */}
-            </div>
-          </div>
-        </div>
-      </header>
-    );
-  }
-
   return (
-    <motion.header
-      variants={navVariants}
-      initial="hidden"
-      animate="visible"
+    <header
       className={cn(
         getPositionClasses(),
         getVariantClasses(),
         className
       )}
+      suppressHydrationWarning
     >
       <div className={CONTAINERS.default}>
         <div className={cn(FLEX.between, 'h-16')}>
@@ -452,20 +392,20 @@ export function MainNavigation({
             />
             
             {/* Theme Toggle - Desktop */}
-            <motion.div variants={itemVariants} className="hidden md:block">
+            <div className="hidden md:block">
               <SimpleThemeToggle size="md" />
-            </motion.div>
+            </div>
           </div>
 
           {/* Mobile Controls */}
           <div className="flex items-center gap-2 md:hidden">
             {/* Theme Toggle - Mobile */}
-            <motion.div variants={itemVariants}>
+            <div>
               <SimpleThemeToggle size="sm" />
-            </motion.div>
+            </div>
             
             {/* Mobile Menu Button */}
-            <motion.div variants={itemVariants}>
+            <div>
               <Button
                 variant="ghost"
                 size="sm"
@@ -478,7 +418,7 @@ export function MainNavigation({
                   <Menu className="h-5 w-5" />
                 )}
               </Button>
-            </motion.div>
+            </div>
           </div>
         </div>
       </div>
@@ -491,7 +431,7 @@ export function MainNavigation({
         onItemClick={handleNavigationClick}
         onClose={() => setMobileMenuOpen(false)}
       />
-    </motion.header>
+    </header>
   );
 }
 
