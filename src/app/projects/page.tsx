@@ -8,6 +8,7 @@ import { ProjectGrid } from '@/components/projects/project-grid';
 import { ProjectList } from '@/components/projects/project-list';
 import { ProjectTimeline } from '@/components/projects/project-timeline';
 import { ProjectModal } from '@/components/projects/project-modal';
+import { SimpleLoading } from '@/components/ui/simple-loading';
 import { useProjects } from '@/hooks/use-projects';
 import type { ViewMode, TimelineGroupBy } from '@/components/layout/navigation-bar';
 import type { ProjectWithRelations } from '@/lib/types/project';
@@ -129,20 +130,9 @@ function ProjectsPageContent() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [handleCloseModal, handleProjectClick]);
 
-  // Get progressive loading state
-  const { loadingState, progressiveState, isReady, getLoadingMessage } = progressiveLoading;
-  
-  // Determine loading message
-  const loadingMessage = React.useMemo(() => {
-    if (loadingState.projects === 'loading' && loadingState.tags === 'loading') {
-      return 'Loading projects and filters...';
-    } else if (loadingState.projects === 'loading') {
-      return 'Loading projects...';
-    } else if (loadingState.tags === 'loading') {
-      return 'Loading filters...';
-    }
-    return undefined;
-  }, [loadingState.projects, loadingState.tags]);
+  // Simplified loading state
+  const isLoading = loading;
+  const canInteract = !loading;
 
   if (error) {
     return (
@@ -168,11 +158,11 @@ function ProjectsPageContent() {
       onViewModeChange={setViewMode}
       timelineGroupBy={timelineGroupBy}
       onTimelineGroupByChange={setTimelineGroupBy}
-      // Progressive loading props
-      canSearch={isReady('search')}
-      canFilter={isReady('filter')}
-      tagsLoading={loadingState.tags === 'loading'}
-      loadingMessage={loadingMessage}
+      // Simplified loading props
+      canSearch={canInteract}
+      canFilter={canInteract}
+      tagsLoading={false}
+      loadingMessage={isLoading ? 'Loading projects...' : undefined}
       // Search state
       isSearching={isSearching}
       searchResultsCount={totalCount}
@@ -180,21 +170,21 @@ function ProjectsPageContent() {
       {viewMode === 'grid' ? (
         <ProjectGrid
           projects={projects}
-          loading={progressiveState.showSkeletons}
+          loading={isLoading}
           onProjectClick={(projectSlug) => handleProjectClick(projectSlug)}
           searchQuery={debouncedQuery}
         />
       ) : viewMode === 'list' ? (
         <ProjectList
           projects={projects}
-          loading={progressiveState.showSkeletons}
+          loading={isLoading}
           onProjectClick={(projectSlug) => handleProjectClick(projectSlug)}
           searchQuery={debouncedQuery}
         />
       ) : (
         <ProjectTimeline
           projects={projects}
-          loading={progressiveState.showSkeletons}
+          loading={isLoading}
           onProjectClick={(projectSlug) => handleProjectClick(projectSlug)}
           searchQuery={debouncedQuery}
           groupBy={timelineGroupBy}
@@ -217,10 +207,7 @@ export default function ProjectsPage() {
       <MainNavigation />
       <Suspense fallback={
         <div className="min-h-screen flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading projects...</p>
-          </div>
+          <SimpleLoading size="lg" text="Loading projects..." />
         </div>
       }>
         <ProjectsPageContent />

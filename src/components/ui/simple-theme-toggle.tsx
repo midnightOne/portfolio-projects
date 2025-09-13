@@ -67,6 +67,7 @@ export function SimpleThemeToggle({ className, size = 'md' }: SimpleThemeToggleP
         size="sm"
         className={cn(sizeClasses[size], className)}
         disabled
+        suppressHydrationWarning
       >
         <Sun className="h-4 w-4" />
       </Button>

@@ -173,8 +173,28 @@
   * {
     @apply border-border outline-ring/50;
   }
+  
+  html {
+    /* Prevent flash of unstyled content */
+    color-scheme: light dark;
+  }
+  
   body {
     @apply bg-background text-foreground;
+    /* Prevent layout shift during hydration */
+    min-height: 100vh;
+    /* Smooth theme transitions */
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+  
+  /* Prevent hydration flicker */
+  .hydration-safe {
+    opacity: 1;
+  }
+  
+  /* Prevent theme flicker on initial load */
+  :root:not(.light):not(.dark) {
+    color-scheme: light;
   }
 }
 

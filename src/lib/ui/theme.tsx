@@ -162,10 +162,16 @@ export function ThemeProvider({
     setSystemTheme(currentSystemTheme);
     
     const initialTheme = storedTheme || (enableSystem ? currentSystemTheme : defaultTheme);
-    setThemeState(initialTheme);
     
-    // Apply theme without animation on initial load
-    applyTheme(initialTheme, false);
+    // Check if theme is already applied by the script in layout
+    const hasThemeClass = document.documentElement.classList.contains('light') || 
+                         document.documentElement.classList.contains('dark');
+    
+    if (!hasThemeClass) {
+      applyTheme(initialTheme, false);
+    }
+    
+    setThemeState(initialTheme);
     setMounted(true);
   }, [defaultTheme, storageKey, enableSystem]);
 
@@ -236,9 +242,9 @@ export function ThemeProvider({
     isAnimating,
   };
 
-  // Prevent hydration mismatch
+  // Prevent hydration mismatch - use suppressHydrationWarning instead of hiding
   if (!mounted) {
-    return <div style={{ visibility: 'hidden' }}>{children}</div>;
+    return <div suppressHydrationWarning>{children}</div>;
   }
 
   return (

@@ -48,8 +48,9 @@ export function useProjects(options: UseProjectsOptions = {}): UseProjectsReturn
   const [totalCount, setTotalCount] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [tagsLoaded, setTagsLoaded] = useState(false);
   
-  // Progressive loading state management
+  // Simplified progressive loading state management
   const progressiveLoading = useProgressiveLoading();
   
   // Debounced search functionality
@@ -63,10 +64,12 @@ export function useProjects(options: UseProjectsOptions = {}): UseProjectsReturn
 
   const fetchProjects = useCallback(async () => {
     try {
-      setLoading(true);
+      // Only show loading on initial load or when searching
+      if (isInitialLoad || isSearching) {
+        setLoading(true);
+      }
       setError(null);
       
-      // Set progressive loading state
       progressiveLoading.setLoadingStatus('projects', 'loading');
 
       // Build query parameters using debounced query
@@ -90,12 +93,11 @@ export function useProjects(options: UseProjectsOptions = {}): UseProjectsReturn
         throw new Error(data.error?.message || 'Failed to fetch projects');
       }
 
-      // Update projects immediately - progressive loading principle
+      // Update projects immediately
       setProjects(data.data.items);
       setTotalCount(data.data.totalCount);
       setHasMore(data.data.hasMore);
       
-      // Mark projects as successfully loaded
       progressiveLoading.setLoadingStatus('projects', 'success');
 
     } catch (err) {
@@ -105,19 +107,16 @@ export function useProjects(options: UseProjectsOptions = {}): UseProjectsReturn
       setTotalCount(0);
       setHasMore(false);
       
-      // Mark projects as failed
       progressiveLoading.setLoadingStatus('projects', 'error');
     } finally {
       setLoading(false);
     }
-  }, [debouncedQuery, selectedTags, sortBy]);
+  }, [debouncedQuery, selectedTags, sortBy, isInitialLoad, isSearching, progressiveLoading]);
 
   const fetchTags = useCallback(async () => {
     try {
-      // Set progressive loading state for tags
       progressiveLoading.setLoadingStatus('tags', 'loading');
       
-      // Use dedicated tags endpoint - much faster!
       const response = await fetch('/api/tags');
       
       if (!response.ok) {
@@ -128,31 +127,30 @@ export function useProjects(options: UseProjectsOptions = {}): UseProjectsReturn
       
       if (data.success && data.data) {
         setTags(data.data);
-        // Mark tags as successfully loaded - this enables filtering
+        setTagsLoaded(true);
         progressiveLoading.setLoadingStatus('tags', 'success');
       } else {
         throw new Error('Invalid tags response');
       }
     } catch (err) {
       console.error('Error fetching tags:', err);
-      // Mark tags as failed but don't break the app
+      setTagsLoaded(true); // Still mark as loaded to prevent blocking
       progressiveLoading.setLoadingStatus('tags', 'error');
-      // Don't set main error for tags failure, just log it
     }
-  }, []);
+  }, []); // Remove progressiveLoading from dependencies to prevent infinite loop
 
-  // Initial load: Load projects and tags
+  // Initial load: Load projects and tags simultaneously
   useEffect(() => {
     if (isInitialLoad) {
-      // Load projects immediately
-      fetchProjects();
-      
-      // Load tags immediately as well - they're needed for filtering
-      fetchTags();
-      
-      setIsInitialLoad(false);
+      // Load both projects and tags in parallel
+      Promise.all([
+        fetchProjects(),
+        fetchTags()
+      ]).finally(() => {
+        setIsInitialLoad(false);
+      });
     }
-  }, [isInitialLoad]);
+  }, [isInitialLoad]); // Remove fetchProjects and fetchTags from dependencies to prevent infinite loop
 
   // Handle search/filter changes (excluding initial values)
   useEffect(() => {
@@ -161,11 +159,8 @@ export function useProjects(options: UseProjectsOptions = {}): UseProjectsReturn
       return;
     }
     
-    // Trigger search when debounced query changes
-    progressiveLoading.setLoadingStatus('search', 'loading');
-    fetchProjects().finally(() => {
-      progressiveLoading.setLoadingStatus('search', 'success');
-    });
+    // Only trigger search when debounced query changes
+    fetchProjects();
   }, [debouncedQuery, selectedTags, sortBy, isInitialLoad]); // Remove fetchProjects from dependencies
 
   return {

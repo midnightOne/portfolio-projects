@@ -323,18 +323,24 @@ export function MainNavigation({
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // Prevent hydration mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Handle scroll effect for floating variant
   useEffect(() => {
-    if (variant === 'floating' || position === 'sticky') {
-      const handleScroll = () => {
-        setScrolled(window.scrollY > 50);
-      };
+    if (!mounted || (variant !== 'floating' && position !== 'sticky')) return;
+    
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 50);
+    };
 
-      window.addEventListener('scroll', handleScroll);
-      return () => window.removeEventListener('scroll', handleScroll);
-    }
-  }, [variant, position]);
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [variant, position, mounted]);
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -387,6 +393,33 @@ export function MainNavigation({
         );
     }
   };
+
+  // Prevent hydration mismatch by not rendering until mounted
+  if (!mounted) {
+    return (
+      <header className={cn(getPositionClasses(), 'bg-background border-b', className)}>
+        <div className={CONTAINERS.default}>
+          <div className={cn(FLEX.between, 'h-16')}>
+            {showLogo && (
+              <div className="text-xl font-bold text-foreground">
+                {logoText}
+              </div>
+            )}
+            <div className="flex items-center gap-4">
+              <nav className="hidden md:flex items-center space-x-8">
+                {items.map((item) => (
+                  <div key={item.id} className="px-3 py-2 text-sm font-medium">
+                    {item.label}
+                  </div>
+                ))}
+              </nav>
+              <div className="w-10 h-10" /> {/* Theme toggle placeholder */}
+            </div>
+          </div>
+        </div>
+      </header>
+    );
+  }
 
   return (
     <motion.header
