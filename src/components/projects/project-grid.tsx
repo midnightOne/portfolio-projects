@@ -149,6 +149,7 @@ export function ProjectGrid({
             layout
             custom={index}
             layoutId={project.id}
+            className="h-full"
           >
             <ProjectCard
               project={project}

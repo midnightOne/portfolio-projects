@@ -135,7 +135,7 @@ export function ProjectCard({
       className={cn(
         "group cursor-pointer border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm",
         "hover:shadow-xl hover:border-border overflow-hidden",
-        "active:shadow-lg transition-shadow touch-manipulation",
+        "active:shadow-lg transition-shadow touch-manipulation h-full flex flex-col",
         className
       )}
       onClick={handleClick}
@@ -290,10 +290,10 @@ export function ProjectCard({
         )}
       </CardHeader>
 
-      <CardContent className="pt-3 pb-3">
+      <CardContent className="pt-3 pb-3 flex flex-col flex-grow">
         {/* Description */}
         {project.briefOverview && (
-          <div className="text-sm text-muted-foreground line-clamp-3 mb-3">
+          <div className="text-sm text-muted-foreground line-clamp-3 mb-3 flex-grow">
             {searchQuery ? (
               <SearchExcerpt
                 text={project.briefOverview}

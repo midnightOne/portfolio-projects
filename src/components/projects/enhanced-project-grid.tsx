@@ -305,6 +305,7 @@ export function EnhancedProjectGrid({
               data-ai-id={`${aiId}-project-${project.id}`}
               data-ai-project-id={project.id}
               data-ai-project-slug={project.slug}
+              className="h-full"
             >
               {/* Enhanced Project Card with AI capabilities */}
               <EnhancedCard
