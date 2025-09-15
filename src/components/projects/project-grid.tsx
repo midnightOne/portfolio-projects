@@ -132,7 +132,7 @@ export function ProjectGrid({
 
   return (
     <motion.div 
-      className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 ${className || ''}`}
+      className={`grid gap-4 sm:gap-6 ${className || 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'}`}
       variants={containerVariants}
       initial="hidden"
       animate="visible"
