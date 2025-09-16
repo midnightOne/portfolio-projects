@@ -571,9 +571,9 @@ Communication guidelines:
 
     private _logToolCallToConversation(functionCallItem: any) {
         try {
-            // Emit tool call transcript item
+            // Don't emit transcript here - it will be emitted in _executeToolCallUnified
+            // This method is just for conversation logging
             const parsedArgs = functionCallItem.arguments ? JSON.parse(functionCallItem.arguments) : {};
-            this._emitToolCallTranscript(functionCallItem.name, parsedArgs, functionCallItem.call_id);
             
             const toolCallData = {
                 sessionId: this._sessionId || 'unknown',
@@ -874,6 +874,9 @@ Communication guidelines:
     private async _executeToolCallUnified(toolName: string, parameters: any): Promise<string> {
         console.log(`Executing unified tool: ${toolName}`, parameters);
         
+        // Emit tool call transcript at the start of execution
+        this._emitToolCallTranscript(toolName, parameters, 'unified-execution');
+        
         try {
             // Execute via unified system
             const result = await this._executeUnifiedTool(toolName, parameters);
@@ -887,8 +890,32 @@ Communication guidelines:
                 data: result
             }, 'unified-execution', 0);
             
-            // Return formatted result
-            return typeof result === 'string' ? result : JSON.stringify(result);
+            // Return formatted result - make it conversational for OpenAI
+            if (typeof result === 'string') {
+                return result;
+            } else if (result && typeof result === 'object') {
+                // For complex objects, extract key information for conversational response
+                if (result.success && result.data) {
+                    // If it's a successful API response, extract the data
+                    const data = result.data;
+                    if (data.recentProjects) {
+                        // Format project summary for conversation
+                        const projects = data.recentProjects.map((p: any) => `${p.title}: ${p.description}`).join('\n');
+                        return `Found ${data.totalProjects} projects:\n${projects}`;
+                    } else if (data.project) {
+                        // Format single project for conversation
+                        return `Project: ${data.project.title}\n${data.project.description}`;
+                    } else {
+                        // Generic successful response
+                        return result.message || 'Tool executed successfully';
+                    }
+                } else {
+                    // Fallback to JSON string
+                    return JSON.stringify(result);
+                }
+            } else {
+                return String(result);
+            }
             
         } catch (error) {
             console.error(`Failed to execute unified tool ${toolName}:`, error);
