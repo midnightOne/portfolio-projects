@@ -31,15 +31,21 @@ const WaveConfigurationSchema = z.object({
   iridescenceSpeed: z.number().min(0.0).max(0.01),
   flowMixAmount: z.number().min(0.0).max(1.0),
   cameraPosition: z.object({
-    x: z.number(),
-    y: z.number(),
-    z: z.number()
+    x: z.number().min(-10).max(10),
+    y: z.number().min(-10).max(10),
+    z: z.number().min(1).max(15)
   }),
   cameraRotation: z.object({
-    x: z.number(),
-    y: z.number()
+    x: z.number().min(-90).max(90),
+    y: z.number().min(-180).max(180),
+    z: z.number().min(-180).max(180)
   }),
-  cameraZoom: z.number().min(0.1).max(5.0)
+  cameraZoom: z.number().min(0.1).max(5.0),
+  cameraTarget: z.object({
+    x: z.number().min(-5).max(5),
+    y: z.number().min(-5).max(5),
+    z: z.number().min(-5).max(5)
+  })
 });
 
 // ============================================================================
@@ -70,8 +76,9 @@ const defaultWaveConfig: WaveConfiguration = {
   iridescenceSpeed: 0.005,
   flowMixAmount: 0.4,
   cameraPosition: { x: 0, y: 0, z: 5 },
-  cameraRotation: { x: 0, y: 0 },
-  cameraZoom: 1.0
+  cameraRotation: { x: 0, y: 0, z: 0 },
+  cameraZoom: 1.0,
+  cameraTarget: { x: 0, y: 0, z: 0 }
 };
 
 // ============================================================================
@@ -80,11 +87,21 @@ const defaultWaveConfig: WaveConfiguration = {
 
 export async function GET() {
   try {
-    // For now, just return the default configuration
-    // Database integration will be completed once Prisma client is fully updated
+    // Fetch the homepage configuration from database
+    const homepageConfig = await prisma.homepageConfig.findFirst();
+    
+    if (!homepageConfig || !homepageConfig.waveConfig) {
+      // Return default configuration if none exists
+      return NextResponse.json({
+        success: true,
+        data: { config: defaultWaveConfig }
+      });
+    }
+
+    // Return the stored wave configuration
     return NextResponse.json({
       success: true,
-      data: { config: defaultWaveConfig }
+      data: { config: homepageConfig.waveConfig }
     });
 
   } catch (error) {
@@ -203,6 +220,10 @@ export async function POST(request: NextRequest) {
           iridescenceWidth: 15.0,
           iridescenceSpeed: 0.008,
           flowMixAmount: 0.6,
+          cameraPosition: { x: 0, y: 0, z: 5 },
+          cameraRotation: { x: -10, y: 15, z: 0 },
+          cameraZoom: 1.2,
+          cameraTarget: { x: 0, y: 0, z: 0 },
           lightTheme: {
             primaryColor: '#3b82f6',
             valleyColor: '#dbeafe',
@@ -228,6 +249,10 @@ export async function POST(request: NextRequest) {
           iridescenceWidth: 30.0,
           iridescenceSpeed: 0.003,
           flowMixAmount: 0.8,
+          cameraPosition: { x: 0, y: 1, z: 4 },
+          cameraRotation: { x: -20, y: 0, z: 0 },
+          cameraZoom: 1.0,
+          cameraTarget: { x: 0, y: 0, z: 0 },
           lightTheme: {
             primaryColor: '#0ea5e9',
             valleyColor: '#e0f2fe',
@@ -253,6 +278,10 @@ export async function POST(request: NextRequest) {
           iridescenceWidth: 10.0,
           iridescenceSpeed: 0.01,
           flowMixAmount: 0.3,
+          cameraPosition: { x: 0, y: 0, z: 8 },
+          cameraRotation: { x: 0, y: 0, z: 0 },
+          cameraZoom: 0.8,
+          cameraTarget: { x: 0, y: 0, z: 0 },
           lightTheme: {
             primaryColor: '#f59e0b',
             valleyColor: '#fef3c7',

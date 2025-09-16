@@ -233,6 +233,21 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
     });
   }, []);
 
+  const handleCameraChange = useCallback((cameraConfig: {
+    position: { x: number; y: number; z: number };
+    rotation: { x: number; y: number; z: number };
+    zoom: number;
+    target: { x: number; y: number; z: number };
+  }) => {
+
+    handleConfigChange({
+      cameraPosition: cameraConfig.position,
+      cameraRotation: cameraConfig.rotation,
+      cameraZoom: cameraConfig.zoom,
+      cameraTarget: cameraConfig.target
+    });
+  }, [handleConfigChange]);
+
   const handleColorChange = useCallback((theme: 'light' | 'dark', colorKey: keyof WaveConfiguration['lightTheme'], value: string) => {
     setState(prev => {
       const newConfig = {
@@ -455,7 +470,16 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
                     width={state.previewDimensions.width}
                     height={state.previewDimensions.height}
                     className="w-full"
+                    interactive={true}
+                    onCameraChange={handleCameraChange}
                   />
+                </div>
+                <div className="mt-2 text-sm text-muted-foreground">
+                  <p>🖱️ <strong>Left click + drag:</strong> Rotate camera around target</p>
+                  <p>🖱️ <strong>Middle click + drag:</strong> Pan camera target</p>
+                  <p>🖱️ <strong>Scroll wheel:</strong> Zoom in/out</p>
+                  <p>🖱️ <strong>Double click:</strong> Reset camera to default position</p>
+                  <p className="mt-2 text-xs text-amber-600">💡 Camera changes are saved automatically when you save the configuration</p>
                 </div>
               </CardContent>
             </Card>
@@ -615,20 +639,110 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
             <div className="pt-4 border-t">
               <h4 className="font-medium mb-3 flex items-center gap-2">
                 <Camera className="h-4 w-4" />
-                Camera
+                Camera Position
               </h4>
               <ParameterSlider
-                label="Camera Z"
+                label="Position X"
+                value={state.config.cameraPosition.x}
+                onChange={(value) => handleConfigChange({ 
+                  cameraPosition: { ...state.config.cameraPosition, x: value }
+                })}
+                min={-10.0}
+                max={10.0}
+                step={0.1}
+              />
+              <ParameterSlider
+                label="Position Y"
+                value={state.config.cameraPosition.y}
+                onChange={(value) => handleConfigChange({ 
+                  cameraPosition: { ...state.config.cameraPosition, y: value }
+                })}
+                min={-10.0}
+                max={10.0}
+                step={0.1}
+              />
+              <ParameterSlider
+                label="Position Z"
                 value={state.config.cameraPosition.z}
                 onChange={(value) => handleConfigChange({ 
                   cameraPosition: { ...state.config.cameraPosition, z: value }
                 })}
                 min={1.0}
-                max={10.0}
+                max={15.0}
+                step={0.1}
+              />
+              
+              <h4 className="font-medium mb-3 mt-4 flex items-center gap-2">
+                <Camera className="h-4 w-4" />
+                Camera Rotation
+              </h4>
+              <ParameterSlider
+                label="Rotation X (Pitch)"
+                value={state.config.cameraRotation.x}
+                onChange={(value) => handleConfigChange({ 
+                  cameraRotation: { ...state.config.cameraRotation, x: value }
+                })}
+                min={-90}
+                max={90}
+                step={1}
+              />
+              <ParameterSlider
+                label="Rotation Y (Yaw)"
+                value={state.config.cameraRotation.y}
+                onChange={(value) => handleConfigChange({ 
+                  cameraRotation: { ...state.config.cameraRotation, y: value }
+                })}
+                min={-180}
+                max={180}
+                step={1}
+              />
+              <ParameterSlider
+                label="Rotation Z (Roll)"
+                value={state.config.cameraRotation.z}
+                onChange={(value) => handleConfigChange({ 
+                  cameraRotation: { ...state.config.cameraRotation, z: value }
+                })}
+                min={-180}
+                max={180}
+                step={1}
+              />
+              
+              <h4 className="font-medium mb-3 mt-4 flex items-center gap-2">
+                <Camera className="h-4 w-4" />
+                Camera Target & Zoom
+              </h4>
+              <ParameterSlider
+                label="Target X"
+                value={state.config.cameraTarget.x}
+                onChange={(value) => handleConfigChange({ 
+                  cameraTarget: { ...state.config.cameraTarget, x: value }
+                })}
+                min={-5.0}
+                max={5.0}
                 step={0.1}
               />
               <ParameterSlider
-                label="Camera Zoom"
+                label="Target Y"
+                value={state.config.cameraTarget.y}
+                onChange={(value) => handleConfigChange({ 
+                  cameraTarget: { ...state.config.cameraTarget, y: value }
+                })}
+                min={-5.0}
+                max={5.0}
+                step={0.1}
+              />
+              <ParameterSlider
+                label="Target Z"
+                value={state.config.cameraTarget.z}
+                onChange={(value) => handleConfigChange({ 
+                  cameraTarget: { ...state.config.cameraTarget, z: value }
+                })}
+                min={-5.0}
+                max={5.0}
+                step={0.1}
+              />
+              <ParameterSlider
+                label="Zoom"
                 value={state.config.cameraZoom}
                 onChange={(value) => handleConfigChange({ cameraZoom: value })}
                 min={0.1}
