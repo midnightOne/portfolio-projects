@@ -42,6 +42,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     protected _isRecording: boolean = false;
     protected _isInitialized: boolean = false;
     private _config: OpenAIRealtimeConfig | null = null;
+    private _pendingFunctionCalls: Map<string, { name: string; call_id: string; item_id: string }> | null = null;
     
     // Analytics and debugging properties
     private _conversationAnalytics: {
@@ -341,6 +342,9 @@ Communication guidelines:
         try {
             console.log('OpenAIRealtimeAdapter: Initializing with options:', options);
             
+            // Initialize pending function calls tracking
+            this._pendingFunctionCalls = new Map();
+            
             // Load configuration first if not already loaded
             if (!this._config) {
                 await this._loadConfiguration();
@@ -408,9 +412,20 @@ Communication guidelines:
             }
             
             // Handle tool call events
-            if (event.type === 'response.function_call_arguments.done') {
+            if (event.type === 'response.output_item.added') {
+                const item = (event as any).item;
+                if (item && item.type === 'function_call') {
+                    console.log('Function call item added:', item);
+                    // Store function call metadata for later use
+                    this._pendingFunctionCalls = this._pendingFunctionCalls || new Map();
+                    this._pendingFunctionCalls.set(item.call_id, {
+                        name: item.name,
+                        call_id: item.call_id,
+                        item_id: item.id
+                    });
+                }
+            } else if (event.type === 'response.function_call_arguments.done') {
                 console.log('Function call arguments completed:', event);
-                this._processToolCallEvent(event);
                 // Execute tool call using unified execution pipeline
                 this._executeToolCallUnified(event);
             }
@@ -784,7 +799,18 @@ Communication guidelines:
             let functionName = eventData.name;
             let argumentsStr = eventData.arguments;
             
-            // The function name is not in the event directly, we need to find it from the conversation history
+            // First try to get function name from pending function calls
+            if (!functionName && this._pendingFunctionCalls && eventData.call_id) {
+                const pendingCall = this._pendingFunctionCalls.get(eventData.call_id);
+                if (pendingCall) {
+                    functionName = pendingCall.name;
+                    console.log('Found function name from pending calls:', functionName);
+                    // Clean up the pending call
+                    this._pendingFunctionCalls.delete(eventData.call_id);
+                }
+            }
+            
+            // Fallback: try to find it from the conversation history
             if (!functionName && this._history.length > 0) {
                 // Find the corresponding function call item in history by call_id
                 const functionCallItem = this._history.find(item => 
@@ -794,16 +820,29 @@ Communication guidelines:
                 
                 if (functionCallItem) {
                     functionName = (functionCallItem as any).name;
-                    console.log('Found function name from history:', functionName);
+                    console.log('Found function name from history by call_id:', functionName);
                 } else {
-                    // If still not found, look for the most recent function call item
+                    // If still not found by call_id, look for the most recent function call item
                     const recentFunctionCall = this._history
                         .filter(item => item.type === 'function_call')
-                        .sort((a, b) => (b as any).timestamp - (a as any).timestamp)[0];
+                        .sort((a, b) => {
+                            const aTime = (a as any).timestamp || 0;
+                            const bTime = (b as any).timestamp || 0;
+                            return bTime - aTime;
+                        })[0];
                     
                     if (recentFunctionCall) {
                         functionName = (recentFunctionCall as any).name;
                         console.log('Using most recent function call name:', functionName);
+                    } else {
+                        // Last resort: check if there are any function call items at all
+                        const anyFunctionCall = this._history.find(item => 
+                            item.type === 'function_call' && (item as any).name
+                        );
+                        if (anyFunctionCall) {
+                            functionName = (anyFunctionCall as any).name;
+                            console.log('Using any available function call name:', functionName);
+                        }
                     }
                 }
             }
@@ -840,7 +879,40 @@ Communication guidelines:
             }
             
             if (!functionName || !argumentsStr) {
-                console.error('Missing function name or arguments in tool call event');
+                console.error('Missing function name or arguments in tool call event', {
+                    functionName,
+                    argumentsStr,
+                    eventData,
+                    historyLength: this._history.length,
+                    functionCallItems: this._history.filter(item => item.type === 'function_call').map(item => ({
+                        name: (item as any).name,
+                        call_id: (item as any).call_id,
+                        timestamp: (item as any).timestamp
+                    }))
+                });
+                
+                // Try to log this to the conversation logger for debugging
+                try {
+                    const conversationId = this._conversationId || 'unknown';
+                    await fetch('/api/ai/conversation/log', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            conversationId,
+                            type: 'error',
+                            message: 'Tool call execution failed - missing function name or arguments',
+                            data: {
+                                functionName,
+                                argumentsStr,
+                                call_id: eventData.call_id,
+                                event_type: eventData.type
+                            }
+                        })
+                    });
+                } catch (logError) {
+                    console.warn('Failed to log tool call error:', logError);
+                }
+                
                 return;
             }
             
@@ -1187,6 +1259,12 @@ Communication guidelines:
                 this._session.close();
                 this._isConnected = false;
                 this._connectionStatus = 'disconnected';
+                
+                // Clean up pending function calls
+                if (this._pendingFunctionCalls) {
+                    this._pendingFunctionCalls.clear();
+                }
+                
                 console.log('Disconnected from OpenAI Realtime');
                 this._emitConnectionEvent('disconnected');
             } catch (error) {
