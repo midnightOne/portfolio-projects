@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
-import type { HomepageConfig, SectionConfig } from '@/components/homepage/section-renderer';
+import type { HomepageConfig } from '@/components/homepage/section-renderer';
 
 // Validation schemas
 const SectionConfigSchema = z.object({
@@ -15,10 +15,44 @@ const SectionConfigSchema = z.object({
   className: z.string().optional()
 });
 
+const WaveColorSchemeSchema = z.object({
+  primaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+  valleyColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/),
+  peakColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/)
+});
+
+const WaveConfigurationSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  isActive: z.boolean(),
+  wavesX: z.number().min(0.5).max(10.0),
+  wavesY: z.number().min(0.5).max(10.0),
+  displacementHeight: z.number().min(0.0).max(2.0),
+  speedX: z.number().min(0.0).max(0.005),
+  speedY: z.number().min(0.0).max(0.005),
+  cylinderBend: z.number().min(0.0).max(1.0),
+  lightTheme: WaveColorSchemeSchema,
+  darkTheme: WaveColorSchemeSchema,
+  iridescenceWidth: z.number().min(1.0).max(50.0),
+  iridescenceSpeed: z.number().min(0.0).max(0.01),
+  flowMixAmount: z.number().min(0.0).max(1.0),
+  cameraPosition: z.object({
+    x: z.number(),
+    y: z.number(),
+    z: z.number()
+  }),
+  cameraRotation: z.object({
+    x: z.number(),
+    y: z.number()
+  }),
+  cameraZoom: z.number().min(0.1).max(5.0)
+});
+
 const HomepageConfigSchema = z.object({
   sections: z.array(SectionConfigSchema),
   globalTheme: z.string().default('default'),
-  layout: z.enum(['standard', 'single-page', 'multi-page']).default('standard')
+  layout: z.enum(['standard', 'single-page', 'multi-page']).default('standard'),
+  waveConfig: WaveConfigurationSchema.optional()
 });
 
 // GET /api/admin/homepage/config - Get current homepage configuration
@@ -123,7 +157,7 @@ export async function GET() {
     }
 
     // Convert database format to component format
-    const config: HomepageConfig = {
+    const config: HomepageConfig & { waveConfig?: any } = {
       sections: homepageConfig.sectionConfigs.map(section => ({
         id: section.sectionId,
         type: section.type as any,
@@ -133,7 +167,9 @@ export async function GET() {
         className: section.className || undefined
       })),
       globalTheme: homepageConfig.globalTheme,
-      layout: homepageConfig.layout as any
+      layout: homepageConfig.layout as any,
+      // Safely access waveConfig - handle both new and old database schemas
+      waveConfig: (homepageConfig as any).waveConfig || undefined
     };
 
     return NextResponse.json({
@@ -176,30 +212,54 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const { sections, globalTheme, layout } = validationResult.data;
+    const { sections, globalTheme, layout, waveConfig } = validationResult.data;
 
     // Use transaction to ensure data consistency
-    const result = await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       // Find or create homepage config
       let homepageConfig = await tx.homepageConfig.findFirst();
       
       if (!homepageConfig) {
-        homepageConfig = await tx.homepageConfig.create({
-          data: {
-            sections: sections,
-            globalTheme,
-            layout
+        // Create new config - try to include waveConfig if provided
+        const createData: any = {
+          sections: sections,
+          globalTheme,
+          layout
+        };
+        
+        // Only include waveConfig if it's provided and supported
+        if (waveConfig) {
+          try {
+            createData.waveConfig = waveConfig;
+          } catch (e) {
+            // Ignore if waveConfig field is not supported yet
           }
+        }
+        
+        homepageConfig = await tx.homepageConfig.create({
+          data: createData
         });
       } else {
+        // Update existing config - try to include waveConfig if provided
+        const updateData: any = {
+          sections: sections,
+          globalTheme,
+          layout,
+          updatedAt: new Date()
+        };
+        
+        // Only include waveConfig if it's provided and supported
+        if (waveConfig) {
+          try {
+            updateData.waveConfig = waveConfig;
+          } catch (e) {
+            // Ignore if waveConfig field is not supported yet
+          }
+        }
+        
         homepageConfig = await tx.homepageConfig.update({
           where: { id: homepageConfig.id },
-          data: {
-            sections: sections,
-            globalTheme,
-            layout,
-            updatedAt: new Date()
-          }
+          data: updateData
         });
       }
 
@@ -221,7 +281,6 @@ export async function PUT(request: NextRequest) {
         }))
       });
 
-      return homepageConfig;
     });
 
     return NextResponse.json({
@@ -230,7 +289,8 @@ export async function PUT(request: NextRequest) {
         config: {
           sections,
           globalTheme,
-          layout
+          layout,
+          waveConfig
         }
       }
     });
