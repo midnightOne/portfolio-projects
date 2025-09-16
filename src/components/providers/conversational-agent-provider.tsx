@@ -138,10 +138,19 @@ export function ConversationalAgentProvider({
 
   // Initialize provider when reflink session is ready
   useEffect(() => {
+    console.log('ConversationalAgentProvider initialization check:', {
+      isInitialized,
+      session: session !== null,
+      voiceAIEnabled: isFeatureEnabled('voice_ai'),
+      accessLevel,
+      defaultProvider
+    });
+    
     if (!isInitialized && session !== null && isFeatureEnabled('voice_ai')) {
+      console.log('Initializing voice provider:', defaultProvider);
       initializeProvider(defaultProvider);
     }
-  }, [session, isFeatureEnabled, defaultProvider, isInitialized]);
+  }, [session, isFeatureEnabled, defaultProvider, isInitialized, accessLevel]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -156,18 +165,23 @@ export function ConversationalAgentProvider({
    * Initialize voice provider
    */
   const initializeProvider = async (provider: VoiceProvider) => {
+    console.log('initializeProvider called with:', provider);
+    
     // Prevent multiple simultaneous initializations
     if (initializationRef.current) {
+      console.log('Already initializing, waiting...');
       await initializationRef.current;
       return;
     }
 
     const initPromise = (async () => {
       try {
+        console.log('Starting voice provider initialization...');
         setLastError(null);
         
         // Check if voice AI is enabled for current access level
         if (!isFeatureEnabled('voice_ai')) {
+          console.log('Voice AI not enabled for access level:', accessLevel);
           throw new Error('Voice AI is not available for your access level');
         }
 

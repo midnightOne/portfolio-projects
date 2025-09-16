@@ -529,12 +529,20 @@ export function FloatingAIInterface({
 
   // Initialize voice connection when feature is available
   useEffect(() => {
+    console.log('Voice connection check:', {
+      isInitialized,
+      voiceAIEnabled: isFeatureEnabled('voice_ai'),
+      isConnected,
+      accessLevel
+    });
+    
     if (isInitialized && isFeatureEnabled('voice_ai') && !isConnected) {
+      console.log('Attempting to connect to voice AI...');
       connect().catch(error => {
         console.error('Failed to connect to voice AI:', error);
       });
     }
-  }, [isInitialized, isFeatureEnabled, isConnected, connect]);
+  }, [isInitialized, isFeatureEnabled, isConnected, connect, accessLevel]);
 
   // Generate conversation ID for admin monitoring
   useEffect(() => {
@@ -902,7 +910,7 @@ export function FloatingAIInterface({
                   }}
                   placeholder={isListening ? "Listening..." : placeholder}
                   className="w-full bg-transparent border-none text-lg text-foreground placeholder-muted-foreground focus:outline-none resize-none"
-                  disabled={isProcessing || isListening}
+                  disabled={isProcessing}
                 />
               </div>
 
