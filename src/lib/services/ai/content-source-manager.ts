@@ -655,32 +655,32 @@ class AboutContentProvider implements ContentSourceProvider {
       const queryLower = query.toLowerCase();
       const contentLower = content.toLowerCase();
       const skillsText = skills.join(' ').toLowerCase();
+      
+      let relevanceScore = 0;
+      const queryTerms = queryLower.split(/\s+/).filter(term => term.length > 2);
+      
+      queryTerms.forEach(term => {
+        if (contentLower.includes(term)) relevanceScore += 0.3;
+        if (skillsText.includes(term)) relevanceScore += 0.5;
+      });
+
+      if (relevanceScore < (options.minRelevanceScore || 0.1)) {
+        return [];
+      }
+
+      return [{
+        id: 'about-main',
+        type: 'about',
+        title: 'About',
+        content,
+        summary: content.substring(0, 200) + (content.length > 200 ? '...' : ''),
+        relevanceScore: Math.min(relevanceScore, 1),
+        keywords: skills
+      }];
     } catch (error) {
       console.error('Error searching about content:', error);
       return [];
     }
-    
-    let relevanceScore = 0;
-    const queryTerms = queryLower.split(/\s+/).filter(term => term.length > 2);
-    
-    queryTerms.forEach(term => {
-      if (contentLower.includes(term)) relevanceScore += 0.3;
-      if (skillsText.includes(term)) relevanceScore += 0.5;
-    });
-
-    if (relevanceScore < (options.minRelevanceScore || 0.1)) {
-      return [];
-    }
-
-    return [{
-      id: 'about-main',
-      type: 'about',
-      title: 'About',
-      content,
-      summary: content.substring(0, 200) + (content.length > 200 ? '...' : ''),
-      relevanceScore: Math.min(relevanceScore, 1),
-      keywords: skills
-    }];
   }
 }
 
@@ -895,27 +895,27 @@ class SkillsContentProvider implements ContentSourceProvider {
 
       const skills = aboutSection.config?.skills || [];
       const queryLower = query.toLowerCase();
+      
+      const matchingSkills = skills.filter((skill: string) => 
+        skill.toLowerCase().includes(queryLower) ||
+        queryLower.split(/\s+/).some(term => skill.toLowerCase().includes(term))
+      );
+
+      if (matchingSkills.length === 0) return [];
+
+      return [{
+        id: 'skills-main',
+        type: 'skills',
+        title: 'Skills',
+        content: matchingSkills.join(', '),
+        summary: `Relevant skills: ${matchingSkills.slice(0, 5).join(', ')}`,
+        relevanceScore: Math.min(matchingSkills.length / skills.length + 0.2, 1),
+        keywords: matchingSkills
+      }];
     } catch (error) {
       console.error('Error searching skills content:', error);
       return [];
     }
-    
-    const matchingSkills = skills.filter((skill: string) => 
-      skill.toLowerCase().includes(queryLower) ||
-      queryLower.split(/\s+/).some(term => skill.toLowerCase().includes(term))
-    );
-
-    if (matchingSkills.length === 0) return [];
-
-    return [{
-      id: 'skills-main',
-      type: 'skills',
-      title: 'Skills',
-      content: matchingSkills.join(', '),
-      summary: `Relevant skills: ${matchingSkills.slice(0, 5).join(', ')}`,
-      relevanceScore: Math.min(matchingSkills.length / skills.length + 0.2, 1),
-      keywords: matchingSkills
-    }];
   }
 }
 

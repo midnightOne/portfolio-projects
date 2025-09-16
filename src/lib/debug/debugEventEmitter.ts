@@ -15,7 +15,11 @@ type DebugEventType =
   | 'transcript_update'
   | 'tool_execution_metrics'
   | 'conversation_log_update'
-  | 'unified_tool_registry_update';
+  | 'unified_tool_registry_update'
+  | 'connection_event'
+  | 'transcript_event'
+  | 'audio_event'
+  | 'tool_event';
 
 interface DebugEvent {
   type: DebugEventType;

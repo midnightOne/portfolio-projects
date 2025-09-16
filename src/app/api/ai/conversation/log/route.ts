@@ -12,7 +12,7 @@ import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 interface ConversationLogRequest {
   sessionId: string;
   provider: string;
-  conversationData: {
+  conversationData?: {
     startTime: string;
     endTime?: string;
     entries: Array<{
@@ -53,6 +53,19 @@ interface ConversationLogRequest {
     clientTimestamp?: string;
     reportType?: 'real-time' | 'batch' | 'session-end';
   };
+  
+  // Legacy format support
+  transcriptItem?: {
+    id: string;
+    type: string;
+    content: string;
+    timestamp: string;
+    provider: string;
+    metadata?: any;
+  };
+  timestamp?: string;
+  toolName?: string;
+  toolArgs?: any;
 }
 
 interface ConversationLogResponse {

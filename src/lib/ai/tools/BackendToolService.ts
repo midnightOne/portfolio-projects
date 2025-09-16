@@ -432,7 +432,7 @@ export class BackendToolService {
   /**
    * Handle opening a project by searching first
    */
-  private async handleOpenProject(parameters: any, context: ToolExecutionContext): Promise<ToolExecutionResult> {
+  private async handleOpenProject(parameters: any, context: any): Promise<any> {
     try {
       const { projectName, newTab = false } = parameters;
 

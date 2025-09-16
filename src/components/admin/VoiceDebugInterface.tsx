@@ -509,7 +509,6 @@ function VoiceDebugContent() {
                   onChange={(e) => setTextInput(e.target.value)}
                   placeholder="Type a message..."
                   disabled={!isConnected()}
-                  size="sm"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
