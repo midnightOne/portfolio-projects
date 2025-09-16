@@ -545,7 +545,7 @@ export function FloatingAIInterface({
     }
   }, [isConnected, conversationId]);
 
-  // Handle voice toggle with real voice system
+  // Handle voice toggle with real voice system - continuous WebRTC connection
   const handleVoiceToggle = async () => {
     // Clean up intro animations when user interacts
     if (!hasInteracted) {
@@ -574,12 +574,17 @@ export function FloatingAIInterface({
     }
 
     try {
+      // Ensure connection is established first
+      if (!isConnected) {
+        await connect();
+      }
+      
+      // Toggle microphone for continuous WebRTC connection
       if (isListening) {
+        // Mute microphone but keep connection active
         await stopAudioInput();
       } else {
-        if (!isConnected) {
-          await connect();
-        }
+        // Unmute microphone for continuous listening
         await startAudioInput();
       }
     } catch (error) {
@@ -905,9 +910,9 @@ export function FloatingAIInterface({
               <div className="flex items-center gap-3">
                 {isProcessing && (
                   <div className="flex items-center gap-2 text-primary">
-                    <div key="dot-1" className="w-2 h-2 bg-primary rounded-full animate-bounce"></div>
-                    <div key="dot-2" className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                    <div key="dot-3" className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                    <div className="w-2 h-2 bg-primary rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                    <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
                   </div>
                 )}
                 
@@ -915,6 +920,14 @@ export function FloatingAIInterface({
                   <div className="flex items-center gap-2 text-purple-400">
                     <Play className="text-sm animate-pulse" />
                     <span className="text-sm">Speaking...</span>
+                  </div>
+                )}
+                
+                {/* Subtle listening indicator - no modal needed for WebRTC */}
+                {isListening && voiceSupported && (
+                  <div className="flex items-center gap-2 text-green-500">
+                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                    <span className="text-xs">Listening</span>
                   </div>
                 )}
 
@@ -966,13 +979,20 @@ export function FloatingAIInterface({
                   !voiceSupported 
                     ? 'Voice AI not available for your access level'
                     : isListening 
-                      ? 'Stop listening' 
-                      : 'Start voice input'
+                      ? 'Mute microphone' 
+                      : isConnected 
+                        ? 'Unmute microphone'
+                        : 'Connect and enable voice'
                 }
               >
                 {/* Connection status indicator */}
                 {voiceSupported && !isConnected && (
                   <div className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 rounded-full animate-pulse" />
+                )}
+                
+                {/* Connected and listening indicator */}
+                {voiceSupported && isConnected && isListening && (
+                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full animate-pulse" />
                 )}
                 
                 {/* Error indicator */}
@@ -1057,18 +1077,7 @@ export function FloatingAIInterface({
         </div>
       )}
 
-      {/* Listening Indicator Modal */}
-      {isListening && (
-        <div className="fixed inset-0 bg-black/20 z-40 flex items-center justify-center">
-          <div className="bg-background border border-border p-8 rounded-2xl text-center shadow-2xl">
-            <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-red-500 flex items-center justify-center animate-pulse">
-              <Mic className="text-white text-2xl" />
-            </div>
-            <h3 className="text-xl font-semibold text-foreground mb-2">Listening...</h3>
-            <p className="text-muted-foreground">Speak your question or request</p>
-          </div>
-        </div>
-      )}
+      {/* Continuous WebRTC connection - no modal needed */}
     </AnimatePresence>
   );
 }
