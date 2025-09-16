@@ -1110,6 +1110,26 @@ Communication guidelines:
         }
 
         try {
+            // Request microphone permission explicitly
+            console.log('OpenAIRealtimeAdapter: Requesting microphone permission...');
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        sampleRate: 24000,
+                        channelCount: 1
+                    } 
+                });
+                console.log('OpenAIRealtimeAdapter: Microphone permission granted');
+                // Stop the stream since OpenAI SDK will handle it
+                stream.getTracks().forEach(track => track.stop());
+            } catch (micError) {
+                console.error('OpenAIRealtimeAdapter: Microphone permission denied:', micError);
+                throw new AudioError('Microphone permission required for voice AI', 'openai');
+            }
+            
             console.log('OpenAIRealtimeAdapter: Getting session token...');
             // Get session token from our API (which includes context injection)
             const response = await fetch('/api/ai/openai/session', {
@@ -1180,20 +1200,36 @@ Communication guidelines:
     }
 
     async startListening(): Promise<void> {
+        console.log('OpenAIRealtimeAdapter: startListening called, isConnected:', this._isConnected);
+        
         if (!this._isConnected) {
             throw new ConnectionError('Not connected to OpenAI Realtime', 'openai');
         }
 
         try {
+            console.log('OpenAIRealtimeAdapter: Current mute state:', this._isMuted);
             if (this._isMuted) {
+                console.log('OpenAIRealtimeAdapter: Unmuting session...');
                 this._session?.mute(false);
                 this._isMuted = false;
             }
+            
             this._isRecording = true;
             this._sessionStatus = 'listening';
-            console.log('Started listening');
+            console.log('OpenAIRealtimeAdapter: Started listening, isRecording:', this._isRecording);
             this._emitAudioEvent('audio_start');
+            
+            // Check if session is properly set up for audio input
+            if (this._session) {
+                console.log('OpenAIRealtimeAdapter: Session state:', {
+                    sessionExists: !!this._session,
+                    isMuted: this._isMuted,
+                    isRecording: this._isRecording,
+                    isConnected: this._isConnected
+                });
+            }
         } catch (error) {
+            console.error('OpenAIRealtimeAdapter: Error in startListening:', error);
             throw new AudioError(
                 `Failed to start listening: ${error instanceof Error ? error.message : 'Unknown error'}`,
                 'openai'

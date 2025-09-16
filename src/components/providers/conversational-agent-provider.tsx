@@ -191,7 +191,9 @@ export function ConversationalAgentProvider({
         }
 
         // Create new adapter
+        console.log('Creating adapter for provider:', provider);
         const adapter = await AdapterRegistry.create(provider);
+        console.log('Adapter created:', adapter.constructor.name);
         
         // Prepare initialization options
         const initOptions: AdapterInitOptions = {
@@ -211,8 +213,10 @@ export function ConversationalAgentProvider({
           }
         };
 
+        console.log('Initializing adapter with options:', initOptions);
         // Initialize adapter
         await adapter.init(initOptions);
+        console.log('Adapter initialized successfully');
         
         // Update state
         setCurrentAdapter(adapter);
@@ -407,6 +411,7 @@ export function ConversationalAgentProvider({
    * Connect to voice provider
    */
   const connect = async () => {
+    console.log('connect called, currentAdapter:', currentAdapter?.constructor.name);
     if (!currentAdapter) {
       throw new Error('No adapter initialized');
     }
@@ -415,7 +420,9 @@ export function ConversationalAgentProvider({
       throw new Error('Voice AI is not available for your access level');
     }
     
+    console.log('Calling adapter.connect()...');
     await currentAdapter.connect();
+    console.log('Adapter.connect() completed');
   };
 
   /**
@@ -431,11 +438,14 @@ export function ConversationalAgentProvider({
    * Start audio input
    */
   const startAudioInput = async () => {
+    console.log('startAudioInput called, currentAdapter:', currentAdapter?.constructor.name);
     if (!currentAdapter) {
       throw new Error('No adapter initialized');
     }
     
+    console.log('Calling adapter.startAudioInput()...');
     await currentAdapter.startAudioInput();
+    console.log('Adapter.startAudioInput() completed');
   };
 
   /**
