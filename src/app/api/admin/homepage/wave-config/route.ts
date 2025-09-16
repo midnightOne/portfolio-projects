@@ -130,9 +130,29 @@ export async function PUT(request: NextRequest) {
 
     const body = await request.json();
     
+    // Log the incoming request body for debugging
+    console.log('=== WAVE CONFIG VALIDATION DEBUG ===');
+    console.log('Incoming request body:', JSON.stringify(body, null, 2));
+    
     // Validate the request body
     const validationResult = WaveConfigurationSchema.safeParse(body);
     if (!validationResult.success) {
+      console.log('❌ VALIDATION FAILED');
+      console.log('Validation errors:', JSON.stringify(validationResult.error.errors, null, 2));
+      
+      // Log specific field values that failed validation
+      console.log('=== DETAILED FIELD ANALYSIS ===');
+      validationResult.error.errors.forEach((error, index) => {
+        const path = error.path.join('.');
+        const actualValue = path.split('.').reduce((obj, key) => obj?.[key], body);
+        console.log(`Error ${index + 1}:`);
+        console.log(`  Field: ${path}`);
+        console.log(`  Expected: ${error.message}`);
+        console.log(`  Actual value: ${JSON.stringify(actualValue)}`);
+        console.log(`  Value type: ${typeof actualValue}`);
+      });
+      console.log('=== END VALIDATION DEBUG ===');
+      
       return NextResponse.json(
         { 
           error: 'Invalid wave configuration data',
@@ -141,6 +161,9 @@ export async function PUT(request: NextRequest) {
         { status: 400 }
       );
     }
+    
+    console.log('✅ VALIDATION PASSED');
+    console.log('=== END VALIDATION DEBUG ===');
 
     const waveConfig = validationResult.data;
 
