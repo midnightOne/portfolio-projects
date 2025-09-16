@@ -37,8 +37,8 @@ const WaveConfigurationSchema = z.object({
   }),
   cameraRotation: z.object({
     x: z.number().min(-90).max(90),
-    y: z.number().min(-180).max(180),
-    z: z.number().min(-180).max(180)
+    y: z.number().min(-360).max(360),
+    z: z.number().min(-360).max(360)
   }),
   cameraZoom: z.number().min(0.01).max(10.0),
   cameraTarget: z.object({
