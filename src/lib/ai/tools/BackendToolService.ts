@@ -546,13 +546,15 @@ export class BackendToolService {
     args: any,
     context: ServerToolExecutionContext
   ): Promise<any> {
-    const { includePrivate = false, maxProjects = 20, sortBy = 'date' } = args;
+    const { includePrivate = false, sortBy = 'date' } = args;
+    const maxProjects = args.maxProjects ?? 20;
 
     try {
       // Fetch real projects from the database
       const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ||
         (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
-      const response = await fetch(`${baseUrl}/api/projects?limit=${maxProjects}`);
+      const limitParam = maxProjects && maxProjects > 0 ? `limit=${maxProjects}` : 'limit=20';
+      const response = await fetch(`${baseUrl}/api/projects?${limitParam}`);
 
       if (!response.ok) {
         throw new Error(`Failed to fetch projects: ${response.statusText}`);
