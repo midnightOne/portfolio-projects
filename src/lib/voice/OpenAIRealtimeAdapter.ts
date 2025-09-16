@@ -42,7 +42,6 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     protected _isRecording: boolean = false;
     protected _isInitialized: boolean = false;
     private _config: OpenAIRealtimeConfig | null = null;
-    private _pendingFunctionCalls: Map<string, { name: string; call_id: string; item_id: string }> | null = null;
     
     // Analytics and debugging properties
     private _conversationAnalytics: {
@@ -302,11 +301,94 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 description: toolDef.description,
                 parameters: parametersSchema,
                 execute: async (parameters: any) => {
+                    console.log(`OpenAI tool execution started: ${toolDef.name}`, parameters);
+                    
                     try {
-                        const result = await this._executeUnifiedTool(toolDef.name, parameters);
-                        return backgroundResult(typeof result === 'string' ? result : JSON.stringify(result));
+                        let result: string;
+                        
+                        // Route to specific OpenAI wrapper function based on tool name
+                        switch (toolDef.name) {
+                            case 'loadProjectContext':
+                                result = await this._openaiLoadProjectContext(parameters);
+                                break;
+                            case 'loadUserProfile':
+                                result = await this._openaiLoadUserProfile(parameters);
+                                break;
+                            case 'searchProjects':
+                                result = await this._openaiSearchProjects(parameters);
+                                break;
+                            case 'getProjectSummary':
+                                result = await this._openaiGetProjectSummary(parameters);
+                                break;
+                            case 'openProject':
+                                result = await this._openaiOpenProject(parameters);
+                                break;
+                            case 'processJobSpec':
+                                result = await this._openaiProcessJobSpec(parameters);
+                                break;
+                            case 'analyzeUserIntent':
+                                result = await this._openaiAnalyzeUserIntent(parameters);
+                                break;
+                            case 'generateNavigationSuggestions':
+                                result = await this._openaiGenerateNavigationSuggestions(parameters);
+                                break;
+                            case 'getNavigationHistory':
+                                result = await this._openaiGetNavigationHistory(parameters);
+                                break;
+                            case 'submitContactForm':
+                                result = await this._openaiSubmitContactForm(parameters);
+                                break;
+                            case 'processUploadedFile':
+                                result = await this._openaiProcessUploadedFile(parameters);
+                                break;
+                            // Client tools
+                            case 'navigateTo':
+                                result = await this._openaiNavigateTo(parameters);
+                                break;
+                            case 'showProjectDetails':
+                                result = await this._openaiShowProjectDetails(parameters);
+                                break;
+                            case 'scrollIntoView':
+                                result = await this._openaiScrollIntoView(parameters);
+                                break;
+                            case 'highlightText':
+                                result = await this._openaiHighlightText(parameters);
+                                break;
+                            case 'clearHighlights':
+                                result = await this._openaiClearHighlights(parameters);
+                                break;
+                            case 'focusElement':
+                                result = await this._openaiFocusElement(parameters);
+                                break;
+                            case 'reportUIState':
+                                result = await this._openaiReportUIState(parameters);
+                                break;
+                            case 'fillFormField':
+                                result = await this._openaiFillFormField(parameters);
+                                break;
+                            case 'submitForm':
+                                result = await this._openaiSubmitForm(parameters);
+                                break;
+                            case 'animateElement':
+                                result = await this._openaiAnimateElement(parameters);
+                                break;
+                            default:
+                                // Fallback to generic execution for unknown tools
+                                const genericResult = await this._executeUnifiedTool(toolDef.name, parameters);
+                                result = typeof genericResult === 'string' ? genericResult : JSON.stringify(genericResult);
+                        }
+                        
+                        console.log(`OpenAI tool execution completed: ${toolDef.name}`, result);
+                        
+                        // Return result to OpenAI
+                        return backgroundResult(result);
+                        
                     } catch (error) {
-                        return backgroundResult(`Failed to execute ${toolDef.name}: ${error instanceof Error ? error.message : String(error)}`);
+                        console.error(`OpenAI tool execution failed: ${toolDef.name}`, error);
+                        
+                        // Return error to OpenAI
+                        const errorMessage = `Failed to execute ${toolDef.name}: ${error instanceof Error ? error.message : String(error)}`;
+                        return backgroundResult(errorMessage);
                     }
                 },
             });
@@ -342,8 +424,7 @@ Communication guidelines:
         try {
             console.log('OpenAIRealtimeAdapter: Initializing with options:', options);
             
-            // Initialize pending function calls tracking
-            this._pendingFunctionCalls = new Map();
+
             
             // Load configuration first if not already loaded
             if (!this._config) {
@@ -416,18 +497,13 @@ Communication guidelines:
                 const item = (event as any).item;
                 if (item && item.type === 'function_call') {
                     console.log('Function call item added:', item);
-                    // Store function call metadata for later use
-                    this._pendingFunctionCalls = this._pendingFunctionCalls || new Map();
-                    this._pendingFunctionCalls.set(item.call_id, {
-                        name: item.name,
-                        call_id: item.call_id,
-                        item_id: item.id
-                    });
+                    // Log the tool call for transcript and debugging
+                    this._logToolCallToConversation(item);
                 }
             } else if (event.type === 'response.function_call_arguments.done') {
                 console.log('Function call arguments completed:', event);
-                // Execute tool call using unified execution pipeline
-                this._executeToolCallUnified(event);
+                // Log this for monitoring and debugging (execution happens in tool definition)
+                this._logToolCallCompletion(event);
             }
             
             // Emit connection events based on transport events
@@ -495,6 +571,10 @@ Communication guidelines:
 
     private _logToolCallToConversation(functionCallItem: any) {
         try {
+            // Emit tool call transcript item
+            const parsedArgs = functionCallItem.arguments ? JSON.parse(functionCallItem.arguments) : {};
+            this._emitToolCallTranscript(functionCallItem.name, parsedArgs, functionCallItem.call_id);
+            
             const toolCallData = {
                 sessionId: this._sessionId || 'unknown',
                 provider: 'openai',
@@ -511,7 +591,7 @@ Communication guidelines:
                         data: {
                             phase: 'start',
                             toolName: functionCallItem.name,
-                            parameters: functionCallItem.arguments ? JSON.parse(functionCallItem.arguments) : {},
+                            parameters: parsedArgs,
                             callId: functionCallItem.call_id
                         },
                         metadata: {
@@ -783,192 +863,164 @@ Communication guidelines:
         }
     }
 
+
+
+
+
     /**
      * Execute tool call using unified execution pipeline
+     * This method handles the execution and ensures proper result formatting
      */
-    private async _executeToolCallUnified(event: TransportEvent) {
+    private async _executeToolCallUnified(toolName: string, parameters: any): Promise<string> {
+        console.log(`Executing unified tool: ${toolName}`, parameters);
+        
         try {
-            const eventData = event as any;
-            console.log('Attempting unified tool execution:', eventData);
-            console.log('Event keys:', Object.keys(eventData));
-            console.log('Event type:', eventData.type);
-            console.log('Event call_id:', eventData.call_id);
-            console.log('Event arguments:', eventData.arguments);
+            // Execute via unified system
+            const result = await this._executeUnifiedTool(toolName, parameters);
             
-            // Extract function name and arguments from the event
-            let functionName = eventData.name;
-            let argumentsStr = eventData.arguments;
+            console.log(`Unified tool ${toolName} executed successfully:`, result);
             
-            // First try to get function name from pending function calls
-            if (!functionName && this._pendingFunctionCalls && eventData.call_id) {
-                const pendingCall = this._pendingFunctionCalls.get(eventData.call_id);
-                if (pendingCall) {
-                    functionName = pendingCall.name;
-                    console.log('Found function name from pending calls:', functionName);
-                    // Clean up the pending call
-                    this._pendingFunctionCalls.delete(eventData.call_id);
-                }
-            }
+            // Emit tool result transcript for monitoring
+            this._emitToolResultTranscript(toolName, {
+                success: true,
+                message: typeof result === 'string' ? result : 'Tool executed successfully',
+                data: result
+            }, 'unified-execution', 0);
             
-            // Fallback: try to find it from the conversation history
-            if (!functionName && this._history.length > 0) {
-                // Find the corresponding function call item in history by call_id
-                const functionCallItem = this._history.find(item => 
-                    item.type === 'function_call' && 
-                    (item as any).call_id === eventData.call_id
-                );
-                
-                if (functionCallItem) {
-                    functionName = (functionCallItem as any).name;
-                    console.log('Found function name from history by call_id:', functionName);
-                } else {
-                    // If still not found by call_id, look for the most recent function call item
-                    const recentFunctionCall = this._history
-                        .filter(item => item.type === 'function_call')
-                        .sort((a, b) => {
-                            const aTime = (a as any).timestamp || 0;
-                            const bTime = (b as any).timestamp || 0;
-                            return bTime - aTime;
-                        })[0];
-                    
-                    if (recentFunctionCall) {
-                        functionName = (recentFunctionCall as any).name;
-                        console.log('Using most recent function call name:', functionName);
-                    } else {
-                        // Last resort: check if there are any function call items at all
-                        const anyFunctionCall = this._history.find(item => 
-                            item.type === 'function_call' && (item as any).name
-                        );
-                        if (anyFunctionCall) {
-                            functionName = (anyFunctionCall as any).name;
-                            console.log('Using any available function call name:', functionName);
-                        }
-                    }
-                }
-            }
-            
-            // If we still don't have a function name, try to infer it from the arguments
-            if (!functionName && argumentsStr) {
-                try {
-                    const args = JSON.parse(argumentsStr);
-                    if (args.selector && args.behavior) {
-                        functionName = 'scrollIntoView';
-                        console.log('Inferred function name as scrollIntoView based on arguments structure');
-                    } else if (args.projectName) {
-                        functionName = 'openProject';
-                        console.log('Inferred function name as openProject based on arguments structure');
-                    } else if (args.path && !args.projectId) {
-                        functionName = 'navigateTo';
-                        console.log('Inferred function name as navigateTo based on arguments structure');
-                    } else if (args.projectId && (args.includeContent !== undefined || args.includeMedia !== undefined)) {
-                        functionName = 'loadProjectContext';
-                        console.log('Inferred function name as loadProjectContext based on arguments structure');
-                    } else if (args.projectId) {
-                        functionName = 'showProjectDetails';
-                        console.log('Inferred function name as showProjectDetails based on arguments structure');
-                    } else if (args.specPath || args.jobSpec) {
-                        functionName = 'processJobSpec';
-                        console.log('Inferred function name as processJobSpec based on arguments structure');
-                    } else if (args.contextType || args.includeFiles) {
-                        functionName = 'loadContext';
-                        console.log('Inferred function name as loadContext based on arguments structure');
-                    }
-                } catch (e) {
-                    console.warn('Could not parse arguments to infer function name:', e);
-                }
-            }
-            
-            if (!functionName || !argumentsStr) {
-                console.error('Missing function name or arguments in tool call event', {
-                    functionName,
-                    argumentsStr,
-                    eventData,
-                    historyLength: this._history.length,
-                    functionCallItems: this._history.filter(item => item.type === 'function_call').map(item => ({
-                        name: (item as any).name,
-                        call_id: (item as any).call_id,
-                        timestamp: (item as any).timestamp
-                    }))
-                });
-                
-                // Try to log this to the conversation logger for debugging
-                try {
-                    const conversationId = this._conversationId || 'unknown';
-                    await fetch('/api/ai/conversation/log', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            conversationId,
-                            type: 'error',
-                            message: 'Tool call execution failed - missing function name or arguments',
-                            data: {
-                                functionName,
-                                argumentsStr,
-                                call_id: eventData.call_id,
-                                event_type: eventData.type
-                            }
-                        })
-                    });
-                } catch (logError) {
-                    console.warn('Failed to log tool call error:', logError);
-                }
-                
-                return;
-            }
-            
-            let parsedArgs;
-            try {
-                parsedArgs = JSON.parse(argumentsStr);
-            } catch (parseError) {
-                console.error('Failed to parse tool call arguments:', parseError);
-                return;
-            }
-            
-            console.log(`Executing tool via unified pipeline: ${functionName} with args:`, parsedArgs);
-            
-            // Emit tool call transcript item
-            this._emitToolCallTranscript(functionName, parsedArgs, eventData.call_id);
-            
-            try {
-                // Execute tool using unified execution pipeline
-                const result = await this._executeUnifiedTool(functionName, parsedArgs);
-                
-                console.log(`Unified tool ${functionName} executed successfully:`, result);
-                
-                // Emit tool result transcript item
-                this._emitToolResultTranscript(functionName, { 
-                    success: true, 
-                    message: typeof result === 'string' ? result : 'Tool executed successfully',
-                    data: result 
-                }, eventData.call_id, 0);
-                
-                // Note: Tool result reporting is handled automatically by the OpenAI SDK
-                // when tools are defined with execute functions using the tool() helper.
-                // The backgroundResult() return value from the execute function provides the result.
-                console.log(`Unified tool ${functionName} executed successfully, result handled by SDK`);
-                
-            } catch (error) {
-                console.error(`Failed to execute unified tool ${functionName}:`, error);
-                
-                // Emit error result transcript item
-                this._emitToolResultTranscript(functionName, {
-                    success: false,
-                    message: `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
-                    error: error instanceof Error ? error.message : String(error)
-                }, eventData.call_id, 0);
-                
-                // Note: Tool error reporting is handled automatically by the OpenAI SDK
-                // when tools throw errors in their execute functions. The error is automatically
-                // converted to a backgroundResult() with error information.
-                console.log(`Unified tool ${functionName} failed, error handled by SDK`);
-            }
+            // Return formatted result
+            return typeof result === 'string' ? result : JSON.stringify(result);
             
         } catch (error) {
-            console.error('Error in unified tool execution:', error);
+            console.error(`Failed to execute unified tool ${toolName}:`, error);
+            
+            // Emit error result transcript
+            this._emitToolResultTranscript(toolName, {
+                success: false,
+                message: `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
+                error: error instanceof Error ? error.message : String(error)
+            }, 'unified-execution', 0);
+            
+            // Return error message
+            throw error;
         }
     }
 
+    // OpenAI-specific tool wrapper functions
+    // These functions handle the client-to-server communication for server tools
 
+    private async _openaiLoadProjectContext(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('loadProjectContext', parameters);
+    }
+
+    private async _openaiLoadUserProfile(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('loadUserProfile', parameters);
+    }
+
+    private async _openaiSearchProjects(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('searchProjects', parameters);
+    }
+
+    private async _openaiGetProjectSummary(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('getProjectSummary', parameters);
+    }
+
+    private async _openaiOpenProject(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('openProject', parameters);
+    }
+
+    private async _openaiProcessJobSpec(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('processJobSpec', parameters);
+    }
+
+    private async _openaiAnalyzeUserIntent(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('analyzeUserIntent', parameters);
+    }
+
+    private async _openaiGenerateNavigationSuggestions(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('generateNavigationSuggestions', parameters);
+    }
+
+    private async _openaiGetNavigationHistory(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('getNavigationHistory', parameters);
+    }
+
+    private async _openaiSubmitContactForm(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('submitContactForm', parameters);
+    }
+
+    private async _openaiProcessUploadedFile(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('processUploadedFile', parameters);
+    }
+
+    // Client tool wrappers - these execute directly in the browser
+    private async _openaiNavigateTo(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('navigateTo', parameters);
+    }
+
+    private async _openaiShowProjectDetails(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('showProjectDetails', parameters);
+    }
+
+    private async _openaiScrollIntoView(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('scrollIntoView', parameters);
+    }
+
+    private async _openaiHighlightText(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('highlightText', parameters);
+    }
+
+    private async _openaiClearHighlights(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('clearHighlights', parameters);
+    }
+
+    private async _openaiFocusElement(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('focusElement', parameters);
+    }
+
+    private async _openaiReportUIState(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('reportUIState', parameters);
+    }
+
+    private async _openaiFillFormField(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('fillFormField', parameters);
+    }
+
+    private async _openaiSubmitForm(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('submitForm', parameters);
+    }
+
+    private async _openaiAnimateElement(parameters: any): Promise<string> {
+        return await this._executeToolCallUnified('animateElement', parameters);
+    }
+
+    /**
+     * Log tool call completion for monitoring
+     */
+    private _logToolCallCompletion(event: any) {
+        try {
+            const conversationId = this._conversationId || 'unknown';
+            
+            // Log to conversation logger for monitoring
+            fetch('/api/ai/conversation/log', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    conversationId,
+                    type: 'tool_call_completion',
+                    message: 'Tool call arguments completed',
+                    data: {
+                        call_id: event.call_id,
+                        arguments: event.arguments,
+                        event_type: event.type
+                    }
+                })
+            }).catch(error => {
+                console.warn('Failed to log tool call completion:', error);
+            });
+        } catch (error) {
+            console.warn('Error logging tool call completion:', error);
+        }
+    }
 
     /**
      * Log tool call for debugging purposes
@@ -1260,10 +1312,7 @@ Communication guidelines:
                 this._isConnected = false;
                 this._connectionStatus = 'disconnected';
                 
-                // Clean up pending function calls
-                if (this._pendingFunctionCalls) {
-                    this._pendingFunctionCalls.clear();
-                }
+
                 
                 console.log('Disconnected from OpenAI Realtime');
                 this._emitConnectionEvent('disconnected');
