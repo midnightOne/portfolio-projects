@@ -17,6 +17,13 @@ export function AIInterfaceWrapper({
   className,
   onSettingsClick 
 }: AIInterfaceWrapperProps) {
+  // Debug: Log wrapper creation to detect multiple instances
+  useEffect(() => {
+    console.log('AIInterfaceWrapper mounted with provider:', defaultProvider);
+    return () => {
+      console.log('AIInterfaceWrapper unmounted');
+    };
+  }, [defaultProvider]);
   // Interface state
   const [position, setPosition] = useState<'hero' | 'pinned'>('hero');
   const [mode, setMode] = useState<'pill' | 'expanded'>('pill');

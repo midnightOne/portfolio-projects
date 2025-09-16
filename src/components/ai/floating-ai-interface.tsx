@@ -527,22 +527,8 @@ export function FloatingAIInterface({
     }
   }, [accessMessage, isFeatureEnabled]);
 
-  // Initialize voice connection when feature is available
-  useEffect(() => {
-    console.log('Voice connection check:', {
-      isInitialized,
-      voiceAIEnabled: isFeatureEnabled('voice_ai'),
-      isConnected,
-      accessLevel
-    });
-    
-    if (isInitialized && isFeatureEnabled('voice_ai') && !isConnected) {
-      console.log('Attempting to connect to voice AI...');
-      connect().catch(error => {
-        console.error('Failed to connect to voice AI:', error);
-      });
-    }
-  }, [isInitialized, isFeatureEnabled, isConnected, connect, accessLevel]);
+  // Don't auto-connect - only connect when user clicks microphone button
+  // This prevents multiple simultaneous connections and gives user control
 
   // Generate conversation ID for admin monitoring
   useEffect(() => {
@@ -553,7 +539,7 @@ export function FloatingAIInterface({
     }
   }, [isConnected, conversationId]);
 
-  // Handle voice toggle with real voice system - continuous WebRTC connection
+  // Handle voice toggle with real voice system - connect only when user clicks
   const handleVoiceToggle = async () => {
     // Clean up intro animations when user interacts
     if (!hasInteracted) {
@@ -582,17 +568,20 @@ export function FloatingAIInterface({
     }
 
     try {
-      // Ensure connection is established first
-      if (!isConnected) {
-        await connect();
-      }
-      
-      // Toggle microphone for continuous WebRTC connection
       if (isListening) {
-        // Mute microphone but keep connection active
+        // Stop listening (mute microphone)
+        console.log('Stopping voice input...');
         await stopAudioInput();
       } else {
-        // Unmute microphone for continuous listening
+        // Start voice conversation - connect if needed, then start listening
+        console.log('Starting voice conversation...');
+        
+        if (!isConnected) {
+          console.log('Not connected, establishing connection first...');
+          await connect();
+        }
+        
+        console.log('Starting audio input...');
         await startAudioInput();
       }
     } catch (error) {

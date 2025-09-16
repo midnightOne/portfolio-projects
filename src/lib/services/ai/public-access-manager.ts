@@ -51,12 +51,12 @@ export interface UpgradeMessage {
 
 export class PublicAccessManager {
   private static readonly DEFAULT_SETTINGS: PublicAccessSettings = {
-    publicAIAccess: 'limited_features', // Enable limited features for testing
+    publicAIAccess: 'disabled', // Enable limited features for testing
     basicAccessDailyLimit: 5,
     limitedAccessDailyLimit: 20,
-    allowPublicVoice: true, // Enable voice AI for testing
+    allowPublicVoice: false, // Enable voice AI for testing
     allowPublicJobAnalysis: false,
-    allowPublicAdvancedNav: true, // Enable advanced navigation for testing
+    allowPublicAdvancedNav: false, // Enable advanced navigation for testing
     disabledMessage: 'AI assistant is available by invitation only. Contact me for access.',
     basicAccessMessage: 'You have basic AI access with limited daily usage.',
     limitedAccessMessage: 'You have limited AI access. Some premium features require an invitation.',

@@ -136,21 +136,23 @@ export function ConversationalAgentProvider({
     AdapterRegistry.register('elevenlabs', async () => new ElevenLabsAdapter());
   }, []);
 
-  // Initialize provider when reflink session is ready
+  // Initialize provider when reflink session is ready (but don't auto-connect)
   useEffect(() => {
     console.log('ConversationalAgentProvider initialization check:', {
       isInitialized,
       session: session !== null,
       voiceAIEnabled: isFeatureEnabled('voice_ai'),
       accessLevel,
-      defaultProvider
+      defaultProvider,
+      hasCurrentAdapter: !!currentAdapter
     });
     
-    if (!isInitialized && session !== null && isFeatureEnabled('voice_ai')) {
-      console.log('Initializing voice provider:', defaultProvider);
+    // Only initialize if we don't already have an adapter and conditions are met
+    if (!isInitialized && !currentAdapter && session !== null && isFeatureEnabled('voice_ai')) {
+      console.log('Initializing voice provider (no auto-connect):', defaultProvider);
       initializeProvider(defaultProvider);
     }
-  }, [session, isFeatureEnabled, defaultProvider, isInitialized, accessLevel]);
+  }, [session, isFeatureEnabled, defaultProvider, isInitialized, accessLevel, currentAdapter]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -411,13 +413,20 @@ export function ConversationalAgentProvider({
    * Connect to voice provider
    */
   const connect = async () => {
-    console.log('connect called, currentAdapter:', currentAdapter?.constructor.name);
+    console.log('connect called, currentAdapter:', currentAdapter?.constructor.name, 'isConnected:', isConnected);
+    
     if (!currentAdapter) {
       throw new Error('No adapter initialized');
     }
     
     if (!isFeatureEnabled('voice_ai')) {
       throw new Error('Voice AI is not available for your access level');
+    }
+    
+    // Prevent multiple simultaneous connections
+    if (isConnected) {
+      console.log('Already connected, skipping connection attempt');
+      return;
     }
     
     console.log('Calling adapter.connect()...');
