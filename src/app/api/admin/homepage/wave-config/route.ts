@@ -31,20 +31,20 @@ const WaveConfigurationSchema = z.object({
   iridescenceSpeed: z.number().min(0.0).max(0.01),
   flowMixAmount: z.number().min(0.0).max(1.0),
   cameraPosition: z.object({
-    x: z.number().min(-10).max(10),
-    y: z.number().min(-10).max(10),
-    z: z.number().min(1).max(15)
+    x: z.number().min(-20).max(20),
+    y: z.number().min(-20).max(20),
+    z: z.number().min(-20).max(20)
   }),
   cameraRotation: z.object({
     x: z.number().min(-90).max(90),
     y: z.number().min(-180).max(180),
     z: z.number().min(-180).max(180)
   }),
-  cameraZoom: z.number().min(0.1).max(5.0),
+  cameraZoom: z.number().min(0.01).max(10.0),
   cameraTarget: z.object({
-    x: z.number().min(-5).max(5),
-    y: z.number().min(-5).max(5),
-    z: z.number().min(-5).max(5)
+    x: z.number().min(-10).max(10),
+    y: z.number().min(-10).max(10),
+    z: z.number().min(-10).max(10)
   })
 });
 

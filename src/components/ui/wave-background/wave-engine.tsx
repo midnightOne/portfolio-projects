@@ -62,6 +62,7 @@ export interface WaveEngineProps {
 interface WaveShaderUniforms {
   [uniform: string]: THREE.IUniform<any>;
   u_time: { value: number };
+  u_constantTime: { value: number };
   u_resolution: { value: THREE.Vector2 };
   u_wavesX: { value: number };
   u_wavesY: { value: number };
@@ -75,6 +76,10 @@ interface WaveShaderUniforms {
   u_iridescenceWidth: { value: number };
   u_iridescenceSpeed: { value: number };
   u_flowMixAmount: { value: number };
+  u_flowPeakColor: { value: THREE.Color };
+  u_flowValleyColor: { value: THREE.Color };
+  u_flowPeakSpeed: { value: number };
+  u_flowValleySpeed: { value: number };
 }
 
 // ============================================================================
@@ -82,84 +87,125 @@ interface WaveShaderUniforms {
 // ============================================================================
 
 const waveVertexShader = `
-  uniform float u_time;
+  varying vec2 vUv;
+  varying vec3 vColor;
+  varying float vTime;
+  varying float vConstantTime;
+  varying float vDisplaceNoise;
+  
   uniform float u_wavesX;
   uniform float u_wavesY;
   uniform float u_amplitude;
+  uniform float u_time;
+  uniform float u_constantTime;
   uniform float u_speedX;
   uniform float u_speedY;
   uniform float u_cylinderBend;
-  
-  varying vec2 vUv;
-  varying float vElevation;
-  
+  uniform vec3 u_primaryColor;
+  uniform vec3 u_valleyColor;
+  uniform vec3 u_peakColor;
+
+  vec3 permute(vec3 x) {
+    return mod(((x*34.0)+1.0)*x, 289.0);
+  }
+
+  float snoise(vec2 v) {
+    const vec4 C = vec4(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
+    vec2 i = floor(v + dot(v, C.yy));
+    vec2 x0 = v - i + dot(i, C.xx);
+    vec2 i1;
+    i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+    vec4 x12 = x0.xyxy + C.xxzz;
+    x12.xy -= i1;
+    i = mod(i, 289.0);
+    vec3 p = permute( permute(i.y + vec3(0.0, i1.y, 1.0))
+    + i.x + vec3(0.0, i1.x, 1.0));
+    vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+    m = m*m;
+    m = m*m;
+    vec3 x = 2.0 * fract(p * C.www) - 1.0;
+    vec3 h = abs(x) - 0.5;
+    vec3 ox = floor(x + 0.5);
+    vec3 a0 = x - ox;
+    m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
+    vec3 g;
+    g.x = a0.x * x0.x + h.x * x0.y;
+    g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+    return 130.0 * dot(m, g);
+  }
+
+  float remap(float value, float min1, float max1, float min2, float max2) {
+    return min2 + (value - min1) * (max2 - min2) / (max1 - min1);
+  }
+
   void main() {
     vUv = uv;
     
-    // Calculate wave displacement with proper time-based animation
-    float timeX = u_time * u_speedX * 1000.0; // Scaled for visible but smooth animation
-    float timeY = u_time * u_speedY * 1000.0;
+    vec2 waveUv = vec2(
+      (uv.x + u_time * u_speedX) * u_wavesX, 
+      (uv.y + u_time * u_speedY) * u_wavesY
+    );
     
-    float waveX = sin(position.x * u_wavesX + timeX) * u_amplitude;
-    float waveY = sin(position.y * u_wavesY + timeY) * u_amplitude;
-    float elevation = waveX + waveY;
+    float noiseValue = snoise(waveUv);
     
-    // Apply cylinder bend effect
-    vec3 newPosition = position;
-    newPosition.z += elevation;
+    vec3 transformed = position;
+    transformed += normalize(normal) * noiseValue * u_amplitude;
     
+    // Apply cylinder bending
     if (u_cylinderBend > 0.0) {
-      float bendAmount = u_cylinderBend * 0.5;
-      float radius = 2.0 / max(bendAmount, 0.001);
-      float angle = newPosition.x / radius;
+      float radius = 2.0 / max(u_cylinderBend, 0.001);
+      float angle = transformed.x / radius;
       
-      newPosition.x = radius * sin(angle);
-      newPosition.z = radius * (cos(angle) - 1.0) + newPosition.z;
+      float newX = radius * sin(angle);
+      float newZ = radius * (cos(angle) - 1.0) + transformed.z;
+      
+      transformed.x = newX;
+      transformed.z = newZ;
     }
     
-    vElevation = elevation;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(newPosition, 1.0);
+    float remapedNoise = remap(noiseValue, -1.0, 1.0, 0.0, 1.0);
+    vColor = u_primaryColor;
+    vColor = mix(u_peakColor, vColor, smoothstep(0.0, 0.5, remapedNoise));
+    vColor = mix(vColor, u_valleyColor, smoothstep(0.5, 1.0, remapedNoise));
+    
+    vTime = u_time;
+    vConstantTime = u_constantTime;
+    vDisplaceNoise = noiseValue;
+    
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
   }
 `;
 
 const waveFragmentShader = `
-  uniform vec3 u_primaryColor;
-  uniform vec3 u_valleyColor;
-  uniform vec3 u_peakColor;
-  uniform float u_time;
+  varying vec3 vColor;
+  varying vec2 vUv;
+  varying float vTime;
+  varying float vConstantTime;
+  varying float vDisplaceNoise;
+  
   uniform float u_iridescenceWidth;
   uniform float u_iridescenceSpeed;
   uniform float u_flowMixAmount;
-  
-  varying vec2 vUv;
-  varying float vElevation;
-  
+  uniform vec3 u_flowPeakColor;
+  uniform vec3 u_flowValleyColor;
+  uniform float u_flowPeakSpeed;
+  uniform float u_flowValleySpeed;
+
   void main() {
-    // Color mixing based on elevation with more contrast
-    float normalizedElevation = clamp((vElevation + 2.0) * 0.25, 0.0, 1.0);
-    vec3 baseColor = mix(u_valleyColor, u_peakColor, normalizedElevation);
-    baseColor = mix(baseColor, u_primaryColor, 0.5);
+    vec3 color = vColor;
     
-    // Animated iridescence effect
-    float timeIridescence = u_time * u_iridescenceSpeed * 1000.0;
-    float iridescence = sin(vUv.x * u_iridescenceWidth + timeIridescence);
-    iridescence = (iridescence + 1.0) * 0.5;
+    float iridescence = sin(vUv.x * u_iridescenceWidth + vTime * u_iridescenceSpeed);
+    iridescence = pow(abs(iridescence), 2.0);
     
-    // Animated flow texture simulation
-    float timeFlow = u_time * 100.0;
-    vec2 flowUv = vUv + vec2(timeFlow * 0.001, timeFlow * 0.0005);
-    float flowPattern = sin(flowUv.x * 10.0) * sin(flowUv.y * 8.0);
-    flowPattern = (flowPattern + 1.0) * 0.5;
+    vec3 flowPeak = u_flowPeakColor * sin(vTime * u_flowPeakSpeed + vUv.x * 10.0);
+    vec3 flowValley = u_flowValleyColor * cos(vTime * u_flowValleySpeed + vUv.y * 8.0);
     
-    // Combine effects with more visible animation
-    vec3 finalColor = mix(baseColor, baseColor * 1.3, iridescence * 0.4);
-    finalColor = mix(finalColor, finalColor * 1.2, flowPattern * u_flowMixAmount * 0.5);
+    color = mix(color, flowPeak, u_flowMixAmount * 0.3);
+    color = mix(color, flowValley, u_flowMixAmount * 0.2);
     
-    // Add subtle brightness variation based on time for smooth animation
-    float brightness = 1.0 + sin(u_time * 1.0) * 0.1; // Subtle pulsing
-    finalColor *= brightness;
+    color = mix(color, vec3(0.5, 0.8, 1.0), iridescence * 0.2);
     
-    gl_FragColor = vec4(finalColor, 1.0);
+    gl_FragColor = vec4(color, 1.0);
   }
 `;
 
@@ -273,23 +319,17 @@ export function WaveEngine({
   const frameCountRef = useRef<number>(0);
   const lastFpsUpdateRef = useRef<number>(Date.now());
 
-  // Interactive camera controls
-  const mouseStateRef = useRef({
-    isDown: false,
-    isPanning: false,
-    button: -1,
-    lastX: 0,
-    lastY: 0,
-    rotationSpeed: 0.01,
-    panSpeed: 0.01,
-    zoomSpeed: 0.1
-  });
-  
+  // Interactive camera controls (matching original structure)
   const cameraStateRef = useRef({
-    position: { x: 0, y: 0, z: 5 },
-    rotation: { x: 0, y: 0, z: 0 },
-    target: { x: 0, y: 0, z: 0 },
-    zoom: 1.0
+    isMouseDown: false,
+    isPanning: false,
+    lastMouseX: 0,
+    lastMouseY: 0,
+    rotationX: 0.3,
+    rotationY: 0,
+    zoom: 6,
+    panX: 0,
+    panY: 0
   });
 
   const notifyCameraChangeThrottled = useRef<NodeJS.Timeout | null>(null);
@@ -299,16 +339,12 @@ export function WaveEngine({
   // ============================================================================
 
   const initializeCameraState = useCallback(() => {
-    cameraStateRef.current = {
-      position: { ...config.cameraPosition },
-      rotation: { 
-        x: config.cameraRotation.x * Math.PI / 180,
-        y: config.cameraRotation.y * Math.PI / 180,
-        z: config.cameraRotation.z * Math.PI / 180
-      },
-      target: { ...config.cameraTarget },
-      zoom: config.cameraZoom
-    };
+    // Initialize from config but keep the original structure
+    cameraStateRef.current.rotationX = config.cameraRotation.x * Math.PI / 180;
+    cameraStateRef.current.rotationY = config.cameraRotation.y * Math.PI / 180;
+    cameraStateRef.current.zoom = config.cameraZoom * 6; // Scale to match original range
+    cameraStateRef.current.panX = config.cameraTarget.x;
+    cameraStateRef.current.panY = config.cameraTarget.y;
   }, [config]);
 
   const updateCameraFromState = useCallback(() => {
@@ -317,16 +353,12 @@ export function WaveEngine({
     const camera = cameraRef.current;
     const state = cameraStateRef.current;
     
-    // Calculate camera position based on spherical coordinates around target
-    const distance = 5 * state.zoom; // Base distance of 5 units
-    const x = state.target.x + distance * Math.sin(state.rotation.y) * Math.cos(state.rotation.x);
-    const y = state.target.y + distance * Math.sin(state.rotation.x);
-    const z = state.target.z + distance * Math.cos(state.rotation.y) * Math.cos(state.rotation.x);
-    
-    camera.position.set(x, y, z);
-    camera.lookAt(state.target.x, state.target.y, state.target.z);
-    camera.fov = Math.max(30, Math.min(90, 75 / state.zoom));
-    camera.updateProjectionMatrix();
+    // Use original camera positioning logic
+    const radius = state.zoom;
+    camera.position.x = state.panX + radius * Math.sin(state.rotationY) * Math.cos(state.rotationX);
+    camera.position.y = state.panY + radius * Math.sin(state.rotationX);
+    camera.position.z = radius * Math.cos(state.rotationY) * Math.cos(state.rotationX);
+    camera.lookAt(state.panX, state.panY, 0);
   }, []);
 
   const notifyCameraChange = useCallback(() => {
@@ -349,15 +381,15 @@ export function WaveEngine({
             z: camera.position.z
           },
           rotation: { 
-            x: state.rotation.x * 180 / Math.PI,
-            y: state.rotation.y * 180 / Math.PI,
-            z: state.rotation.z * 180 / Math.PI
+            x: state.rotationX * 180 / Math.PI,
+            y: state.rotationY * 180 / Math.PI,
+            z: 0
           },
-          zoom: state.zoom,
-          target: { ...state.target }
+          zoom: state.zoom / 6, // Scale back to config range
+          target: { x: state.panX, y: state.panY, z: 0 }
         });
       }
-    }, 50); // Reduced throttle for more responsive updates
+    }, 50);
   }, [onCameraChange]);
 
   // ============================================================================
@@ -367,93 +399,89 @@ export function WaveEngine({
   const handleMouseDown = useCallback((event: MouseEvent) => {
     if (!interactive) return;
     
-    mouseStateRef.current.isDown = true;
-    mouseStateRef.current.isPanning = event.button === 1; // Middle mouse button for panning
-    mouseStateRef.current.button = event.button;
-    mouseStateRef.current.lastX = event.clientX;
-    mouseStateRef.current.lastY = event.clientY;
-    
-    // Change cursor based on button
-    if (event.target instanceof HTMLElement) {
-      if (event.button === 0) {
-        event.target.style.cursor = 'grabbing';
-      } else if (event.button === 1) {
-        event.target.style.cursor = 'move';
-      }
-    }
-    
     event.preventDefault();
+    cameraStateRef.current.isMouseDown = true;
+    cameraStateRef.current.isPanning = event.button === 1; // Middle mouse button for panning
+    cameraStateRef.current.lastMouseX = event.clientX;
+    cameraStateRef.current.lastMouseY = event.clientY;
   }, [interactive]);
 
   const handleMouseMove = useCallback((event: MouseEvent) => {
-    if (!interactive || !mouseStateRef.current.isDown) return;
-    
-    const deltaX = event.clientX - mouseStateRef.current.lastX;
-    const deltaY = event.clientY - mouseStateRef.current.lastY;
-    
-    const { isPanning, rotationSpeed, panSpeed } = mouseStateRef.current;
-    
-    if (isPanning) { // Middle mouse button - panning
-      cameraStateRef.current.target.x -= deltaX * panSpeed * 0.01;
-      cameraStateRef.current.target.y += deltaY * panSpeed * 0.01;
-    } else { // Left mouse button - rotation
-      cameraStateRef.current.rotation.y += deltaX * rotationSpeed;
-      cameraStateRef.current.rotation.x += deltaY * rotationSpeed;
-      
-      // Clamp vertical rotation to prevent flipping
-      cameraStateRef.current.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraStateRef.current.rotation.x));
-    }
-    
-    mouseStateRef.current.lastX = event.clientX;
-    mouseStateRef.current.lastY = event.clientY;
-    
-    updateCameraFromState();
-    notifyCameraChange();
+    if (!interactive || !cameraStateRef.current.isMouseDown) return;
     
     event.preventDefault();
-  }, [interactive, updateCameraFromState, notifyCameraChange]);
+    
+    const deltaX = event.clientX - cameraStateRef.current.lastMouseX;
+    const deltaY = event.clientY - cameraStateRef.current.lastMouseY;
+    
+    if (cameraStateRef.current.isPanning) {
+      cameraStateRef.current.panX += deltaX * 0.01;
+      cameraStateRef.current.panY -= deltaY * 0.01;
+    } else {
+      cameraStateRef.current.rotationY += deltaX * 0.01;
+      cameraStateRef.current.rotationX += deltaY * 0.01;
+      cameraStateRef.current.rotationX = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, cameraStateRef.current.rotationX));
+    }
+    
+    // Update camera position using original logic
+    if (cameraRef.current) {
+      const radius = cameraStateRef.current.zoom;
+      cameraRef.current.position.x = cameraStateRef.current.panX + radius * Math.sin(cameraStateRef.current.rotationY) * Math.cos(cameraStateRef.current.rotationX);
+      cameraRef.current.position.y = cameraStateRef.current.panY + radius * Math.sin(cameraStateRef.current.rotationX);
+      cameraRef.current.position.z = radius * Math.cos(cameraStateRef.current.rotationY) * Math.cos(cameraStateRef.current.rotationX);
+      cameraRef.current.lookAt(cameraStateRef.current.panX, cameraStateRef.current.panY, 0);
+    }
+    
+    cameraStateRef.current.lastMouseX = event.clientX;
+    cameraStateRef.current.lastMouseY = event.clientY;
+    
+    notifyCameraChange();
+  }, [interactive, notifyCameraChange]);
 
   const handleMouseUp = useCallback((event: MouseEvent) => {
     if (!interactive) return;
     
-    mouseStateRef.current.isDown = false;
-    mouseStateRef.current.button = -1;
-    
-    // Reset cursor
-    const canvas = rendererRef.current?.domElement;
-    if (canvas) {
-      canvas.style.cursor = 'grab';
-    }
-    
     event.preventDefault();
+    cameraStateRef.current.isMouseDown = false;
+    cameraStateRef.current.isPanning = false;
   }, [interactive]);
 
   const handleWheel = useCallback((event: WheelEvent) => {
     if (!interactive) return;
     
-    const zoomDelta = event.deltaY * mouseStateRef.current.zoomSpeed * 0.01;
-    cameraStateRef.current.zoom = Math.max(0.1, Math.min(5.0, cameraStateRef.current.zoom + zoomDelta));
-    
-    updateCameraFromState();
-    notifyCameraChange();
-    
     event.preventDefault();
-  }, [interactive, updateCameraFromState, notifyCameraChange]);
+    
+    cameraStateRef.current.zoom += event.deltaY * 0.01;
+    cameraStateRef.current.zoom = Math.max(1, Math.min(20, cameraStateRef.current.zoom));
+    
+    // Update camera position using original logic
+    if (cameraRef.current) {
+      const radius = cameraStateRef.current.zoom;
+      cameraRef.current.position.x = cameraStateRef.current.panX + radius * Math.sin(cameraStateRef.current.rotationY) * Math.cos(cameraStateRef.current.rotationX);
+      cameraRef.current.position.y = cameraStateRef.current.panY + radius * Math.sin(cameraStateRef.current.rotationX);
+      cameraRef.current.position.z = radius * Math.cos(cameraStateRef.current.rotationY) * Math.cos(cameraStateRef.current.rotationX);
+      cameraRef.current.lookAt(cameraStateRef.current.panX, cameraStateRef.current.panY, 0);
+    }
+    
+    notifyCameraChange();
+  }, [interactive, notifyCameraChange]);
 
   const handleDoubleClick = useCallback(() => {
     if (!interactive) return;
     
-    // Reset to default camera position
-    cameraStateRef.current.rotation.x = 0.3;
-    cameraStateRef.current.rotation.y = 0;
-    cameraStateRef.current.zoom = 1.0;
-    cameraStateRef.current.target.x = 0;
-    cameraStateRef.current.target.y = 0;
-    cameraStateRef.current.target.z = 0;
+    cameraStateRef.current.rotationX = 0.3;
+    cameraStateRef.current.rotationY = 0;
+    cameraStateRef.current.zoom = 6;
+    cameraStateRef.current.panX = 0;
+    cameraStateRef.current.panY = 0;
     
-    updateCameraFromState();
+    if (cameraRef.current) {
+      cameraRef.current.position.set(0, 3, 5);
+      cameraRef.current.lookAt(0, 0, 0);
+    }
+    
     notifyCameraChange();
-  }, [interactive, updateCameraFromState, notifyCameraChange]);
+  }, [interactive, notifyCameraChange]);
 
   // ============================================================================
   // INITIALIZATION
@@ -476,15 +504,7 @@ export function WaveEngine({
       
       // Initialize camera state and position
       initializeCameraState();
-      if (interactive) {
-        updateCameraFromState();
-      } else {
-        const cameraConfig = adaptCameraForResolution(config, width, height);
-        camera.position.copy(cameraConfig.position);
-        camera.lookAt(cameraConfig.target);
-        camera.fov = cameraConfig.fov;
-        camera.updateProjectionMatrix();
-      }
+      updateCameraFromState();
 
       // Renderer setup with performance optimizations
       const renderer = new THREE.WebGLRenderer({
@@ -502,19 +522,14 @@ export function WaveEngine({
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       rendererRef.current = renderer;
 
-      // Geometry with sufficient resolution for wave effects
-      const geometry = calculateOptimalGeometry(width, height);
-      const planeGeometry = new THREE.PlaneGeometry(
-        8, 
-        8, 
-        Math.max(64, geometry.segmentsX), // Ensure minimum resolution for waves
-        Math.max(48, geometry.segmentsY)
-      );
+      // Geometry matching original (4x4 with 256x256 segments for high detail)
+      const planeGeometry = new THREE.PlaneGeometry(4, 4, 256, 256);
 
       // Shader uniforms
       const colorScheme = theme === 'dark' ? config.darkTheme : config.lightTheme;
       const uniforms: WaveShaderUniforms = {
         u_time: { value: 0 },
+        u_constantTime: { value: 0 },
         u_resolution: { value: new THREE.Vector2(width, height) },
         u_wavesX: { value: config.wavesX },
         u_wavesY: { value: config.wavesY },
@@ -527,7 +542,11 @@ export function WaveEngine({
         u_peakColor: { value: hexToThreeColor(colorScheme.peakColor) },
         u_iridescenceWidth: { value: config.iridescenceWidth },
         u_iridescenceSpeed: { value: config.iridescenceSpeed },
-        u_flowMixAmount: { value: config.flowMixAmount }
+        u_flowMixAmount: { value: config.flowMixAmount },
+        u_flowPeakColor: { value: new THREE.Color(0x06b6d4) },
+        u_flowValleyColor: { value: new THREE.Color(0xf59e0b) },
+        u_flowPeakSpeed: { value: 0.0008 },
+        u_flowValleySpeed: { value: 0.0006 }
       };
       uniformsRef.current = uniforms;
 
@@ -540,10 +559,29 @@ export function WaveEngine({
         side: THREE.DoubleSide
       });
 
-      // Mesh
+      // Mesh (rotate to match original orientation)
       const mesh = new THREE.Mesh(planeGeometry, material);
+      mesh.rotateX(-Math.PI / 2); // Rotate to horizontal plane
       scene.add(mesh);
       meshRef.current = mesh;
+
+      // Lighting (matching original)
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+      scene.add(ambientLight);
+
+      const pointLight1 = new THREE.PointLight(0xffffff, 1, 20);
+      pointLight1.position.set(0, 2, 0);
+      scene.add(pointLight1);
+
+      const pointLight2 = new THREE.PointLight(0x6366f1, 0.8, 20);
+      pointLight2.position.set(2, 2, 0);
+      scene.add(pointLight2);
+
+      const pointLight3 = new THREE.PointLight(0xa855f7, 0.6, 20);
+      pointLight3.position.set(-2, 2, 0);
+      scene.add(pointLight3);
+
+      scene.fog = new THREE.Fog(0x000000, 1, 15);
 
       // Add to DOM and ensure proper styling
       const canvas = renderer.domElement;
@@ -595,9 +633,10 @@ export function WaveEngine({
     }
 
     try {
-      // Update time uniform
+      // Update time uniform (keep continuous time)
       const elapsed = (Date.now() - startTimeRef.current) / 1000;
       uniformsRef.current.u_time.value = elapsed;
+      uniformsRef.current.u_constantTime.value = Date.now();
 
       // Debug: Log time every few seconds
       if (Math.floor(elapsed) % 5 === 0 && Math.floor(elapsed * 10) % 10 === 0) {
@@ -662,7 +701,7 @@ export function WaveEngine({
 
     const colorScheme = theme === 'dark' ? config.darkTheme : config.lightTheme;
     
-    // Update wave parameters
+    // Update wave parameters (don't reset time!)
     uniformsRef.current.u_wavesX.value = config.wavesX;
     uniformsRef.current.u_wavesY.value = config.wavesY;
     uniformsRef.current.u_amplitude.value = config.displacementHeight;
@@ -685,34 +724,12 @@ export function WaveEngine({
       meshRef.current.material.uniformsNeedUpdate = true;
     }
 
-    // Update camera state and position
-    if (cameraRef.current) {
+    // Update camera state and position (only if not interactive to avoid interrupting user control)
+    if (cameraRef.current && !interactive) {
       initializeCameraState();
-      if (interactive) {
-        updateCameraFromState();
-      } else {
-        const cameraConfig = adaptCameraForResolution(config, width, height);
-        cameraRef.current.position.copy(cameraConfig.position);
-        cameraRef.current.lookAt(cameraConfig.target);
-        cameraRef.current.fov = cameraConfig.fov;
-        cameraRef.current.updateProjectionMatrix();
-      }
+      updateCameraFromState();
     }
-
-    // Force a render to show changes immediately
-    if (rendererRef.current && sceneRef.current && cameraRef.current) {
-      rendererRef.current.setRenderTarget(null);
-      rendererRef.current.clear(true, true, true);
-      rendererRef.current.render(sceneRef.current, cameraRef.current);
-      
-      // Force canvas update
-      const gl = rendererRef.current.getContext();
-      if (gl) {
-        gl.flush();
-        gl.finish();
-      }
-    }
-  }, [config, theme, width, height, interactive, initializeCameraState, updateCameraFromState]);
+  }, [config, theme, interactive, initializeCameraState, updateCameraFromState]);
 
   // ============================================================================
   // CLEANUP
