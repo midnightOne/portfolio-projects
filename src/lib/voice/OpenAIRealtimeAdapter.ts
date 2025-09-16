@@ -380,15 +380,17 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                         
                         console.log(`OpenAI tool execution completed: ${toolDef.name}`, result);
                         
-                        // Return result to OpenAI
-                        return backgroundResult(result);
+                        // Return result to OpenAI and trigger response
+                        //const backgroundRes = backgroundResult(result);
+                        
+                        return result; //or backgroundRes if we need to accumulate more results from tool calls until we want the model to speak
                         
                     } catch (error) {
                         console.error(`OpenAI tool execution failed: ${toolDef.name}`, error);
                         
                         // Return error to OpenAI
                         const errorMessage = `Failed to execute ${toolDef.name}: ${error instanceof Error ? error.message : String(error)}`;
-                        return backgroundResult(errorMessage);
+                        return errorMessage;
                     }
                 },
             });
@@ -890,9 +892,11 @@ Communication guidelines:
                 data: result
             }, 'unified-execution', 0);
             
-            // Return formatted result - make it conversational for OpenAI
+            // Return formatted result with explicit instruction to respond
+            let formattedResult: string;
+            
             if (typeof result === 'string') {
-                return result;
+                formattedResult = result;
             } else if (result && typeof result === 'object') {
                 // For complex objects, extract key information for conversational response
                 if (result.success && result.data) {
@@ -901,21 +905,24 @@ Communication guidelines:
                     if (data.recentProjects) {
                         // Format project summary for conversation
                         const projects = data.recentProjects.map((p: any) => `${p.title}: ${p.description}`).join('\n');
-                        return `Found ${data.totalProjects} projects:\n${projects}`;
+                        formattedResult = `I found ${data.totalProjects} projects in this portfolio:\n\n${projects}`;
                     } else if (data.project) {
                         // Format single project for conversation
-                        return `Project: ${data.project.title}\n${data.project.description}`;
+                        formattedResult = `Here's the project information:\n\n${data.project.title}: ${data.project.description}`;
                     } else {
                         // Generic successful response
-                        return result.message || 'Tool executed successfully';
+                        formattedResult = result.message || 'Tool executed successfully';
                     }
                 } else {
                     // Fallback to JSON string
-                    return JSON.stringify(result);
+                    formattedResult = JSON.stringify(result);
                 }
             } else {
-                return String(result);
+                formattedResult = String(result);
             }
+            
+            // Return the formatted result directly - the AI should use this to respond
+            return formattedResult;
             
         } catch (error) {
             console.error(`Failed to execute unified tool ${toolName}:`, error);
