@@ -106,7 +106,7 @@ export async function PUT(
     const configJson = serializer.serialize(config);
 
     // If setting as default, unset other defaults for this provider
-    if (isDefault) {
+    /*if (isDefault) {
       await prisma.voiceProviderConfig.updateMany({
         where: { 
           provider: config.provider,
@@ -115,14 +115,14 @@ export async function PUT(
         },
         data: { isDefault: false }
       });
-    }
+    }*/
 
     // Update configuration
     const updatedConfig = await prisma.voiceProviderConfig.update({
       where: { id },
       data: {
         name: config.displayName,
-        isDefault: isDefault,
+        //isDefault: isDefault, // Don't update isDefault here, it's handled in the default route
         configJson
       }
     });
