@@ -172,7 +172,7 @@ export function ContextMonitor({ conversationId, activeProvider, onContextUpdate
         }
 
         const realContextData: ContextData = {
-          systemPrompt: `You are a helpful AI assistant for a portfolio website. You should:
+          systemPrompt: `[This is a mock] You are a helpful AI assistant for a portfolio website. You should:
 - Present yourself as the portfolio owner's assistant, not as the owner
 - Provide accurate information based only on available portfolio content
 - Maintain a professional, helpful tone

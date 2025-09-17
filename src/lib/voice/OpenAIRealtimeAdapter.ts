@@ -398,7 +398,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
         // Create the main agent with configuration from ClientAIModelManager
         const agentName = this._config?.displayName || 'Portfolio Assistant';
-        const instructions = this._config?.instructions || `You are a helpful AI assistant for a portfolio website. You can help visitors learn about the portfolio owner's background, projects, and experience. You have access to navigation tools to show relevant content and guide users through the portfolio.
+        const instructions = this._config?.instructions || `You are a concise, friendly AI narrator for Kirill’s XR/AI portfolio. You can help visitors learn about the portfolio owner's background, projects, and experience. You have access to navigation tools to show relevant content and guide users through the portfolio.
 
 Key capabilities:
 - Answer questions about projects and experience using loadContext tool
@@ -420,6 +420,7 @@ Communication guidelines:
             instructions: instructions,
             tools: openaiTools,
         });
+        console.log('OpenAIRealtimeAdapter: Created OpenAI agent with the following: ', agentName,instructions,openaiTools);
     }
 
     async init(options: AdapterInitOptions): Promise<void> {
