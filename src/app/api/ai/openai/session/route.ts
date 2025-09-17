@@ -108,6 +108,7 @@ export async function GET(request: NextRequest) {
 
     // Get all tools from unified tool registry (no duplicates)
     const allTools = unifiedToolRegistry.getOpenAIToolsArray();
+    console.log('All tools:', allTools);
 
     // Create OpenAI Realtime session using config system
     const sessionResponse = await fetch('https://api.openai.com/v1/realtime/client_secrets', {

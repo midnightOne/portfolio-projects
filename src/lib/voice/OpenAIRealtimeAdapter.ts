@@ -420,8 +420,9 @@ Communication guidelines:
             //instructions: instructions, //This overrides the instructions from the server config, we can only upade the fields we want to change
             tools: openaiTools,
         });
-        console.log('OpenAIRealtimeAdapter: Created OpenAI agent with the following: ', agentName,instructions,openaiTools);
+        console.log('OpenAIRealtimeAdapter: Created OpenAI agent with the following: ', agentName,openaiTools);
     }
+    
 
     async init(options: AdapterInitOptions): Promise<void> {
         try {
