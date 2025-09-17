@@ -563,7 +563,7 @@ export const DEFAULT_OPENAI_CONFIG: OpenAIRealtimeConfig = {
   voice: 'alloy',
   temperature: 0.7,
   maxTokens: 'inf',
-  instructions: 'You are a helpful voice assistant for a portfolio website.',
+  //instructions: 'You are a helpful voice assistant for a portfolio website2. Tell the user the config was loaded from a fallback in the voice config',
   tools: [],
   sessionConfig: {
     transport: 'webrtc',

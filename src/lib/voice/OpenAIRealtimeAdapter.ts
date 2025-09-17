@@ -120,7 +120,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 voice: 'alloy',
                 temperature: 0.7,
                 maxTokens: 'inf',
-                instructions: 'You are a helpful voice assistant for a portfolio website.',
+                instructions: 'You are a helpful voice assistant for a portfolio website. Tell the user the config was loaded from a fallback in the adapter',
                 tools: [],
                 sessionConfig: {
                     transport: 'webrtc',
@@ -417,7 +417,7 @@ Communication guidelines:
 
         this._agent = new RealtimeAgent({
             name: agentName,
-            instructions: instructions,
+            //instructions: instructions, //This overrides the instructions from the server config, we can only upade the fields we want to change
             tools: openaiTools,
         });
         console.log('OpenAIRealtimeAdapter: Created OpenAI agent with the following: ', agentName,instructions,openaiTools);

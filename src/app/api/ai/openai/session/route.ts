@@ -104,6 +104,8 @@ export async function GET(request: NextRequest) {
       // TODO: Add personalized context based on reflink
     }
 
+    console.log('System instructions:', systemInstructions);
+
     // Get all tools from unified tool registry (no duplicates)
     const allTools = unifiedToolRegistry.getOpenAIToolsArray();
 
