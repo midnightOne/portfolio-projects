@@ -7,10 +7,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
-import { 
-  Save, 
-  RotateCcw, 
-  Eye, 
+import {
+  Save,
+  RotateCcw,
+  Eye,
   EyeOff,
   Palette,
   Settings,
@@ -21,7 +21,8 @@ import {
   CheckCircle
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { WaveEngine, type WaveConfiguration, defaultWaveConfig } from '@/components/ui/wave-background/wave-engine';
+import { WaveEngine, type WaveConfiguration } from '@/components/ui/wave-background/wave-engine';
+import { defaultWaveConfig } from '@/lib/constants/wave-config';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
 
@@ -93,14 +94,17 @@ interface ParameterSliderProps {
 }
 
 function ParameterSlider({ label, value, onChange, min, max, step, className }: ParameterSliderProps) {
+  // Handle undefined/null values gracefully
+  const safeValue = value ?? 0;
+
   return (
     <div className={cn('space-y-2', className)}>
       <div className="flex items-center justify-between">
         <Label className="text-sm font-medium">{label}</Label>
-        <span className="text-sm text-muted-foreground">{value.toFixed(3)}</span>
+        <span className="text-sm text-muted-foreground">{safeValue.toFixed(3)}</span>
       </div>
       <Slider
-        value={[value]}
+        value={[safeValue]}
         onValueChange={([newValue]) => onChange(newValue)}
         min={min}
         max={max}
@@ -119,7 +123,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
   const { toast } = useToast();
   const { theme, systemTheme } = useTheme();
   const currentTheme = (theme === 'system' ? systemTheme : theme) as 'light' | 'dark';
-  
+
   const [state, setState] = useState<WaveConfigState>({
     config: defaultWaveConfig,
     originalConfig: defaultWaveConfig,
@@ -138,15 +142,15 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
   const fetchWaveConfig = useCallback(async () => {
     try {
       setState(prev => ({ ...prev, isLoading: true, error: null }));
-      
+
       const response = await fetch('/api/admin/homepage/wave-config');
       const data = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(data.error || 'Failed to fetch wave configuration');
       }
-      
-      const config = data.data.config || defaultWaveConfig;
+
+      const config = { ...defaultWaveConfig, ...data.data.config };
       setState(prev => ({
         ...prev,
         config,
@@ -154,15 +158,19 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
         isLoading: false,
         hasUnsavedChanges: false
       }));
-      
+
     } catch (error) {
       console.error('Error fetching wave config:', error);
+      // Use default config even on error to prevent missing fields
+      const config = { ...defaultWaveConfig };
       setState(prev => ({
         ...prev,
+        config,
+        originalConfig: JSON.parse(JSON.stringify(config)),
         error: error instanceof Error ? error.message : 'Failed to load configuration',
         isLoading: false
       }));
-      
+
       toast({
         title: "Error",
         description: "Failed to load wave configuration",
@@ -174,7 +182,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
   const saveWaveConfig = useCallback(async () => {
     try {
       setState(prev => ({ ...prev, isSaving: true, error: null }));
-      
+
       const response = await fetch('/api/admin/homepage/wave-config', {
         method: 'PUT',
         headers: {
@@ -182,26 +190,32 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
         },
         body: JSON.stringify(state.config)
       });
-      
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API Error Response:', errorText);
+        throw new Error(`API Error (${response.status}): ${errorText}`);
+      }
+
       const data = await response.json();
-      
+
       if (!response.ok) {
         throw new Error(data.error || 'Failed to save wave configuration');
       }
-      
+
       setState(prev => ({
         ...prev,
         originalConfig: JSON.parse(JSON.stringify(prev.config)),
         hasUnsavedChanges: false,
         isSaving: false
       }));
-      
+
       toast({
         title: "Success",
         description: "Wave configuration saved successfully",
         variant: "default"
       });
-      
+
     } catch (error) {
       console.error('Error saving wave config:', error);
       setState(prev => ({
@@ -209,7 +223,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
         error: error instanceof Error ? error.message : 'Failed to save configuration',
         isSaving: false
       }));
-      
+
       toast({
         title: "Error",
         description: "Failed to save wave configuration",
@@ -271,7 +285,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
       config: JSON.parse(JSON.stringify(prev.originalConfig)),
       hasUnsavedChanges: false
     }));
-    
+
     toast({
       title: "Changes Reset",
       description: "All unsaved changes have been discarded",
@@ -288,7 +302,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
         },
         body: JSON.stringify({ action: 'get-presets' })
       });
-      
+
       const data = await response.json();
       if (response.ok && data.data.presets[presetName]) {
         handleConfigChange(data.data.presets[presetName]);
@@ -345,7 +359,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
         </div>
       );
     }
-    
+
     if (state.hasUnsavedChanges) {
       return (
         <div className="flex items-center gap-2 text-amber-600">
@@ -354,7 +368,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
         </div>
       );
     }
-    
+
     return (
       <div className="flex items-center gap-2 text-green-600">
         <CheckCircle className="h-4 w-4" />
@@ -386,8 +400,8 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
             <AlertCircle className="h-5 w-5" />
             <span>{state.error}</span>
           </div>
-          <Button 
-            onClick={fetchWaveConfig} 
+          <Button
+            onClick={fetchWaveConfig}
             className="mt-4"
             variant="outline"
           >
@@ -406,10 +420,10 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
           <h2 className="text-2xl font-bold">Wave Background Configuration</h2>
           <p className="text-muted-foreground">Configure the 3D wave animation for the hero section</p>
         </div>
-        
+
         <div className="flex items-center gap-2">
           {renderStatusIndicator()}
-          
+
           <Button
             variant="outline"
             size="sm"
@@ -419,7 +433,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
             {state.showPreview ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             {state.showPreview ? 'Hide Preview' : 'Show Preview'}
           </Button>
-          
+
           {state.hasUnsavedChanges && (
             <Button
               variant="outline"
@@ -431,7 +445,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
               Reset
             </Button>
           )}
-          
+
           <Button
             onClick={saveWaveConfig}
             disabled={!state.hasUnsavedChanges || state.isSaving}
@@ -578,7 +592,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
                 />
               </div>
             </div>
-            
+
             <div>
               <h4 className="font-medium mb-3">Dark Theme</h4>
               <div className="space-y-3">
@@ -635,7 +649,15 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
               max={1.0}
               step={0.1}
             />
-            
+            <ParameterSlider
+              label="Reveal Animation Speed"
+              value={state.config.revealAnimationSpeed}
+              onChange={(value) => handleConfigChange({ revealAnimationSpeed: value })}
+              min={0.5}
+              max={10.0}
+              step={0.1}
+            />
+
             <div className="pt-4 border-t">
               <h4 className="font-medium mb-3 flex items-center gap-2">
                 <Camera className="h-4 w-4" />
@@ -644,7 +666,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
               <ParameterSlider
                 label="Position X"
                 value={state.config.cameraPosition.x}
-                onChange={(value) => handleConfigChange({ 
+                onChange={(value) => handleConfigChange({
                   cameraPosition: { ...state.config.cameraPosition, x: value }
                 })}
                 min={-10.0}
@@ -654,7 +676,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
               <ParameterSlider
                 label="Position Y"
                 value={state.config.cameraPosition.y}
-                onChange={(value) => handleConfigChange({ 
+                onChange={(value) => handleConfigChange({
                   cameraPosition: { ...state.config.cameraPosition, y: value }
                 })}
                 min={-10.0}
@@ -664,14 +686,14 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
               <ParameterSlider
                 label="Position Z"
                 value={state.config.cameraPosition.z}
-                onChange={(value) => handleConfigChange({ 
+                onChange={(value) => handleConfigChange({
                   cameraPosition: { ...state.config.cameraPosition, z: value }
                 })}
                 min={1.0}
                 max={15.0}
                 step={0.1}
               />
-              
+
               <h4 className="font-medium mb-3 mt-4 flex items-center gap-2">
                 <Camera className="h-4 w-4" />
                 Camera Rotation
@@ -679,7 +701,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
               <ParameterSlider
                 label="Rotation X (Pitch)"
                 value={state.config.cameraRotation.x}
-                onChange={(value) => handleConfigChange({ 
+                onChange={(value) => handleConfigChange({
                   cameraRotation: { ...state.config.cameraRotation, x: value }
                 })}
                 min={-90}
@@ -689,7 +711,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
               <ParameterSlider
                 label="Rotation Y (Yaw)"
                 value={state.config.cameraRotation.y}
-                onChange={(value) => handleConfigChange({ 
+                onChange={(value) => handleConfigChange({
                   cameraRotation: { ...state.config.cameraRotation, y: value }
                 })}
                 min={-180}
@@ -699,14 +721,14 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
               <ParameterSlider
                 label="Rotation Z (Roll)"
                 value={state.config.cameraRotation.z}
-                onChange={(value) => handleConfigChange({ 
+                onChange={(value) => handleConfigChange({
                   cameraRotation: { ...state.config.cameraRotation, z: value }
                 })}
                 min={-180}
                 max={180}
                 step={1}
               />
-              
+
               <h4 className="font-medium mb-3 mt-4 flex items-center gap-2">
                 <Camera className="h-4 w-4" />
                 Camera Target & Zoom
@@ -714,7 +736,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
               <ParameterSlider
                 label="Target X"
                 value={state.config.cameraTarget.x}
-                onChange={(value) => handleConfigChange({ 
+                onChange={(value) => handleConfigChange({
                   cameraTarget: { ...state.config.cameraTarget, x: value }
                 })}
                 min={-5.0}
@@ -724,7 +746,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
               <ParameterSlider
                 label="Target Y"
                 value={state.config.cameraTarget.y}
-                onChange={(value) => handleConfigChange({ 
+                onChange={(value) => handleConfigChange({
                   cameraTarget: { ...state.config.cameraTarget, y: value }
                 })}
                 min={-5.0}
@@ -734,7 +756,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
               <ParameterSlider
                 label="Target Z"
                 value={state.config.cameraTarget.z}
-                onChange={(value) => handleConfigChange({ 
+                onChange={(value) => handleConfigChange({
                   cameraTarget: { ...state.config.cameraTarget, z: value }
                 })}
                 min={-5.0}

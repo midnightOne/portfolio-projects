@@ -7,7 +7,7 @@ import type { WaveConfiguration } from '@/components/ui/wave-background/wave-eng
 import { defaultWaveConfig } from '@/lib/constants/wave-config';
 
 // ============================================================================
-// VALIDATION SCHEMAS
+// WAVE VALIDATION SCHEMAS
 // ============================================================================
 
 const WaveColorSchemeSchema = z.object({
@@ -31,6 +31,7 @@ const WaveConfigurationSchema = z.object({
   iridescenceWidth: z.number().min(1.0).max(50.0),
   iridescenceSpeed: z.number().min(0.0).max(0.01),
   flowMixAmount: z.number().min(0.0).max(1.0),
+  revealAnimationSpeed: z.number().min(0.5).max(10.0),
   cameraPosition: z.object({
     x: z.number().min(-20).max(20),
     y: z.number().min(-20).max(20),
@@ -264,6 +265,7 @@ export async function POST(request: NextRequest) {
           iridescenceWidth: 15.0,
           iridescenceSpeed: 0.008,
           flowMixAmount: 0.6,
+          revealAnimationSpeed: 1.2,
           cameraPosition: { x: 0, y: 0, z: 5 },
           cameraRotation: { x: -10, y: 15, z: 0 },
           cameraZoom: 1.2,
@@ -293,6 +295,7 @@ export async function POST(request: NextRequest) {
           iridescenceWidth: 30.0,
           iridescenceSpeed: 0.003,
           flowMixAmount: 0.8,
+          revealAnimationSpeed: 2.0,
           cameraPosition: { x: 0, y: 1, z: 4 },
           cameraRotation: { x: -20, y: 0, z: 0 },
           cameraZoom: 1.0,
@@ -322,6 +325,7 @@ export async function POST(request: NextRequest) {
           iridescenceWidth: 10.0,
           iridescenceSpeed: 0.01,
           flowMixAmount: 0.3,
+          revealAnimationSpeed: 0.8,
           cameraPosition: { x: 0, y: 0, z: 8 },
           cameraRotation: { x: 0, y: 0, z: 0 },
           cameraZoom: 0.8,

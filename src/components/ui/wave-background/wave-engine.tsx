@@ -28,6 +28,7 @@ export interface WaveConfiguration {
   iridescenceWidth: number;    // 1.0 - 50.0 (shimmer effect width)
   iridescenceSpeed: number;    // 0.0 - 0.01 (shimmer animation speed)
   flowMixAmount: number;       // 0.0 - 1.0 (flow texture blend)
+  revealAnimationSpeed: number; // 0.5 - 10.0 (reveal animation duration in seconds)
   
   // Camera Configuration (normalized for resolution independence)
   cameraPosition: { x: number; y: number; z: number };
@@ -613,6 +614,7 @@ export function WaveEngine({
     
     // Make canvas visible and start the reveal
     const canvas = rendererRef.current.domElement;
+    canvas.style.visibility = 'visible';
     canvas.style.opacity = '1';
     canvas.style.transition = 'opacity 0.2s ease-in-out';
   }, []);
@@ -664,6 +666,7 @@ export function WaveEngine({
       canvas.style.top = '0';
       canvas.style.left = '0';
       canvas.style.opacity = '0'; // Start invisible until mesh is ready
+      canvas.style.visibility = 'hidden'; // Also hide from layout
       
       // Clear any existing canvas
       while (mountRef.current.firstChild) {
@@ -708,6 +711,12 @@ export function WaveEngine({
       return;
     }
 
+    // Skip rendering if page is not visible (performance optimization and prevents alt+tab issues)
+    if (document.hidden) {
+      animationIdRef.current = requestAnimationFrame(animate);
+      return;
+    }
+
     try {
       // Update time uniform (keep continuous time)
       const elapsed = (Date.now() - startTimeRef.current) / 1000;
@@ -716,7 +725,7 @@ export function WaveEngine({
 
       // Update reveal animation
       if (isRevealingRef.current && revealStartTimeRef.current) {
-        const revealDuration = 1.5; // 1.5 seconds for reveal animation
+        const revealDuration = config.revealAnimationSpeed; // Use configurable duration
         const revealElapsed = (Date.now() - revealStartTimeRef.current) / 1000;
         const revealProgress = Math.min(revealElapsed / revealDuration, 1.0);
         
@@ -852,10 +861,18 @@ export function WaveEngine({
         document.removeEventListener('mouseup', handleMouseUp);
       }
       
-      rendererRef.current.dispose();
-      if (mountRef.current && rendererRef.current.domElement.parentNode === mountRef.current) {
-        mountRef.current.removeChild(rendererRef.current.domElement);
+      const canvas = rendererRef.current.domElement;
+      
+      // Safely remove canvas from DOM
+      if (canvas && canvas.parentNode) {
+        try {
+          canvas.parentNode.removeChild(canvas);
+        } catch (error) {
+          console.warn('Canvas removal error (safe to ignore):', error);
+        }
       }
+      
+      rendererRef.current.dispose();
       rendererRef.current = null;
     }
 
@@ -985,6 +1002,7 @@ export const wavePresets: Record<string, Partial<WaveConfiguration>> = {
     iridescenceWidth: 15.0,
     iridescenceSpeed: 0.008,
     flowMixAmount: 0.6,
+    revealAnimationSpeed: 1.2,
     cameraPosition: { x: 0, y: 0, z: 5 },
     cameraRotation: { x: -10, y: 15, z: 0 },
     cameraZoom: 1.2,
@@ -1012,6 +1030,7 @@ export const wavePresets: Record<string, Partial<WaveConfiguration>> = {
     iridescenceWidth: 30.0,
     iridescenceSpeed: 0.003,
     flowMixAmount: 0.8,
+    revealAnimationSpeed: 2.0,
     cameraPosition: { x: 0, y: 1, z: 4 },
     cameraRotation: { x: -20, y: 0, z: 0 },
     cameraZoom: 1.0,
@@ -1039,6 +1058,7 @@ export const wavePresets: Record<string, Partial<WaveConfiguration>> = {
     iridescenceWidth: 10.0,
     iridescenceSpeed: 0.01,
     flowMixAmount: 0.3,
+    revealAnimationSpeed: 0.8,
     cameraPosition: { x: 0, y: 0, z: 8 },
     cameraRotation: { x: 0, y: 0, z: 0 },
     cameraZoom: 0.8,

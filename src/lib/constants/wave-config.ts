@@ -27,6 +27,7 @@ export const defaultWaveConfig: WaveConfiguration = {
   iridescenceWidth: 20.0,
   iridescenceSpeed: 0.005,
   flowMixAmount: 0.4,
+  revealAnimationSpeed: 1.5,
   cameraPosition: { x: 0, y: 0, z: 5 },
   cameraRotation: { x: 0, y: 0, z: 0 },
   cameraZoom: 1.0,
