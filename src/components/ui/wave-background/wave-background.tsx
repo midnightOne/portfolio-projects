@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { WaveEngine, type WaveConfiguration, defaultWaveConfig } from './wave-engine';
+import { WaveEngine, type WaveConfiguration } from './wave-engine';
+import { defaultWaveConfig } from '@/lib/constants/wave-config';
 import { useTheme } from 'next-themes';
 import { cn } from '@/lib/utils';
 
@@ -23,6 +24,7 @@ interface WaveBackgroundState {
   error: string | null;
   shouldUseFallback: boolean;
   isSupported: boolean;
+  isReady: boolean; // New flag to control when to start rendering
 }
 
 // ============================================================================
@@ -91,7 +93,8 @@ export function WaveBackground({
     isLoading: true,
     error: null,
     shouldUseFallback: false,
-    isSupported: true
+    isSupported: true,
+    isReady: false
   });
 
   // Determine current theme
@@ -108,32 +111,47 @@ export function WaveBackground({
       const response = await fetch('/api/admin/homepage/wave-config');
       
       if (!response.ok) {
-        if (response.status === 404) {
-          // No configuration found, use default
-          setState(prev => ({
-            ...prev,
-            config: defaultWaveConfig,
-            isLoading: false
-          }));
-          return;
-        }
-        throw new Error(`Failed to load wave configuration: ${response.statusText}`);
+        console.warn(`Wave config API returned ${response.status}, using default config`);
+        // Always use default config if API fails
+        setState(prev => ({
+          ...prev,
+          config: defaultWaveConfig,
+          isLoading: false,
+          isReady: true // Mark as ready when using default config
+        }));
+        return;
       }
 
       const data = await response.json();
+      
+      // Validate the response structure
+      if (!data.success || !data.data || !data.data.config) {
+        console.warn('Invalid wave config response structure, using default');
+        setState(prev => ({
+          ...prev,
+          config: defaultWaveConfig,
+          isLoading: false,
+          isReady: true // Mark as ready when using default config
+        }));
+        return;
+      }
+
       setState(prev => ({
         ...prev,
-        config: data.data.config || defaultWaveConfig,
-        isLoading: false
+        config: data.data.config,
+        isLoading: false,
+        isReady: true // Mark as ready when config is loaded
       }));
 
     } catch (error) {
-      console.error('Error loading wave configuration:', error);
+      console.warn('Error loading wave configuration, using default:', error);
+      // Always fallback to default config to prevent homepage from breaking
       setState(prev => ({
         ...prev,
-        config: defaultWaveConfig, // Fallback to default
-        error: error instanceof Error ? error.message : 'Failed to load configuration',
-        isLoading: false
+        config: defaultWaveConfig,
+        error: null, // Don't show error to user, just use fallback
+        isLoading: false,
+        isReady: true // Mark as ready when using default config
       }));
     }
   }, []);
@@ -210,7 +228,7 @@ export function WaveBackground({
     return () => {
       window.removeEventListener('resize', handleResize);
     };
-  }, [checkSupport, updateDimensions, loadWaveConfiguration]);
+  }, []); // Empty dependency array - only run once on mount
 
   // ============================================================================
   // RENDER
@@ -233,8 +251,8 @@ export function WaveBackground({
     );
   }
 
-  // Show loading state
-  if (state.isLoading || !state.config || dimensions.width === 0) {
+  // Show loading state - use fallback gradient until everything is ready
+  if (state.isLoading || !state.config || !state.isReady || dimensions.width === 0) {
     const gradient = fallbackGradient || getFallbackGradient(currentTheme || 'light');
     
     return (
@@ -242,17 +260,21 @@ export function WaveBackground({
         className={cn('absolute inset-0 -z-10', className)}
         style={{ background: gradient }}
       >
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-white/50 text-sm">Loading wave animation...</div>
-        </div>
+        {/* Only show loading text if actually loading, not if just waiting for dimensions */}
+        {state.isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-white/50 text-sm">Loading wave animation...</div>
+          </div>
+        )}
       </div>
     );
   }
 
-  // Render wave engine
+  // Only render wave engine when everything is ready
   return (
     <div className={cn('absolute inset-0 -z-10', className)}>
       <WaveEngine
+        key="wave-engine" // Stable key to prevent re-mounting
         config={state.config}
         theme={currentTheme || 'light'}
         width={dimensions.width}
@@ -270,4 +292,5 @@ export function WaveBackground({
 // EXPORT UTILITIES
 // ============================================================================
 
-export { type WaveConfiguration, defaultWaveConfig, wavePresets } from './wave-engine';
+export { type WaveConfiguration, wavePresets } from './wave-engine';
+export { defaultWaveConfig } from '@/lib/constants/wave-config';

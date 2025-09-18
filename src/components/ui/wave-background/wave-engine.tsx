@@ -80,6 +80,8 @@ interface WaveShaderUniforms {
   u_flowValleyColor: { value: THREE.Color };
   u_flowPeakSpeed: { value: number };
   u_flowValleySpeed: { value: number };
+  u_revealProgress: { value: number }; // 0.0 to 1.0 for circular reveal animation
+  u_backgroundColor: { value: THREE.Color }; // Background color for non-transparent areas
 }
 
 // ============================================================================
@@ -190,10 +192,13 @@ const waveFragmentShader = `
   uniform vec3 u_flowValleyColor;
   uniform float u_flowPeakSpeed;
   uniform float u_flowValleySpeed;
+  uniform float u_revealProgress;
+  uniform vec3 u_backgroundColor;
 
   void main() {
     vec3 color = vColor;
     
+    // Calculate wave effects
     float iridescence = sin(vUv.x * u_iridescenceWidth + vTime * u_iridescenceSpeed);
     iridescence = pow(abs(iridescence), 2.0);
     
@@ -202,10 +207,26 @@ const waveFragmentShader = `
     
     color = mix(color, flowPeak, u_flowMixAmount * 0.3);
     color = mix(color, flowValley, u_flowMixAmount * 0.2);
-    
     color = mix(color, vec3(0.5, 0.8, 1.0), iridescence * 0.2);
     
-    gl_FragColor = vec4(color, 1.0);
+    // Circular reveal mask
+    vec2 center = vec2(0.5, 0.5);
+    float distanceFromCenter = distance(vUv, center);
+    
+    // Maximum distance from center to corner (for full coverage)
+    float maxDistance = distance(center, vec2(0.0, 0.0));
+    
+    // Create smooth circular reveal with soft edges
+    float revealRadius = u_revealProgress * maxDistance * 1.2; // 1.2 for slight overshoot
+    float revealMask = smoothstep(revealRadius - 0.1, revealRadius + 0.05, distanceFromCenter);
+    
+    // Mix between wave color and background color based on reveal mask
+    vec3 finalColor = mix(color, u_backgroundColor, revealMask);
+    
+    // For transparency mode, use the reveal mask as alpha
+    float alpha = 1.0 - revealMask;
+    
+    gl_FragColor = vec4(finalColor, alpha);
   }
 `;
 
@@ -313,6 +334,13 @@ export function WaveEngine({
   const animationIdRef = useRef<number | null>(null);
   const startTimeRef = useRef<number>(Date.now());
   const uniformsRef = useRef<WaveShaderUniforms | null>(null);
+  const dimensionsRef = useRef({ width, height });
+  const isInitializedRef = useRef(false);
+  const revealStartTimeRef = useRef<number | null>(null);
+  const isRevealingRef = useRef(false);
+  
+  // Update dimensions ref when props change
+  dimensionsRef.current = { width, height };
   
   // Performance monitoring
   const [fps, setFps] = useState<number>(60);
@@ -484,44 +512,17 @@ export function WaveEngine({
   }, [interactive, notifyCameraChange]);
 
   // ============================================================================
-  // INITIALIZATION
+  // WAVE MESH SETUP
   // ============================================================================
 
-  const initializeThreeJS = useCallback(() => {
-    if (!mountRef.current) return;
+  const setupWaveMesh = useCallback(() => {
+    if (!sceneRef.current || !rendererRef.current || meshRef.current) return; // Prevent multiple setups
+
+    const { width: currentWidth, height: currentHeight } = dimensionsRef.current;
 
     try {
-      // Initialize camera state from config
-      initializeCameraState();
-
-      // Scene setup
-      const scene = new THREE.Scene();
-      sceneRef.current = scene;
-
-      // Camera setup with resolution-aware positioning
-      const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
-      cameraRef.current = camera;
+      console.log('Setting up wave mesh with config...');
       
-      // Initialize camera state and position
-      initializeCameraState();
-      updateCameraFromState();
-
-      // Renderer setup with performance optimizations
-      const renderer = new THREE.WebGLRenderer({
-        antialias: window.devicePixelRatio <= 1,
-        alpha: true,
-        powerPreference: "high-performance",
-        preserveDrawingBuffer: false,
-        premultipliedAlpha: false
-      });
-      renderer.setSize(width, height);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      renderer.setClearColor(0x000000, 0);
-      renderer.autoClear = true;
-      renderer.sortObjects = false;
-      renderer.outputColorSpace = THREE.SRGBColorSpace;
-      rendererRef.current = renderer;
-
       // Geometry matching original (4x4 with 256x256 segments for high detail)
       const planeGeometry = new THREE.PlaneGeometry(4, 4, 256, 256);
 
@@ -530,7 +531,7 @@ export function WaveEngine({
       const uniforms: WaveShaderUniforms = {
         u_time: { value: 0 },
         u_constantTime: { value: 0 },
-        u_resolution: { value: new THREE.Vector2(width, height) },
+        u_resolution: { value: new THREE.Vector2(currentWidth, currentHeight) },
         u_wavesX: { value: config.wavesX },
         u_wavesY: { value: config.wavesY },
         u_amplitude: { value: config.displacementHeight },
@@ -546,7 +547,9 @@ export function WaveEngine({
         u_flowPeakColor: { value: new THREE.Color(0x06b6d4) },
         u_flowValleyColor: { value: new THREE.Color(0xf59e0b) },
         u_flowPeakSpeed: { value: 0.0008 },
-        u_flowValleySpeed: { value: 0.0006 }
+        u_flowValleySpeed: { value: 0.0006 },
+        u_revealProgress: { value: 0.0 }, // Start with no reveal
+        u_backgroundColor: { value: theme === 'dark' ? new THREE.Color(0x0a0a0a) : new THREE.Color(0xffffff) }
       };
       uniformsRef.current = uniforms;
 
@@ -562,35 +565,105 @@ export function WaveEngine({
       // Mesh (rotate to match original orientation)
       const mesh = new THREE.Mesh(planeGeometry, material);
       mesh.rotateX(-Math.PI / 2); // Rotate to horizontal plane
-      scene.add(mesh);
+      sceneRef.current.add(mesh);
       meshRef.current = mesh;
 
       // Lighting (matching original)
       const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
-      scene.add(ambientLight);
+      sceneRef.current.add(ambientLight);
 
       const pointLight1 = new THREE.PointLight(0xffffff, 1, 20);
       pointLight1.position.set(0, 2, 0);
-      scene.add(pointLight1);
+      sceneRef.current.add(pointLight1);
 
       const pointLight2 = new THREE.PointLight(0x6366f1, 0.8, 20);
       pointLight2.position.set(2, 2, 0);
-      scene.add(pointLight2);
+      sceneRef.current.add(pointLight2);
 
       const pointLight3 = new THREE.PointLight(0xa855f7, 0.6, 20);
       pointLight3.position.set(-2, 2, 0);
-      scene.add(pointLight3);
+      sceneRef.current.add(pointLight3);
 
-      scene.fog = new THREE.Fog(0x000000, 1, 15);
+      sceneRef.current.fog = new THREE.Fog(0x000000, 1, 15);
+
+      // Initialize camera state and position
+      initializeCameraState();
+      updateCameraFromState();
+
+      console.log('Wave mesh setup completed');
+      
+      // Start the reveal animation
+      startRevealAnimation();
+    } catch (error) {
+      console.error('Error setting up wave mesh:', error);
+      onError?.(error as Error);
+    }
+  }, [config, theme, width, height, onError, initializeCameraState, updateCameraFromState]);
+
+  // ============================================================================
+  // REVEAL ANIMATION
+  // ============================================================================
+
+  const startRevealAnimation = useCallback(() => {
+    if (!rendererRef.current) return;
+    
+    console.log('Starting reveal animation...');
+    revealStartTimeRef.current = Date.now();
+    isRevealingRef.current = true;
+    
+    // Make canvas visible and start the reveal
+    const canvas = rendererRef.current.domElement;
+    canvas.style.opacity = '1';
+    canvas.style.transition = 'opacity 0.2s ease-in-out';
+  }, []);
+
+  // ============================================================================
+  // INITIALIZATION
+  // ============================================================================
+
+  const initializeThreeJS = useCallback(() => {
+    if (!mountRef.current || rendererRef.current || isInitializedRef.current) return; // Prevent multiple initializations
+
+    const { width: currentWidth, height: currentHeight } = dimensionsRef.current;
+    if (currentWidth <= 0 || currentHeight <= 0) return;
+
+    try {
+      console.log('Initializing Three.js scene...');
+      isInitializedRef.current = true;
+      
+      // Scene setup
+      const scene = new THREE.Scene();
+      sceneRef.current = scene;
+
+      // Camera setup with resolution-aware positioning
+      const camera = new THREE.PerspectiveCamera(75, currentWidth / currentHeight, 0.1, 1000);
+      cameraRef.current = camera;
+
+      // Renderer setup with performance optimizations
+      const renderer = new THREE.WebGLRenderer({
+        antialias: window.devicePixelRatio <= 1,
+        alpha: true,
+        powerPreference: "high-performance",
+        preserveDrawingBuffer: false,
+        premultipliedAlpha: false
+      });
+      renderer.setSize(currentWidth, currentHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      renderer.setClearColor(0x000000, 0);
+      renderer.autoClear = true;
+      renderer.sortObjects = false;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      rendererRef.current = renderer;
 
       // Add to DOM and ensure proper styling
       const canvas = renderer.domElement;
       canvas.style.display = 'block';
-      canvas.style.width = `${width}px`;
-      canvas.style.height = `${height}px`;
+      canvas.style.width = `${currentWidth}px`;
+      canvas.style.height = `${currentHeight}px`;
       canvas.style.position = 'absolute';
       canvas.style.top = '0';
       canvas.style.left = '0';
+      canvas.style.opacity = '0'; // Start invisible until mesh is ready
       
       // Clear any existing canvas
       while (mountRef.current.firstChild) {
@@ -613,7 +686,10 @@ export function WaveEngine({
         document.addEventListener('mouseup', handleMouseUp, { passive: false });
       }
 
-      // Start animation
+      console.log('Three.js scene initialized successfully');
+      
+      // Setup wave mesh and start animation
+      setupWaveMesh();
       startAnimation();
 
     } catch (error) {
@@ -637,6 +713,23 @@ export function WaveEngine({
       const elapsed = (Date.now() - startTimeRef.current) / 1000;
       uniformsRef.current.u_time.value = elapsed;
       uniformsRef.current.u_constantTime.value = Date.now();
+
+      // Update reveal animation
+      if (isRevealingRef.current && revealStartTimeRef.current) {
+        const revealDuration = 1.5; // 1.5 seconds for reveal animation
+        const revealElapsed = (Date.now() - revealStartTimeRef.current) / 1000;
+        const revealProgress = Math.min(revealElapsed / revealDuration, 1.0);
+        
+        // Smooth easing function for reveal
+        const easedProgress = revealProgress * revealProgress * (3.0 - 2.0 * revealProgress); // smoothstep
+        uniformsRef.current.u_revealProgress.value = easedProgress;
+        
+        // Stop revealing when complete
+        if (revealProgress >= 1.0) {
+          isRevealingRef.current = false;
+          console.log('Reveal animation completed');
+        }
+      }
 
       // Debug: Log time every few seconds
       if (Math.floor(elapsed) % 5 === 0 && Math.floor(elapsed * 10) % 10 === 0) {
@@ -718,6 +811,11 @@ export function WaveEngine({
     uniformsRef.current.u_iridescenceWidth.value = config.iridescenceWidth;
     uniformsRef.current.u_iridescenceSpeed.value = config.iridescenceSpeed;
     uniformsRef.current.u_flowMixAmount.value = config.flowMixAmount;
+    
+    // Update background color based on theme
+    uniformsRef.current.u_backgroundColor.value = theme === 'dark' 
+      ? new THREE.Color(0x0a0a0a) 
+      : new THREE.Color(0xffffff);
 
     // Force material uniform updates
     if (meshRef.current.material instanceof THREE.ShaderMaterial) {
@@ -729,6 +827,8 @@ export function WaveEngine({
       initializeCameraState();
       updateCameraFromState();
     }
+    
+    // Don't restart reveal animation on config changes, only on initial setup
   }, [config, theme, interactive, initializeCameraState, updateCameraFromState]);
 
   // ============================================================================
@@ -772,6 +872,9 @@ export function WaveEngine({
     sceneRef.current = null;
     cameraRef.current = null;
     uniformsRef.current = null;
+    isInitializedRef.current = false; // Reset initialization flag
+    revealStartTimeRef.current = null;
+    isRevealingRef.current = false;
   }, [interactive, handleMouseDown, handleMouseMove, handleMouseUp, handleWheel, handleDoubleClick]);
 
   // ============================================================================
@@ -781,47 +884,64 @@ export function WaveEngine({
   const handleResize = useCallback(() => {
     if (!rendererRef.current || !cameraRef.current || !uniformsRef.current) return;
 
+    const { width: currentWidth, height: currentHeight } = dimensionsRef.current;
+
     // Update renderer size
-    rendererRef.current.setSize(width, height);
+    rendererRef.current.setSize(currentWidth, currentHeight);
     rendererRef.current.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
     // Update camera aspect ratio
-    cameraRef.current.aspect = width / height;
+    cameraRef.current.aspect = currentWidth / currentHeight;
     cameraRef.current.updateProjectionMatrix();
 
     // Update uniform resolution
-    uniformsRef.current.u_resolution.value.set(width, height);
+    uniformsRef.current.u_resolution.value.set(currentWidth, currentHeight);
 
     // Force a render
     if (sceneRef.current) {
       rendererRef.current.render(sceneRef.current, cameraRef.current);
     }
-  }, [width, height]);
+  }, []);
 
   // ============================================================================
   // EFFECTS
   // ============================================================================
 
+  // Initialize Three.js only once when component mounts
   useEffect(() => {
-    initializeThreeJS();
-    return cleanup;
-  }, [initializeThreeJS, cleanup]);
+    // Add a small delay to prevent multiple initializations during fast refresh
+    const timer = setTimeout(() => {
+      if (dimensionsRef.current.width > 0 && dimensionsRef.current.height > 0 && !rendererRef.current) {
+        initializeThreeJS();
+      }
+    }, 50);
 
-  useEffect(() => {
-    updateConfiguration();
-  }, [updateConfiguration]);
+    return () => {
+      clearTimeout(timer);
+      cleanup();
+    };
+  }, []); // Empty dependency array - only run once on mount
 
-  // Handle resize
+  // Setup wave mesh when config is available and Three.js is initialized
   useEffect(() => {
-    handleResize();
-  }, [handleResize]);
+    if (rendererRef.current && sceneRef.current && !meshRef.current) {
+      setupWaveMesh();
+    }
+  }, [setupWaveMesh]);
 
-  // Force re-render when config changes for real-time preview
+  // Update configuration when config or theme changes (without re-initializing)
   useEffect(() => {
-    if (uniformsRef.current) {
+    if (uniformsRef.current && meshRef.current) {
       updateConfiguration();
     }
   }, [config, theme, updateConfiguration]);
+
+  // Handle resize when dimensions change
+  useEffect(() => {
+    if (rendererRef.current && cameraRef.current) {
+      handleResize();
+    }
+  }, [width, height]);
 
   // ============================================================================
   // RENDER

@@ -77,6 +77,8 @@ export async function GET() {
     });
 
     if (!homepageConfig) {
+      console.log('No homepage config found, returning default configuration');
+      
       // Return default configuration if none exists
       const defaultConfig: HomepageConfig = {
         sections: [
@@ -92,7 +94,8 @@ export async function GET() {
               theme: 'default',
               showScrollIndicator: true,
               ctaText: 'View My Work',
-              ctaLink: '#projects'
+              ctaLink: '#projects',
+              enableWaveBackground: true
             }
           },
           {

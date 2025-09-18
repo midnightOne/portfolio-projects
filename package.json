@@ -13,6 +13,8 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed-homepage": "node scripts/seed-homepage-config.js",
+    "db:post-reset": "node scripts/post-reset-setup.js",
     "db:setup": "tsx scripts/setup-database.ts",
     "db:test": "tsx scripts/test-db-connection.ts",
     "db:test-adapters": "tsx scripts/test-adapters-only.ts",

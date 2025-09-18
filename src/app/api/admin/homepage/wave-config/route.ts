@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 import type { WaveConfiguration } from '@/components/ui/wave-background/wave-engine';
+import { defaultWaveConfig } from '@/lib/constants/wave-config';
 
 // ============================================================================
 // VALIDATION SCHEMAS
@@ -49,39 +50,6 @@ const WaveConfigurationSchema = z.object({
 });
 
 // ============================================================================
-// DEFAULT CONFIGURATION
-// ============================================================================
-
-const defaultWaveConfig: WaveConfiguration = {
-  id: 'default',
-  name: 'Default Wave',
-  isActive: true,
-  wavesX: 2.0,
-  wavesY: 1.5,
-  displacementHeight: 0.8,
-  speedX: 0.002,
-  speedY: 0.001,
-  cylinderBend: 0.3,
-  lightTheme: {
-    primaryColor: '#6366f1',
-    valleyColor: '#e0e7ff',
-    peakColor: '#a855f7'
-  },
-  darkTheme: {
-    primaryColor: '#4f46e5',
-    valleyColor: '#1e1b4b',
-    peakColor: '#7c3aed'
-  },
-  iridescenceWidth: 20.0,
-  iridescenceSpeed: 0.005,
-  flowMixAmount: 0.4,
-  cameraPosition: { x: 0, y: 0, z: 5 },
-  cameraRotation: { x: 0, y: 0, z: 0 },
-  cameraZoom: 1.0,
-  cameraTarget: { x: 0, y: 0, z: 0 }
-};
-
-// ============================================================================
 // GET WAVE CONFIGURATION
 // ============================================================================
 
@@ -90,7 +58,8 @@ export async function GET() {
     // Fetch the homepage configuration from database
     const homepageConfig = await prisma.homepageConfig.findFirst();
     
-    if (!homepageConfig || !homepageConfig.waveConfig) {
+    if (!homepageConfig) {
+      console.log('No homepage config found, returning default wave config');
       // Return default configuration if none exists
       return NextResponse.json({
         success: true,
@@ -98,18 +67,34 @@ export async function GET() {
       });
     }
 
-    // Return the stored wave configuration
+    // Check if waveConfig exists and is valid
+    let waveConfig = defaultWaveConfig;
+    if (homepageConfig.waveConfig && typeof homepageConfig.waveConfig === 'object') {
+      try {
+        // Ensure the wave config has all required fields
+        waveConfig = {
+          ...defaultWaveConfig,
+          ...homepageConfig.waveConfig
+        };
+      } catch (parseError) {
+        console.warn('Invalid wave config in database, using default:', parseError);
+        waveConfig = defaultWaveConfig;
+      }
+    }
+
+    // Return the wave configuration
     return NextResponse.json({
       success: true,
-      data: { config: homepageConfig.waveConfig }
+      data: { config: waveConfig }
     });
 
   } catch (error) {
     console.error('Error fetching wave configuration:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch wave configuration' },
-      { status: 500 }
-    );
+    // Return default config even on error to prevent homepage from breaking
+    return NextResponse.json({
+      success: true,
+      data: { config: defaultWaveConfig }
+    });
   }
 }
 
@@ -173,16 +158,52 @@ export async function PUT(request: NextRequest) {
       let homepageConfig = await tx.homepageConfig.findFirst();
       
       if (!homepageConfig) {
+        console.log('Creating new homepage config with wave configuration');
+        
+        // Default sections for new homepage config
+        const defaultSections = [
+          {
+            id: 'hero-main',
+            type: 'hero',
+            enabled: true,
+            order: 1,
+            config: {
+              title: 'John Doe',
+              subtitle: 'Full Stack Developer',
+              description: 'Building digital experiences that make a difference.',
+              theme: 'default',
+              showScrollIndicator: true,
+              ctaText: 'View My Work',
+              ctaLink: '#projects',
+              enableWaveBackground: true
+            }
+          }
+        ];
+        
         // Create new homepage config with default sections and wave config
         homepageConfig = await tx.homepageConfig.create({
           data: {
-            sections: [],
+            sections: defaultSections,
             globalTheme: 'default',
             layout: 'standard',
             waveConfig: waveConfig
           }
         });
+        
+        // Create the hero section config
+        await tx.sectionConfig.create({
+          data: {
+            homepageConfigId: homepageConfig.id,
+            sectionId: 'hero-main',
+            type: 'hero',
+            enabled: true,
+            order: 1,
+            config: defaultSections[0].config
+          }
+        });
+        
       } else {
+        console.log('Updating existing homepage config with wave configuration');
         // Update existing homepage config with new wave config
         homepageConfig = await tx.homepageConfig.update({
           where: { id: homepageConfig.id },
