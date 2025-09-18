@@ -834,6 +834,56 @@ The platform has processed over $2M in transactions in its first year, with 99.9
     console.log('⚠️  Skipping voice AI configuration seeding (serializers not available):', error instanceof Error ? error.message : 'Unknown error');
   }
 
+  // Seed test reflinks
+  try {
+    await prisma.aIReflink.upsert({
+      where: { code: 'test-basic' },
+      update: {},
+      create: {
+        code: 'test-basic',
+        name: 'Basic Test Reflink',
+        description: 'A basic reflink for testing with standard rate limits',
+        rateLimitTier: 'STANDARD',
+        dailyLimit: 50,
+        isActive: true,
+        enableVoiceAI: true,
+        enableJobAnalysis: true,
+        enableAdvancedNavigation: true,
+        recipientName: 'Test User',
+        recipientEmail: 'test@example.com',
+        customContext: 'This is a test reflink for basic functionality testing.',
+        tokenLimit: 10000,
+        spendLimit: 25.00,
+      }
+    });
+
+    await prisma.aIReflink.upsert({
+      where: { code: 'test-premium' },
+      update: {},
+      create: {
+        code: 'test-premium',
+        name: 'Premium Test Reflink',
+        description: 'A premium reflink for testing with higher limits and features',
+        rateLimitTier: 'PREMIUM',
+        dailyLimit: 500,
+        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year from now
+        isActive: true,
+        enableVoiceAI: true,
+        enableJobAnalysis: true,
+        enableAdvancedNavigation: true,
+        recipientName: 'Premium Test User',
+        recipientEmail: 'premium@example.com',
+        customContext: 'This is a premium test reflink with enhanced features and higher limits for comprehensive testing.',
+        tokenLimit: 100000,
+        spendLimit: 500.00,
+      }
+    });
+
+    console.log('✅ Test reflinks seeded successfully!');
+  } catch (error) {
+    console.log('⚠️  Error seeding reflinks:', error instanceof Error ? error.message : 'Unknown error');
+  }
+
   console.log('✅ Database seeded successfully!');
   console.log(`Created ${await prisma.tag.count()} tags`);
   console.log(`Created ${await prisma.project.count()} projects`);
@@ -842,6 +892,7 @@ The platform has processed over $2M in transactions in its first year, with 99.9
   console.log(`Created ${await prisma.aIModelConfig.count()} AI model configurations`);
   console.log(`Created ${await prisma.aIGeneralSettings.count()} AI general settings`);
   console.log(`Created ${await prisma.voiceProviderConfig.count()} voice provider configurations`);
+  console.log(`Created ${await prisma.aIReflink.count()} AI reflinks`);
 
   // Optional: Auto-index projects for immediate demo readiness
   // This ensures the project indexing admin interface shows data right away
