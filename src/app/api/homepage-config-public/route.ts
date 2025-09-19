@@ -1,49 +1,157 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
 import type { HomepageConfig } from '@/components/homepage/section-renderer';
 
-// Public endpoint for testing homepage configuration changes
+// GET /api/homepage-config-public - Get homepage configuration (public endpoint)
 export async function GET() {
   try {
-    // Get current configuration from the switcher
-    const switcherResponse = await fetch(`${process.env.NEXTAUTH_URL || 'http://localhost:3000'}/api/homepage-config-public/switch`);
-    
-    if (switcherResponse.ok) {
-      const switcherData = await switcherResponse.json();
+    // Get the current homepage configuration
+    let homepageConfig;
+    try {
+      homepageConfig = await prisma.homepageConfig.findFirst({
+        include: {
+          sectionConfigs: {
+            orderBy: { order: 'asc' }
+          }
+        }
+      });
+    } catch (dbError) {
+      console.error('Database error fetching homepage config:', dbError);
+      // Fall through to return default config
+      homepageConfig = null;
+    }
+
+    if (!homepageConfig) {
+      // Return default configuration if none exists
+      const defaultConfig: HomepageConfig = {
+        sections: [
+          {
+            id: 'hero-main',
+            type: 'hero',
+            enabled: true,
+            order: 1,
+            config: {
+              title: 'John Doe',
+              subtitle: 'Full Stack Developer',
+              description: 'Building digital experiences that make a difference.',
+              theme: 'default',
+              showScrollIndicator: true,
+              ctaText: 'View My Work',
+              ctaLink: '#projects'
+            }
+          },
+          {
+            id: 'about-main',
+            type: 'about',
+            enabled: true,
+            order: 2,
+            config: {
+              content: 'I\'m a passionate developer with expertise in modern web technologies. I love creating solutions that are both functional and beautiful.',
+              skills: ['React', 'TypeScript', 'Node.js', 'Python', 'PostgreSQL', 'Next.js'],
+              showSkills: true,
+              theme: 'default',
+              layout: 'side-by-side'
+            }
+          },
+          {
+            id: 'projects-main',
+            type: 'projects',
+            enabled: true,
+            order: 3,
+            config: {
+              config: {
+                title: 'Featured Projects',
+                description: 'A showcase of my recent work and projects',
+                variant: 'homepage',
+                maxItems: 6,
+                layout: 'grid',
+                columns: '3',
+                showSearch: false,
+                showFilters: false,
+                showSorting: false,
+                showViewToggle: false,
+                showViewCount: false,
+                openMode: 'modal',
+                spacing: 'normal',
+                theme: 'default'
+              }
+            }
+          },
+          {
+            id: 'contact-main',
+            type: 'contact',
+            enabled: true,
+            order: 4,
+            config: {
+              title: 'Get In Touch',
+              description: 'I\'m always interested in new opportunities and collaborations.',
+              showContactForm: true,
+              theme: 'default',
+              socialLinks: []
+            }
+          }
+        ],
+        globalTheme: 'default',
+        layout: 'standard'
+      };
+
       return NextResponse.json({
         success: true,
-        data: { config: switcherData.data.config }
+        data: { config: defaultConfig }
       });
     }
+
+    // Convert database format to component format
+    const config: HomepageConfig = {
+      sections: homepageConfig.sectionConfigs.map(section => ({
+        id: section.sectionId,
+        type: section.type as any,
+        enabled: section.enabled,
+        order: section.order,
+        config: section.config as Record<string, any>,
+        className: section.className || undefined
+      })),
+      globalTheme: homepageConfig.globalTheme,
+      layout: homepageConfig.layout as any
+    };
+
+    return NextResponse.json({
+      success: true,
+      data: { config }
+    });
+
+  } catch (error) {
+    console.error('Error fetching homepage config:', error);
     
-    // Fallback to default test configuration
-    const testConfig: HomepageConfig = {
+    // Return default configuration on error
+    const defaultConfig: HomepageConfig = {
       sections: [
-        {
-          id: 'contact-main',
-          type: 'contact',
-          enabled: true,
-          order: 1, // Moved contact to first
-          config: {
-            title: 'Contact Me First!',
-            description: 'This section has been moved to the top to demonstrate dynamic configuration.',
-            showContactForm: true,
-            theme: 'default',
-            socialLinks: []
-          }
-        },
         {
           id: 'hero-main',
           type: 'hero',
           enabled: true,
-          order: 2, // Hero moved to second
+          order: 1,
           config: {
-            title: 'Dynamic Configuration Test',
-            subtitle: 'Configuration Loaded from API',
-            description: 'This homepage is now loading its configuration dynamically from the API!',
+            title: 'John Doe',
+            subtitle: 'Full Stack Developer',
+            description: 'Building digital experiences that make a difference.',
             theme: 'default',
             showScrollIndicator: true,
-            ctaText: 'See Projects Below',
+            ctaText: 'View My Work',
             ctaLink: '#projects'
+          }
+        },
+        {
+          id: 'about-main',
+          type: 'about',
+          enabled: true,
+          order: 2,
+          config: {
+            content: 'I\'m a passionate developer with expertise in modern web technologies. I love creating solutions that are both functional and beautiful.',
+            skills: ['React', 'TypeScript', 'Node.js', 'Python', 'PostgreSQL', 'Next.js'],
+            showSkills: true,
+            theme: 'default',
+            layout: 'side-by-side'
           }
         },
         {
@@ -52,35 +160,35 @@ export async function GET() {
           enabled: true,
           order: 3,
           config: {
-            variant: 'homepage',
             config: {
-              maxItems: 4, // Changed from 6 to 4
+              title: 'Featured Projects',
+              description: 'A showcase of my recent work and projects',
+              variant: 'homepage',
+              maxItems: 6,
               layout: 'grid',
-              columns: 2, // Changed from 3 to 2
+              columns: '3',
               showSearch: false,
               showFilters: false,
               showSorting: false,
               showViewToggle: false,
-              theme: 'default',
-              spacing: 'normal',
+              showViewCount: false,
               openMode: 'modal',
-              sortBy: 'date',
-              title: 'My Projects (Dynamic Config)',
-              showViewCount: false
+              spacing: 'normal',
+              theme: 'default'
             }
           }
         },
         {
-          id: 'about-main',
-          type: 'about',
+          id: 'contact-main',
+          type: 'contact',
           enabled: true,
-          order: 4, // About moved to last
+          order: 4,
           config: {
-            content: 'This about section has been moved to the bottom through dynamic configuration. The homepage now loads its layout from the API!',
-            skills: ['Dynamic Configuration', 'React', 'TypeScript', 'Next.js', 'API Integration'],
-            showSkills: true,
+            title: 'Get In Touch',
+            description: 'I\'m always interested in new opportunities and collaborations.',
+            showContactForm: true,
             theme: 'default',
-            layout: 'side-by-side'
+            socialLinks: []
           }
         }
       ],
@@ -90,14 +198,7 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      data: { config: testConfig }
+      data: { config: defaultConfig }
     });
-
-  } catch (error) {
-    console.error('Error in public homepage config endpoint:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch homepage configuration' },
-      { status: 500 }
-    );
   }
 }

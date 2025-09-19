@@ -31,6 +31,7 @@ model Project {
   interactiveExamples InteractiveExample[]
   carousels           MediaCarousel[]
   mediaItems          MediaItem[]              @relation("ProjectMedia")
+  aiIndex             ProjectAIIndex?
   analytics           ProjectAnalytics[]
   referencedBy        ProjectReference[]       @relation("ReferencedProject")
   projectReferences   ProjectReference[]       @relation("ReferencingProject")
@@ -250,13 +251,51 @@ model AIGeneralSettings {
   @@map("ai_general_settings")
 }
 
+model ProjectAIIndex {
+  projectId     String   @id @db.VarChar(255)
+  summary       String
+  keywords      Json     @default("[]")
+  topics        Json     @default("[]")
+  technologies  Json     @default("[]")
+  sectionsCount Int      @default(0)
+  mediaCount    Int      @default(0)
+  contentHash   String?  @db.VarChar(255)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now())
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([contentHash])
+  @@index([updatedAt])
+  @@index([keywords], type: Gin)
+  @@index([topics], type: Gin)
+  @@index([technologies], type: Gin)
+  @@map("project_ai_index")
+}
+
+model AIContentSourceConfig {
+  id         String   @id @default(cuid())
+  sourceId   String   @unique
+  providerId String
+  enabled    Boolean  @default(true)
+  priority   Int      @default(50)
+  config     Json     @default("{}")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([sourceId])
+  @@index([enabled])
+  @@index([priority])
+  @@map("ai_content_source_config")
+}
+
 model HomepageConfig {
-  id          String          @id @default(cuid())
-  sections    Json
-  globalTheme String          @default("default")
-  layout      String          @default("standard")
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  id             String          @id @default(cuid())
+  sections       Json
+  globalTheme    String          @default("default")
+  layout         String          @default("standard")
+  waveConfig     Json?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
   sectionConfigs SectionConfig[]
 
   @@map("homepage_config")
@@ -279,6 +318,174 @@ model SectionConfig {
   @@index([homepageConfigId])
   @@index([order])
   @@map("section_configs")
+}
+
+model AIRateLimit {
+  id             String     @id @default(cuid())
+  identifier     String
+  identifierType String     @map("identifier_type")
+  requestsCount  Int        @default(0) @map("requests_count")
+  windowStart    DateTime   @map("window_start")
+  windowEnd      DateTime   @map("window_end")
+  reflinkId      String?    @map("reflink_id")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+  reflink        AIReflink? @relation(fields: [reflinkId], references: [id])
+
+  @@unique([identifier, identifierType, windowStart], name: "ai_rate_limits_identifier_window_idx")
+  @@index([windowEnd])
+  @@index([reflinkId])
+  @@map("ai_rate_limits")
+}
+
+model AIReflink {
+  id                       String           @id @default(cuid())
+  code                     String           @unique
+  name                     String?
+  description              String?
+  rateLimitTier            String           @default("standard") @map("rate_limit_tier")
+  dailyLimit               Int              @default(50) @map("daily_limit")
+  expiresAt                DateTime?        @map("expires_at")
+  isActive                 Boolean          @default(true) @map("is_active")
+  createdBy                String?          @map("created_by")
+  createdAt                DateTime         @default(now()) @map("created_at")
+  updatedAt                DateTime         @updatedAt @map("updated_at")
+  customContext            String?          @map("custom_context")
+  enableAdvancedNavigation Boolean          @default(true) @map("enable_advanced_navigation")
+  enableJobAnalysis        Boolean          @default(true) @map("enable_job_analysis")
+  enableVoiceAI            Boolean          @default(true) @map("enable_voice_ai")
+  lastUsedAt               DateTime?        @map("last_used_at")
+  recipientEmail           String?          @map("recipient_email") @db.VarChar(255)
+  recipientName            String?          @map("recipient_name") @db.VarChar(255)
+  spendLimit               Decimal?         @map("spend_limit") @db.Decimal(10, 2)
+  spendUsed                Decimal          @default(0.00) @map("spend_used") @db.Decimal(10, 2)
+  tokenLimit               Int?             @map("token_limit")
+  tokensUsed               Int              @default(0) @map("tokens_used")
+  conversations            AIConversation[]
+  jobAnalyses              AIJobAnalysis[]
+  usageLogs                AIRateLimitLog[]
+  rateLimits               AIRateLimit[]
+  aiUsageLogs              AIUsageLog[]
+
+  @@index([isActive])
+  @@index([expiresAt])
+  @@index([recipientEmail])
+  @@map("ai_reflinks")
+}
+
+model AIIPBlacklist {
+  id               String    @id @default(cuid())
+  ipAddress        String    @unique @map("ip_address")
+  reason           String
+  violationCount   Int       @default(1) @map("violation_count")
+  firstViolationAt DateTime  @default(now()) @map("first_violation_at")
+  lastViolationAt  DateTime  @default(now()) @map("last_violation_at")
+  blockedAt        DateTime  @default(now()) @map("blocked_at")
+  canReinstate     Boolean   @default(true) @map("can_reinstate")
+  reinstatedAt     DateTime? @map("reinstated_at")
+  reinstatedBy     String?   @map("reinstated_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@index([blockedAt])
+  @@map("ai_ip_blacklist")
+}
+
+model AIRateLimitLog {
+  id                String     @id @default(cuid())
+  identifier        String
+  identifierType    String     @map("identifier_type")
+  reflinkId         String?    @map("reflink_id")
+  endpoint          String
+  userAgent         String?    @map("user_agent")
+  ipAddress         String?    @map("ip_address")
+  wasBlocked        Boolean    @default(false) @map("was_blocked")
+  requestsRemaining Int?       @map("requests_remaining")
+  timestamp         DateTime   @default(now())
+  reflink           AIReflink? @relation(fields: [reflinkId], references: [id])
+
+  @@index([identifier, identifierType])
+  @@index([timestamp])
+  @@index([reflinkId])
+  @@index([wasBlocked])
+  @@map("ai_rate_limit_logs")
+}
+
+model AIUsageLog {
+  id         String     @id @default(cuid())
+  reflinkId  String?    @map("reflink_id")
+  sessionId  String?    @map("session_id")
+  usageType  String     @map("usage_type")
+  tokensUsed Int?       @map("tokens_used")
+  costUsd    Decimal    @map("cost_usd") @db.Decimal(10, 4)
+  modelUsed  String?    @map("model_used")
+  endpoint   String?
+  metadata   Json       @default("{}")
+  timestamp  DateTime   @default(now())
+  reflink    AIReflink? @relation(fields: [reflinkId], references: [id])
+
+  @@index([reflinkId])
+  @@index([timestamp])
+  @@index([usageType])
+  @@map("ai_usage_logs")
+}
+
+model AIConversation {
+  id            String                  @id @default(cuid())
+  reflinkId     String?                 @map("reflink_id")
+  sessionId     String                  @map("session_id")
+  messageCount  Int                     @default(0) @map("message_count")
+  totalTokens   Int                     @default(0) @map("total_tokens")
+  totalCost     Decimal                 @default(0.0000) @map("total_cost") @db.Decimal(10, 4)
+  startedAt     DateTime                @default(now()) @map("started_at")
+  lastMessageAt DateTime?               @map("last_message_at")
+  metadata      Json                    @default("{}")
+  messages      AIConversationMessage[]
+  reflink       AIReflink?              @relation(fields: [reflinkId], references: [id])
+
+  @@index([reflinkId])
+  @@index([sessionId])
+  @@index([startedAt])
+  @@map("ai_conversations")
+}
+
+model AIConversationMessage {
+  id             String         @id @default(cuid())
+  conversationId String         @map("conversation_id")
+  role           String
+  content        String
+  tokensUsed     Int?           @map("tokens_used")
+  costUsd        Decimal?       @map("cost_usd") @db.Decimal(10, 4)
+  modelUsed      String?        @map("model_used")
+  transportMode  String?        @map("transport_mode")
+  timestamp      DateTime       @default(now())
+  metadata       Json           @default("{}")
+  conversation   AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([timestamp])
+  @@index([role])
+  @@map("ai_conversation_messages")
+}
+
+model AIJobAnalysis {
+  id               String     @id @default(cuid())
+  reflinkId        String?    @map("reflink_id")
+  sessionId        String?    @map("session_id")
+  jobSpecification String     @map("job_specification")
+  companyName      String?    @map("company_name")
+  positionTitle    String?    @map("position_title")
+  analysisResult   Json       @map("analysis_result")
+  tokensUsed       Int?       @map("tokens_used")
+  costUsd          Decimal?   @map("cost_usd") @db.Decimal(10, 4)
+  createdAt        DateTime   @default(now()) @map("created_at")
+  metadata         Json       @default("{}")
+  reflink          AIReflink? @relation(fields: [reflinkId], references: [id])
+
+  @@index([reflinkId])
+  @@index([createdAt])
+  @@index([companyName])
+  @@map("ai_job_analyses")
 }
 
 enum ProjectStatus {
@@ -324,4 +531,28 @@ enum AnalyticsEvent {
   INTERACTIVE_ENGAGE
 
   @@map("analytics_event")
+}
+
+model VoiceProviderConfig {
+  id        String   @id @default(cuid())
+  provider  String   // 'openai' | 'elevenlabs'
+  name      String   // User-defined config name (e.g., "Professional", "Casual", "Technical")
+  isDefault Boolean  @default(false) @map("is_default")
+  configJson String  @map("config_json") // Serialized provider-specific configuration
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([provider, name])
+  @@index([provider])
+  @@index([isDefault])
+  @@map("voice_provider_configs")
+}
+
+enum AIRateLimitTier {
+  BASIC
+  STANDARD
+  PREMIUM
+  UNLIMITED
+
+  @@map("ai_rate_limit_tier")
 }

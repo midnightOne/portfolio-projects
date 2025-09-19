@@ -15,24 +15,49 @@ export function useHomepageConfig(): UseHomepageConfigResult {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchConfig = async () => {
+  const fetchConfig = async (retryCount = 0) => {
     try {
       setLoading(true);
       setError(null);
       
-      // Try the admin endpoint first, fall back to public endpoint for testing
-      let response = await fetch('/api/admin/homepage/config');
+      // Try the public endpoint first for better reliability
+      let response = await fetch('/api/homepage-config-public', {
+        cache: 'no-cache',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        }
+      });
       
-      // If admin endpoint fails (likely due to auth), try public endpoint
-      if (!response.ok && response.status === 401) {
-        response = await fetch('/api/homepage-config-public');
+      // If public endpoint fails, try admin endpoint (for authenticated users)
+      if (!response.ok) {
+        console.warn('Public homepage config endpoint failed, trying admin endpoint');
+        response = await fetch('/api/admin/homepage/config', {
+          cache: 'no-cache',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          }
+        });
       }
       
       if (!response.ok) {
         throw new Error(`Failed to fetch homepage configuration: ${response.statusText}`);
       }
       
-      const data = await response.json();
+      // Check if response is JSON
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('Invalid response format - expected JSON');
+      }
+      
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        console.error('JSON parsing error:', jsonError);
+        throw new Error('Failed to parse response as JSON');
+      }
       
       if (!data.success) {
         throw new Error(data.error || 'Failed to fetch homepage configuration');
@@ -41,6 +66,14 @@ export function useHomepageConfig(): UseHomepageConfigResult {
       setConfig(data.data.config);
     } catch (err) {
       console.error('Error fetching homepage config:', err);
+      
+      // Retry once if this is the first attempt
+      if (retryCount === 0) {
+        console.log('Retrying homepage config fetch...');
+        setTimeout(() => fetchConfig(1), 1000);
+        return;
+      }
+      
       setError(err instanceof Error ? err.message : 'Failed to fetch homepage configuration');
       
       // Fallback to default configuration

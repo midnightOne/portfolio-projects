@@ -25,13 +25,15 @@ function ProjectsPageContent() {
 
   // Handle URL-based project opening
   React.useEffect(() => {
+    if (!searchParams) return;
+    
     const projectSlug = searchParams.get('project');
     if (projectSlug && !projectModalOpen) {
       handleProjectClick(projectSlug, false);
     } else if (!projectSlug && projectModalOpen) {
       handleCloseModal(false);
     }
-  }, [searchParams.get('project')]);
+  }, [searchParams?.get('project')]);
 
   const fetchProjectDetails = async (projectSlug: string): Promise<ProjectWithRelations | null> => {
     try {

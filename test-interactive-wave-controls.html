@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Wave Controls Test</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #f0f0f0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .test-section {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        label {
+            font-weight: bold;
+            font-size: 12px;
+            color: #666;
+        }
+        input[type="range"] {
+            width: 100%;
+        }
+        .value-display {
+            font-size: 11px;
+            color: #888;
+            text-align: center;
+        }
+        .instructions {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        .instructions h3 {
+            margin: 0 0 10px 0;
+            color: #1976d2;
+        }
+        .instructions ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+        .camera-info {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+        .preview-container {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #000;
+            position: relative;
+        }
+        .status {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Interactive Wave Camera Controls Test</h1>
+        
+        <div class="test-section">
+            <div class="instructions">
+                <h3>🎮 Interactive Controls</h3>
+                <ul>
+                    <li><strong>Left Click + Drag:</strong> Rotate camera around the wave</li>
+                    <li><strong>Middle Click + Drag:</strong> Pan camera position</li>
+                    <li><strong>Scroll Wheel:</strong> Zoom in/out</li>
+                    <li><strong>Sliders:</strong> Fine-tune camera position and rotation</li>
+                </ul>
+                <p><strong>Note:</strong> Camera changes are automatically saved and should be consistent across different resolutions.</p>
+            </div>
+
+            <div class="controls">
+                <div class="control-group">
+                    <label>Position X</label>
+                    <input type="range" id="posX" min="-10" max="10" step="0.1" value="0">
+                    <div class="value-display" id="posX-value">0.0</div>
+                </div>
+                <div class="control-group">
+                    <label>Position Y</label>
+                    <input type="range" id="posY" min="-10" max="10" step="0.1" value="0">
+                    <div class="value-display" id="posY-value">0.0</div>
+                </div>
+                <div class="control-group">
+                    <label>Position Z</label>
+                    <input type="range" id="posZ" min="1" max="15" step="0.1" value="5">
+                    <div class="value-display" id="posZ-value">5.0</div>
+                </div>
+                <div class="control-group">
+                    <label>Rotation X (Pitch)</label>
+                    <input type="range" id="rotX" min="-90" max="90" step="1" value="0">
+                    <div class="value-display" id="rotX-value">0°</div>
+                </div>
+                <div class="control-group">
+                    <label>Rotation Y (Yaw)</label>
+                    <input type="range" id="rotY" min="-180" max="180" step="1" value="0">
+                    <div class="value-display" id="rotY-value">0°</div>
+                </div>
+                <div class="control-group">
+                    <label>Zoom</label>
+                    <input type="range" id="zoom" min="0.1" max="5" step="0.1" value="1">
+                    <div class="value-display" id="zoom-value">1.0x</div>
+                </div>
+            </div>
+
+            <div class="camera-info" id="camera-info">
+                Camera State: Loading...
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h3>Live Preview</h3>
+            <div class="preview-container">
+                <div class="status" id="status">Initializing...</div>
+                <iframe 
+                    src="/admin/homepage" 
+                    width="100%" 
+                    height="600"
+                    frameborder="0"
+                    id="preview-frame">
+                </iframe>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Test configuration
+        const testConfig = {
+            position: { x: 0, y: 0, z: 5 },
+            rotation: { x: 0, y: 0, z: 0 },
+            zoom: 1.0,
+            target: { x: 0, y: 0, z: 0 }
+        };
+
+        // Update display values
+        function updateDisplays() {
+            document.getElementById('posX-value').textContent = testConfig.position.x.toFixed(1);
+            document.getElementById('posY-value').textContent = testConfig.position.y.toFixed(1);
+            document.getElementById('posZ-value').textContent = testConfig.position.z.toFixed(1);
+            document.getElementById('rotX-value').textContent = testConfig.rotation.x + '°';
+            document.getElementById('rotY-value').textContent = testConfig.rotation.y + '°';
+            document.getElementById('zoom-value').textContent = testConfig.zoom.toFixed(1) + 'x';
+            
+            document.getElementById('camera-info').innerHTML = `
+                Position: (${testConfig.position.x.toFixed(2)}, ${testConfig.position.y.toFixed(2)}, ${testConfig.position.z.toFixed(2)})<br>
+                Rotation: (${testConfig.rotation.x}°, ${testConfig.rotation.y}°, ${testConfig.rotation.z}°)<br>
+                Zoom: ${testConfig.zoom.toFixed(2)}x<br>
+                Target: (${testConfig.target.x.toFixed(2)}, ${testConfig.target.y.toFixed(2)}, ${testConfig.target.z.toFixed(2)})
+            `;
+        }
+
+        // Slider event listeners
+        document.getElementById('posX').addEventListener('input', (e) => {
+            testConfig.position.x = parseFloat(e.target.value);
+            updateDisplays();
+            testCameraUpdate();
+        });
+
+        document.getElementById('posY').addEventListener('input', (e) => {
+            testConfig.position.y = parseFloat(e.target.value);
+            updateDisplays();
+            testCameraUpdate();
+        });
+
+        document.getElementById('posZ').addEventListener('input', (e) => {
+            testConfig.position.z = parseFloat(e.target.value);
+            updateDisplays();
+            testCameraUpdate();
+        });
+
+        document.getElementById('rotX').addEventListener('input', (e) => {
+            testConfig.rotation.x = parseInt(e.target.value);
+            updateDisplays();
+            testCameraUpdate();
+        });
+
+        document.getElementById('rotY').addEventListener('input', (e) => {
+            testConfig.rotation.y = parseInt(e.target.value);
+            updateDisplays();
+            testCameraUpdate();
+        });
+
+        document.getElementById('zoom').addEventListener('input', (e) => {
+            testConfig.zoom = parseFloat(e.target.value);
+            updateDisplays();
+            testCameraUpdate();
+        });
+
+        // Test camera update
+        async function testCameraUpdate() {
+            try {
+                const response = await fetch('/api/admin/homepage/wave-config', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        id: 'test',
+                        name: 'Test Configuration',
+                        isActive: true,
+                        wavesX: 2.0,
+                        wavesY: 1.5,
+                        displacementHeight: 0.8,
+                        speedX: 0.002,
+                        speedY: 0.001,
+                        cylinderBend: 0.3,
+                        lightTheme: {
+                            primaryColor: '#6366f1',
+                            valleyColor: '#e0e7ff',
+                            peakColor: '#a855f7'
+                        },
+                        darkTheme: {
+                            primaryColor: '#4f46e5',
+                            valleyColor: '#1e1b4b',
+                            peakColor: '#7c3aed'
+                        },
+                        iridescenceWidth: 20.0,
+                        iridescenceSpeed: 0.005,
+                        flowMixAmount: 0.4,
+                        cameraPosition: testConfig.position,
+                        cameraRotation: testConfig.rotation,
+                        cameraZoom: testConfig.zoom,
+                        cameraTarget: testConfig.target
+                    })
+                });
+
+                if (response.ok) {
+                    document.getElementById('status').textContent = 'Camera Updated ✓';
+                    document.getElementById('status').style.background = 'rgba(0,128,0,0.7)';
+                } else {
+                    throw new Error('Failed to update camera');
+                }
+            } catch (error) {
+                console.error('Camera update error:', error);
+                document.getElementById('status').textContent = 'Update Failed ✗';
+                document.getElementById('status').style.background = 'rgba(128,0,0,0.7)';
+            }
+        }
+
+        // Initialize
+        updateDisplays();
+        document.getElementById('status').textContent = 'Ready for Testing';
+        document.getElementById('status').style.background = 'rgba(0,0,128,0.7)';
+
+        // Test resolution consistency
+        function testResolutionConsistency() {
+            const sizes = [
+                { width: 1920, height: 1080, name: 'Desktop' },
+                { width: 1366, height: 768, name: 'Laptop' },
+                { width: 768, height: 1024, name: 'Tablet' },
+                { width: 375, height: 667, name: 'Mobile' }
+            ];
+
+            console.log('Testing resolution consistency...');
+            sizes.forEach(size => {
+                console.log(`${size.name} (${size.width}x${size.height}): Camera should maintain visual consistency`);
+            });
+        }
+
+        // Run resolution test after 2 seconds
+        setTimeout(testResolutionConsistency, 2000);
+    </script>
+</body>
+</html>

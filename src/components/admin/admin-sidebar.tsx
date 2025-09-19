@@ -49,6 +49,11 @@ import {
   User,
   ChevronRight,
   Loader2,
+  Database,
+  SlidersHorizontal,
+  Shield,
+  Bug,
+  Mic,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useAdminProjects } from "@/hooks/use-admin-projects";
@@ -303,13 +308,134 @@ export function AdminSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
-                  isActive={isItemActive('/admin/ai')}
+                  isActive={pathname === '/admin/ai'}
                   onClick={() => router.push('/admin/ai')}
                 >
                   <a href="/admin/ai" className="flex items-center gap-2">
                     <Settings className="size-4" />
                     <span>AI Settings</span>
                   </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/content-sources')}
+                >
+                  <Link href="/admin/ai/content-sources" className="flex items-center gap-2">
+                    <FileText className="size-4" />
+                    <span>Content Sources</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/project-indexing')}
+                >
+                  <Link href="/admin/ai/project-indexing" className="flex items-center gap-2">
+                    <Database className="size-4" />
+                    <span>Project Indexing</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/context-config')}
+                >
+                  <Link href="/admin/ai/context-config" className="flex items-center gap-2">
+                    <SlidersHorizontal className="size-4" />
+                    <span>Context Config</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/rate-limiting')}
+                >
+                  <Link href="/admin/ai/rate-limiting" className="flex items-center gap-2">
+                    <BarChart3 className="size-4" />
+                    <span>Rate Limiting</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/reflinks')}
+                >
+                  <Link href="/admin/ai/reflinks" className="flex items-center gap-2">
+                    <Hash className="size-4" />
+                    <span>Reflinks</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/security')}
+                >
+                  <Link href="/admin/ai/security" className="flex items-center gap-2">
+                    <Shield className="size-4" />
+                    <span>Security</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/abuse-detection')}
+                >
+                  <Link href="/admin/ai/abuse-detection" className="flex items-center gap-2">
+                    <Bot className="size-4" />
+                    <span>Abuse Detection</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/debug')}
+                >
+                  <Link href="/admin/ai/debug" className="flex items-center gap-2">
+                    <Bug className="size-4" />
+                    <span>Debug & Test Panel</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/voice-debug')}
+                >
+                  <Link href="/admin/ai/voice-debug" className="flex items-center gap-2">
+                    <Mic className="size-4" />
+                    <span>Voice Debug</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/voice-config')}
+                >
+                  <Link href="/admin/ai/voice-config" className="flex items-center gap-2">
+                    <Settings className="size-4" />
+                    <span>Voice Config</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/voice-analytics')}
+                >
+                  <Link href="/admin/ai/voice-analytics" className="flex items-center gap-2">
+                    <BarChart3 className="size-4" />
+                    <span>Voice Analytics</span>
+                  </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>

@@ -13,12 +13,14 @@ import {
   Plus,
   AlertCircle,
   CheckCircle,
-  Loader2
+  Loader2,
+  Zap
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { SectionOrderManager } from './section-order-manager';
 import { SectionConfigEditor } from './section-config-editor';
 import { HomepagePreview } from './homepage-preview';
+import { WaveConfigPanel } from './wave-config-panel';
 import type { HomepageConfig, SectionConfig } from '@/components/homepage/section-renderer';
 
 // ============================================================================
@@ -38,6 +40,7 @@ interface EditorState {
   error: string | null;
   selectedSectionId: string | null;
   showPreview: boolean;
+  activeTab: 'sections' | 'wave-config';
 }
 
 // ============================================================================
@@ -55,7 +58,8 @@ export function HomepageEditor({ className }: HomepageEditorProps) {
     isSaving: false,
     error: null,
     selectedSectionId: null,
-    showPreview: false
+    showPreview: false,
+    activeTab: 'sections'
   });
 
   // ============================================================================
@@ -380,7 +384,29 @@ export function HomepageEditor({ className }: HomepageEditorProps) {
   return (
     <div className={className}>
       {/* Header */}
-      <div className="flex items-center justify-end mb-6">
+      <div className="flex items-center justify-between mb-6">
+        {/* Tab Navigation */}
+        <div className="flex items-center gap-1 p-1 bg-muted rounded-lg">
+          <Button
+            variant={state.activeTab === 'sections' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setState(prev => ({ ...prev, activeTab: 'sections' }))}
+            className="flex items-center gap-2"
+          >
+            <Settings className="h-4 w-4" />
+            Sections
+          </Button>
+          <Button
+            variant={state.activeTab === 'wave-config' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => setState(prev => ({ ...prev, activeTab: 'wave-config' }))}
+            className="flex items-center gap-2"
+          >
+            <Zap className="h-4 w-4" />
+            Wave Background
+          </Button>
+        </div>
+        
         {renderActionButtons()}
       </div>
 
@@ -408,87 +434,93 @@ export function HomepageEditor({ className }: HomepageEditorProps) {
         )}
       </AnimatePresence>
 
-      {/* Main Editor - Bento Grid Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Section Order Manager - Large Card */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Section Order & Visibility</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Drag to reorder sections and toggle their visibility
-            </p>
-          </CardHeader>
-          <CardContent>
-            <SectionOrderManager
-              sections={state.config.sections}
-              onReorder={handleSectionReorder}
-              onToggleSection={handleSectionToggle}
-              onSelectSection={(sectionId) => 
-                setState(prev => ({ ...prev, selectedSectionId: sectionId }))
-              }
-              selectedSectionId={state.selectedSectionId}
-            />
-          </CardContent>
-        </Card>
-
-        {/* Global Settings - Compact Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Global Settings</CardTitle>
-            <p className="text-sm text-muted-foreground">
-              Configure global theme and layout options
-            </p>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <label className="text-sm font-medium">Global Theme</label>
-              <select
-                value={state.config.globalTheme}
-                onChange={(e) => handleGlobalThemeChange(e.target.value)}
-                className="w-full mt-1 p-2 border rounded-md"
-              >
-                <option value="default">Default</option>
-                <option value="dark">Dark</option>
-                <option value="minimal">Minimal</option>
-                <option value="colorful">Colorful</option>
-              </select>
-            </div>
-            
-            <div>
-              <label className="text-sm font-medium">Layout</label>
-              <select
-                value={state.config.layout}
-                onChange={(e) => handleLayoutChange(e.target.value as any)}
-                className="w-full mt-1 p-2 border rounded-md"
-              >
-                <option value="standard">Standard</option>
-                <option value="single-page">Single Page</option>
-                <option value="multi-page">Multi Page</option>
-              </select>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Section Configuration Editor - Full Width */}
-        {state.selectedSectionId && (
-          <Card className="lg:col-span-3">
+      {/* Main Editor Content */}
+      {state.activeTab === 'sections' ? (
+        /* Sections Configuration */
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Section Order Manager - Large Card */}
+          <Card className="lg:col-span-2">
             <CardHeader>
-              <CardTitle>Section Configuration</CardTitle>
+              <CardTitle>Section Order & Visibility</CardTitle>
               <p className="text-sm text-muted-foreground">
-                Configure the selected section's content and appearance
+                Drag to reorder sections and toggle their visibility
               </p>
             </CardHeader>
             <CardContent>
-              <SectionConfigEditor
-                section={state.config.sections.find(s => s.id === state.selectedSectionId)!}
-                onConfigChange={(config) => 
-                  handleSectionConfigChange(state.selectedSectionId!, config)
+              <SectionOrderManager
+                sections={state.config.sections}
+                onReorder={handleSectionReorder}
+                onToggleSection={handleSectionToggle}
+                onSelectSection={(sectionId) => 
+                  setState(prev => ({ ...prev, selectedSectionId: sectionId }))
                 }
+                selectedSectionId={state.selectedSectionId}
               />
             </CardContent>
           </Card>
-        )}
-      </div>
+
+          {/* Global Settings - Compact Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Global Settings</CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Configure global theme and layout options
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <label className="text-sm font-medium">Global Theme</label>
+                <select
+                  value={state.config.globalTheme}
+                  onChange={(e) => handleGlobalThemeChange(e.target.value)}
+                  className="w-full mt-1 p-2 border rounded-md"
+                >
+                  <option value="default">Default</option>
+                  <option value="dark">Dark</option>
+                  <option value="minimal">Minimal</option>
+                  <option value="colorful">Colorful</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium">Layout</label>
+                <select
+                  value={state.config.layout}
+                  onChange={(e) => handleLayoutChange(e.target.value as any)}
+                  className="w-full mt-1 p-2 border rounded-md"
+                >
+                  <option value="standard">Standard</option>
+                  <option value="single-page">Single Page</option>
+                  <option value="multi-page">Multi Page</option>
+                </select>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Section Configuration Editor - Full Width */}
+          {state.selectedSectionId && (
+            <Card className="lg:col-span-3">
+              <CardHeader>
+                <CardTitle>Section Configuration</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Configure the selected section's content and appearance
+                </p>
+              </CardHeader>
+              <CardContent>
+                <SectionConfigEditor
+                  section={state.config.sections.find(s => s.id === state.selectedSectionId)!}
+                  onConfigChange={(config) => 
+                    handleSectionConfigChange(state.selectedSectionId!, config)
+                  }
+                />
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      ) : (
+        /* Wave Configuration */
+        <WaveConfigPanel />
+      )}
     </div>
   );
 }

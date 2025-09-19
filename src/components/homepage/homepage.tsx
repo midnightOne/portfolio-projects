@@ -248,29 +248,8 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
   // RENDER
   // ============================================================================
 
-  // Show loading state when fetching dynamic configuration
-  if (enableDynamicConfig && !config && configLoading) {
-    return (
-      <div className={cn('min-h-screen flex items-center justify-center', className)}>
-        <div className="flex items-center gap-3">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-          <span className="text-lg text-muted-foreground">Loading homepage...</span>
-        </div>
-      </div>
-    );
-  }
-
-  // Show error state if configuration failed to load
-  if (enableDynamicConfig && !config && configError) {
-    return (
-      <div className={cn('min-h-screen flex items-center justify-center', className)}>
-        <div className="text-center">
-          <div className="text-destructive mb-2">Failed to load homepage configuration</div>
-          <div className="text-sm text-muted-foreground">Using default configuration</div>
-        </div>
-      </div>
-    );
-  }
+  // Don't show loading states - render immediately with default config to prevent flicker
+  // The dynamic config will update the sections when loaded
 
   return (
     <div className={cn('min-h-screen', className)}>

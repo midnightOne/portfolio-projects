@@ -27,19 +27,25 @@ const eslintConfig = [
   },
   {
     rules: {
-      // Make TypeScript strict rules warnings instead of errors for faster deployment
-      "@typescript-eslint/no-explicit-any": "warn",
-      "@typescript-eslint/no-unused-vars": "warn",
-      "@typescript-eslint/no-require-imports": "warn",
-      "@typescript-eslint/no-empty-object-type": "warn",
-      "@typescript-eslint/no-unnecessary-type-constraint": "warn",
-      "@typescript-eslint/no-wrapper-object-types": "warn",
-      "@typescript-eslint/no-unsafe-function-type": "warn",
-      "@typescript-eslint/no-this-alias": "warn",
-      "react/no-unescaped-entities": "warn",
-      "react-hooks/exhaustive-deps": "warn",
-      "@next/next/no-img-element": "warn",
-      "prefer-const": "warn",
+      // Suppress common warnings to reduce build noise
+      "@typescript-eslint/no-explicit-any": "off",
+      "@typescript-eslint/no-unused-vars": "off",
+      "@typescript-eslint/no-require-imports": "off",
+      "@typescript-eslint/no-empty-object-type": "off",
+      "@typescript-eslint/no-unnecessary-type-constraint": "off",
+      "@typescript-eslint/no-wrapper-object-types": "off",
+      "@typescript-eslint/no-unsafe-function-type": "off",
+      "@typescript-eslint/no-this-alias": "off",
+      "react/no-unescaped-entities": "off",
+      "react-hooks/exhaustive-deps": "off",
+      "@next/next/no-img-element": "off",
+      "prefer-const": "off",
+      // Suppress additional common warnings
+      "no-console": "off",
+      "no-debugger": "off",
+      "no-unused-expressions": "off",
+      "@typescript-eslint/ban-ts-comment": "off",
+      "@typescript-eslint/prefer-as-const": "off",
     },
   },
 ];

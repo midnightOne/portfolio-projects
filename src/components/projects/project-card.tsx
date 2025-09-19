@@ -135,7 +135,7 @@ export function ProjectCard({
       className={cn(
         "group cursor-pointer border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm",
         "hover:shadow-xl hover:border-border overflow-hidden",
-        "active:shadow-lg transition-shadow touch-manipulation",
+        "active:shadow-lg transition-shadow touch-manipulation h-full flex flex-col",
         className
       )}
       onClick={handleClick}
@@ -148,7 +148,7 @@ export function ProjectCard({
       }}
     >
       {/* Thumbnail Image or Placeholder */}
-      <div className="relative aspect-video overflow-hidden rounded-t-xl">
+      <div className="relative aspect-[4/3] overflow-hidden rounded-t-xl">
         {thumbnailUrl ? (
           <motion.img
             src={thumbnailUrl}
@@ -233,9 +233,9 @@ export function ProjectCard({
         </motion.div>
       </div>
 
-      <CardHeader className="pb-3">
+      <CardHeader className="pb-3 pt-3">
         <div className="flex items-start justify-between gap-2">
-          <CardTitle className="text-lg font-semibold line-clamp-2 group-hover:text-primary transition-colors">
+          <CardTitle className="text-xl font-semibold line-clamp-2 group-hover:text-primary transition-colors">
             <HighlightedText 
               segments={titleSegments}
               highlightClassName="bg-yellow-200 dark:bg-yellow-800 font-medium rounded-sm px-0.5"
@@ -268,7 +268,7 @@ export function ProjectCard({
                 <Badge
                   variant="secondary"
                   className="text-xs"
-                  style={tag.color ? { backgroundColor: `${tag.color}20`, borderColor: tag.color } : undefined}
+                  //style={tag.color ? { backgroundColor: `${tag.color}20`, borderColor: tag.color } : undefined}
                 >
                   {tag.name}
                 </Badge>
@@ -290,10 +290,10 @@ export function ProjectCard({
         )}
       </CardHeader>
 
-      <CardContent className="pt-0">
+      <CardContent className="pt-3 pb-3 flex flex-col flex-grow">
         {/* Description */}
         {project.briefOverview && (
-          <div className="text-sm text-muted-foreground line-clamp-3 mb-3">
+          <div className="text-sm text-muted-foreground line-clamp-3 mb-3 flex-grow">
             {searchQuery ? (
               <SearchExcerpt
                 text={project.briefOverview}

@@ -733,6 +733,157 @@ The platform has processed over $2M in transactions in its first year, with 99.9
     },
   });
 
+  // Create voice AI configurations using the serialization system
+  try {
+    const { getSerializerForProvider } = await import('../src/lib/voice/config-serializers');
+    
+    // Create default OpenAI Realtime configuration
+    const openaiSerializer = getSerializerForProvider('openai');
+    const defaultOpenAIConfig = openaiSerializer.getDefaultConfig();
+    
+    await prisma.voiceProviderConfig.upsert({
+      where: { 
+        provider_name: {
+          provider: 'openai',
+          name: 'Default'
+        }
+      },
+      update: {},
+      create: {
+        provider: 'openai',
+        name: 'Default',
+        isDefault: true,
+        configJson: openaiSerializer.serialize(defaultOpenAIConfig),
+      },
+    });
+
+    // Create professional OpenAI configuration with different voice
+    const professionalOpenAIConfig = {
+      ...defaultOpenAIConfig,
+      displayName: 'Professional Assistant',
+      description: 'Professional voice assistant optimized for business interactions',
+      voice: 'marin' as const,
+      temperature: 0.5,
+      instructions: 'You are a professional AI assistant for a portfolio website. Speak clearly and professionally, focusing on the portfolio owner\'s expertise and accomplishments. Maintain a confident, knowledgeable tone suitable for business interactions.',
+    };
+
+    await prisma.voiceProviderConfig.upsert({
+      where: { 
+        provider_name: {
+          provider: 'openai',
+          name: 'Professional'
+        }
+      },
+      update: {},
+      create: {
+        provider: 'openai',
+        name: 'Professional',
+        isDefault: false,
+        configJson: openaiSerializer.serialize(professionalOpenAIConfig),
+      },
+    });
+
+    // Create casual OpenAI configuration
+    const casualOpenAIConfig = {
+      ...defaultOpenAIConfig,
+      displayName: 'Casual Assistant',
+      description: 'Friendly, conversational voice assistant for informal interactions',
+      voice: 'echo' as const,
+      temperature: 0.8,
+      instructions: 'You are a friendly AI assistant for a portfolio website. Use a conversational, approachable tone while still being informative. Feel free to be enthusiastic about the portfolio owner\'s projects and skills.',
+    };
+
+    await prisma.voiceProviderConfig.upsert({
+      where: { 
+        provider_name: {
+          provider: 'openai',
+          name: 'Casual'
+        }
+      },
+      update: {},
+      create: {
+        provider: 'openai',
+        name: 'Casual',
+        isDefault: false,
+        configJson: openaiSerializer.serialize(casualOpenAIConfig),
+      },
+    });
+
+    // Create default ElevenLabs configuration
+    const elevenLabsSerializer = getSerializerForProvider('elevenlabs');
+    const defaultElevenLabsConfig = elevenLabsSerializer.getDefaultConfig();
+
+    await prisma.voiceProviderConfig.upsert({
+      where: { 
+        provider_name: {
+          provider: 'elevenlabs',
+          name: 'Default'
+        }
+      },
+      update: {},
+      create: {
+        provider: 'elevenlabs',
+        name: 'Default',
+        isDefault: true,
+        configJson: elevenLabsSerializer.serialize(defaultElevenLabsConfig),
+      },
+    });
+
+    console.log('✅ Voice AI configurations seeded successfully!');
+  } catch (error) {
+    console.log('⚠️  Skipping voice AI configuration seeding (serializers not available):', error instanceof Error ? error.message : 'Unknown error');
+  }
+
+  // Seed test reflinks
+  try {
+    await prisma.aIReflink.upsert({
+      where: { code: 'test-basic' },
+      update: {},
+      create: {
+        code: 'test-basic',
+        name: 'Basic Test Reflink',
+        description: 'A basic reflink for testing with standard rate limits',
+        rateLimitTier: 'STANDARD',
+        dailyLimit: 50,
+        isActive: true,
+        enableVoiceAI: true,
+        enableJobAnalysis: true,
+        enableAdvancedNavigation: true,
+        recipientName: 'Test User',
+        recipientEmail: 'test@example.com',
+        customContext: 'This is a test reflink for basic functionality testing.',
+        tokenLimit: 10000,
+        spendLimit: 25.00,
+      }
+    });
+
+    await prisma.aIReflink.upsert({
+      where: { code: 'test-premium' },
+      update: {},
+      create: {
+        code: 'test-premium',
+        name: 'Premium Test Reflink',
+        description: 'A premium reflink for testing with higher limits and features',
+        rateLimitTier: 'PREMIUM',
+        dailyLimit: 500,
+        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year from now
+        isActive: true,
+        enableVoiceAI: true,
+        enableJobAnalysis: true,
+        enableAdvancedNavigation: true,
+        recipientName: 'Premium Test User',
+        recipientEmail: 'premium@example.com',
+        customContext: 'This is a premium test reflink with enhanced features and higher limits for comprehensive testing.',
+        tokenLimit: 100000,
+        spendLimit: 500.00,
+      }
+    });
+
+    console.log('✅ Test reflinks seeded successfully!');
+  } catch (error) {
+    console.log('⚠️  Error seeding reflinks:', error instanceof Error ? error.message : 'Unknown error');
+  }
+
   console.log('✅ Database seeded successfully!');
   console.log(`Created ${await prisma.tag.count()} tags`);
   console.log(`Created ${await prisma.project.count()} projects`);
@@ -740,6 +891,35 @@ The platform has processed over $2M in transactions in its first year, with 99.9
   console.log(`Created ${await prisma.externalLink.count()} external links`);
   console.log(`Created ${await prisma.aIModelConfig.count()} AI model configurations`);
   console.log(`Created ${await prisma.aIGeneralSettings.count()} AI general settings`);
+  console.log(`Created ${await prisma.voiceProviderConfig.count()} voice provider configurations`);
+  console.log(`Created ${await prisma.aIReflink.count()} AI reflinks`);
+
+  // Optional: Auto-index projects for immediate demo readiness
+  // This ensures the project indexing admin interface shows data right away
+  try {
+    console.log('🤖 Auto-indexing projects for AI features...');
+    
+    // Import the project indexer (only if available)
+    const { projectIndexer } = await import('../src/lib/services/project-indexer');
+    
+    // Index all created projects
+    const projects = [project1, project2, project3];
+    let indexedCount = 0;
+    
+    for (const project of projects) {
+      try {
+        await projectIndexer.indexProject(project.id);
+        indexedCount++;
+        console.log(`   ✓ Indexed: ${project.title}`);
+      } catch (error) {
+        console.log(`   ⚠ Failed to index ${project.title}:`, error instanceof Error ? error.message : 'Unknown error');
+      }
+    }
+    
+    console.log(`🎯 Auto-indexed ${indexedCount}/${projects.length} projects`);
+  } catch (error) {
+    console.log('ℹ️  Skipping auto-indexing (indexer not available during seed)');
+  }
 }
 
 main()

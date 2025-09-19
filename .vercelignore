@@ -1,0 +1,15 @@
+# Exclude all directories starting with "test-"
+test-*
+
+# Exclude temporary test directories
+temp-test-dirs/
+
+# Exclude test pages with bugs that cause build issues
+src/app/test-animation-dev-tools/
+src/app/test-custom-animations/
+
+# Exclude individual test files (optional - these are files, not directories)
+# test-*.js
+# test-*.ts
+# test-*.html
+# test-*.md

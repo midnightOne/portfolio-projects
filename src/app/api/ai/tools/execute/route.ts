@@ -1,0 +1,340 @@
+/**
+ * Unified Server-Side Tool Execution Endpoint
+ * 
+ * Single endpoint for all server-side tool execution with:
+ * - Tool validation and access control
+ * - Reflink-based permissions
+ * - Session management
+ * - Comprehensive error handling and logging
+ * - Usage tracking for cost attribution
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { unifiedToolRegistry } from '@/lib/ai/tools/UnifiedToolRegistry';
+import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
+import { contextInjector } from '@/lib/services/ai/context-injector';
+import { BackendToolService } from '@/lib/ai/tools/BackendToolService';
+
+// BackendToolService is imported from @/lib/ai/tools/BackendToolService
+
+/**
+ * Unified tool execution request interface
+ */
+interface UnifiedToolExecuteRequest {
+  toolName: string;
+  parameters: Record<string, any>;
+  sessionId?: string;
+  toolCallId?: string;
+  reflinkId?: string;
+}
+
+/**
+ * Unified tool execution response interface
+ */
+interface UnifiedToolExecuteResponse {
+  success: boolean;
+  data?: any;
+  error?: string;
+  metadata: {
+    timestamp: number;
+    source: string;
+    sessionId?: string;
+    toolCallId?: string;
+    executionTime: number;
+    accessLevel?: string;
+    costTracking?: {
+      reflinkId?: string;
+      estimatedCost?: number;
+      remainingBudget?: number;
+    };
+  };
+}
+
+export async function POST(request: NextRequest): Promise<NextResponse<UnifiedToolExecuteResponse>> {
+  const startTime = Date.now();
+  let toolCallId: string | undefined;
+  let sessionId: string | undefined;
+  let toolName: string | undefined;
+  let reflinkId: string | undefined;
+
+  try {
+    const body: UnifiedToolExecuteRequest = await request.json();
+    const { 
+      toolName: requestedToolName, 
+      parameters, 
+      sessionId: requestSessionId, 
+      toolCallId: requestToolCallId, 
+      reflinkId: requestReflinkId 
+    } = body;
+    
+    toolName = requestedToolName;
+    sessionId = requestSessionId || 'anonymous';
+    toolCallId = requestToolCallId || `tool_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    reflinkId = requestReflinkId;
+
+    // Validate required parameters
+    if (!toolName || typeof toolName !== 'string') {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Tool name is required and must be a string.',
+        metadata: {
+          timestamp: Date.now(),
+          source: 'unified-tools-api',
+          executionTime: Date.now() - startTime
+        }
+      }, { status: 400 });
+    }
+
+    if (!parameters || typeof parameters !== 'object') {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Parameters are required and must be an object.',
+        metadata: {
+          timestamp: Date.now(),
+          source: 'unified-tools-api',
+          executionTime: Date.now() - startTime
+        }
+      }, { status: 400 });
+    }
+
+    // Emit debug event for server-side tool call start with correlation ID
+    const toolCorrelationId = `server_tool_${toolCallId}`;
+    debugEventEmitter.emit('tool_call_start', {
+      toolName,
+      args: parameters,
+      sessionId,
+      toolCallId,
+      executionContext: 'server',
+      provider: 'unified-tools-api',
+      reflinkId,
+      timestamp: new Date()
+    }, 'unified-tools-api', toolCorrelationId, sessionId, toolCallId);
+
+    // Validate tool exists and is server-side
+    const toolDef = unifiedToolRegistry.getToolDefinition(toolName);
+    if (!toolDef) {
+      const error = `Tool '${toolName}' not found in registry.`;
+      const notFoundCorrelationId = `server_tool_${toolCallId}`;
+      
+      debugEventEmitter.emit('tool_call_complete', {
+        toolName,
+        result: null,
+        error,
+        executionTime: Date.now() - startTime,
+        success: false,
+        sessionId,
+        toolCallId,
+        executionContext: 'server',
+        provider: 'unified-tools-api',
+        timestamp: new Date()
+      }, 'unified-tools-api', notFoundCorrelationId, sessionId, toolCallId);
+
+      return NextResponse.json({ 
+        success: false, 
+        error,
+        metadata: {
+          timestamp: Date.now(),
+          source: 'unified-tools-api',
+          sessionId,
+          toolCallId,
+          executionTime: Date.now() - startTime
+        }
+      }, { status: 404 });
+    }
+
+    if (toolDef.executionContext !== 'server') {
+      const error = `Tool '${toolName}' is not a server-side tool.`;
+      const serverSideCorrelationId = `server_tool_${toolCallId}`;
+      
+      debugEventEmitter.emit('tool_call_complete', {
+        toolName,
+        result: null,
+        error,
+        executionTime: Date.now() - startTime,
+        success: false,
+        sessionId,
+        toolCallId,
+        executionContext: 'server',
+        provider: 'unified-tools-api',
+        timestamp: new Date()
+      }, 'unified-tools-api', serverSideCorrelationId, sessionId, toolCallId);
+
+      return NextResponse.json({ 
+        success: false, 
+        error,
+        metadata: {
+          timestamp: Date.now(),
+          source: 'unified-tools-api',
+          sessionId,
+          toolCallId,
+          executionTime: Date.now() - startTime
+        }
+      }, { status: 400 });
+    }
+
+    // Validate reflink and access control using contextInjector
+    const validation = await contextInjector.validateAndFilterContext(sessionId, reflinkId);
+    if (!validation.valid) {
+      const error = validation.error || 'Access denied.';
+      const accessDeniedCorrelationId = `server_tool_${toolCallId}`;
+      
+      debugEventEmitter.emit('tool_call_complete', {
+        toolName,
+        result: null,
+        error,
+        executionTime: Date.now() - startTime,
+        success: false,
+        sessionId,
+        toolCallId,
+        executionContext: 'server',
+        provider: 'unified-tools-api',
+        timestamp: new Date()
+      }, 'unified-tools-api', accessDeniedCorrelationId, sessionId, toolCallId);
+
+      return NextResponse.json({ 
+        success: false, 
+        error,
+        metadata: {
+          timestamp: Date.now(),
+          source: 'unified-tools-api',
+          sessionId,
+          toolCallId,
+          executionTime: Date.now() - startTime,
+          accessLevel: validation.accessLevel
+        }
+      }, { status: 403 });
+    }
+
+    // Execute tool via BackendToolService
+    const backendService = BackendToolService.getInstance();
+    const toolResult = await backendService.executeTool(
+      toolName, 
+      parameters, 
+      sessionId, 
+      validation.accessLevel as 'basic' | 'limited' | 'premium', 
+      reflinkId
+    );
+
+    const executionTime = Date.now() - startTime;
+    const successCorrelationId = `server_tool_${toolCallId}`;
+
+    // Emit debug event for server-side tool call completion with correlation ID
+    debugEventEmitter.emit('tool_call_complete', {
+      toolName,
+      result: toolResult.data,
+      error: toolResult.error,
+      executionTime,
+      success: toolResult.success,
+      sessionId,
+      toolCallId,
+      executionContext: 'server',
+      provider: 'unified-tools-api',
+      accessLevel: validation.accessLevel,
+      timestamp: new Date()
+    }, 'unified-tools-api', successCorrelationId, sessionId, toolCallId);
+
+    // TODO: Implement cost tracking and budget deduction for reflinks
+    const costTracking = reflinkId ? {
+      reflinkId,
+      estimatedCost: 0.001, // Placeholder cost estimation
+      remainingBudget: undefined // Will be implemented with reflink manager integration
+    } : undefined;
+
+    const response: UnifiedToolExecuteResponse = {
+      success: toolResult.success,
+      data: toolResult.data,
+      error: toolResult.error,
+      metadata: {
+        timestamp: Date.now(),
+        source: 'unified-tools-api',
+        sessionId,
+        toolCallId,
+        executionTime,
+        accessLevel: validation.accessLevel,
+        costTracking
+      }
+    };
+
+    return NextResponse.json(response);
+
+  } catch (error) {
+    const executionTime = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    // Emit debug event for server-side tool call error with correlation ID
+    if (toolName && sessionId && toolCallId) {
+      const errorCorrelationId = `server_tool_${toolCallId}`;
+      debugEventEmitter.emit('tool_call_complete', {
+        toolName,
+        result: null,
+        error: errorMessage,
+        executionTime,
+        success: false,
+        sessionId,
+        toolCallId,
+        executionContext: 'server',
+        provider: 'unified-tools-api',
+        timestamp: new Date()
+      }, 'unified-tools-api', errorCorrelationId, sessionId, toolCallId);
+    }
+
+    console.error('Unified tool execution error:', {
+      toolName,
+      sessionId,
+      toolCallId,
+      reflinkId,
+      error: errorMessage,
+      executionTime
+    });
+    
+    const response: UnifiedToolExecuteResponse = {
+      success: false,
+      error: errorMessage,
+      metadata: {
+        timestamp: Date.now(),
+        source: 'unified-tools-api',
+        sessionId,
+        toolCallId,
+        executionTime
+      }
+    };
+
+    return NextResponse.json(response, { status: 500 });
+  }
+}
+
+/**
+ * GET endpoint to retrieve available server-side tools
+ */
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  try {
+    const serverTools = unifiedToolRegistry.getServerToolDefinitions();
+    
+    return NextResponse.json({
+      success: true,
+      tools: serverTools.map(tool => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+        executionContext: tool.executionContext
+      })),
+      count: serverTools.length,
+      metadata: {
+        timestamp: Date.now(),
+        source: 'unified-tools-api'
+      }
+    });
+
+  } catch (error) {
+    console.error('Failed to get server tools:', error);
+    
+    return NextResponse.json({
+      success: false,
+      error: 'Failed to retrieve available server tools',
+      metadata: {
+        timestamp: Date.now(),
+        source: 'unified-tools-api'
+      }
+    }, { status: 500 });
+  }
+}

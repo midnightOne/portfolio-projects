@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { AlertCircle, CheckCircle, Brain, ExternalLink, Loader2 } from 'lucide-react';
+import { AlertCircle, CheckCircle, Brain, ExternalLink, Loader2, Database, MessageSquare, SlidersHorizontal, BarChart3, FileText } from 'lucide-react';
 import { AdminLayout } from '@/components/admin/admin-layout';
 import { AdminPageLayout } from '@/components/admin/admin-page-layout';
 import { AIStatusIndicator } from '@/components/admin/ai-status-indicator';
@@ -271,6 +271,105 @@ function AISettingsContent() {
     <div className="space-y-6">
       {/* AI Status Overview */}
       <AIStatusIndicator variant="detailed" showActions={true} />
+
+      {/* Quick Navigation to AI Features */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">AI Assistant Features</CardTitle>
+          <CardDescription>
+            Manage all AI-related features and settings
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <Button
+              variant="outline"
+              className="h-auto p-4 flex flex-col items-start gap-2"
+              onClick={() => router.push('/admin/ai/content-sources')}
+            >
+              <div className="flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                <span className="font-medium">Content Sources</span>
+              </div>
+              <p className="text-sm text-muted-foreground text-left">
+                Manage AI context sources and content types
+              </p>
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-auto p-4 flex flex-col items-start gap-2"
+              onClick={() => router.push('/admin/ai/project-indexing')}
+            >
+              <div className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                <span className="font-medium">Project Indexing</span>
+              </div>
+              <p className="text-sm text-muted-foreground text-left">
+                Monitor and manage project indexing for AI context
+              </p>
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-auto p-4 flex flex-col items-start gap-2 opacity-50 cursor-not-allowed"
+              disabled
+            >
+              <div className="flex items-center gap-2">
+                <MessageSquare className="h-5 w-5" />
+                <span className="font-medium">Conversations</span>
+              </div>
+              <p className="text-sm text-muted-foreground text-left">
+                Review AI conversations and analytics (Coming Soon)
+              </p>
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-auto p-4 flex flex-col items-start gap-2"
+              onClick={() => router.push('/admin/ai/context-config')}
+            >
+              <div className="flex items-center gap-2">
+                <SlidersHorizontal className="h-5 w-5" />
+                <span className="font-medium">Context Config</span>
+              </div>
+              <p className="text-sm text-muted-foreground text-left">
+                Configure AI context and response behavior
+              </p>
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-auto p-4 flex flex-col items-start gap-2 opacity-50 cursor-not-allowed"
+              disabled
+            >
+              <div className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5" />
+                <span className="font-medium">Analytics</span>
+              </div>
+              <p className="text-sm text-muted-foreground text-left">
+                AI usage analytics and performance metrics (Coming Soon)
+              </p>
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-auto p-4 flex flex-col items-start gap-2 opacity-50 cursor-not-allowed"
+              disabled
+            >
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-5 w-5" />
+                <span className="font-medium">Security</span>
+              </div>
+              <p className="text-sm text-muted-foreground text-left">
+                Rate limiting, abuse detection, and security (Coming Soon)
+              </p>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+
 
       {/* Individual Panels Layout */}
       <div className="flex flex-wrap gap-4">

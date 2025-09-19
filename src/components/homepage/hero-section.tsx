@@ -4,6 +4,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { ArrowRight, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { WaveBackground } from '@/components/ui/wave-background/wave-background';
 import { cn } from '@/lib/utils';
 import { CONTAINERS, SPACING, FLEX } from '@/lib/constants/layout';
 
@@ -20,6 +21,7 @@ export interface HeroSectionProps {
   ctaLink?: string;
   theme?: 'default' | 'dark' | 'minimal' | 'colorful';
   showScrollIndicator?: boolean;
+  enableWaveBackground?: boolean;
   className?: string;
 }
 
@@ -89,6 +91,7 @@ export function HeroSection({
   ctaLink,
   theme = 'default',
   showScrollIndicator = true,
+  enableWaveBackground = true,
   className
 }: HeroSectionProps) {
   const handleCtaClick = () => {
@@ -118,7 +121,8 @@ export function HeroSection({
       data-hero-section
       className={cn(
         'relative min-h-screen flex items-center justify-center overflow-hidden',
-        getThemeClasses(theme),
+        // Only apply theme classes if no wave background or background image
+        !enableWaveBackground && !backgroundImage && getThemeClasses(theme),
         className
       )}
       style={
@@ -132,8 +136,16 @@ export function HeroSection({
           : undefined
       }
     >
-      {/* Background Pattern Overlay */}
-      {!backgroundImage && (
+      {/* Wave Background */}
+      {enableWaveBackground && !backgroundImage && (
+        <WaveBackground 
+          className="absolute inset-0 -z-10"
+          onError={(error) => console.warn('Wave background error:', error)}
+        />
+      )}
+
+      {/* Fallback Background Pattern Overlay */}
+      {!enableWaveBackground && !backgroundImage && (
         <div className="absolute inset-0 opacity-10">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.15)_1px,transparent_0)] bg-[length:20px_20px]" />
         </div>
