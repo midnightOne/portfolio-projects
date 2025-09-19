@@ -7,8 +7,8 @@
 
 const https = require('https');
 
-const ELEVENLABS_API_KEY = 'sk_42712197c25ff26460c3bcfa511bbd034256bfe2f1221267';
-const AGENT_ID = 'agent_2101k3sztpfse6396vep8tfj9an8';
+const ELEVENLABS_API_KEY = ''; //removed and revoked leaked key
+const AGENT_ID = '';
 
 async function updateAgentAllowlist() {
   try {
