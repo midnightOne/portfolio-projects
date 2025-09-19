@@ -3,7 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { FloatingAIInterface, QuickAction } from './floating-ai-interface';
 import { ConversationalAgentProvider } from '@/components/providers/conversational-agent-provider';
-import { ReflinkSessionProvider, useReflinkSession } from '@/components/providers/reflink-session-provider';
+import { ReflinkSessionProvider } from '@/components/providers/reflink-session-wrapper';
+import { useReflinkSession } from '@/components/providers/reflink-session-provider';
 
 interface AIInterfaceWrapperProps {
   // Optional props to override defaults

@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
           { 
             errors: validation.errors,
             receivedData: body,
-            detailedMessage: `Validation failed: ${validation.errors?.map(e => `${e.path?.join('.')} - ${e.message}`).join('; ')}`
+            detailedMessage: `Validation failed: ${validation.errors?.join('; ')}`
           }
         ),
         { status: 400 }

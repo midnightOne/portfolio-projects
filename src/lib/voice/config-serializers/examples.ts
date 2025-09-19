@@ -26,7 +26,7 @@ export function createOpenAIConfig(): OpenAIRealtimeConfig {
   config.displayName = 'Professional Portfolio Assistant';
   config.description = 'High-quality voice assistant for professional portfolio interactions';
   config.temperature = 0.8;
-  config.voice = 'nova';
+  config.voice = 'marin';
   config.instructions = 'You are a professional portfolio assistant. Speak clearly and confidently about the portfolio owner\'s experience and projects. Be engaging but maintain professionalism.';
   
   // Configure session settings for optimal performance
@@ -213,7 +213,7 @@ export const configurationPresets = {
       const config = createOpenAIConfig();
       config.displayName = 'Professional Assistant';
       config.temperature = 0.6;
-      config.voice = 'nova';
+      config.voice = 'marin';
       config.instructions = 'You are a professional portfolio assistant. Maintain a formal, business-appropriate tone while being helpful and informative.';
       return config;
     },

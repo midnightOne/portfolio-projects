@@ -762,7 +762,7 @@ The platform has processed over $2M in transactions in its first year, with 99.9
       ...defaultOpenAIConfig,
       displayName: 'Professional Assistant',
       description: 'Professional voice assistant optimized for business interactions',
-      voice: 'nova' as const,
+      voice: 'marin' as const,
       temperature: 0.5,
       instructions: 'You are a professional AI assistant for a portfolio website. Speak clearly and professionally, focusing on the portfolio owner\'s expertise and accomplishments. Maintain a confident, knowledgeable tone suitable for business interactions.',
     };

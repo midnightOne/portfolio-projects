@@ -38,7 +38,7 @@ const serializer = new OpenAIRealtimeSerializer();
 const config = serializer.getDefaultConfig();
 config.displayName = 'Professional Assistant';
 config.temperature = 0.7;
-config.voice = 'nova';
+config.voice = 'marin';
 
 await manager.saveProviderConfig('openai', 'Professional', config, true);
 

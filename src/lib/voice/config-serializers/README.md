@@ -14,7 +14,7 @@ This module provides provider-specific configuration serialization and validatio
 
 ### OpenAI Realtime API
 - Model configuration (GPT-4 Realtime models)
-- Voice selection (alloy, echo, fable, onyx, nova, shimmer)
+- Voice selection (alloy, echo, fable, onyx, nova, shimmer) - old list
 - Session configuration (WebRTC/WebSocket transport, audio formats)
 - Turn detection and voice activity detection settings
 - Tool calling configuration

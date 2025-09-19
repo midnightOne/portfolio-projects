@@ -30,7 +30,7 @@ export async function basicUsageExample() {
     openaiConfig.displayName = 'Professional Assistant';
     openaiConfig.description = 'Professional voice assistant for business interactions';
     openaiConfig.temperature = 0.5;
-    openaiConfig.voice = 'nova';
+    openaiConfig.voice = 'marin';
     openaiConfig.instructions = 'You are a professional assistant helping visitors learn about this portfolio. Be concise and informative.';
     
     const savedOpenAI = await manager.saveProviderConfig('openai', 'Professional', openaiConfig, true);
@@ -143,7 +143,7 @@ export async function multipleConfigsExample() {
           displayName: 'Business Assistant',
           description: 'Business voice assistant for professional interactions',
           temperature: 0.7,
-          voice: 'nova' as const,
+          voice: 'marin' as const,
           instructions: 'You are a business assistant. Focus on professional achievements, business value, and career highlights.'
         }
       },
