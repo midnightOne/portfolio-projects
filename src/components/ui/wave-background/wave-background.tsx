@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { WaveEngine, type WaveConfiguration } from './wave-engine';
 import { defaultWaveConfig } from '@/lib/constants/wave-config';
 import { useTheme } from 'next-themes';
@@ -25,6 +25,13 @@ interface WaveBackgroundState {
   shouldUseFallback: boolean;
   isSupported: boolean;
   isReady: boolean; // New flag to control when to start rendering
+  fallbackReason: 'performance' | 'support' | 'error' | null; // Track why we fell back
+}
+
+interface FPSTracker {
+  samples: number[];
+  maxSamples: number;
+  lastSampleTime: number;
 }
 
 // ============================================================================
@@ -45,9 +52,9 @@ function getDevicePerformanceLevel(): 'high' | 'medium' | 'low' {
   // Simple heuristic based on device capabilities
   const canvas = document.createElement('canvas');
   const gl = canvas.getContext('webgl');
-  
+
   if (!gl) return 'low';
-  
+
   const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
   if (debugInfo) {
     const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
@@ -58,11 +65,11 @@ function getDevicePerformanceLevel(): 'high' | 'medium' | 'low' {
       return 'high';
     }
   }
-  
+
   // Fallback based on screen size and pixel ratio
   const screenArea = window.screen.width * window.screen.height;
   const pixelRatio = window.devicePixelRatio || 1;
-  
+
   if (screenArea > 2073600 && pixelRatio > 1.5) return 'high'; // > 1920x1080 with high DPI
   if (screenArea > 921600) return 'medium'; // > 1280x720
   return 'low';
@@ -94,7 +101,15 @@ export function WaveBackground({
     error: null,
     shouldUseFallback: false,
     isSupported: true,
-    isReady: false
+    isReady: false,
+    fallbackReason: null
+  });
+
+  // FPS tracking for performance monitoring
+  const fpsTrackerRef = useRef<FPSTracker>({
+    samples: [],
+    maxSamples: 50, // Track last 50 FPS samples (roughly 5 seconds at 60fps)
+    lastSampleTime: 0
   });
 
   // Determine current theme
@@ -109,7 +124,7 @@ export function WaveBackground({
       setState(prev => ({ ...prev, isLoading: true, error: null }));
 
       const response = await fetch('/api/admin/homepage/wave-config');
-      
+
       if (!response.ok) {
         console.warn(`Wave config API returned ${response.status}, using default config`);
         // Always use default config if API fails
@@ -123,7 +138,7 @@ export function WaveBackground({
       }
 
       const data = await response.json();
-      
+
       // Validate the response structure
       if (!data.success || !data.data || !data.data.config) {
         console.warn('Invalid wave config response structure, using default');
@@ -168,7 +183,8 @@ export function WaveBackground({
     setState(prev => ({
       ...prev,
       isSupported,
-      shouldUseFallback
+      shouldUseFallback,
+      fallbackReason: !isSupported ? 'support' : shouldUseFallback ? 'performance' : null
     }));
 
     if (!isSupported) {
@@ -193,16 +209,53 @@ export function WaveBackground({
   // PERFORMANCE MONITORING
   // ============================================================================
 
+  const addFPSSample = useCallback((fps: number) => {
+    const tracker = fpsTrackerRef.current;
+    const now = Date.now();
+
+    // Only add samples when page is visible and not during the first few seconds after visibility change
+    if (!document.hidden && now - tracker.lastSampleTime > 100) { // Minimum 100ms between samples
+      tracker.samples.push(fps);
+
+      // Keep only the last N samples
+      if (tracker.samples.length > tracker.maxSamples) {
+        tracker.samples.shift();
+      }
+
+      tracker.lastSampleTime = now;
+    }
+  }, []);
+
+  const getAverageFPS = useCallback(() => {
+    const samples = fpsTrackerRef.current.samples;
+    if (samples.length === 0) return 60; // Default to good FPS if no samples
+
+    const sum = samples.reduce((acc, fps) => acc + fps, 0);
+    return sum / samples.length;
+  }, []);
+
   const handlePerformanceChange = useCallback((fps: number) => {
     onPerformanceChange?.(fps);
-    
-    // Auto-fallback if performance is too low, but only when page is visible
-    // Don't trigger fallback during alt+tab or when page is hidden
-    if (fps < 30 && !state.shouldUseFallback && !document.hidden) {
-      console.warn('Wave animation performance too low, switching to fallback');
-      setState(prev => ({ ...prev, shouldUseFallback: true }));
+
+    // Add FPS sample for averaging (only when page is visible)
+    addFPSSample(fps);
+
+    // Only check for fallback if we have enough samples and page is visible
+    const tracker = fpsTrackerRef.current;
+    if (tracker.samples.length >= 10 && !document.hidden && !state.shouldUseFallback) {
+      const averageFPS = getAverageFPS();
+
+      // Trigger fallback only if average FPS over time is consistently low
+      if (averageFPS < 25) { // Slightly lower threshold for average
+        console.warn(`Wave animation average performance too low (${averageFPS.toFixed(1)} FPS), switching to fallback`);
+        setState(prev => ({
+          ...prev,
+          shouldUseFallback: true,
+          fallbackReason: 'performance'
+        }));
+      }
     }
-  }, [onPerformanceChange, state.shouldUseFallback]);
+  }, [onPerformanceChange, state.shouldUseFallback, addFPSSample, getAverageFPS]);
 
   // ============================================================================
   // ERROR HANDLING
@@ -210,7 +263,12 @@ export function WaveBackground({
 
   const handleWaveError = useCallback((error: Error) => {
     console.error('Wave engine error:', error);
-    setState(prev => ({ ...prev, shouldUseFallback: true, error: error.message }));
+    setState(prev => ({
+      ...prev,
+      shouldUseFallback: true,
+      error: error.message,
+      fallbackReason: 'error'
+    }));
     onError?.(error);
   }, [onError]);
 
@@ -225,18 +283,20 @@ export function WaveBackground({
 
     const handleResize = () => updateDimensions();
     const handleVisibilityChange = () => {
-      // Reset performance monitoring when page becomes visible again
-      // This prevents false positives from alt+tab scenarios
-      if (!document.hidden && state.shouldUseFallback) {
-        console.log('Page visible again, checking if we can restore wave animation...');
-        // Don't automatically restore - let user refresh if needed
+      if (!document.hidden) {
+        // Page became visible - reset FPS tracking to avoid contamination
+        console.log('Page visible again, resetting FPS tracking...');
+        fpsTrackerRef.current.samples = [];
+        fpsTrackerRef.current.lastSampleTime = Date.now();
+
+        // Don't automatically restore fallback - let user refresh if needed
         // This prevents flickering between states
       }
     };
 
     window.addEventListener('resize', handleResize);
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    
+
     return () => {
       window.removeEventListener('resize', handleResize);
       document.removeEventListener('visibilitychange', handleVisibilityChange);

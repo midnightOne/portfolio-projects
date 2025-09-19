@@ -210,7 +210,7 @@ const waveFragmentShader = `
     color = mix(color, flowValley, u_flowMixAmount * 0.2);
     color = mix(color, vec3(0.5, 0.8, 1.0), iridescence * 0.2);
     
-    // Circular reveal mask
+    // Circular reveal mask - transparency only
     vec2 center = vec2(0.5, 0.5);
     float distanceFromCenter = distance(vUv, center);
     
@@ -221,13 +221,10 @@ const waveFragmentShader = `
     float revealRadius = u_revealProgress * maxDistance * 1.2; // 1.2 for slight overshoot
     float revealMask = smoothstep(revealRadius - 0.1, revealRadius + 0.05, distanceFromCenter);
     
-    // Mix between wave color and background color based on reveal mask
-    vec3 finalColor = mix(color, u_backgroundColor, revealMask);
-    
-    // For transparency mode, use the reveal mask as alpha
+    // Use only transparency for clean reveal effect
     float alpha = 1.0 - revealMask;
     
-    gl_FragColor = vec4(finalColor, alpha);
+    gl_FragColor = vec4(color, alpha);
   }
 `;
 
