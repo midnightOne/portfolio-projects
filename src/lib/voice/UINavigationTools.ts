@@ -440,11 +440,41 @@ export class UINavigationTools {
         };
       }
 
-      const element = UIElementManager.findElement(selector);
+      // Map common section names to selectors
+      const sectionMap: Record<string, string[]> = {
+        'hero': ['#hero', '[data-section-type="hero"]', '[data-section-id*="hero"]'],
+        'about': ['#about', '[data-section-type="about"]', '[data-section-id*="about"]'],
+        'bio': ['#about', '[data-section-type="about"]', '[data-section-id*="about"]'], // bio is commonly about
+        'projects': ['#projects', '[data-section-type="projects"]', '[data-section-id*="projects"]'],
+        'work': ['#projects', '[data-section-type="projects"]', '[data-section-id*="projects"]'], // work is commonly projects
+        'contact': ['#contact', '[data-section-type="contact"]', '[data-section-id*="contact"]']
+      };
+
+      let element: Element | null = null;
+      let actualSelector = selector;
+
+      // Try to find element using section mapping first
+      const normalizedSelector = selector.toLowerCase().trim();
+      if (sectionMap[normalizedSelector]) {
+        for (const mappedSelector of sectionMap[normalizedSelector]) {
+          element = UIElementManager.findElement(mappedSelector);
+          if (element) {
+            actualSelector = mappedSelector;
+            break;
+          }
+        }
+      }
+
+      // If not found via mapping, try direct selector
+      if (!element) {
+        element = UIElementManager.findElement(selector);
+        actualSelector = selector;
+      }
+
       if (!element) {
         return {
           success: false,
-          message: `Element not found: ${selector}`,
+          message: `Element not found: ${selector}${sectionMap[normalizedSelector] ? ` (also tried: ${sectionMap[normalizedSelector].join(', ')})` : ''}`,
           error: 'Element does not exist in the DOM'
         };
       }
@@ -454,13 +484,13 @@ export class UINavigationTools {
 
         return {
           success: true,
-          message: `Scrolled to element: ${selector}`,
-          data: { selector, behavior }
+          message: `Scrolled to element: ${actualSelector}`,
+          data: { selector: actualSelector, originalSelector: selector, behavior }
         };
       } catch (error) {
         return {
           success: false,
-          message: `Failed to scroll to element: ${selector}`,
+          message: `Failed to scroll to element: ${actualSelector}`,
           error: error instanceof Error ? error.message : String(error)
         };
       }
@@ -479,18 +509,48 @@ export class UINavigationTools {
         };
       }
 
+      // Map common section names to selectors
+      const sectionMap: Record<string, string[]> = {
+        'hero': ['#hero', '[data-section-type="hero"]', '[data-section-id*="hero"]'],
+        'about': ['#about', '[data-section-type="about"]', '[data-section-id*="about"]'],
+        'bio': ['#about', '[data-section-type="about"]', '[data-section-id*="about"]'], // bio is commonly about
+        'projects': ['#projects', '[data-section-type="projects"]', '[data-section-id*="projects"]'],
+        'work': ['#projects', '[data-section-type="projects"]', '[data-section-id*="projects"]'], // work is commonly projects
+        'contact': ['#contact', '[data-section-type="contact"]', '[data-section-id*="contact"]']
+      };
+
+      let elements: NodeListOf<Element> | null = null;
+      let actualSelector = selector;
+
+      // Try to find elements using section mapping first
+      const normalizedSelector = selector.toLowerCase().trim();
+      if (sectionMap[normalizedSelector]) {
+        for (const mappedSelector of sectionMap[normalizedSelector]) {
+          elements = UIElementManager.findElements(mappedSelector);
+          if (elements && elements.length > 0) {
+            actualSelector = mappedSelector;
+            break;
+          }
+        }
+      }
+
+      // If not found via mapping, try direct selector
+      if (!elements || elements.length === 0) {
+        elements = UIElementManager.findElements(selector);
+        actualSelector = selector;
+      }
+
+      if (!elements || elements.length === 0) {
+        return {
+          success: false,
+          message: `No elements found: ${selector}${sectionMap[normalizedSelector] ? ` (also tried: ${sectionMap[normalizedSelector].join(', ')})` : ''}`,
+          error: 'Elements do not exist in the DOM'
+        };
+      }
+
       try {
         if (text) {
           // Highlight specific text within elements
-          const elements = UIElementManager.findElements(selector);
-          if (!elements || elements.length === 0) {
-            return {
-              success: false,
-              message: `No elements found: ${selector}`,
-              error: 'Elements do not exist in the DOM'
-            };
-          }
-
           let highlightCount = 0;
           elements.forEach(element => {
             const walker = document.createTreeWalker(
@@ -525,38 +585,29 @@ export class UINavigationTools {
 
           return {
             success: true,
-            message: `Highlighted text "${text}" in ${highlightCount} locations`,
-            data: { selector, text, className, count: highlightCount }
+            message: `Highlighted text "${text}" in ${highlightCount} locations within ${actualSelector}`,
+            data: { selector: actualSelector, originalSelector: selector, text, className, count: highlightCount }
           };
         } else {
           // Highlight entire elements
-          const elements = UIElementManager.findElements(selector);
-          if (!elements || elements.length === 0) {
-            return {
-              success: false,
-              message: `No elements found: ${selector}`,
-              error: 'Elements do not exist in the DOM'
-            };
-          }
-
           elements.forEach(element => {
             UIElementManager.highlightElement(element, className);
           });
 
           return {
             success: true,
-            message: `Highlighted ${elements.length} elements`,
-            data: { selector, className, count: elements.length }
+            message: `Highlighted ${elements.length} elements using ${actualSelector}`,
+            data: { selector: actualSelector, originalSelector: selector, className, count: elements.length }
           };
         }
       } catch (error) {
         return {
           success: false,
-          message: `Failed to highlight: ${selector}`,
+          message: `Failed to highlight: ${actualSelector}`,
           error: error instanceof Error ? error.message : String(error)
         };
       }
-    });
+    }, sessionId);
   }
 
   async clearHighlights(args: { className?: string } = {}, sessionId?: string): Promise<NavigationResult> {

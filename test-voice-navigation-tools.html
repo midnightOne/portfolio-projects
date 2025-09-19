@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Navigation Tools Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        
+        section {
+            min-height: 100vh;
+            padding: 50px 20px;
+            margin: 20px 0;
+            border: 2px solid #ccc;
+            border-radius: 8px;
+        }
+        
+        #hero {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        #about {
+            background: #f8f9fa;
+        }
+        
+        #projects {
+            background: #e9ecef;
+        }
+        
+        #contact {
+            background: #dee2e6;
+        }
+        
+        .voice-highlight {
+            outline: 2px solid #3b82f6 !important;
+            outline-offset: 2px !important;
+            background-color: rgba(59, 130, 246, 0.1) !important;
+            border-radius: 4px !important;
+            transition: all 0.3s ease !important;
+            animation: voice-pulse 2s infinite !important;
+        }
+        
+        .voice-highlight-text {
+            background-color: rgba(59, 130, 246, 0.3) !important;
+            padding: 2px 4px !important;
+            border-radius: 3px !important;
+            transition: all 0.3s ease !important;
+        }
+        
+        @keyframes voice-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+            50% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+        }
+        
+        .test-buttons {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+        
+        .test-buttons button {
+            display: block;
+            width: 100%;
+            margin: 5px 0;
+            padding: 10px;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .test-buttons button:hover {
+            background: #2563eb;
+        }
+        
+        .results {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            max-width: 300px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-buttons">
+        <h3>Voice Navigation Tests</h3>
+        <button onclick="testScrollToHero()">Scroll to Hero</button>
+        <button onclick="testScrollToAbout()">Scroll to About</button>
+        <button onclick="testScrollToProjects()">Scroll to Projects</button>
+        <button onclick="testScrollToContact()">Scroll to Contact</button>
+        <button onclick="testHighlightHero()">Highlight Hero</button>
+        <button onclick="testHighlightText()">Highlight Text</button>
+        <button onclick="testClearHighlights()">Clear Highlights</button>
+    </div>
+    
+    <div class="results" id="results">
+        <h4>Test Results:</h4>
+        <div id="resultContent">Ready to test...</div>
+    </div>
+
+    <section id="hero" data-section-type="hero" data-section-id="hero-main">
+        <h1>Hero Section</h1>
+        <p>This is the hero section of the portfolio. It contains the main introduction and call-to-action.</p>
+        <p>Welcome to my portfolio website. I'm a developer passionate about creating amazing web experiences.</p>
+    </section>
+
+    <section id="about" data-section-type="about" data-section-id="about-main">
+        <h2>About Section</h2>
+        <p>This is the about section where I describe my background, skills, and experience.</p>
+        <p>I have extensive experience in React, TypeScript, Node.js, and modern web development.</p>
+        <ul>
+            <li>Frontend Development</li>
+            <li>Backend Development</li>
+            <li>Full Stack Solutions</li>
+        </ul>
+    </section>
+
+    <section id="projects" data-section-type="projects" data-section-id="projects-main">
+        <h2>Projects Section</h2>
+        <p>Here are some of my featured projects and work samples.</p>
+        <div class="project-grid">
+            <div class="project-card">
+                <h3>E-commerce Platform</h3>
+                <p>A full-stack e-commerce solution built with React and Node.js.</p>
+            </div>
+            <div class="project-card">
+                <h3>Task Management App</h3>
+                <p>A productivity application with real-time collaboration features.</p>
+            </div>
+        </div>
+    </section>
+
+    <section id="contact" data-section-type="contact" data-section-id="contact-main">
+        <h2>Contact Section</h2>
+        <p>Get in touch with me for collaboration opportunities.</p>
+        <p>I'm always interested in discussing new projects and ideas.</p>
+        <form>
+            <input type="text" placeholder="Your Name" style="width: 100%; padding: 10px; margin: 5px 0;">
+            <input type="email" placeholder="Your Email" style="width: 100%; padding: 10px; margin: 5px 0;">
+            <textarea placeholder="Your Message" style="width: 100%; padding: 10px; margin: 5px 0; height: 100px;"></textarea>
+            <button type="submit" style="padding: 10px 20px; background: #3b82f6; color: white; border: none; border-radius: 4px;">Send Message</button>
+        </form>
+    </section>
+
+    <script>
+        // Mock the UINavigationTools for testing
+        class MockUIElementManager {
+            static findElement(selector) {
+                try {
+                    return document.querySelector(selector);
+                } catch (error) {
+                    console.error(`Invalid selector: ${selector}`, error);
+                    return null;
+                }
+            }
+
+            static findElements(selector) {
+                try {
+                    return document.querySelectorAll(selector);
+                } catch (error) {
+                    console.error(`Invalid selector: ${selector}`, error);
+                    return null;
+                }
+            }
+
+            static scrollIntoView(element, behavior = 'smooth') {
+                element.scrollIntoView({ behavior, block: 'center', inline: 'nearest' });
+            }
+
+            static highlightElement(element, className = 'voice-highlight') {
+                element.classList.add(className);
+                setTimeout(() => {
+                    element.classList.remove(className);
+                }, 5000);
+            }
+
+            static removeAllHighlights(className = 'voice-highlight') {
+                const highlighted = document.querySelectorAll(`.${className}`);
+                highlighted.forEach(el => el.classList.remove(className));
+            }
+        }
+
+        class MockUINavigationTools {
+            async scrollIntoView(args) {
+                const { selector, behavior = 'smooth' } = args;
+
+                // Map common section names to selectors
+                const sectionMap = {
+                    'hero': ['#hero', '[data-section-type="hero"]', '[data-section-id*="hero"]'],
+                    'about': ['#about', '[data-section-type="about"]', '[data-section-id*="about"]'],
+                    'bio': ['#about', '[data-section-type="about"]', '[data-section-id*="about"]'],
+                    'projects': ['#projects', '[data-section-type="projects"]', '[data-section-id*="projects"]'],
+                    'work': ['#projects', '[data-section-type="projects"]', '[data-section-id*="projects"]'],
+                    'contact': ['#contact', '[data-section-type="contact"]', '[data-section-id*="contact"]']
+                };
+
+                let element = null;
+                let actualSelector = selector;
+
+                // Try to find element using section mapping first
+                const normalizedSelector = selector.toLowerCase().trim();
+                if (sectionMap[normalizedSelector]) {
+                    for (const mappedSelector of sectionMap[normalizedSelector]) {
+                        element = MockUIElementManager.findElement(mappedSelector);
+                        if (element) {
+                            actualSelector = mappedSelector;
+                            break;
+                        }
+                    }
+                }
+
+                // If not found via mapping, try direct selector
+                if (!element) {
+                    element = MockUIElementManager.findElement(selector);
+                    actualSelector = selector;
+                }
+
+                if (!element) {
+                    return {
+                        success: false,
+                        message: `Element not found: ${selector}${sectionMap[normalizedSelector] ? ` (also tried: ${sectionMap[normalizedSelector].join(', ')})` : ''}`,
+                        error: 'Element does not exist in the DOM'
+                    };
+                }
+
+                try {
+                    MockUIElementManager.scrollIntoView(element, behavior);
+                    return {
+                        success: true,
+                        message: `Scrolled to element: ${actualSelector}`,
+                        data: { selector: actualSelector, originalSelector: selector, behavior }
+                    };
+                } catch (error) {
+                    return {
+                        success: false,
+                        message: `Failed to scroll to element: ${actualSelector}`,
+                        error: error.message
+                    };
+                }
+            }
+
+            async highlightText(args) {
+                const { selector, text, className = 'voice-highlight' } = args;
+
+                // Map common section names to selectors
+                const sectionMap = {
+                    'hero': ['#hero', '[data-section-type="hero"]', '[data-section-id*="hero"]'],
+                    'about': ['#about', '[data-section-type="about"]', '[data-section-id*="about"]'],
+                    'bio': ['#about', '[data-section-type="about"]', '[data-section-id*="about"]'],
+                    'projects': ['#projects', '[data-section-type="projects"]', '[data-section-id*="projects"]'],
+                    'work': ['#projects', '[data-section-type="projects"]', '[data-section-id*="projects"]'],
+                    'contact': ['#contact', '[data-section-type="contact"]', '[data-section-id*="contact"]']
+                };
+
+                let elements = null;
+                let actualSelector = selector;
+
+                // Try to find elements using section mapping first
+                const normalizedSelector = selector.toLowerCase().trim();
+                if (sectionMap[normalizedSelector]) {
+                    for (const mappedSelector of sectionMap[normalizedSelector]) {
+                        elements = MockUIElementManager.findElements(mappedSelector);
+                        if (elements && elements.length > 0) {
+                            actualSelector = mappedSelector;
+                            break;
+                        }
+                    }
+                }
+
+                // If not found via mapping, try direct selector
+                if (!elements || elements.length === 0) {
+                    elements = MockUIElementManager.findElements(selector);
+                    actualSelector = selector;
+                }
+
+                if (!elements || elements.length === 0) {
+                    return {
+                        success: false,
+                        message: `No elements found: ${selector}${sectionMap[normalizedSelector] ? ` (also tried: ${sectionMap[normalizedSelector].join(', ')})` : ''}`,
+                        error: 'Elements do not exist in the DOM'
+                    };
+                }
+
+                try {
+                    if (text) {
+                        // For simplicity in test, just highlight the element
+                        elements.forEach(element => {
+                            MockUIElementManager.highlightElement(element, className);
+                        });
+                        return {
+                            success: true,
+                            message: `Highlighted text "${text}" in elements using ${actualSelector}`,
+                            data: { selector: actualSelector, originalSelector: selector, text, className, count: elements.length }
+                        };
+                    } else {
+                        // Highlight entire elements
+                        elements.forEach(element => {
+                            MockUIElementManager.highlightElement(element, className);
+                        });
+                        return {
+                            success: true,
+                            message: `Highlighted ${elements.length} elements using ${actualSelector}`,
+                            data: { selector: actualSelector, originalSelector: selector, className, count: elements.length }
+                        };
+                    }
+                } catch (error) {
+                    return {
+                        success: false,
+                        message: `Failed to highlight: ${actualSelector}`,
+                        error: error.message
+                    };
+                }
+            }
+
+            async clearHighlights(args = {}) {
+                const { className = 'voice-highlight' } = args;
+                try {
+                    MockUIElementManager.removeAllHighlights(className);
+                    MockUIElementManager.removeAllHighlights(`${className}-text`);
+                    return {
+                        success: true,
+                        message: 'Cleared all highlights',
+                        data: { className }
+                    };
+                } catch (error) {
+                    return {
+                        success: false,
+                        message: 'Failed to clear highlights',
+                        error: error.message
+                    };
+                }
+            }
+        }
+
+        const mockTools = new MockUINavigationTools();
+
+        function showResult(result) {
+            const resultContent = document.getElementById('resultContent');
+            const timestamp = new Date().toLocaleTimeString();
+            const status = result.success ? '✅' : '❌';
+            resultContent.innerHTML = `<div><strong>${timestamp}</strong> ${status} ${result.message}</div>` + resultContent.innerHTML;
+        }
+
+        async function testScrollToHero() {
+            const result = await mockTools.scrollIntoView({ selector: 'hero' });
+            showResult(result);
+        }
+
+        async function testScrollToAbout() {
+            const result = await mockTools.scrollIntoView({ selector: 'about' });
+            showResult(result);
+        }
+
+        async function testScrollToProjects() {
+            const result = await mockTools.scrollIntoView({ selector: 'projects' });
+            showResult(result);
+        }
+
+        async function testScrollToContact() {
+            const result = await mockTools.scrollIntoView({ selector: 'contact' });
+            showResult(result);
+        }
+
+        async function testHighlightHero() {
+            const result = await mockTools.highlightText({ selector: 'hero' });
+            showResult(result);
+        }
+
+        async function testHighlightText() {
+            const result = await mockTools.highlightText({ selector: 'about', text: 'experience' });
+            showResult(result);
+        }
+
+        async function testClearHighlights() {
+            const result = await mockTools.clearHighlights();
+            showResult(result);
+        }
+    </script>
+</body>
+</html>

@@ -72,13 +72,13 @@ export const showProjectDetailsToolDefinition: UnifiedToolDefinition = {
 
 export const scrollIntoViewToolDefinition: UnifiedToolDefinition = {
   name: 'scrollIntoView',
-  description: 'Scroll to bring a specific element into view on the current page.',
+  description: 'Scroll to bring a specific element into view on the current page. For homepage sections, use section names like "hero", "about", "bio", "projects", "contact", or CSS selectors.',
   parameters: {
     type: 'object',
     properties: {
       selector: {
         type: 'string',
-        description: 'CSS selector for the element to scroll to'
+        description: 'CSS selector or section name. For homepage sections: "hero", "about", "bio", "projects", "contact". For specific elements: "#my-id", ".my-class", "[data-section-id=hero-main]"'
       },
       behavior: {
         type: 'string',
@@ -109,13 +109,13 @@ export const scrollIntoViewToolDefinition: UnifiedToolDefinition = {
 
 export const highlightTextToolDefinition: UnifiedToolDefinition = {
   name: 'highlightText',
-  description: 'Highlight specific text or elements on the page for visual emphasis.',
+  description: 'Highlight specific text or elements on the page for visual emphasis. For homepage sections, use section names like "hero", "about", "bio", "projects", "contact", or CSS selectors.',
   parameters: {
     type: 'object',
     properties: {
       selector: {
         type: 'string',
-        description: 'CSS selector for elements to search within'
+        description: 'CSS selector or section name. For homepage sections: "hero", "about", "bio", "projects", "contact". For specific elements: "#my-id", ".my-class", "[data-section-id=hero-main]", "h1", "p"'
       },
       text: {
         type: 'string',
