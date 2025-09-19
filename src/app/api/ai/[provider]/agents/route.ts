@@ -73,7 +73,7 @@ export async function GET(
       }
       
       // Generate agent configurations based on available voices
-      const availableVoices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'] as const;
+      const availableVoices = ['alloy', 'ash', 'ballad', 'coral', 'echo', 'shimmer', 'sage', 'verse', 'marin', 'cedar'] as const;
       
       agents = availableVoices.map(voice => ({
         id: `gpt-realtime-${voice}`,

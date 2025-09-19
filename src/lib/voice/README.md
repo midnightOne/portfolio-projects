@@ -110,7 +110,7 @@ interface OpenAIRealtimeConfig {
   model: 'gpt-realtime' | string;
   temperature: number;
   maxTokens: number;
-  voice: 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
+  voice: 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'shimmer' | 'sage' | 'verse' | 'marin' | 'cedar';
   
   // Agent configuration
   name: string;

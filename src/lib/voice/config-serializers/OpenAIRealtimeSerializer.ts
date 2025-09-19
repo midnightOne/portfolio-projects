@@ -231,7 +231,7 @@ export class OpenAIRealtimeSerializer implements VoiceConfigSerializer<OpenAIRea
           type: 'string',
           title: 'Voice',
           description: 'OpenAI voice to use for TTS',
-          enum: ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'],
+          enum: ['alloy', 'ash', 'ballad', 'coral', 'echo', 'shimmer', 'sage', 'verse', 'marin', 'cedar'],
           default: 'alloy'
         },
         name: {

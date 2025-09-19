@@ -46,12 +46,28 @@ interface OpenAIRealtimeConfigPanelProps {
 
 const OPENAI_VOICES: { value: OpenAIVoice; label: string; description: string }[] = [
   { value: 'alloy', label: 'Alloy', description: 'Neutral, balanced voice' },
-  { value: 'echo', label: 'Echo', description: 'Clear, professional voice' },
-  { value: 'fable', label: 'Fable', description: 'Warm, storytelling voice' },
-  { value: 'onyx', label: 'Onyx', description: 'Deep, authoritative voice' },
-  { value: 'nova', label: 'Nova', description: 'Bright, energetic voice' },
-  { value: 'shimmer', label: 'Shimmer', description: 'Soft, gentle voice' }
+  { value: 'ash', label: 'Ash', description: 'Clear and precise' },
+  { value: 'ballad', label: 'Ballad', description: 'Melodic and smooth' },
+  { value: 'coral', label: 'Coral', description: 'Warm and friendly' },
+  { value: 'echo', label: 'Echo', description: 'Resonant and deep' },
+  { value: 'shimmer', label: 'Shimmer', description: 'Bright and energetic' },
+  { value: 'sage', label: 'Sage', description: 'Calm and thoughtful' },
+  { value: 'verse', label: 'Verse', description: 'Versatile and expressive' },
+  { value: 'marin', label: 'Marin', description: 'Newer voice that is more natural and clear' },
+  { value: 'cedar', label: 'Cedar', description: 'Newer voice that is more natural and clear' }
 ];
+
+/*alloy: Neutral and balanced.
+ash: Clear and precise.
+ballad: Melodic and smooth.
+coral: Warm and friendly.
+echo: Resonant and deep.
+sage: Calm and thoughtful.
+shimmer: Bright and energetic.
+verse: Versatile and expressive.
+marin and cedar: Newer voices that are more natural and clear. 
+
+alloy, ash, ballad, coral, echo, sage, shimmer, verse, marin, cedar*/
 
 const OPENAI_MODELS: { value: OpenAIRealtimeModel; label: string; description: string }[] = [
   { value: 'gpt-realtime', label: 'GPT Realtime', description: 'Newest realtime model' },
