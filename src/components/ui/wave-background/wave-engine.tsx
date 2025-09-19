@@ -337,6 +337,10 @@ export function WaveEngine({
   const revealStartTimeRef = useRef<number | null>(null);
   const isRevealingRef = useRef(false);
   
+  // Focus tracking to exclude unfocused time from animation
+  const focusOffTimeRef = useRef<number>(0); // Total time spent unfocused since start
+  const lastFocusOffTimeRef = useRef<number | null>(null); // When focus was lost
+  
   // Update dimensions ref when props change
   dimensionsRef.current = { width, height };
   
@@ -359,6 +363,28 @@ export function WaveEngine({
   });
 
   const notifyCameraChangeThrottled = useRef<NodeJS.Timeout | null>(null);
+
+  // ============================================================================
+  // FOCUS TRACKING FUNCTIONS
+  // ============================================================================
+
+  const handleVisibilityChange = useCallback(() => {
+    const now = Date.now();
+    
+    if (document.hidden) {
+      // Browser lost focus - start tracking unfocused time
+      lastFocusOffTimeRef.current = now;
+    } else {
+      // Browser gained focus - add unfocused time to total
+      if (lastFocusOffTimeRef.current !== null) {
+        const unfocusedDuration = now - lastFocusOffTimeRef.current;
+        focusOffTimeRef.current += unfocusedDuration;
+        lastFocusOffTimeRef.current = null;
+        
+        console.log(`Focus restored. Unfocused for ${unfocusedDuration}ms. Total unfocused time: ${focusOffTimeRef.current}ms`);
+      }
+    }
+  }, []);
 
   // ============================================================================
   // CAMERA CONTROL FUNCTIONS
@@ -672,6 +698,9 @@ export function WaveEngine({
       
       mountRef.current.appendChild(canvas);
 
+      // Add focus tracking listener
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+
       // Add interactive event listeners if enabled
       if (interactive) {
         const canvas = renderer.domElement;
@@ -696,7 +725,7 @@ export function WaveEngine({
       console.error('Error initializing Three.js:', error);
       onError?.(error as Error);
     }
-  }, [config, theme, width, height, onError, interactive, initializeCameraState, updateCameraFromState, handleMouseDown, handleMouseMove, handleMouseUp, handleWheel, handleDoubleClick]);
+  }, [config, theme, width, height, onError, interactive, initializeCameraState, updateCameraFromState, handleMouseDown, handleMouseMove, handleMouseUp, handleWheel, handleDoubleClick, handleVisibilityChange]);
 
   // ============================================================================
   // ANIMATION LOOP
@@ -715,9 +744,10 @@ export function WaveEngine({
     }
 
     try {
-      // Update time uniform (keep continuous time)
-      const elapsed = (Date.now() - startTimeRef.current) / 1000;
-      uniformsRef.current.u_time.value = elapsed;
+      // Update time uniform (excluding unfocused time)
+      const rawElapsed = (Date.now() - startTimeRef.current) / 1000;
+      const adjustedElapsed = rawElapsed - (focusOffTimeRef.current / 1000);
+      uniformsRef.current.u_time.value = adjustedElapsed;
       uniformsRef.current.u_constantTime.value = Date.now();
 
       // Update reveal animation
@@ -738,8 +768,8 @@ export function WaveEngine({
       }
 
       // Debug: Log time every few seconds
-      if (Math.floor(elapsed) % 5 === 0 && Math.floor(elapsed * 10) % 10 === 0) {
-        console.log('Animation time:', elapsed.toFixed(2), 'Wave params:', {
+      if (Math.floor(adjustedElapsed) % 5 === 0 && Math.floor(adjustedElapsed * 10) % 10 === 0) {
+        console.log('Animation time:', adjustedElapsed.toFixed(2), 'Raw elapsed:', rawElapsed.toFixed(2), 'Focus off time:', (focusOffTimeRef.current / 1000).toFixed(2), 'Wave params:', {
           wavesX: uniformsRef.current.u_wavesX.value,
           amplitude: uniformsRef.current.u_amplitude.value,
           speedX: uniformsRef.current.u_speedX.value,
@@ -788,6 +818,9 @@ export function WaveEngine({
       cancelAnimationFrame(animationIdRef.current);
     }
     startTimeRef.current = Date.now();
+    // Reset focus tracking when animation restarts
+    focusOffTimeRef.current = 0;
+    lastFocusOffTimeRef.current = null;
     animate();
   }, [animate]);
 
@@ -848,6 +881,9 @@ export function WaveEngine({
     }
 
     if (rendererRef.current) {
+      // Remove focus tracking listener
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      
       // Remove event listeners
       if (interactive) {
         const canvas = rendererRef.current.domElement;
@@ -889,7 +925,10 @@ export function WaveEngine({
     isInitializedRef.current = false; // Reset initialization flag
     revealStartTimeRef.current = null;
     isRevealingRef.current = false;
-  }, [interactive, handleMouseDown, handleMouseMove, handleMouseUp, handleWheel, handleDoubleClick]);
+    // Reset focus tracking
+    focusOffTimeRef.current = 0;
+    lastFocusOffTimeRef.current = null;
+  }, [interactive, handleMouseDown, handleMouseMove, handleMouseUp, handleWheel, handleDoubleClick, handleVisibilityChange]);
 
   // ============================================================================
   // RESIZE HANDLER
