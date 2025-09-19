@@ -34,8 +34,18 @@ export class OpenAIRealtimeSerializer implements VoiceConfigSerializer<OpenAIRea
   
   serialize(config: OpenAIRealtimeConfig): string {
     try {
+      // CRITICAL FIX: Synchronize voice settings before serialization
+      // Ensure the top-level voice matches sessionConfig.audio.output.voice
+      const configCopy = JSON.parse(JSON.stringify(config)); // Deep copy to avoid mutating original
+      if (configCopy.voice && configCopy.sessionConfig?.audio?.output) {
+        if (configCopy.voice !== configCopy.sessionConfig.audio.output.voice) {
+          console.log(`OpenAI Config Serialize: Synchronizing voice from '${configCopy.sessionConfig.audio.output.voice}' to '${configCopy.voice}'`);
+          configCopy.sessionConfig.audio.output.voice = configCopy.voice;
+        }
+      }
+      
       // Validate before serializing
-      const validation = this.validate(config);
+      const validation = this.validate(configCopy);
       if (!validation.valid) {
         throw new ConfigValidationError(
           'Configuration validation failed',
@@ -44,7 +54,7 @@ export class OpenAIRealtimeSerializer implements VoiceConfigSerializer<OpenAIRea
         );
       }
       
-      return JSON.stringify(config, null, 2);
+      return JSON.stringify(configCopy, null, 2);
     } catch (error) {
       if (error instanceof ConfigValidationError) {
         throw error;
@@ -61,6 +71,15 @@ export class OpenAIRealtimeSerializer implements VoiceConfigSerializer<OpenAIRea
   deserialize(json: string): OpenAIRealtimeConfig {
     try {
       const config = JSON.parse(json) as OpenAIRealtimeConfig;
+      
+      // CRITICAL FIX: Synchronize voice settings after deserialization
+      // Ensure the top-level voice matches sessionConfig.audio.output.voice
+      if (config.voice && config.sessionConfig?.audio?.output) {
+        if (config.voice !== config.sessionConfig.audio.output.voice) {
+          console.log(`OpenAI Config Deserialize: Synchronizing voice from '${config.sessionConfig.audio.output.voice}' to '${config.voice}'`);
+          config.sessionConfig.audio.output.voice = config.voice;
+        }
+      }
       
       // Validate deserialized config
       const validation = this.validate(config);

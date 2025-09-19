@@ -83,6 +83,13 @@ export async function GET(request: NextRequest) {
       defaultConfig = openaiSerializer.getDefaultConfig() as OpenAIRealtimeConfig;
     }
 
+    // CRITICAL FIX: Synchronize voice settings between top-level and sessionConfig
+    // The top-level 'voice' property should always match sessionConfig.audio.output.voice
+    if (defaultConfig.voice !== defaultConfig.sessionConfig.audio.output.voice) {
+      console.log(`Voice synchronization: Updating sessionConfig.audio.output.voice from '${defaultConfig.sessionConfig.audio.output.voice}' to '${defaultConfig.voice}'`);
+      defaultConfig.sessionConfig.audio.output.voice = defaultConfig.voice;
+    }
+
     // Build system instructions with context (using config as base)
     let systemInstructions = defaultConfig.instructions;
     
@@ -109,6 +116,8 @@ export async function GET(request: NextRequest) {
     // Get all tools from unified tool registry (no duplicates)
     const allTools = unifiedToolRegistry.getOpenAIToolsArray();
     console.log('All tools:', allTools);
+    //defaultConfig.sessionConfig.audio.output.voice = 'cedar';
+    console.log('Voice:',  defaultConfig.sessionConfig.audio.output.voice);
 
     // Create OpenAI Realtime session using config system
     const sessionResponse = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
@@ -245,6 +254,13 @@ export async function POST(request: NextRequest) {
       defaultConfig = openaiSerializer.getDefaultConfig() as OpenAIRealtimeConfig;
     }
 
+    // CRITICAL FIX: Synchronize voice settings between top-level and sessionConfig
+    // The top-level 'voice' property should always match sessionConfig.audio.output.voice
+    if (defaultConfig.voice !== defaultConfig.sessionConfig.audio.output.voice) {
+      console.log(`Voice synchronization (POST): Updating sessionConfig.audio.output.voice from '${defaultConfig.sessionConfig.audio.output.voice}' to '${defaultConfig.voice}'`);
+      defaultConfig.sessionConfig.audio.output.voice = defaultConfig.voice;
+    }
+
     // Build custom instructions (use config default if not provided)
     let instructions = body.instructions || defaultConfig.instructions;
 
@@ -301,6 +317,8 @@ export async function POST(request: NextRequest) {
         }
       }),
     });
+
+    console.log('2Voice:',  defaultConfig.sessionConfig.audio.output.voice);
 
     if (!sessionResponse.ok) {
       const errorText = await sessionResponse.text();

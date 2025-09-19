@@ -111,10 +111,30 @@ export function OpenAIRealtimeConfigPanel({
   }, [config, serializer]);
 
   const handleConfigChange = (field: keyof OpenAIRealtimeConfig, value: any) => {
-    setConfig(prev => ({
-      ...prev,
-      [field]: value
-    }));
+    setConfig(prev => {
+      const newConfig = {
+        ...prev,
+        [field]: value
+      };
+      
+      // CRITICAL FIX: Synchronize voice settings when voice field is changed
+      // Ensure sessionConfig.audio.output.voice matches the top-level voice setting
+      if (field === 'voice' && newConfig.sessionConfig?.audio?.output) {
+        console.log(`Admin UI Voice Sync: Updating sessionConfig.audio.output.voice from '${newConfig.sessionConfig.audio.output.voice}' to '${value}'`);
+        newConfig.sessionConfig = {
+          ...newConfig.sessionConfig,
+          audio: {
+            ...newConfig.sessionConfig.audio,
+            output: {
+              ...newConfig.sessionConfig.audio.output,
+              voice: value as OpenAIVoice
+            }
+          }
+        };
+      }
+      
+      return newConfig;
+    });
   };
 
   const handleSessionConfigChange = (field: string, value: any) => {
