@@ -444,6 +444,7 @@ Communication guidelines:
 
             // Create the realtime session using loaded configuration
             this._session = new RealtimeSession(this._agent, {
+                //Any data here overrides configuration set by the server, at the moment we only re-define tools calls to be able to wrap them 
                 /*model: this._config?.model || 'gpt-realtime',
                 config: {
                     audio: {
@@ -1339,8 +1340,23 @@ Communication guidelines:
             }
             
             console.log('OpenAIRealtimeAdapter: Getting session token...');
+            
+            // Build URL with query parameters for context injection
+            const sessionUrl = new URL('/api/ai/openai/session', window.location.origin);
+            
+            if (this._options?.contextId) {
+                sessionUrl.searchParams.set('contextId', this._options.contextId);
+            }
+            
+            if (this._options?.reflinkId) {
+                sessionUrl.searchParams.set('reflinkId', this._options.reflinkId);
+                console.log('OpenAIRealtimeAdapter: Including reflinkId in session request:', this._options.reflinkId);
+            }
+            
+            console.log('OpenAIRealtimeAdapter: Session request URL:', sessionUrl.toString());
+            
             // Get session token from our API (which includes context injection)
-            const response = await fetch('/api/ai/openai/session', {
+            const response = await fetch(sessionUrl.toString(), {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',

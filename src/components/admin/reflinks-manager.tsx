@@ -161,6 +161,9 @@ export function ReflinksManager() {
         enableAdvancedNavigation: formData.enableAdvancedNavigation,
       };
 
+      console.log('Creating reflink with payload:', JSON.stringify(payload, null, 2));
+      console.log('Form data before payload creation:', JSON.stringify(formData, null, 2));
+
       const response = await fetch('/api/admin/ai/reflinks', {
         method: 'POST',
         headers: {
@@ -169,9 +172,22 @@ export function ReflinksManager() {
         body: JSON.stringify(payload),
       });
 
+      console.log('Response status:', response.status);
+      console.log('Response ok:', response.ok);
+
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error?.message || 'Failed to create reflink');
+        console.error('API Error Response:', error);
+        
+        // Show detailed validation errors if available
+        if (error.error?.errors) {
+          console.error('Validation errors:', error.error.errors);
+        }
+        if (error.error?.detailedMessage) {
+          console.error('Detailed message:', error.error.detailedMessage);
+        }
+        
+        throw new Error(error.error?.detailedMessage || error.error?.message || 'Failed to create reflink');
       }
 
       toast({

@@ -11,6 +11,7 @@ import { headers } from 'next/headers';
 import { getClientAIModelManager } from '../../../../../lib/voice/ClientAIModelManager';
 import { OpenAIRealtimeConfig } from '../../../../../types/voice-config';
 import { unifiedToolRegistry } from '../../../../../lib/ai/tools/UnifiedToolRegistry';
+import { reflinkManager } from '../../../../../lib/services/ai/reflink-manager';
 
 interface OpenAISessionRequest {
   contextId?: string;
@@ -33,6 +34,11 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const contextId = searchParams.get('contextId');
     const reflinkId = searchParams.get('reflinkId');
+    
+    console.log('GET /api/ai/openai/session - Request URL:', request.url);
+    console.log('Search params:', Object.fromEntries(searchParams.entries()));
+    console.log('Extracted contextId:', contextId);
+    console.log('Extracted reflinkId:', reflinkId);
 
     // Validate OpenAI API key using centralized environment validation
     const { getEnvironmentVariable } = await import('../../../../../types/voice-config');
@@ -107,8 +113,58 @@ export async function GET(request: NextRequest) {
     }
 
     if (reflinkId) {
-      systemInstructions += `\n\nThis user has special access via reflink: ${reflinkId}`;
-      // TODO: Add personalized context based on reflink
+      try {
+        // Validate reflink and get personalized data
+        const reflinkValidation = await reflinkManager.validateReflinkWithBudget(reflinkId);
+        
+        if (reflinkValidation.valid && reflinkValidation.reflink) {
+          const reflink = reflinkValidation.reflink;
+          systemInstructions += `\n`;
+          
+          // Add personalized greeting if available
+          if (reflink.recipientName) {
+            systemInstructions += `\nPersonalized Context: You are speaking with ${reflink.recipientName}.`;
+          }
+          
+          // Add custom context if provided
+          if (reflink.customContext) {
+            systemInstructions += `\nCustom context from the portfolio owner about the person you are speaking to: ${reflink.customContext}`;
+          }
+          
+          // Add feature availability context
+          const enabledFeatures = [];
+          if (reflink.enableVoiceAI) enabledFeatures.push('voice AI');
+          if (reflink.enableJobAnalysis) enabledFeatures.push('job analysis');
+          if (reflink.enableAdvancedNavigation) enabledFeatures.push('advanced navigation');
+          
+          if (enabledFeatures.length > 0) {
+            systemInstructions += `\nEnabled Features: This user has access to ${enabledFeatures.join(', ')}.`;
+          }
+          
+          // Add budget status if available
+          if (reflinkValidation.budgetStatus) {
+            const budget = reflinkValidation.budgetStatus;
+            if (budget.tokensRemaining !== undefined) {
+              systemInstructions += `\nBudget Status: ${budget.tokensRemaining} tokens remaining.`;
+            }
+          }
+          
+          // Add welcome message if available
+          if (reflinkValidation.welcomeMessage) {
+            systemInstructions += `\nWelcome Message: ${reflinkValidation.welcomeMessage}`;
+          }
+          
+          console.log(`Personalized context loaded for reflink: ${reflinkId} (${reflink.name || 'unnamed'})`);
+        } else {
+          console.warn(`Invalid reflink: ${reflinkId} - ${reflinkValidation.reason}`);
+          systemInstructions += `\n\nThis user provided reflink: ${reflinkId} (validation failed)`;
+        }
+      } catch (error) {
+        console.error('Failed to load reflink context:', error);
+        systemInstructions += `\n\nThis user has special access via reflink: ${reflinkId}`;
+      }
+    } else {
+      console.log('No reflink ID provided, personalized context not loaded for reflink: ', reflinkId);
     }
 
     console.log('System instructions:', systemInstructions);
@@ -211,6 +267,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body: OpenAISessionRequest = await request.json();
+    
+    console.log('POST /api/ai/openai/session - Request body:', JSON.stringify(body, null, 2));
+    console.log('POST reflinkId:', body.reflinkId);
 
     // Handle POST requests with custom configuration
     // This allows for more complex session setup with custom instructions and tools
@@ -267,6 +326,61 @@ export async function POST(request: NextRequest) {
     if (body.contextId) {
       // TODO: Load context from ContextProviderService
       instructions += `\n\nContext ID: ${body.contextId}`;
+    }
+
+    if (body.reflinkId) {
+      try {
+        // Validate reflink and get personalized data
+        const reflinkValidation = await reflinkManager.validateReflinkWithBudget(body.reflinkId);
+        
+        if (reflinkValidation.valid && reflinkValidation.reflink) {
+          const reflink = reflinkValidation.reflink;
+          instructions += `\n`;
+          
+          // Add personalized greeting if available
+          if (reflink.recipientName) {
+            instructions += `\nPersonalized Context: You are speaking with ${reflink.recipientName}.`;
+          }
+          
+          // Add custom context if provided
+          if (reflink.customContext) {
+            instructions += `\nCustom context from the portfolio owner about the person you are speaking to: ${reflink.customContext}`;
+          }
+          
+          // Add feature availability context
+          const enabledFeatures = [];
+          if (reflink.enableVoiceAI) enabledFeatures.push('voice AI');
+          if (reflink.enableJobAnalysis) enabledFeatures.push('job analysis');
+          if (reflink.enableAdvancedNavigation) enabledFeatures.push('advanced navigation');
+          
+          if (enabledFeatures.length > 0) {
+            instructions += `\nEnabled Features: This user has access to ${enabledFeatures.join(', ')}.`;
+          }
+          
+          // Add budget status if available
+          if (reflinkValidation.budgetStatus) {
+            const budget = reflinkValidation.budgetStatus;
+            if (budget.tokensRemaining !== undefined) {
+              instructions += `\nBudget Status: ${budget.tokensRemaining} tokens remaining.`;
+            }
+          }
+          
+          // Add welcome message if available
+          if (reflinkValidation.welcomeMessage) {
+            instructions += `\nWelcome Message: ${reflinkValidation.welcomeMessage}`;
+          }
+          
+          console.log(`Personalized context loaded for reflink (POST): ${body.reflinkId} (${reflink.name || 'unnamed'})`);
+        } else {
+          console.warn(`Invalid reflink (POST): ${body.reflinkId} - ${reflinkValidation.reason}`);
+          instructions += `\n\nThis user provided reflink: ${body.reflinkId} (validation failed)`;
+        }
+      } catch (error) {
+        console.error('Failed to load reflink context (POST):', error);
+        instructions += `\n\nThis user has special access via reflink: ${body.reflinkId}`;
+      }
+    } else {
+      console.log('No reflink ID provided, personalized context not loaded for reflink: ', body.reflinkId);
     }
 
     // Use custom tools or default from unified registry

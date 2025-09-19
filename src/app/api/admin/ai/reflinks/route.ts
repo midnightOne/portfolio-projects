@@ -77,14 +77,30 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
+    console.log('POST /api/admin/ai/reflinks - Request body:', JSON.stringify(body, null, 2));
+    
     const validation = validateApiRequest(CreateReflinkSchema, body);
+    console.log('Validation result:', {
+      success: validation.success,
+      errors: validation.errors,
+      data: validation.success ? validation.data : null
+    });
 
     if (!validation.success) {
+      console.error('Validation failed for reflink creation:', {
+        body,
+        errors: validation.errors
+      });
+      
       return NextResponse.json(
         createApiError(
           'VALIDATION_ERROR',
           'Invalid reflink data',
-          { errors: validation.errors }
+          { 
+            errors: validation.errors,
+            receivedData: body,
+            detailedMessage: `Validation failed: ${validation.errors?.map(e => `${e.path?.join('.')} - ${e.message}`).join('; ')}`
+          }
         ),
         { status: 400 }
       );

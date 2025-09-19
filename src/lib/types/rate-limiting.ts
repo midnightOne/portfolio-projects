@@ -42,7 +42,24 @@ export const CreateReflinkSchema = z.object({
   description: z.string().max(500).optional(),
   rateLimitTier: RateLimitTierSchema.default('STANDARD'),
   dailyLimit: z.number().int().min(1).max(10000).optional(),
-  expiresAt: z.string().datetime().optional(),
+  expiresAt: z.string()
+    .optional()
+    .refine((val) => {
+      if (!val) return true; // Optional field
+      
+      // Accept both date-only (YYYY-MM-DD) and full datetime strings
+      const dateOnlyRegex = /^\d{4}-\d{2}-\d{2}$/;
+      const datetimeRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+      
+      if (dateOnlyRegex.test(val) || datetimeRegex.test(val)) {
+        const date = new Date(val);
+        return !isNaN(date.getTime());
+      }
+      
+      return false;
+    }, {
+      message: "Must be a valid date (YYYY-MM-DD) or datetime (ISO 8601) string"
+    }),
   
   // Enhanced reflink features
   recipientName: z.string().min(1).max(255).optional(),
@@ -60,7 +77,24 @@ export const UpdateReflinkSchema = z.object({
   description: z.string().max(500).optional(),
   rateLimitTier: RateLimitTierSchema.optional(),
   dailyLimit: z.number().int().min(1).max(10000).optional(),
-  expiresAt: z.string().datetime().optional(),
+  expiresAt: z.string()
+    .optional()
+    .refine((val) => {
+      if (!val) return true; // Optional field
+      
+      // Accept both date-only (YYYY-MM-DD) and full datetime strings
+      const dateOnlyRegex = /^\d{4}-\d{2}-\d{2}$/;
+      const datetimeRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+      
+      if (dateOnlyRegex.test(val) || datetimeRegex.test(val)) {
+        const date = new Date(val);
+        return !isNaN(date.getTime());
+      }
+      
+      return false;
+    }, {
+      message: "Must be a valid date (YYYY-MM-DD) or datetime (ISO 8601) string"
+    }),
   isActive: z.boolean().optional(),
   
   // Enhanced reflink features

@@ -465,5 +465,5 @@ function generateWelcomeMessage(reflink: any): string {
   const name = reflink.recipientName || 'there';
   const context = reflink.customContext ? ` ${reflink.customContext}` : '';
   
-  return `Hello ${name}! You have special access to enhanced AI features.${context}`;
+  return `Hello ${name}! You have special access to enhanced AI features.`; //removed ${context} as it is private
 }

@@ -24,48 +24,102 @@ export class ReflinkManager {
    * Create a new reflink
    */
   async createReflink(params: CreateReflinkParams, createdBy?: string): Promise<ReflinkInfo> {
+    console.log('ReflinkManager.createReflink called with params:', JSON.stringify(params, null, 2));
+    console.log('createdBy:', createdBy);
+    
     try {
+      // Validate params structure
+      if (!params || typeof params !== 'object') {
+        console.error('Invalid params structure:', params);
+        throw new ReflinkError('Invalid parameters provided');
+      }
+
+      if (!params.code || typeof params.code !== 'string') {
+        console.error('Invalid code in params:', params.code);
+        throw new ReflinkError('Reflink code is required and must be a string');
+      }
+
+      console.log('Checking if reflink code already exists:', params.code);
+      
       // Check if code already exists
       const existing = await prisma.aIReflink.findUnique({
         where: { code: params.code },
       });
 
       if (existing) {
+        console.error('Reflink code already exists:', params.code);
         throw new ReflinkError(`Reflink code '${params.code}' already exists`, params.code);
       }
 
+      console.log('Determining daily limit for tier:', params.rateLimitTier);
+      
       // Determine daily limit based on tier
+      if (!RATE_LIMIT_TIERS[params.rateLimitTier]) {
+        console.error('Invalid rate limit tier:', params.rateLimitTier, 'Available tiers:', Object.keys(RATE_LIMIT_TIERS));
+        throw new ReflinkError(`Invalid rate limit tier: ${params.rateLimitTier}`);
+      }
+      
       const dailyLimit = params.dailyLimit ?? RATE_LIMIT_TIERS[params.rateLimitTier].dailyLimit;
+      console.log('Calculated daily limit:', dailyLimit);
+
+      const createData = {
+        code: params.code,
+        name: params.name,
+        description: params.description,
+        rateLimitTier: params.rateLimitTier,
+        dailyLimit: dailyLimit === -1 ? 999999 : dailyLimit, // Handle unlimited
+        expiresAt: params.expiresAt ? this.parseExpirationDate(params.expiresAt) : null,
+        createdBy,
+        
+        // Enhanced features
+        recipientName: params.recipientName,
+        recipientEmail: params.recipientEmail,
+        customContext: params.customContext,
+        tokenLimit: params.tokenLimit,
+        spendLimit: params.spendLimit,
+        enableVoiceAI: params.enableVoiceAI ?? true,
+        enableJobAnalysis: params.enableJobAnalysis ?? true,
+        enableAdvancedNavigation: params.enableAdvancedNavigation ?? true,
+      };
+
+      console.log('Creating reflink with data:', JSON.stringify(createData, null, 2));
 
       const reflink = await prisma.aIReflink.create({
-        data: {
-          code: params.code,
-          name: params.name,
-          description: params.description,
-          rateLimitTier: params.rateLimitTier,
-          dailyLimit: dailyLimit === -1 ? 999999 : dailyLimit, // Handle unlimited
-          expiresAt: params.expiresAt ? new Date(params.expiresAt) : null,
-          createdBy,
-          
-          // Enhanced features
-          recipientName: params.recipientName,
-          recipientEmail: params.recipientEmail,
-          customContext: params.customContext,
-          tokenLimit: params.tokenLimit,
-          spendLimit: params.spendLimit,
-          enableVoiceAI: params.enableVoiceAI ?? true,
-          enableJobAnalysis: params.enableJobAnalysis ?? true,
-          enableAdvancedNavigation: params.enableAdvancedNavigation ?? true,
-        },
+        data: createData,
       });
+
+      console.log('Successfully created reflink:', reflink.id, reflink.code);
 
       return this.mapToReflinkInfo(reflink);
     } catch (error) {
+      console.error('Error in createReflink:', {
+        error,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        name: error instanceof Error ? error.name : undefined,
+        params: JSON.stringify(params, null, 2)
+      });
+      
       if (error instanceof ReflinkError) {
         throw error;
       }
-      console.error('Failed to create reflink:', error);
-      throw new ReflinkError('Failed to create reflink');
+      
+      // Provide more specific error messages for common Prisma errors
+      if (error instanceof Error) {
+        if (error.message.includes('Unique constraint')) {
+          throw new ReflinkError(`Reflink code '${params.code}' already exists`, params.code);
+        }
+        if (error.message.includes('Foreign key constraint')) {
+          throw new ReflinkError('Invalid reference in reflink data');
+        }
+        if (error.message.includes('Data too long')) {
+          throw new ReflinkError('One or more fields exceed maximum length');
+        }
+        
+        throw new ReflinkError(`Failed to create reflink: ${error.message}`);
+      }
+      
+      throw new ReflinkError('Failed to create reflink - unknown error');
     }
   }
 
@@ -96,7 +150,7 @@ export class ReflinkManager {
           description: params.description,
           rateLimitTier: params.rateLimitTier,
           dailyLimit: dailyLimit,
-          expiresAt: params.expiresAt ? new Date(params.expiresAt) : undefined,
+          expiresAt: params.expiresAt ? this.parseExpirationDate(params.expiresAt) : undefined,
           isActive: params.isActive,
           
           // Enhanced features
@@ -588,7 +642,7 @@ export class ReflinkManager {
     const name = reflink.recipientName || 'there';
     const context = reflink.customContext ? ` ${reflink.customContext}` : '';
     
-    return `Hello ${name}! You have special access to enhanced AI features.${context}`;
+    return `Hello ${name}! You have special access to enhanced AI features.`; //removed ${context} as it is private
   }
 
   /**
@@ -614,6 +668,27 @@ export class ReflinkManager {
       console.error('Failed to cleanup expired reflinks:', error);
       return 0;
     }
+  }
+
+  /**
+   * Parse expiration date string to proper Date object
+   * Handles both date-only (YYYY-MM-DD) and full datetime strings
+   */
+  private parseExpirationDate(dateStr: string): Date {
+    // Check if it's a date-only string (YYYY-MM-DD)
+    const dateOnlyRegex = /^\d{4}-\d{2}-\d{2}$/;
+    
+    if (dateOnlyRegex.test(dateStr)) {
+      // For date-only strings, set to end of day (23:59:59.999) in local timezone
+      const date = new Date(dateStr + 'T23:59:59.999');
+      console.log(`Parsed date-only string "${dateStr}" to end-of-day: ${date.toISOString()}`);
+      return date;
+    }
+    
+    // For datetime strings, use as-is
+    const date = new Date(dateStr);
+    console.log(`Parsed datetime string "${dateStr}" to: ${date.toISOString()}`);
+    return date;
   }
 
   /**
