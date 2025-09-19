@@ -325,6 +325,7 @@ export function WaveEngine({
   onCameraChange
 }: WaveEngineProps) {
   const mountRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null); // Track our canvas separately
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -647,7 +648,14 @@ export function WaveEngine({
   // ============================================================================
 
   const initializeThreeJS = useCallback(() => {
-    if (!mountRef.current || rendererRef.current || isInitializedRef.current) return; // Prevent multiple initializations
+    // Prevent initialization if component is unmounted or already initialized
+    if (!mountRef.current || rendererRef.current || isInitializedRef.current) return;
+    
+    // Additional safety check - ensure mount ref is still connected to DOM
+    if (!mountRef.current.isConnected) {
+      console.warn('Mount ref is not connected to DOM, skipping Three.js initialization');
+      return;
+    }
 
     const { width: currentWidth, height: currentHeight } = dimensionsRef.current;
     if (currentWidth <= 0 || currentHeight <= 0) return;
@@ -680,8 +688,25 @@ export function WaveEngine({
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       rendererRef.current = renderer;
 
+      // React-friendly approach: Only remove our own canvas if it exists
+      if (mountRef.current) {
+        console.log('Mount ref exists, children count:', mountRef.current.children.length);
+        
+        // Only remove our previous canvas if it exists and is still in the DOM
+        if (canvasRef.current && canvasRef.current.parentNode === mountRef.current) {
+          try {
+            console.log('Removing previous canvas');
+            mountRef.current.removeChild(canvasRef.current);
+            console.log('Previous canvas removed successfully');
+          } catch (error) {
+            console.warn('Could not remove previous canvas (may have been removed by React):', error);
+          }
+        }
+      }
+
       // Add to DOM and ensure proper styling
       const canvas = renderer.domElement;
+      canvasRef.current = canvas; // Store reference to our canvas
       canvas.style.display = 'block';
       canvas.style.width = `${currentWidth}px`;
       canvas.style.height = `${currentHeight}px`;
@@ -691,12 +716,23 @@ export function WaveEngine({
       canvas.style.opacity = '0'; // Start invisible until mesh is ready
       canvas.style.visibility = 'hidden'; // Also hide from layout
       
-      // Clear any existing canvas
-      while (mountRef.current.firstChild) {
-        mountRef.current.removeChild(mountRef.current.firstChild);
+      if (mountRef.current) {
+        try {
+          console.log('Appending new canvas to mount ref');
+          mountRef.current.appendChild(canvas);
+          console.log('Canvas successfully appended');
+        } catch (error) {
+          console.error('Error appending canvas to mount ref:', error);
+          console.log('Mount ref state:', {
+            exists: !!mountRef.current,
+            isConnected: mountRef.current?.isConnected,
+            childrenCount: mountRef.current?.children.length,
+            parentNode: !!mountRef.current?.parentNode
+          });
+        }
+      } else {
+        console.warn('Mount ref is null, cannot append canvas');
       }
-      
-      mountRef.current.appendChild(canvas);
 
       // Add focus tracking listener
       document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -732,8 +768,12 @@ export function WaveEngine({
   // ============================================================================
 
   const animate = useCallback(() => {
+    // Check if component is still mounted and refs are valid
     if (!rendererRef.current || !sceneRef.current || !cameraRef.current || !uniformsRef.current) {
-      animationIdRef.current = requestAnimationFrame(animate);
+      // Only continue animation if we still have a mount ref (component not unmounted)
+      if (mountRef.current && mountRef.current.isConnected) {
+        animationIdRef.current = requestAnimationFrame(animate);
+      }
       return;
     }
 
@@ -804,12 +844,17 @@ export function WaveEngine({
         lastFpsUpdateRef.current = now;
       }
 
-      animationIdRef.current = requestAnimationFrame(animate);
+      // Only continue animation if component is still mounted
+      if (mountRef.current && mountRef.current.isConnected) {
+        animationIdRef.current = requestAnimationFrame(animate);
+      }
     } catch (error) {
       console.error('Animation loop error:', error);
       onError?.(error as Error);
-      // Continue animation even if there's an error
-      animationIdRef.current = requestAnimationFrame(animate);
+      // Continue animation even if there's an error, but only if still mounted
+      if (mountRef.current && mountRef.current.isConnected) {
+        animationIdRef.current = requestAnimationFrame(animate);
+      }
     }
   }, [onPerformanceChange, onError]);
 
@@ -880,34 +925,77 @@ export function WaveEngine({
       animationIdRef.current = null;
     }
 
-    if (rendererRef.current) {
-      // Remove focus tracking listener
+    // Remove focus tracking listener (safe to call even if not added)
+    try {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+    } catch (error) {
+      console.warn('Error removing visibility listener (safe to ignore):', error);
+    }
+
+    if (rendererRef.current) {
+      const canvas = canvasRef.current || rendererRef.current.domElement;
       
-      // Remove event listeners
-      if (interactive) {
-        const canvas = rendererRef.current.domElement;
-        canvas.removeEventListener('mousedown', handleMouseDown);
-        canvas.removeEventListener('wheel', handleWheel);
-        canvas.removeEventListener('dblclick', handleDoubleClick);
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
-      }
-      
-      const canvas = rendererRef.current.domElement;
-      
-      // Safely remove canvas from DOM
-      if (canvas && canvas.parentNode) {
+      // Remove event listeners safely
+      if (interactive && canvas) {
         try {
-          canvas.parentNode.removeChild(canvas);
+          canvas.removeEventListener('mousedown', handleMouseDown);
+          canvas.removeEventListener('wheel', handleWheel);
+          canvas.removeEventListener('dblclick', handleDoubleClick);
+          document.removeEventListener('mousemove', handleMouseMove);
+          document.removeEventListener('mouseup', handleMouseUp);
         } catch (error) {
-          console.warn('Canvas removal error (safe to ignore):', error);
+          console.warn('Error removing canvas listeners (safe to ignore):', error);
         }
       }
       
-      rendererRef.current.dispose();
+      // Only try to remove our canvas if we created it and it's still in our mount ref
+      if (canvas && canvasRef.current) {
+        console.log('Cleanup: Canvas state:', {
+          tagName: canvas.tagName,
+          isConnected: canvas.isConnected,
+          parentNode: !!canvas.parentNode,
+          parentNodeType: canvas.parentNode?.nodeName,
+          mountRefExists: !!mountRef.current,
+          mountRefConnected: mountRef.current?.isConnected,
+          canvasInMountRef: mountRef.current?.contains(canvas),
+          parentIsMountRef: canvas.parentNode === mountRef.current
+        });
+        
+        try {
+          // Only remove if the canvas is our canvas and it's in our mount ref
+          if (canvas.parentNode === mountRef.current && mountRef.current?.contains(canvas)) {
+            console.log('Removing our canvas from mount ref');
+            mountRef.current.removeChild(canvas);
+            console.log('Canvas removed successfully');
+          } else {
+            console.log('Canvas not in our mount ref or already removed, skipping removal');
+          }
+        } catch (error) {
+          // This error is expected if React has already removed the node
+          console.error('Canvas removal error (may be expected during React unmount):', error);
+          console.log('Error details:', {
+            message: error.message,
+            canvasExists: !!canvas,
+            parentExists: !!canvas.parentNode,
+            isConnected: canvas.isConnected,
+            parentIsMountRef: canvas.parentNode === mountRef.current
+          });
+        }
+      } else {
+        console.log('Cleanup: No canvas to remove or canvas not tracked');
+      }
+      
+      // Dispose of renderer resources
+      try {
+        rendererRef.current.dispose();
+      } catch (error) {
+        console.warn('Error disposing renderer (safe to ignore):', error);
+      }
       rendererRef.current = null;
     }
+    
+    // Clear canvas reference
+    canvasRef.current = null;
 
     if (meshRef.current) {
       if (meshRef.current.geometry) {
@@ -975,6 +1063,19 @@ export function WaveEngine({
     };
   }, []); // Empty dependency array - only run once on mount
 
+  // Separate useEffect to handle canvas DOM lifecycle
+  useEffect(() => {
+    // This effect ensures the canvas is properly managed by React
+    return () => {
+      // When component unmounts, let React handle the DOM cleanup
+      // We just need to dispose Three.js resources
+      if (canvasRef.current) {
+        console.log('Component unmounting, clearing canvas reference');
+        canvasRef.current = null;
+      }
+    };
+  }, []);
+
   // Setup wave mesh when config is available and Three.js is initialized
   useEffect(() => {
     if (rendererRef.current && sceneRef.current && !meshRef.current) {
@@ -1000,9 +1101,20 @@ export function WaveEngine({
   // RENDER
   // ============================================================================
 
+  // Ref callback to handle mount/unmount more gracefully
+  const handleMountRef = useCallback((node: HTMLDivElement | null) => {
+    if (node) {
+      console.log('Mount ref set, node connected:', node.isConnected);
+      mountRef.current = node;
+    } else {
+      console.log('Mount ref cleared');
+      mountRef.current = null;
+    }
+  }, []);
+
   return (
     <div 
-      ref={mountRef} 
+      ref={handleMountRef} 
       className={className}
       style={{ 
         width, 
