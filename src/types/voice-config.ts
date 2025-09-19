@@ -51,7 +51,7 @@ export type TransportType = 'websocket' | 'webrtc' | 'http';
 /**
  * OpenAI Realtime voice options
  */
-export type OpenAIVoice = 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
+export type OpenAIVoice = 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'shimmer' | 'sage' | 'verse' | 'marin' | 'cedar';
 
 /**
  * OpenAI Realtime model options
@@ -366,7 +366,7 @@ export const TransportTypeSchema = z.enum(['websocket', 'webrtc', 'http']);
 /**
  * OpenAI voice schema
  */
-export const OpenAIVoiceSchema = z.enum(['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer']);
+export const OpenAIVoiceSchema = z.enum(['alloy', 'ash', 'ballad', 'coral', 'echo', 'shimmer', 'sage', 'verse', 'marin', 'cedar']);
 
 /**
  * OpenAI VAD configuration schema
