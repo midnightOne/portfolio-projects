@@ -65,7 +65,7 @@ export default function VoiceTestPage() {
       config: {
         audio: {
           output: {
-            voice: 'alloy',
+            voice: 'echo',
           },
         },
       },

@@ -530,10 +530,18 @@ export class ReflinkManager {
 
   /**
    * Validate reflink with budget checking
+   * Accepts either reflink code (user-friendly) or reflink ID (database ID)
    */
-  async validateReflinkWithBudget(code: string): Promise<ReflinkValidationResult> {
+  async validateReflinkWithBudget(codeOrId: string): Promise<ReflinkValidationResult> {
     try {
-      const reflink = await this.getReflinkByCode(code);
+      // CRITICAL FIX: Try both code and ID lookup
+      // First try by code (user-friendly reflink)
+      let reflink = await this.getReflinkByCode(codeOrId);
+      
+      // If not found by code, try by ID (database ID)
+      if (!reflink) {
+        reflink = await this.getReflinkById(codeOrId);
+      }
 
       if (!reflink) {
         return { valid: false, reason: 'not_found' };

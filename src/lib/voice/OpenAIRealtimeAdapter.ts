@@ -398,7 +398,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
         // Create the main agent with configuration from ClientAIModelManager
         const agentName = this._config?.displayName || 'Portfolio Assistant';
-        const instructions = this._config?.instructions || `You are a concise, friendly AI narrator for Kirill’s XR/AI portfolio. You can help visitors learn about the portfolio owner's background, projects, and experience. You have access to navigation tools to show relevant content and guide users through the portfolio.
+        const instructions = this._config?.instructions || `2You are a concise, friendly AI narrator for Kirill’s XR/AI portfolio. You can help visitors learn about the portfolio owner's background, projects, and experience. You have access to navigation tools to show relevant content and guide users through the portfolio.
 
 Key capabilities:
 - Answer questions about projects and experience using loadContext tool
@@ -444,14 +444,14 @@ Communication guidelines:
 
             // Create the realtime session using loaded configuration
             this._session = new RealtimeSession(this._agent, {
-                model: this._config?.model || 'gpt-realtime',
+                /*model: this._config?.model || 'gpt-realtime',
                 config: {
                     audio: {
                         output: {
-                            voice: this._config?.voice || 'alloy',
+                            voice: this._config?.voice || 'cedar',
                         },
                     },
-                },
+                },*/
             });
 
             // Set up event listeners
@@ -519,8 +519,17 @@ Communication guidelines:
                 console.log('Emitting connected event from session.updated');
                 this._emitConnectionEvent('connected');
             } else if (event.type === 'error') {
-                console.log('Emitting error event');
-                this._emitConnectionEvent('error', (event as any).error?.message || 'Unknown error');
+                const errorMessage = (event as any).error?.message || 'Unknown error';
+                console.log('Emitting error event:', errorMessage);
+                
+                // Check for specific item retrieval errors that are safe to ignore
+                if (errorMessage.includes('item with id') && errorMessage.includes('does not exist')) {
+                    console.warn('OpenAI item retrieval error detected - this is usually safe to ignore:', errorMessage);
+                    // Don't emit connection error for item retrieval issues as they don't affect functionality
+                    return;
+                }
+                
+                this._emitConnectionEvent('error', errorMessage);
             }
         });
 
@@ -650,17 +659,25 @@ Communication guidelines:
         const processedItemIds = new Set(this._transcript.map(t => t.id));
         
         for (let index = 0; index < history.length; index++) {
-            const item = history[index];
-            // Use the actual item ID if available, otherwise use index-based ID
-            const itemId = (item as any).id || `item-${index}`;
-            
-            // Skip items we've already processed
-            if (processedItemIds.has(itemId)) {
-                continue;
-            }
-            
-            // Handle function call items separately - log them but don't add to transcript
-            if (item.type === 'function_call') {
+            try {
+                const item = history[index];
+                
+                // Safely extract item ID with error handling
+                let itemId: string;
+                try {
+                    itemId = (item as any).id || `item-${index}`;
+                } catch (error) {
+                    console.warn('Error accessing item ID, using fallback:', error);
+                    itemId = `item-${index}-${Date.now()}`;
+                }
+                
+                // Skip items we've already processed
+                if (processedItemIds.has(itemId)) {
+                    continue;
+                }
+                
+                // Handle function call items separately - log them but don't add to transcript
+                if (item.type === 'function_call') {
                 console.log('Processing function call item for conversation log:', {
                     index,
                     type: item.type,
@@ -715,35 +732,47 @@ Communication guidelines:
                 }
             }
 
-            const content = this._extractContentFromItem(item);
-            
-            console.log('Final item classification:', {
-                index,
-                type: itemType,
-                content: content.substring(0, 50),
-                hasContent: content.length > 0
-            });
-            
-            // Only add items with content or update existing items that now have content
-            if (content.trim().length > 0) {
-                const transcriptItem: TranscriptItem = {
-                    id: itemId,
-                    type: itemType,
-                    content,
-                    timestamp: new Date(Date.now()),
-                    provider: 'openai' as VoiceProvider
-                };
-                
-                // Update existing item or add new one
-                const existingIndex = this._transcript.findIndex(t => t.id === itemId);
-                if (existingIndex >= 0) {
-                    this._transcript[existingIndex] = transcriptItem;
-                } else {
-                    this._transcript.push(transcriptItem);
+                // Extract content safely with error handling
+                let content: string;
+                try {
+                    content = this._extractContentFromItem(item);
+                } catch (contentError) {
+                    console.warn('Error extracting content from item, using fallback:', contentError);
+                    content = `[Content extraction error: ${contentError instanceof Error ? contentError.message : String(contentError)}]`;
                 }
                 
-                newTranscriptItems.push(transcriptItem);
-                processedItemIds.add(itemId);
+                console.log('Final item classification:', {
+                    index,
+                    type: itemType,
+                    content: content.substring(0, 50),
+                    hasContent: content.length > 0
+                });
+                
+                // Only add items with content or update existing items that now have content
+                if (content.trim().length > 0) {
+                    const transcriptItem: TranscriptItem = {
+                        id: itemId,
+                        type: itemType,
+                        content,
+                        timestamp: new Date(Date.now()),
+                        provider: 'openai' as VoiceProvider
+                    };
+                    
+                    // Update existing item or add new one
+                    const existingIndex = this._transcript.findIndex(t => t.id === itemId);
+                    if (existingIndex >= 0) {
+                        this._transcript[existingIndex] = transcriptItem;
+                    } else {
+                        this._transcript.push(transcriptItem);
+                    }
+                    
+                    newTranscriptItems.push(transcriptItem);
+                    processedItemIds.add(itemId);
+                }
+            } catch (itemProcessingError) {
+                console.error('Error processing history item at index', index, ':', itemProcessingError);
+                // Continue with next item instead of breaking the entire process
+                continue;
             }
         }
         
@@ -1034,7 +1063,7 @@ Communication guidelines:
      */
     private _logToolCallCompletion(event: any) {
         try {
-            const conversationId = this._conversationId || 'unknown';
+            const conversationId = this._sessionId || 'unknown';
             
             // Log to conversation logger for monitoring
             fetch('/api/ai/conversation/log', {
@@ -1161,20 +1190,39 @@ Communication guidelines:
     }
 
     private _extractContentFromItem(item: RealtimeItem): string {
-        // Extract text content from RealtimeItem
+        // Extract text content from RealtimeItem with comprehensive error handling
         try {
+            // Safely check item properties
+            let itemType: string;
+            let itemKeys: string[];
+            let hasContent = false;
+            let hasTranscript = false;
+            let hasText = false;
+            
+            try {
+                itemType = item.type || 'unknown';
+                itemKeys = Object.keys(item);
+                hasContent = 'content' in item;
+                hasTranscript = 'transcript' in item;
+                hasText = 'text' in item;
+            } catch (keyError) {
+                console.warn('Error accessing item properties:', keyError);
+                return '';
+            }
+            
             console.log('Extracting content from item:', {
-                type: item.type,
-                hasContent: 'content' in item,
-                hasTranscript: 'transcript' in item,
-                hasText: 'text' in item,
-                keys: Object.keys(item)
+                type: itemType,
+                hasContent,
+                hasTranscript,
+                hasText,
+                keys: itemKeys
             });
             
             // Handle different item structures
-            if (item.type === 'message' && 'content' in item) {
-                if (Array.isArray(item.content)) {
-                    const textContent = item.content
+            if (itemType === 'message' && hasContent) {
+                const itemWithContent = item as any;
+                if (Array.isArray(itemWithContent.content)) {
+                    const textContent = itemWithContent.content
                         .filter((c: any) => {
                             // Include both input and output audio types, plus text types
                             const isTextType = c.type === 'text' || 
@@ -1210,11 +1258,11 @@ Communication guidelines:
                 }
                 
                 // If content is not an array, try to extract directly
-                if (typeof item.content === 'string') {
-                    return item.content;
-                } else if (typeof item.content === 'object' && item.content !== null) {
+                if (typeof itemWithContent.content === 'string') {
+                    return itemWithContent.content;
+                } else if (typeof itemWithContent.content === 'object' && itemWithContent.content !== null) {
                     // Try to extract text from object content
-                    const content = item.content as any;
+                    const content = itemWithContent.content as any;
                     return content.text || content.transcript || content.audio_transcript || '';
                 }
             }
@@ -1311,6 +1359,11 @@ Communication guidelines:
             await this._session.connect({
                 apiKey: client_secret,
             });
+
+            this._session.transport.sendEvent({
+                type: "response.create",
+                response: {},});
+            //this._session.transport.sendMessage("",{},{ triggerResponse: true });
 
             this._isConnected = true;
             this._connectionStatus = 'connected';
@@ -1683,11 +1736,13 @@ Communication guidelines:
 
     /**
      * Generate a consistent session ID for tracking
+     * This ensures the same session ID is used throughout the conversation
      */
     private _generateSessionId(): string {
         // Use a combination of timestamp and random string for uniqueness
         if (!this._sessionId) {
             this._sessionId = `openai-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            console.log('Generated new session ID:', this._sessionId);
         }
         return this._sessionId;
     }

@@ -971,30 +971,30 @@ export function ReflinksManager() {
               Usage statistics for reflink: {selectedReflink?.code}
             </DialogDescription>
           </DialogHeader>
-          {reflinkUsage && (
+          {selectedReflink && (
             <div className="space-y-4">
               <div className="grid grid-cols-4 gap-4">
                 <Card>
                   <CardContent className="pt-4">
-                    <div className="text-2xl font-bold">{reflinkUsage.totalRequests}</div>
+                    <div className="text-2xl font-bold">{reflinkUsage?.totalRequests || 0}</div>
                     <p className="text-sm text-muted-foreground">Total Requests</p>
                   </CardContent>
                 </Card>
                 <Card>
                   <CardContent className="pt-4">
-                    <div className="text-2xl font-bold">{reflinkUsage.blockedRequests}</div>
+                    <div className="text-2xl font-bold">{reflinkUsage?.blockedRequests || 0}</div>
                     <p className="text-sm text-muted-foreground">Blocked Requests</p>
                   </CardContent>
                 </Card>
                 <Card>
                   <CardContent className="pt-4">
-                    <div className="text-2xl font-bold">{reflinkUsage.uniqueUsers}</div>
+                    <div className="text-2xl font-bold">{reflinkUsage?.uniqueUsers || 0}</div>
                     <p className="text-sm text-muted-foreground">Unique Users</p>
                   </CardContent>
                 </Card>
                 <Card>
                   <CardContent className="pt-4">
-                    <div className="text-2xl font-bold">${reflinkUsage.totalCost.toFixed(2)}</div>
+                    <div className="text-2xl font-bold">${reflinkUsage?.totalCost?.toFixed(2) || '0.00'}</div>
                     <p className="text-sm text-muted-foreground">Total Cost</p>
                   </CardContent>
                 </Card>
@@ -1009,15 +1009,15 @@ export function ReflinksManager() {
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
                         <span>LLM Costs:</span>
-                        <span>${reflinkUsage.costBreakdown.llmCosts.toFixed(2)}</span>
+                        <span>${reflinkUsage?.costBreakdown?.llmCosts?.toFixed(2) || '0.00'}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Voice Costs:</span>
-                        <span>${reflinkUsage.costBreakdown.voiceCosts.toFixed(2)}</span>
+                        <span>${reflinkUsage?.costBreakdown?.voiceCosts?.toFixed(2) || '0.00'}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Processing:</span>
-                        <span>${reflinkUsage.costBreakdown.processingCosts.toFixed(2)}</span>
+                        <span>${reflinkUsage?.costBreakdown?.processingCosts?.toFixed(2) || '0.00'}</span>
                       </div>
                     </div>
                   </CardContent>
@@ -1029,12 +1029,14 @@ export function ReflinksManager() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2 text-sm">
-                      {Object.entries(reflinkUsage.usageByType).map(([type, count]) => (
+                      {reflinkUsage?.usageByType ? Object.entries(reflinkUsage.usageByType).map(([type, count]) => (
                         <div key={type} className="flex justify-between">
                           <span className="capitalize">{type.replace('_', ' ')}:</span>
                           <span>{count}</span>
                         </div>
-                      ))}
+                      )) : (
+                        <div className="text-muted-foreground">No usage data available</div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -1043,7 +1045,7 @@ export function ReflinksManager() {
               <div>
                 <h4 className="font-medium mb-2">Daily Usage & Costs (Last 30 Days)</h4>
                 <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {reflinkUsage.requestsByDay.map((day, index) => (
+                  {reflinkUsage?.requestsByDay?.length ? reflinkUsage.requestsByDay.map((day, index) => (
                     <div key={index} className="flex items-center justify-between text-sm p-2 rounded border">
                       <span>{day.date}</span>
                       <div className="flex items-center gap-4">
@@ -1056,7 +1058,11 @@ export function ReflinksManager() {
                         )}
                       </div>
                     </div>
-                  ))}
+                  )) : (
+                    <div className="text-muted-foreground text-sm p-4 text-center">
+                      No usage data available for the last 30 days
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

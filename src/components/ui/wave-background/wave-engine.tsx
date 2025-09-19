@@ -808,14 +808,14 @@ export function WaveEngine({
       }
 
       // Debug: Log time every few seconds
-      if (Math.floor(adjustedElapsed) % 5 === 0 && Math.floor(adjustedElapsed * 10) % 10 === 0) {
+      /*if (Math.floor(adjustedElapsed) % 5 === 0 && Math.floor(adjustedElapsed * 10) % 10 === 0) {
         console.log('Animation time:', adjustedElapsed.toFixed(2), 'Raw elapsed:', rawElapsed.toFixed(2), 'Focus off time:', (focusOffTimeRef.current / 1000).toFixed(2), 'Wave params:', {
           wavesX: uniformsRef.current.u_wavesX.value,
           amplitude: uniformsRef.current.u_amplitude.value,
           speedX: uniformsRef.current.u_speedX.value,
           time: uniformsRef.current.u_time.value
         });
-      }
+      }*/
 
       // Ensure the renderer is properly rendering
       const canvas = rendererRef.current.domElement;

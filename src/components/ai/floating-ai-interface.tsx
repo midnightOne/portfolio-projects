@@ -60,6 +60,7 @@ export interface FloatingAIInterfaceProps {
   hideOnScroll?: boolean;
   persistPosition?: boolean;
   animationDuration?: number;
+  isVisible?: boolean; // External visibility control
   
   // Accessibility
   ariaLabel?: string;
@@ -95,6 +96,7 @@ export function FloatingAIInterface({
 }: FloatingAIInterfaceProps) {
   // Real voice integration and reflink access control
   const { 
+    session,
     accessLevel, 
     isFeatureEnabled, 
     welcomeMessage, 
@@ -130,7 +132,7 @@ export function FloatingAIInterface({
 
   // Local state
   const [inputValue, setInputValue] = useState(value);
-  const [isVisible, setIsVisible] = useState(true);
+  const [isVisible, setIsVisible] = useState(true); // Will be updated based on reflink status
   const [hasInteracted, setHasInteracted] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -526,6 +528,19 @@ export function FloatingAIInterface({
       setShowAccessMessage(true);
     }
   }, [accessMessage, isFeatureEnabled]);
+
+  // Set initial visibility and behavior based on access level
+  useEffect(() => {
+    // Always show interface for users with access (no_access is handled by early return)
+    // Premium users get enhanced visibility and welcome message
+    if (accessLevel === 'premium' && session?.reflink) {
+      setIsVisible(true);
+      console.log('AI interface visible for premium reflink user:', session.reflink.recipientName);
+    } else if (accessLevel === 'limited' || accessLevel === 'basic') {
+      setIsVisible(true);
+      console.log('AI interface visible for', accessLevel, 'user');
+    }
+  }, [accessLevel, session]);
 
   // Don't auto-connect - only connect when user clicks microphone button
   // This prevents multiple simultaneous connections and gives user control
