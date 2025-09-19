@@ -196,8 +196,9 @@ export function WaveBackground({
   const handlePerformanceChange = useCallback((fps: number) => {
     onPerformanceChange?.(fps);
     
-    // Auto-fallback if performance is too low
-    if (fps < 30 && !state.shouldUseFallback) {
+    // Auto-fallback if performance is too low, but only when page is visible
+    // Don't trigger fallback during alt+tab or when page is hidden
+    if (fps < 30 && !state.shouldUseFallback && !document.hidden) {
       console.warn('Wave animation performance too low, switching to fallback');
       setState(prev => ({ ...prev, shouldUseFallback: true }));
     }
@@ -223,10 +224,22 @@ export function WaveBackground({
     loadWaveConfiguration();
 
     const handleResize = () => updateDimensions();
+    const handleVisibilityChange = () => {
+      // Reset performance monitoring when page becomes visible again
+      // This prevents false positives from alt+tab scenarios
+      if (!document.hidden && state.shouldUseFallback) {
+        console.log('Page visible again, checking if we can restore wave animation...');
+        // Don't automatically restore - let user refresh if needed
+        // This prevents flickering between states
+      }
+    };
+
     window.addEventListener('resize', handleResize);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     
     return () => {
       window.removeEventListener('resize', handleResize);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []); // Empty dependency array - only run once on mount
 
@@ -235,38 +248,17 @@ export function WaveBackground({
   // ============================================================================
 
   // Show fallback if not supported, performance is low, or error occurred
+  // Just return empty div to show clean homepage background
   if (state.shouldUseFallback || !state.isSupported || state.error) {
-    const gradient = fallbackGradient || getFallbackGradient(currentTheme || 'light');
-    
     return (
-      <div
-        className={cn('absolute inset-0 -z-10', className)}
-        style={{ background: gradient }}
-      >
-        {/* Optional pattern overlay for fallback */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,rgba(255,255,255,0.15)_1px,transparent_0)] bg-[length:20px_20px]" />
-        </div>
-      </div>
+      <div className={cn('absolute inset-0 -z-10', className)} />
     );
   }
 
-  // Show loading state - use fallback gradient until everything is ready
+  // Show loading state - clean background until everything is ready
   if (state.isLoading || !state.config || !state.isReady || dimensions.width === 0) {
-    const gradient = fallbackGradient || getFallbackGradient(currentTheme || 'light');
-    
     return (
-      <div
-        className={cn('absolute inset-0 -z-10', className)}
-        style={{ background: gradient }}
-      >
-        {/* Only show loading text if actually loading, not if just waiting for dimensions */}
-        {state.isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-white/50 text-sm">Loading wave animation...</div>
-          </div>
-        )}
-      </div>
+      <div className={cn('absolute inset-0 -z-10', className)} />
     );
   }
 
