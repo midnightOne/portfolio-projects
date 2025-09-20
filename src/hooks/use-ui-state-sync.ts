@@ -26,9 +26,16 @@
 import { useEffect, useCallback, useState } from 'react';
 import { UIManager, type UIState } from '@/lib/navigation/UIManager';
 
+// Define a type that allows partial nested objects in UIState
+type DeepPartialUIState = {
+  [K in keyof UIState]?: K extends 'scrollPosition' | 'mediaState' | 'interactionState' | 'currentProject'
+    ? Partial<UIState[K]>
+    : UIState[K];
+};
+
 export interface UseUIStateSyncOptions {
   // Provide state to UIManager
-  provider?: () => Partial<UIState>;
+  provider?: () => DeepPartialUIState;
   
   // Subscribe to state changes from UIManager
   subscriber?: (state: UIState) => void;
@@ -45,7 +52,7 @@ export interface UseUIStateSyncReturn {
   state: UIState | null;
   
   // Update UIManager state
-  updateState: (update: Partial<UIState>) => void;
+  updateState: (update: DeepPartialUIState) => void;
   
   // Force sync from provider
   syncState: () => void;
@@ -65,7 +72,7 @@ export function useUIStateSync(
   // Register provider on mount
   useEffect(() => {
     if (provider) {
-      uiManager.registerStateProvider(componentId, provider);
+      uiManager.registerStateProvider(componentId, provider as () => Partial<UIState>);
       
       if (debug) {
         console.log(`[UIStateSync] Registered provider: ${componentId}`);
@@ -114,7 +121,7 @@ export function useUIStateSync(
         try {
           const update = provider();
           if (update && Object.keys(update).length > 0) {
-            uiManager.updateUIState(componentId, update);
+            uiManager.updateUIState(componentId, update as Partial<UIState>);
             
             if (debug) {
               console.log(`[UIStateSync] Auto-sync from ${componentId}:`, update);
@@ -130,8 +137,8 @@ export function useUIStateSync(
   }, [componentId, provider, syncInterval, debug]);
 
   // Update state callback
-  const updateState = useCallback((update: Partial<UIState>) => {
-    uiManager.updateUIState(componentId, update);
+  const updateState = useCallback((update: DeepPartialUIState) => {
+    uiManager.updateUIState(componentId, update as Partial<UIState>);
     
     if (debug) {
       console.log(`[UIStateSync] Manual update from ${componentId}:`, update);
@@ -144,7 +151,7 @@ export function useUIStateSync(
       try {
         const update = provider();
         if (update && Object.keys(update).length > 0) {
-          uiManager.updateUIState(componentId, update);
+          uiManager.updateUIState(componentId, update as Partial<UIState>);
           
           if (debug) {
             console.log(`[UIStateSync] Force sync from ${componentId}:`, update);
