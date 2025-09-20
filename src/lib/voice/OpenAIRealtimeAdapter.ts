@@ -18,7 +18,7 @@ import {
 } from '@/types/voice-agent';
 import { BaseConversationalAgentAdapter } from './IConversationalAgentAdapter';
 import { getClientAIModelManager } from './ClientAIModelManager';
-import { uiStateManager, UIStateManager } from '@/lib/navigation/UIStateManager';
+import { UIManager } from '@/lib/navigation/UIManager';
 
 // OpenAI Realtime SDK 0.1.0 imports
 import {
@@ -1423,7 +1423,8 @@ Communication guidelines:
 
         try {
             // Initialize UI state manager with background update callback
-            uiStateManager.initialize((update) => {
+            const uiManager = UIManager.getInstance();
+            uiManager.initialize((update) => {
                 this._sendBackgroundResult(update);
             });
 
@@ -1450,8 +1451,8 @@ Communication guidelines:
         try {
             // Create a formatted message for the AI about the UI state change
             const stateMessage = `UI State Update: User is now at ${update.breadcrumbPath}${update.visibleAnchors.length > 0
-                    ? ` viewing sections: ${update.visibleAnchors.join(', ')}`
-                    : ''
+                ? ` viewing sections: ${update.visibleAnchors.join(', ')}`
+                : ''
                 }${update.activeFilters?.searchTerm
                     ? ` searching for: ${update.activeFilters.searchTerm}`
                     : ''
@@ -1486,7 +1487,8 @@ Communication guidelines:
 
                 // Clean up UI state tracking
                 if (typeof window !== 'undefined') {
-                    uiStateManager.setBackgroundUpdateCallback(null);
+                    const uiManager = UIManager.getInstance();
+                    uiManager.setBackgroundUpdateCallback(null);
                 }
 
                 console.log('Disconnected from OpenAI Realtime');

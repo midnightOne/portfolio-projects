@@ -18,6 +18,14 @@ const customJestConfig = {
     '!src/**/*.d.ts',
     '!src/**/*.stories.{js,jsx,ts,tsx}',
   ],
+  // Optimize for faster single test runs
+  maxWorkers: 1,
+  // Don't collect coverage by default (speeds up individual test runs)
+  collectCoverage: false,
+  // Reduce console noise
+  verbose: false,
+  // Only show errors and warnings
+  silent: false,
 }
 
 // createJestConfig is exported this way to ensure that next/jest can load the Next.js config which is async

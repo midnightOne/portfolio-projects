@@ -29,7 +29,8 @@
     "type-check": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "test:single": "jest --maxWorkers=1 --verbose=false --silent=false"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.57.0",

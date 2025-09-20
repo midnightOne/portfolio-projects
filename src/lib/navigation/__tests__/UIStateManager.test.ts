@@ -1,19 +1,22 @@
 /**
- * UIStateManager Tests
+ * UIManager State Management Tests
  * 
- * Tests for the lightweight UI state tracking system with background updates.
+ * Tests for the consolidated UI state tracking system with background updates.
+ * Tests the state management functionality that was consolidated from UIStateManager.
  */
 
-import { UIStateManager, UIState } from '../UIStateManager';
+import { UIManager } from '../UIManager';
 
 // Mock DOM environment
+const mockLocation = {
+  pathname: '/',
+  search: '',
+  hash: '',
+  href: 'http://localhost:3000/'
+};
+
 const mockWindow = {
-  location: {
-    pathname: '/projects',
-    search: '?project=test-project&tab=technical',
-    hash: '#implementation',
-    href: 'http://localhost:3000/projects?project=test-project&tab=technical#implementation'
-  },
+  location: mockLocation,
   addEventListener: jest.fn(),
   history: {
     pushState: jest.fn(),
@@ -48,18 +51,35 @@ const mockDocument = {
 (global as any).MutationObserver = mockMutationObserver;
 (global as any).document = mockDocument;
 
-describe('UIStateManager', () => {
-  let uiStateManager: UIStateManager;
+describe('UIManager State Management', () => {
+  let uiManager: UIManager;
   let mockBackgroundCallback: jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    uiStateManager = UIStateManager.getInstance();
+    
+    // Reset window mock for each test
+    (global as any).window = mockWindow;
+    
+    // Reset UIManager singleton for testing
+    (UIManager as any).instance = null;
+    
+    uiManager = UIManager.getInstance();
+    
+    // Set test location for UIManager
+    uiManager.setTestLocation(mockLocation);
+    
     mockBackgroundCallback = jest.fn();
+    
+    // Override debounce timing for tests
+    jest.useFakeTimers();
   });
 
   afterEach(() => {
-    uiStateManager.destroy();
+    if (uiManager && typeof uiManager.destroy === 'function') {
+      uiManager.destroy();
+    }
+    jest.useRealTimers();
   });
 
   describe('Breadcrumb Path Generation', () => {
@@ -68,51 +88,52 @@ describe('UIStateManager', () => {
       mockWindow.location.search = '';
       mockWindow.location.hash = '';
 
-      const state = uiStateManager.getCurrentUIState();
+      const state = uiManager.getCurrentUIState();
       expect(state.breadcrumbPath).toBe('home');
     });
 
     it('should generate correct breadcrumb path for projects page with project modal', () => {
-      mockWindow.location.pathname = '/projects';
-      mockWindow.location.search = '?project=test-project';
-      mockWindow.location.hash = '';
+      // Update the mock location object directly
+      mockLocation.pathname = '/projects';
+      mockLocation.search = '?project=test-project';
+      mockLocation.hash = '';
 
-      const state = uiStateManager.getCurrentUIState();
+      const state = uiManager.getCurrentUIState();
       expect(state.breadcrumbPath).toBe('projects.project:test-project');
     });
 
     it('should generate correct breadcrumb path with section hash', () => {
-      mockWindow.location.pathname = '/projects';
-      mockWindow.location.search = '?project=test-project';
-      mockWindow.location.hash = '#technical-details';
+      mockLocation.pathname = '/projects';
+      mockLocation.search = '?project=test-project';
+      mockLocation.hash = '#technical-details';
 
-      const state = uiStateManager.getCurrentUIState();
+      const state = uiManager.getCurrentUIState();
       expect(state.breadcrumbPath).toBe('projects.project:test-project.section:technical-details');
     });
 
     it('should generate correct breadcrumb path with tab parameter', () => {
-      mockWindow.location.pathname = '/projects';
-      mockWindow.location.search = '?project=test-project&tab=overview';
-      mockWindow.location.hash = '';
+      mockLocation.pathname = '/projects';
+      mockLocation.search = '?project=test-project&tab=overview';
+      mockLocation.hash = '';
 
-      const state = uiStateManager.getCurrentUIState();
+      const state = uiManager.getCurrentUIState();
       expect(state.breadcrumbPath).toBe('projects.project:test-project.tab:overview');
     });
   });
 
   describe('Background Updates', () => {
     it('should initialize with background update callback', () => {
-      uiStateManager.initialize(mockBackgroundCallback);
+      uiManager.initialize(mockBackgroundCallback);
       
       expect(mockIntersectionObserver).toHaveBeenCalled();
       expect(mockMutationObserver).toHaveBeenCalled();
     });
 
     it('should call background update callback on navigation state change', () => {
-      uiStateManager.initialize(mockBackgroundCallback);
+      uiManager.initialize(mockBackgroundCallback);
       
       // Simulate navigation change
-      uiStateManager.updateNavigationState('home.projects.new-project');
+      uiManager.updateNavigationState('home.projects.new-project');
       
       expect(mockBackgroundCallback).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -123,39 +144,38 @@ describe('UIStateManager', () => {
       );
     });
 
-    it('should call background update callback on filter state change', (done) => {
-      uiStateManager.initialize(mockBackgroundCallback);
+    it('should call background update callback on filter state change', () => {
+      uiManager.initialize(mockBackgroundCallback);
       
       // Update filter state (this is debounced)
-      uiStateManager.updateFilterState({
+      uiManager.updateFilterState({
         searchTerm: 'react',
         tags: ['frontend', 'javascript']
       });
       
-      // Wait for debounce (5 seconds + buffer)
-      setTimeout(() => {
-        expect(mockBackgroundCallback).toHaveBeenCalledWith(
-          expect.objectContaining({
-            type: 'ui_state_update',
-            activeFilters: {
-              searchTerm: 'react',
-              tags: ['frontend', 'javascript']
-            },
-            timestamp: expect.any(Number)
-          })
-        );
-        done();
-      }, 100); // Use shorter timeout for testing
+      // Fast-forward time to trigger debounce (5 seconds)
+      jest.advanceTimersByTime(5000);
+      
+      expect(mockBackgroundCallback).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'ui_state_update',
+          activeFilters: {
+            searchTerm: 'react',
+            tags: ['frontend', 'javascript']
+          },
+          timestamp: expect.any(Number)
+        })
+      );
     });
   });
 
   describe('State Serialization', () => {
     it('should serialize state for server context', () => {
-      mockWindow.location.pathname = '/projects';
-      mockWindow.location.search = '?project=test-project';
-      mockWindow.location.hash = '#implementation';
+      mockLocation.pathname = '/projects';
+      mockLocation.search = '?project=test-project';
+      mockLocation.hash = '#implementation';
 
-      const serialized = uiStateManager.serializeForServerContext();
+      const serialized = uiManager.serializeForServerContext();
       
       expect(serialized).toEqual({
         breadcrumbPath: 'projects.project:test-project.section:implementation',
@@ -166,12 +186,15 @@ describe('UIStateManager', () => {
     });
 
     it('should include filter state in serialization', () => {
-      uiStateManager.updateFilterState({
+      uiManager.updateFilterState({
         searchTerm: 'typescript',
         techStack: ['react', 'nextjs']
       });
 
-      const serialized = uiStateManager.serializeForServerContext();
+      // Fast-forward time to trigger debounce (5 seconds)
+      jest.advanceTimersByTime(5000);
+
+      const serialized = uiManager.serializeForServerContext();
       
       expect(serialized.activeFilters).toEqual({
         searchTerm: 'typescript',
@@ -189,7 +212,7 @@ describe('UIStateManager', () => {
 
       mockDocument.querySelectorAll.mockReturnValue(mockElements);
       
-      uiStateManager.initialize(mockBackgroundCallback);
+      uiManager.initialize(mockBackgroundCallback);
       
       expect(mockIntersectionObserver).toHaveBeenCalledWith(
         expect.any(Function),
@@ -212,55 +235,55 @@ describe('UIStateManager', () => {
 
       mockIntersectionObserver.mockReturnValue(mockObserver);
       
-      uiStateManager.initialize(mockBackgroundCallback);
-      uiStateManager.destroy();
+      uiManager.initialize(mockBackgroundCallback);
+      uiManager.destroy();
       
       expect(mockObserver.disconnect).toHaveBeenCalled();
     });
 
     it('should clear background update callback on destroy', () => {
-      uiStateManager.initialize(mockBackgroundCallback);
-      uiStateManager.destroy();
+      uiManager.initialize(mockBackgroundCallback);
+      uiManager.destroy();
       
       // Verify callback is cleared by checking internal state
-      expect(uiStateManager['_backgroundUpdateCallback']).toBeNull();
+      expect(uiManager['_backgroundUpdateCallback']).toBeNull();
     });
   });
 
   describe('Debouncing', () => {
-    it('should debounce scroll updates', (done) => {
-      uiStateManager.initialize(mockBackgroundCallback);
+    it('should debounce scroll updates', () => {
+      uiManager.initialize(mockBackgroundCallback);
       
       // Simulate multiple rapid scroll updates
       const mockAnchors = ['section-1', 'section-2'];
       
       // Call the debounced function multiple times rapidly
       for (let i = 0; i < 5; i++) {
-        uiStateManager['_debouncedScrollUpdate'](mockAnchors);
+        uiManager['_debouncedScrollUpdate'](mockAnchors);
       }
       
+      // Fast-forward time to trigger debounce (10 seconds)
+      jest.advanceTimersByTime(10000);
+      
       // Should only call callback once after debounce period
-      setTimeout(() => {
-        expect(mockBackgroundCallback).toHaveBeenCalledTimes(1);
-        done();
-      }, 100);
+      expect(mockBackgroundCallback).toHaveBeenCalledTimes(1);
     });
 
-    it('should debounce filter updates', (done) => {
-      uiStateManager.initialize(mockBackgroundCallback);
+    it('should debounce filter updates', () => {
+      uiManager.initialize(mockBackgroundCallback);
       
       // Simulate multiple rapid filter updates
       const filters = { searchTerm: 'test' };
       
       for (let i = 0; i < 3; i++) {
-        uiStateManager.updateFilterState(filters);
+        uiManager.updateFilterState(filters);
       }
       
+      // Fast-forward time to trigger debounce (5 seconds)
+      jest.advanceTimersByTime(5000);
+      
       // Should only call callback once after debounce period
-      setTimeout(() => {
-        expect(mockBackgroundCallback).toHaveBeenCalledTimes(1);
-        done();
-      }, 100);
+      expect(mockBackgroundCallback).toHaveBeenCalledTimes(1);
     });
   });
 });

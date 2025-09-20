@@ -24,7 +24,7 @@ import {
 import { BaseConversationalAgentAdapter } from './IConversationalAgentAdapter';
 import { getClientAIModelManager } from './ClientAIModelManager';
 import { ElevenLabsConfig } from '@/types/voice-config';
-import { uiStateManager } from '@/lib/navigation/UIStateManager';
+import { UIManager } from '@/lib/navigation/UIManager';
 
 interface ElevenLabsTokenResponse {
   conversation_token?: string;
@@ -371,7 +371,8 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
 
     try {
       // Initialize UI state manager with background update callback
-      uiStateManager.initialize((update) => {
+      const uiManager = UIManager.getInstance();
+      uiManager.initialize((update) => {
         this._sendBackgroundUpdate(update);
       });
 
@@ -454,7 +455,8 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
 
       // Clean up UI state tracking
       if (typeof window !== 'undefined') {
-        uiStateManager.setBackgroundUpdateCallback(null);
+        const uiManager = UIManager.getInstance();
+        uiManager.setBackgroundUpdateCallback(null);
       }
 
       this._handleConnectionEvent({
