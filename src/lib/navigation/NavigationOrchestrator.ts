@@ -15,9 +15,9 @@ import { v4 as uuidv4 } from 'uuid';
 export interface UIIntentParams {
   epoch?: number;                       // Client's last-known UI state version
   target: 
-    | { type: "section"; id: string }   // e.g., {type:"section", id:"contact"}
+    | { type: "section"; id: string; projectId?: string }   // e.g., {type:"section", id:"contact", projectId:"aurora-avatar"}
     | { type: "route"; id: string }     // e.g., {type:"route", id:"home"}
-    | { type: "project"; id: string }   // e.g., {type:"project", id:"aurora-avatar"}
+    | { type: "project"; id: string; sectionId?: string }   // e.g., {type:"project", id:"aurora-avatar", sectionId:"technical-details"}
     | { type: "element"; id: string };  // tab, accordion, etc.
   behavior?: {
     openIfNeeded?: boolean;             // open modal or navigate if required
@@ -317,11 +317,24 @@ export class NavigationOrchestrator {
         break;
         
       case 'project':
+        // Handle project navigation with optional section
         steps.push(...this._planProjectNavigation(params.target.id, currentState, defaultBehavior));
+        if (params.target.sectionId) {
+          // Add section navigation after project is loaded
+          steps.push(...this._planSectionNavigation(params.target.sectionId, currentState, defaultBehavior));
+        }
         break;
         
       case 'section':
-        steps.push(...this._planSectionNavigation(params.target.id, currentState, defaultBehavior));
+        // Handle section navigation with optional project context
+        if (params.target.projectId) {
+          // Navigate to project first, then section
+          steps.push(...this._planProjectNavigation(params.target.projectId, currentState, defaultBehavior));
+          steps.push(...this._planSectionNavigation(params.target.id, currentState, defaultBehavior));
+        } else {
+          // Direct section navigation (within current context)
+          steps.push(...this._planSectionNavigation(params.target.id, currentState, defaultBehavior));
+        }
         break;
         
       case 'element':
@@ -638,41 +651,83 @@ export class NavigationOrchestrator {
           }
         }
       });
-    }
-
-    // Open project modal
-    steps.push({
-      id: `open_project_${projectId}`,
-      type: 'modal',
-      execute: async () => {
-        try {
-          if (typeof window !== 'undefined') {
-            const url = new URL(window.location.href);
-            url.searchParams.set('project', projectId);
-            window.history.pushState({}, '', url.toString());
-            window.dispatchEvent(new PopStateEvent('popstate'));
-            
+    } else if (currentProject && currentProject !== projectId && behavior.closeBlocking) {
+      // We're on projects page but viewing a different project modal - close it first
+      steps.push({
+        id: `close_current_project_modal`,
+        type: 'close',
+        execute: async () => {
+          try {
+            if (typeof window !== 'undefined') {
+              const url = new URL(window.location.href);
+              url.searchParams.delete('project');
+              window.history.pushState({}, '', url.toString());
+              window.dispatchEvent(new PopStateEvent('popstate'));
+              
+              return {
+                success: true,
+                message: `Closed current project modal (${currentProject})`,
+                data: { closedProject: currentProject }
+              };
+            }
             return {
-              success: true,
-              message: `Opened project ${projectId}`,
-              data: { projectId }
+              success: false,
+              message: 'Window not available for modal operation',
+              error: 'No window object'
+            };
+          } catch (error) {
+            return {
+              success: false,
+              message: 'Failed to close current project modal',
+              error: error instanceof Error ? error.message : String(error),
+              shouldRetry: true
             };
           }
-          return {
-            success: false,
-            message: 'Window not available for modal operation',
-            error: 'No window object'
-          };
-        } catch (error) {
-          return {
-            success: false,
-            message: `Failed to open project ${projectId}`,
-            error: error instanceof Error ? error.message : String(error),
-            shouldRetry: true
-          };
         }
-      }
-    });
+      });
+
+      // Add a brief wait for modal close animation
+      steps.push(this._createWaitStep(300));
+    }
+
+    // Open target project modal (only if we're not already viewing it)
+    if (currentProject !== projectId) {
+      steps.push({
+        id: `open_project_${projectId}`,
+        type: 'modal',
+        execute: async () => {
+          try {
+            if (typeof window !== 'undefined') {
+              const url = new URL(window.location.href);
+              url.searchParams.set('project', projectId);
+              window.history.pushState({}, '', url.toString());
+              window.dispatchEvent(new PopStateEvent('popstate'));
+              
+              return {
+                success: true,
+                message: `Opened project ${projectId}`,
+                data: { projectId }
+              };
+            }
+            return {
+              success: false,
+              message: 'Window not available for modal operation',
+              error: 'No window object'
+            };
+          } catch (error) {
+            return {
+              success: false,
+              message: `Failed to open project ${projectId}`,
+              error: error instanceof Error ? error.message : String(error),
+              shouldRetry: true
+            };
+          }
+        }
+      });
+
+      // Add wait for modal open animation and content loading
+      steps.push(this._createWaitStep(behavior.waitForReadyMs || 1500));
+    }
 
     return steps;
   }
@@ -809,7 +864,7 @@ export class NavigationOrchestrator {
    * Get CSS selector for a section
    */
   private _getSectionSelector(sectionId: string): string {
-    // Map common section names to selectors
+    // Map common section names to selectors [hardcode] //TODO make dynamic
     const sectionMap: Record<string, string> = {
       'hero': '#hero, [data-section-type="hero"], [data-section-id*="hero"]',
       'about': '#about, [data-section-type="about"], [data-section-id*="about"]',
@@ -856,7 +911,7 @@ export class NavigationOrchestrator {
   }
 
   /**
-   * Detect available navigation transitions
+   * Detect available navigation transitions //TODO: implement a dynamic system
    */
   private _detectAvailableTransitions(route: string, projectParam?: string | null): Array<{
     id: string;

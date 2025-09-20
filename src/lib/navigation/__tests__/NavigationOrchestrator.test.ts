@@ -252,5 +252,77 @@ describe('NavigationOrchestrator', () => {
       expect(result.success).toBe(true);
       expect(result.executedSteps.length).toBeGreaterThan(0);
     });
+
+    it('should handle project modal switching correctly', async () => {
+      // Currently viewing Project A modal
+      mockWindow.location.pathname = '/projects';
+      mockWindow.location.search = '?project=project-a';
+      mockWindow.location.href = 'http://localhost:3000/projects?project=project-a';
+
+      // Mock URL constructor to return proper search params
+      const mockURL = {
+        searchParams: {
+          get: jest.fn((key) => key === 'project' ? 'project-a' : null),
+          set: jest.fn(),
+          delete: jest.fn()
+        },
+        toString: jest.fn(() => 'http://localhost:3000/projects?project=project-b')
+      };
+      (global as any).URL = jest.fn(() => mockURL);
+
+      const intent: UIIntentParams = {
+        target: { type: 'project', id: 'project-b' },
+        behavior: { closeBlocking: true }
+      };
+
+      const result = await orchestrator.executeIntent(intent);
+
+      expect(result.success).toBe(true);
+      // The test should show that we're switching from one project to another
+      expect(result.executedSteps.length).toBeGreaterThan(0);
+    });
+
+    it('should handle section navigation within different project', async () => {
+      // Currently viewing Project A modal
+      mockWindow.location.pathname = '/projects';
+      mockWindow.location.search = '?project=project-a';
+
+      // Mock element found for section scrolling
+      const mockElement = { scrollIntoView: jest.fn() };
+      mockDocument.querySelector.mockReturnValue(mockElement);
+
+      const intent: UIIntentParams = {
+        target: { type: 'section', id: 'technical-details', projectId: 'project-b' },
+        behavior: { closeBlocking: true }
+      };
+
+      const result = await orchestrator.executeIntent(intent);
+
+      expect(result.success).toBe(true);
+      expect(result.executedSteps).toContain('close_current_project_modal');
+      expect(result.executedSteps).toContain('open_project_project-b');
+      expect(result.executedSteps).toContain('scroll_to_technical-details');
+      expect(mockElement.scrollIntoView).toHaveBeenCalled();
+    });
+
+    it('should handle project with section navigation', async () => {
+      // Not on projects page
+      mockWindow.location.pathname = '/';
+
+      // Mock element found for section scrolling
+      const mockElement = { scrollIntoView: jest.fn() };
+      mockDocument.querySelector.mockReturnValue(mockElement);
+
+      const intent: UIIntentParams = {
+        target: { type: 'project', id: 'test-project', sectionId: 'overview' }
+      };
+
+      const result = await orchestrator.executeIntent(intent);
+
+      expect(result.success).toBe(true);
+      expect(result.executedSteps).toContain('open_project_test-project');
+      expect(result.executedSteps).toContain('scroll_to_overview');
+      expect(mockElement.scrollIntoView).toHaveBeenCalled();
+    });
   });
 });

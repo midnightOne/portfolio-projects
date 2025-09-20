@@ -385,7 +385,8 @@ export const uiIntentToolDefinition: UnifiedToolDefinition = {
             type: 'object',
             properties: {
               type: { const: 'section' },
-              id: { type: 'string', description: 'Section identifier (e.g., "hero", "about", "contact")' }
+              id: { type: 'string', description: 'Section identifier (e.g., "hero", "about", "contact")' },
+              projectId: { type: 'string', description: 'Optional project context for section navigation' }
             },
             required: ['type', 'id']
           },
@@ -401,7 +402,8 @@ export const uiIntentToolDefinition: UnifiedToolDefinition = {
             type: 'object',
             properties: {
               type: { const: 'project' },
-              id: { type: 'string', description: 'Project slug (e.g., "e-commerce-platform")' }
+              id: { type: 'string', description: 'Project slug (e.g., "e-commerce-platform")' },
+              sectionId: { type: 'string', description: 'Optional section to scroll to within project' }
             },
             required: ['type', 'id']
           },
