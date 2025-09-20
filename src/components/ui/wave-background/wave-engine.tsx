@@ -547,13 +547,14 @@ export function WaveEngine({
     const { width: currentWidth, height: currentHeight } = dimensionsRef.current;
 
     try {
-      console.log('Setting up wave mesh with config...');
+      console.log('Setting up wave mesh with config...', { theme, lightTheme: config.lightTheme, darkTheme: config.darkTheme });
       
       // Geometry matching original (4x4 with 256x256 segments for high detail)
       const planeGeometry = new THREE.PlaneGeometry(4, 4, 256, 256);
 
       // Shader uniforms
       const colorScheme = theme === 'dark' ? config.darkTheme : config.lightTheme;
+      console.log('setupWaveMesh: Selected color scheme for theme', theme, ':', colorScheme);
       const uniforms: WaveShaderUniforms = {
         u_time: { value: 0 },
         u_constantTime: { value: 0 },

@@ -18,7 +18,9 @@ import {
   Camera,
   Loader2,
   AlertCircle,
-  CheckCircle
+  CheckCircle,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { WaveEngine, type WaveConfiguration } from '@/components/ui/wave-background/wave-engine';
@@ -42,6 +44,7 @@ interface WaveConfigState {
   isSaving: boolean;
   error: string | null;
   showPreview: boolean;
+  previewTheme: 'light' | 'dark';
   previewDimensions: { width: number; height: number };
 }
 
@@ -132,6 +135,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
     isSaving: false,
     error: null,
     showPreview: false,
+    previewTheme: (currentTheme || 'light') as 'light' | 'dark',
     previewDimensions: { width: 800, height: 400 }
   });
 
@@ -322,6 +326,13 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
     }
   }, [handleConfigChange, toast]);
 
+  const handlePreviewThemeToggle = useCallback((theme: 'light' | 'dark') => {
+    setState(prev => ({
+      ...prev,
+      previewTheme: theme
+    }));
+  }, []);
+
   // ============================================================================
   // EFFECTS
   // ============================================================================
@@ -468,19 +479,46 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
           >
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Eye className="h-5 w-5" />
-                  Live Preview
-                  <Badge variant="secondary" className="ml-2">
-                    {currentTheme || 'light'} theme
-                  </Badge>
+                <CardTitle className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Eye className="h-5 w-5" />
+                    Live Preview
+                    <Badge variant="secondary" className="ml-2">
+                      {state.previewTheme} theme
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-1 p-1 bg-muted rounded-lg">
+                    <Button
+                      variant={state.previewTheme === 'light' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => handlePreviewThemeToggle('light')}
+                      className="flex items-center gap-2 h-8 px-3"
+                    >
+                      <Sun className="h-3 w-3" />
+                      Light
+                    </Button>
+                    <Button
+                      variant={state.previewTheme === 'dark' ? 'default' : 'ghost'}
+                      size="sm"
+                      onClick={() => handlePreviewThemeToggle('dark')}
+                      className="flex items-center gap-2 h-8 px-3"
+                    >
+                      <Moon className="h-3 w-3" />
+                      Dark
+                    </Button>
+                  </div>
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="border rounded-lg overflow-hidden bg-background">
+                <div 
+                  className={cn(
+                    "border rounded-lg overflow-hidden transition-colors duration-200",
+                    state.previewTheme === 'dark' ? 'bg-gray-900' : 'bg-white'
+                  )}
+                >
                   <WaveEngine
                     config={state.config}
-                    theme={currentTheme || 'light'}
+                    theme={state.previewTheme}
                     width={state.previewDimensions.width}
                     height={state.previewDimensions.height}
                     className="w-full"
@@ -494,6 +532,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
                   <p>🖱️ <strong>Scroll wheel:</strong> Zoom in/out</p>
                   <p>🖱️ <strong>Double click:</strong> Reset camera to default position</p>
                   <p className="mt-2 text-xs text-amber-600">💡 Camera changes are saved automatically when you save the configuration</p>
+                  <p className="text-xs text-blue-600">🎨 Use the theme toggle above to preview both light and dark color schemes</p>
                 </div>
               </CardContent>
             </Card>
