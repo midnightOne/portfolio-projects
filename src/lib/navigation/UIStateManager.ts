@@ -5,7 +5,7 @@
  * to keep AI aware of user context without interrupting conversation flow.
  */
 
-import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
+import { debugEventEmitter } from '../debug/debugEventEmitter';
 
 // UI State interfaces
 export interface UIState {

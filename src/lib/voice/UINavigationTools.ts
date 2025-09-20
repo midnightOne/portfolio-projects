@@ -676,6 +676,55 @@ export class UINavigationTools {
     }, sessionId);
   }
 
+  // Declarative Navigation Tools
+
+  async ui_intent(args: any, sessionId?: string): Promise<NavigationResult> {
+    return this.executeAndReport('ui_intent', args, async () => {
+      try {
+        // Import NavigationOrchestrator dynamically to avoid circular dependencies
+        const { navigationOrchestrator } = await import('@/lib/navigation/NavigationOrchestrator');
+        
+        const result = await navigationOrchestrator.executeIntent(args, sessionId);
+        
+        return {
+          success: result.success,
+          message: result.message,
+          data: result.data,
+          error: result.error
+        };
+      } catch (error) {
+        return {
+          success: false,
+          message: `Failed to execute navigation intent`,
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    }, sessionId);
+  }
+
+  async ui_describe(args: any = {}, sessionId?: string): Promise<NavigationResult> {
+    return this.executeAndReport('ui_describe', args, async () => {
+      try {
+        // Import NavigationOrchestrator dynamically to avoid circular dependencies
+        const { navigationOrchestrator } = await import('@/lib/navigation/NavigationOrchestrator');
+        
+        const description = await navigationOrchestrator.describeUI();
+        
+        return {
+          success: true,
+          message: 'UI state described successfully',
+          data: description
+        };
+      } catch (error) {
+        return {
+          success: false,
+          message: `Failed to describe UI state`,
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    }, sessionId);
+  }
+
   // Utility methods
 
   getNavigationHistory(): Array<{ action: string; params: any; timestamp: Date }> {

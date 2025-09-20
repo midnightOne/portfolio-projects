@@ -367,6 +367,131 @@ export const animateElementToolDefinition: UnifiedToolDefinition = {
   }
 };
 
+// Declarative Navigation Tools - Goal-based navigation
+export const uiIntentToolDefinition: UnifiedToolDefinition = {
+  name: 'ui_intent',
+  description: 'Achieve a navigation goal declaratively; the UI will perform all required steps automatically.',
+  parameters: {
+    type: 'object',
+    properties: {
+      epoch: {
+        type: 'number',
+        description: 'Agent\'s last-known UI state version (optional)'
+      },
+      target: {
+        type: 'object',
+        oneOf: [
+          {
+            type: 'object',
+            properties: {
+              type: { const: 'section' },
+              id: { type: 'string', description: 'Section identifier (e.g., "hero", "about", "contact")' }
+            },
+            required: ['type', 'id']
+          },
+          {
+            type: 'object',
+            properties: {
+              type: { const: 'route' },
+              id: { type: 'string', description: 'Route identifier (e.g., "home", "projects", "about")' }
+            },
+            required: ['type', 'id']
+          },
+          {
+            type: 'object',
+            properties: {
+              type: { const: 'project' },
+              id: { type: 'string', description: 'Project slug (e.g., "e-commerce-platform")' }
+            },
+            required: ['type', 'id']
+          },
+          {
+            type: 'object',
+            properties: {
+              type: { const: 'element' },
+              id: { type: 'string', description: 'Element ID for tabs, accordions, etc.' }
+            },
+            required: ['type', 'id']
+          }
+        ]
+      },
+      behavior: {
+        type: 'object',
+        properties: {
+          openIfNeeded: { type: 'boolean', default: true, description: 'Open modal or navigate if required' },
+          closeBlocking: { type: 'boolean', default: true, description: 'Close top modal if it blocks target' },
+          waitForReadyMs: { type: 'number', default: 1500, description: 'Wait for loader/transition' },
+          scrollBehavior: { type: 'string', enum: ['smooth', 'instant'], default: 'smooth' }
+        }
+      },
+      scope: {
+        type: 'object',
+        properties: {
+          route: { type: 'string', description: 'Limit scope to specific route' },
+          modalId: { type: 'string', description: 'Limit scope to specific modal' },
+          projectId: { type: 'string', description: 'Limit scope to specific project' }
+        }
+      },
+      idempotencyKey: {
+        type: 'string',
+        description: 'Unique key to prevent duplicate navigation actions'
+      }
+    },
+    required: ['target']
+  },
+  executionContext: 'client',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean' },
+      message: { type: 'string' },
+      executedSteps: { type: 'array', items: { type: 'string' } },
+      totalTime: { type: 'number' }
+    }
+  }
+};
+
+export const uiDescribeToolDefinition: UnifiedToolDefinition = {
+  name: 'ui_describe',
+  description: 'Get current UI state and available navigation affordances.',
+  parameters: {
+    type: 'object',
+    properties: {}
+  },
+  executionContext: 'client',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      epoch: { type: 'number' },
+      route: { type: 'string' },
+      viewStack: { type: 'array', items: { type: 'string' } },
+      sections: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            title: { type: 'string' },
+            containerId: { type: 'string' }
+          }
+        }
+      },
+      transitions: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            kind: { type: 'string', enum: ['open', 'close', 'route', 'tab'] },
+            target: { type: 'string' },
+            requires: { type: 'array', items: { type: 'string' } }
+          }
+        }
+      }
+    }
+  }
+};
+
 // Export all client-side tool definitions
 export const clientToolDefinitions: UnifiedToolDefinition[] = [
   navigateToToolDefinition,
@@ -378,7 +503,9 @@ export const clientToolDefinitions: UnifiedToolDefinition[] = [
   reportUIStateToolDefinition,
   fillFormFieldToolDefinition,
   submitFormToolDefinition,
-  animateElementToolDefinition
+  animateElementToolDefinition,
+  uiIntentToolDefinition,
+  uiDescribeToolDefinition
 ];
 
 // Individual tools are already exported above with their definitions
