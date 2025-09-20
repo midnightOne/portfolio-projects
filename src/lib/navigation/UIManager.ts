@@ -982,6 +982,72 @@ export class UIManager {
   }
 
   /**
+   * Execute a step with retry logic
+   */
+  private async _executeStepWithRetries(
+    step: NavigationStep,
+    sessionId?: string,
+    correlationId?: string
+  ): Promise<NavigationStepResult> {
+    const maxRetries = step.retries || this._timingConfig.maxRetries;
+    let lastError: string | undefined;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        debugEventEmitter.emit(
+          'navigation_event',
+          {
+            type: 'step_attempt',
+            stepId: step.id,
+            attempt: attempt + 1,
+            maxRetries: maxRetries + 1
+          },
+          sessionId || 'navigation-orchestrator',
+          correlationId
+        );
+
+        const result = await step.execute();
+
+        if (result.success) {
+          return result;
+        }
+
+        lastError = result.error || 'Step execution failed';
+
+        // Check if we should retry
+        if (attempt < maxRetries && result.shouldRetry !== false) {
+          const delay = this._timingConfig.retryDelayBase * Math.pow(2, attempt);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+
+        return result;
+
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+
+        if (attempt < maxRetries) {
+          const delay = this._timingConfig.retryDelayBase * Math.pow(2, attempt);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+
+        return {
+          success: false,
+          message: `Step ${step.id} failed after ${maxRetries + 1} attempts`,
+          error: lastError
+        };
+      }
+    }
+
+    return {
+      success: false,
+      message: `Step ${step.id} failed after ${maxRetries + 1} attempts`,
+      error: lastError || 'Unknown error'
+    };
+  }
+
+  /**
    * Enhanced plan execution with context and interruption support
    */
   private async _executePlanWithContext(plan: NavigationPlan, context: PlanExecutionContext): Promise<NavigationResult> {
@@ -1372,6 +1438,8 @@ export class UIManager {
       closeBlocking: true,
       waitForReadyMs: 1500,
       scrollBehavior: 'smooth' as const,
+      allowInterruption: true,
+      urlStrategy: 'full' as const,
       ...params.behavior
     };
 
@@ -1957,86 +2025,73 @@ export class UIManager {
   }
 
   /**
-   * Detect available sections on current page
+   * Detect available sections based on current UI state
    */
   private _detectAvailableSections(): Array<{ id: string; title: string; containerId?: string }> {
-    if (typeof window === 'undefined') {
-      return [];
-    }
+    const sections = [];
 
-    const sections: Array<{ id: string; title: string; containerId?: string }> = [];
+    // Always available main sections
+    sections.push(
+      { id: 'hero', title: 'Hero Section' },
+      { id: 'about', title: 'About Section' },
+      { id: 'projects', title: 'Projects Section' },
+      { id: 'contact', title: 'Contact Section' }
+    );
 
-    // Find sections with IDs
-    const sectionElements = document.querySelectorAll('section[id], [data-section], [data-section-id]');
-    sectionElements.forEach(element => {
-      const id = element.id ||
-        element.getAttribute('data-section') ||
-        element.getAttribute('data-section-id');
+    // Add modal-specific sections if modals are open
+    if (this._modalStack.length > 0) {
+      const topModal = this._modalStack[this._modalStack.length - 1];
 
-      if (id) {
-        const title = element.querySelector('h1, h2, h3')?.textContent ||
-          element.getAttribute('data-title') ||
-          id.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-
-        sections.push({
-          id,
-          title,
-          containerId: element.closest('[id]')?.id
-        });
+      if (topModal.type === 'project') {
+        sections.push(
+          { id: 'overview', title: 'Project Overview', containerId: 'project-modal' },
+          { id: 'technical-details', title: 'Technical Details', containerId: 'project-modal' },
+          { id: 'gallery', title: 'Project Gallery', containerId: 'project-modal' }
+        );
       }
-    });
+    }
 
     return sections;
   }
 
   /**
-   * Detect available navigation transitions //TODO: implement a dynamic system
+   * Detect available transitions based on current state
    */
-  private _detectAvailableTransitions(route: string, projectParam?: string | null): Array<{
+  private _detectAvailableTransitions(route: string, projectId?: string): Array<{
     id: string;
     kind: "open" | "close" | "route" | "tab";
     target?: string;
     requires?: string[];
   }> {
-    const transitions: Array<{
-      id: string;
-      kind: "open" | "close" | "route" | "tab";
-      target?: string;
-      requires?: string[];
-    }> = [];
+    const transitions = [];
 
-    // Route transitions
-    if (route !== 'home') {
-      transitions.push({
-        id: 'route:home',
-        kind: 'route',
-        target: 'home'
-      });
-    }
+    // Route transitions (always available)
+    transitions.push(
+      { id: 'route:home', kind: 'route', target: 'home' },
+      { id: 'route:projects', kind: 'route', target: 'projects' },
+      { id: 'route:about', kind: 'route', target: 'about' },
+      { id: 'route:contact', kind: 'route', target: 'contact' }
+    );
 
-    if (route !== 'projects') {
-      transitions.push({
-        id: 'route:projects',
-        kind: 'route',
-        target: 'projects'
-      });
-    }
+    // Modal transitions based on current state
+    if (this._modalStack.length === 0) {
+      // Can open project modals
+      transitions.push(
+        { id: 'open:project-modal', kind: 'open', target: 'project-modal' }
+      );
+    } else {
+      // Can close current modals
+      const topModal = this._modalStack[this._modalStack.length - 1];
+      transitions.push(
+        { id: `close:${topModal.id}`, kind: 'close', target: topModal.id }
+      );
 
-    // Modal transitions
-    if (route === 'projects' && !projectParam) {
-      transitions.push({
-        id: 'open:projectModal',
-        kind: 'open',
-        target: 'projectModal'
-      });
-    }
-
-    if (projectParam) {
-      transitions.push({
-        id: 'close:projectModal',
-        kind: 'close',
-        target: 'projectModal'
-      });
+      // Can open nested modals if not too deep
+      if (this._modalStack.length < 3) {
+        transitions.push(
+          { id: 'open:nested-modal', kind: 'open', target: 'nested-modal', requires: [`open:${topModal.id}`] }
+        );
+      }
     }
 
     return transitions;
@@ -2132,30 +2187,33 @@ export class UIManager {
   }
 
   /**
-   * Get current route from URL or state
+   * Get current route from URL
    */
   private _getCurrentRoute(): string {
-    if (typeof window === 'undefined') return 'home';
+    const location = this._getLocation();
+    if (!location) {
+      return 'server';
+    }
 
-    const pathname = window.location.pathname;
-    if (pathname === '/' || pathname === '') return 'home';
-    if (pathname.startsWith('/projects')) return 'projects';
-    if (pathname.startsWith('/about')) return 'about';
-    if (pathname.startsWith('/contact')) return 'contact';
-    if (pathname.startsWith('/admin')) return 'admin';
+    const pathname = location.pathname;
+    if (pathname === '/') {
+      return 'home';
+    }
 
-    // Extract route from pathname
-    const segments = pathname.split('/').filter(Boolean);
-    return segments[0] || 'home';
+    return pathname.replace(/^\//, '').replace(/\/$/, '') || 'home';
   }
 
   /**
    * Get project parameter from URL
    */
-  private _getProjectParam(): string | null {
-    if (typeof window === 'undefined') return null;
-    const searchParams = new URLSearchParams(window.location.search);
-    return searchParams.get('project');
+  private _getProjectParam(): string | undefined {
+    const location = this._getLocation();
+    if (!location) {
+      return undefined;
+    }
+
+    const searchParams = new URLSearchParams(location.search);
+    return searchParams.get('project') || undefined;
   }
 
   /**
@@ -2433,108 +2491,7 @@ export class UIManager {
     }
   }
 
-  /**
-   * Detect available sections based on current UI state
-   */
-  private _detectAvailableSections(): Array<{ id: string; title: string; containerId?: string }> {
-    const sections = [];
 
-    // Always available main sections
-    sections.push(
-      { id: 'hero', title: 'Hero Section' },
-      { id: 'about', title: 'About Section' },
-      { id: 'projects', title: 'Projects Section' },
-      { id: 'contact', title: 'Contact Section' }
-    );
-
-    // Add modal-specific sections if modals are open
-    if (this._modalStack.length > 0) {
-      const topModal = this._modalStack[this._modalStack.length - 1];
-
-      if (topModal.type === 'project') {
-        sections.push(
-          { id: 'overview', title: 'Project Overview', containerId: 'project-modal' },
-          { id: 'technical-details', title: 'Technical Details', containerId: 'project-modal' },
-          { id: 'gallery', title: 'Project Gallery', containerId: 'project-modal' }
-        );
-      }
-    }
-
-    return sections;
-  }
-
-  /**
-   * Detect available transitions based on current state
-   */
-  private _detectAvailableTransitions(route: string, projectId?: string): Array<{
-    id: string;
-    kind: "open" | "close" | "route" | "tab";
-    target?: string;
-    requires?: string[];
-  }> {
-    const transitions = [];
-
-    // Route transitions (always available)
-    transitions.push(
-      { id: 'route:home', kind: 'route', target: 'home' },
-      { id: 'route:projects', kind: 'route', target: 'projects' },
-      { id: 'route:about', kind: 'route', target: 'about' },
-      { id: 'route:contact', kind: 'route', target: 'contact' }
-    );
-
-    // Modal transitions based on current state
-    if (this._modalStack.length === 0) {
-      // Can open project modals
-      transitions.push(
-        { id: 'open:project-modal', kind: 'open', target: 'project-modal' }
-      );
-    } else {
-      // Can close current modals
-      const topModal = this._modalStack[this._modalStack.length - 1];
-      transitions.push(
-        { id: `close:${topModal.id}`, kind: 'close', target: topModal.id }
-      );
-
-      // Can open nested modals if not too deep
-      if (this._modalStack.length < 3) {
-        transitions.push(
-          { id: 'open:nested-modal', kind: 'open', target: 'nested-modal', requires: [`open:${topModal.id}`] }
-        );
-      }
-    }
-
-    return transitions;
-  }
-
-  /**
-   * Get current route from URL
-   */
-  private _getCurrentRoute(): string {
-    const location = this._getLocation();
-    if (!location) {
-      return 'server';
-    }
-
-    const pathname = location.pathname;
-    if (pathname === '/') {
-      return 'home';
-    }
-
-    return pathname.replace(/^\//, '').replace(/\/$/, '') || 'home';
-  }
-
-  /**
-   * Get project parameter from URL
-   */
-  private _getProjectParam(): string | undefined {
-    const location = this._getLocation();
-    if (!location) {
-      return undefined;
-    }
-
-    const searchParams = new URLSearchParams(location.search);
-    return searchParams.get('project') || undefined;
-  }
 }
 
 // Export singleton instance
