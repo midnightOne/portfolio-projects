@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { UIManager } from '@/lib/navigation/UIManager';
 
 interface NavigationTest {
@@ -15,8 +16,54 @@ export function UIManagerDebugPanel() {
   const [lastResult, setLastResult] = useState<string>('');
   const [animationMode, setAnimationMode] = useState<'human' | 'instant'>('human');
   const [uiState, setUiState] = useState<any>(null);
+  const [isMounted, setIsMounted] = useState(false);
 
   const uiManager = UIManager.getInstance();
+
+  // Ensure we're on the client side
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  // Add global hotkey for DescribeUI
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Ctrl/Cmd + Shift + D for DescribeUI
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key === 'D') {
+        event.preventDefault();
+        
+        // Execute DescribeUI and log to console
+        uiManager.describe().then(description => {
+          console.group('🔍 UIManager DescribeUI - Hotkey Triggered (Ctrl+Shift+D)');
+          console.log('📋 Full Description Object:', description);
+          console.log('📊 Epoch:', description.epoch);
+          console.log('🛣️  Route:', description.route);
+          console.log('📚 View Stack:', description.viewStack);
+          console.log('🎯 Available Sections:', description.sections);
+          console.log('🔄 Available Transitions:', description.transitions);
+          
+          const currentState = uiManager.getCurrentUIState();
+          console.group('🎛️  Current UI State Details');
+          console.log('📍 Breadcrumb Path:', currentState.breadcrumbPath);
+          console.log('👁️  Visible Anchors:', currentState.visibleAnchors);
+          console.log('🔍 Active Filters:', currentState.activeFilters);
+          console.log('📱 Modal Stack:', currentState.modalStack);
+          console.log('🎬 Current Project:', currentState.currentProject);
+          console.log('📜 Scroll State:', currentState.scrollPosition);
+          console.log('🎥 Media State:', currentState.mediaState);
+          console.log('🖱️  Interaction State:', currentState.interactionState);
+          console.log('⚡ Last User Action:', currentState.lastUserAction);
+          console.groupEnd();
+          console.groupEnd();
+        }).catch(error => {
+          console.error('❌ DescribeUI hotkey failed:', error);
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Update UI state when panel is open and periodically when executing
   useEffect(() => {
@@ -173,21 +220,27 @@ export function UIManagerDebugPanel() {
     }
   ];
 
-  if (!isOpen) {
-    return (
-      <div className="fixed bottom-4 right-4 z-[9999]">
-        <button
-          onClick={() => setIsOpen(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow-lg transition-colors"
-        >
-          🧭 UIManager Debug
-        </button>
-      </div>
-    );
+  if (!isMounted) {
+    return null;
   }
 
-  return (
-    <div className="fixed bottom-4 right-4 z-[9999] bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-xl p-4 w-[28rem] max-h-[32rem] overflow-y-auto">
+  const debugPanelContent = (
+    <>
+      {!isOpen ? (
+        <div className="fixed bottom-4 right-4 z-[99999]" style={{ zIndex: 99999 }}>
+          <button
+            onClick={() => setIsOpen(true)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg shadow-lg transition-colors"
+            style={{ pointerEvents: 'auto' }}
+          >
+            🧭 UIManager Debug
+          </button>
+        </div>
+      ) : (
+        <div 
+          className="fixed bottom-4 right-4 z-[99999] bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-xl p-4 w-[28rem] max-h-[32rem] overflow-y-auto"
+          style={{ zIndex: 99999, pointerEvents: 'auto' }}
+        >
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">🧭 UIManager Debug</h3>
         <button
@@ -404,6 +457,10 @@ export function UIManagerDebugPanel() {
           Clear
         </button>
       </div>
-    </div>
+        </div>
+      )}
+    </>
   );
+
+  return createPortal(debugPanelContent, document.body);
 }

@@ -400,7 +400,7 @@ export class UIManager {
   // Debounced update functions
   private _debouncedScrollUpdate: (visibleAnchors: string[]) => void;
   private _debouncedFilterUpdate: (filters: UIState['activeFilters']) => void;
-  private _debouncedStateUpdate: (state: UIState) => void;
+  private _debouncedStateUpdate: () => void;
 
   // Enhanced state management
   private _navigationState: NavigationState = {
@@ -515,7 +515,7 @@ export class UIManager {
       this._sendBackgroundUpdate();
     }, 5000); // 5 seconds for search/filter updates
 
-    this._debouncedStateUpdate = debounce((state: UIState) => {
+    this._debouncedStateUpdate = debounce(() => {
       this._sendBackgroundUpdate();
     }, 2000); // 2 seconds for general state updates
 
@@ -525,6 +525,71 @@ export class UIManager {
   static getInstance(): UIManager {
     if (!UIManager.instance) {
       UIManager.instance = new UIManager();
+      
+      // Expose UIManager globally for console debugging in development TODO: remove this before production
+      if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+        const instance = UIManager.instance;
+        (window as any).UIManager = instance;
+        
+        // Quick access functions
+        (window as any).describeUI = async () => {
+          const description = await instance.describe();
+          console.group('🔍 UIManager DescribeUI - Console Call');
+          console.log('📋 Full Description:', description);
+          console.log('📊 Epoch:', description.epoch);
+          console.log('🛣️  Route:', description.route);
+          console.log('📚 View Stack:', description.viewStack);
+          console.log('🎯 Available Sections:', description.sections);
+          console.log('🔄 Available Transitions:', description.transitions);
+          console.groupEnd();
+          return description;
+        };
+        
+        (window as any).getUIState = () => {
+          const state = instance.getCurrentUIState();
+          console.log('🎛️  Current UI State:', state);
+          return state;
+        };
+        
+        // Navigation helpers
+        (window as any).navigateTo = (target: any) => {
+          return instance.executeIntent({ target });
+        };
+        
+        (window as any).openProject = (projectId: string, sectionId?: string) => {
+          return instance.executeIntent({ 
+            target: { type: 'project', id: projectId, sectionId } 
+          });
+        };
+        
+        (window as any).goToSection = (sectionId: string) => {
+          return instance.executeIntent({ 
+            target: { type: 'section', id: sectionId } 
+          });
+        };
+        
+        // State helpers
+        (window as any).getModalStack = () => {
+          return instance.getCurrentUIState().modalStack;
+        };
+        
+        (window as any).getCurrentProject = () => {
+          return instance.getCurrentUIState().currentProject;
+        };
+        
+        console.log('🧭 UIManager Debug Console API:');
+        console.log('  📊 State Inspection:');
+        console.log('    • describeUI() - Get complete UI description');
+        console.log('    • getUIState() - Get current UI state');
+        console.log('    • getModalStack() - Get open modals');
+        console.log('    • getCurrentProject() - Get active project');
+        console.log('  🧭 Navigation:');
+        console.log('    • navigateTo({type: "section", id: "about"})');
+        console.log('    • openProject("portfolio-website", "technical-details")');
+        console.log('    • goToSection("contact")');
+        console.log('  ⌨️  Hotkey: Ctrl/Cmd + Shift + D');
+        console.log('  🎛️  Full API: window.UIManager');
+      }
     }
     return UIManager.instance;
   }
@@ -3279,9 +3344,30 @@ export class UIManager {
       breadcrumbPath: 'destroyed',
       visibleAnchors: [],
       activeFilters: undefined,
-      lastUserAction: undefined,
       modalStack: [],
-      epoch: 0
+      epoch: 0,
+      currentRoute: 'destroyed',
+      currentProject: undefined,
+      scrollPosition: {
+        positions: {},
+        visibleElements: [],
+        lastScrollDirection: null,
+        scrollVelocity: 0,
+        isScrolling: false
+      },
+      mediaState: {
+        activeCarousels: [],
+        activeVideos: [],
+        lightbox: undefined,
+        recentInteractions: []
+      },
+      interactionState: {
+        focusedElement: undefined,
+        clickSequence: [],
+        searchHistory: [],
+        navigationPath: []
+      },
+      lastUserAction: undefined
     };
 
     this._isInitialized = false;
