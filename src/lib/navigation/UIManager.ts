@@ -43,6 +43,50 @@ export interface UIState {
   epoch: number;
 }
 
+// Enhanced section interface for semantic navigation
+export interface SemanticSection {
+  id: string;
+  semanticId?: string;        // Optional semantic identifier
+  title: string;
+  type: 'homepage' | 'project' | 'content';
+  projectId?: string;
+  parentId?: string;
+  level?: number;
+  containerId?: string;
+  
+  // Future semantic features (optional)
+  embeddings?: number[];      // For AI context
+  keywords?: string[];        // For search
+  contentHash?: string;       // For change detection
+  metadata?: Record<string, any>; // Extensible metadata
+}
+
+// Content provider interface for pluggable section discovery
+export interface ContentProvider {
+  name: string;
+  discoverSections(context: NavigationContext): Promise<SemanticSection[]>;
+  searchContent?(query: string, options?: any): Promise<any[]>;
+  validateSection?(sectionId: string): Promise<boolean>;
+}
+
+// Enhanced navigation context
+export interface NavigationContext {
+  currentRoute: string;
+  currentProject: string | null;
+  modalStack: ModalStackEntry[];
+  visibleSections: string[];
+  canNavigate: boolean;
+  
+  // Future context features (optional)
+  fidContext?: {
+    focus: string[];          // Currently focused content
+    interest: string[];       // User's demonstrated interests  
+    domain: string[];         // Current domain/project context
+  };
+  contentEmbeddings?: Map<string, number[]>;
+  userIntent?: string;
+}
+
 export interface BackgroundUpdateCallback {
   (update: {
     type: 'ui_state_update';
@@ -65,7 +109,7 @@ function debounce<T extends (...args: any[]) => void>(
   };
 }
 
-// Navigation intent interfaces
+// Enhanced navigation intent interfaces with semantic support
 export interface UIIntentParams {
   epoch?: number;                       // Client's last-known UI state version
   target:
@@ -73,7 +117,10 @@ export interface UIIntentParams {
   | { type: "route"; id: string }     // e.g., {type:"route", id:"home"}
   | { type: "project"; id: string; sectionId?: string }   // e.g., {type:"project", id:"aurora-avatar", sectionId:"technical-details"}
   | { type: "modal"; id: string; parentContext?: string } // e.g., {type:"modal", id:"gallery", parentContext:"project:aurora-avatar"}
-  | { type: "element"; id: string };  // tab, accordion, etc.
+  | { type: "element"; id: string }   // tab, accordion, etc.
+  // New semantic navigation types (with fallbacks for safety)
+  | { type: "semantic"; semanticId: string; fallbackId?: string } // Semantic ID navigation with fallback
+  | { type: "content"; query: string; projectId?: string; fallbackSection?: string }; // Content search navigation with fallback
   behavior?: {
     openIfNeeded?: boolean;             // open modal or navigate if required
     closeBlocking?: boolean;            // close top modal if it blocks target
@@ -104,11 +151,7 @@ export interface UIDescribeResponse {
   epoch: number;                        // Monotonic int that bumps on view changes
   route: string;                        // "home", "projects", etc.
   viewStack: string[];                  // ["home", "projectModal:aurora-avatar"]
-  sections: Array<{
-    id: string;
-    title: string;
-    containerId?: string;
-  }>;
+  sections: SemanticSection[];          // Enhanced sections with semantic support
   transitions: Array<{
     id: string;                         // "open:projectModal"
     kind: "open" | "close" | "route" | "tab";
@@ -250,6 +293,11 @@ export class UIManager {
   // Modal stack management
   private _modalStack: ModalStackEntry[] = [];
   private _modalStateListeners: Set<(stack: ModalStackEntry[]) => void> = new Set();
+
+  // Content provider system for extensible section discovery
+  private _contentProviders: ContentProvider[] = [];
+  private _sectionCache: Map<string, SemanticSection[]> = new Map();
+  private _cacheTimeout: number = 30000; // 30 second cache
 
   // Configurable timing
   private _timingConfig: NavigationTimingConfig = {
@@ -439,7 +487,7 @@ export class UIManager {
   /**
    * Describe current UI state with epoch and available affordances
    */
-  describe(): UIDescribeResponse {
+  async describe(): Promise<UIDescribeResponse> {
     // Update breadcrumb path in real-time
     this._currentUIState.breadcrumbPath = this._generateBreadcrumbPath();
 
@@ -454,8 +502,8 @@ export class UIManager {
       });
     }
 
-    // Get available sections based on current context
-    const sections = this._detectAvailableSections();
+    // Get available sections based on current context (now async)
+    const sections = await this._detectAvailableSections();
 
     // Get available transitions based on current state
     const transitions = this._detectAvailableTransitions(route, this._getProjectParam());
@@ -468,7 +516,8 @@ export class UIManager {
         route,
         viewStack,
         sectionsCount: sections.length,
-        transitionsCount: transitions.length
+        transitionsCount: transitions.length,
+        providersCount: this._contentProviders.length
       },
       'ui-manager'
     );
@@ -1516,7 +1565,7 @@ export class UIManager {
     }
 
     // Detect available sections
-    const sections = this._detectAvailableSections();
+    const sections = await this._detectAvailableSections();
 
     // Determine available transitions
     const transitions = this._detectAvailableTransitions(route, projectParam);
@@ -1570,6 +1619,16 @@ export class UIManager {
 
       case 'element':
         steps.push(...this._planElementNavigation(params.target.id, currentState, defaultBehavior));
+        break;
+
+      case 'semantic':
+        // Handle semantic navigation with fallback
+        steps.push(...await this._planSemanticNavigation(params.target.semanticId, params.target.fallbackId, currentState, defaultBehavior));
+        break;
+
+      case 'content':
+        // Handle content-based navigation with fallback
+        steps.push(...await this._planContentNavigation(params.target.query, params.target.projectId, params.target.fallbackSection, currentState, defaultBehavior));
         break;
 
       default:
@@ -1859,6 +1918,102 @@ export class UIManager {
         }
       }
     };
+  }
+
+  /**
+   * Plan semantic navigation with graceful fallback
+   */
+  private async _planSemanticNavigation(
+    semanticId: string, 
+    fallbackId: string | undefined, 
+    currentState: UIState, 
+    behavior: any
+  ): Promise<NavigationStep[]> {
+    try {
+      // Try to find section by semantic ID
+      const sections = await this._detectAvailableSections();
+      const targetSection = sections.find(s => s.semanticId === semanticId || s.id === semanticId);
+      
+      if (targetSection) {
+        // Found semantic section, navigate to it
+        if (targetSection.projectId && targetSection.projectId !== this._getProjectParam()) {
+          // Need to switch projects first
+          return this._planComplexProjectNavigation(targetSection.projectId, targetSection.id, currentState, behavior);
+        } else {
+          // Direct section navigation
+          return this._planSectionNavigation(targetSection.id, currentState, behavior);
+        }
+      }
+      
+      // Semantic section not found, try fallback
+      if (fallbackId) {
+        console.warn(`Semantic ID ${semanticId} not found, using fallback ${fallbackId}`);
+        return this._planSectionNavigation(fallbackId, currentState, behavior);
+      }
+      
+      throw new Error(`Semantic section ${semanticId} not found and no fallback provided`);
+      
+    } catch (error) {
+      // If semantic navigation fails completely, try fallback
+      if (fallbackId) {
+        console.warn(`Semantic navigation failed, using fallback:`, error);
+        return this._planSectionNavigation(fallbackId, currentState, behavior);
+      }
+      
+      throw error;
+    }
+  }
+
+  /**
+   * Plan content-based navigation with graceful fallback
+   */
+  private async _planContentNavigation(
+    query: string, 
+    projectId: string | undefined, 
+    fallbackSection: string | undefined, 
+    currentState: UIState, 
+    behavior: any
+  ): Promise<NavigationStep[]> {
+    try {
+      // Try to find content using registered providers
+      for (const provider of this._contentProviders) {
+        if (provider.searchContent) {
+          try {
+            const results = await provider.searchContent(query, { projectId });
+            
+            if (results.length > 0) {
+              const bestResult = results[0];
+              
+              // Navigate to the best search result
+              if (bestResult.semanticId) {
+                return this._planSemanticNavigation(bestResult.semanticId, bestResult.id, currentState, behavior);
+              } else if (bestResult.id) {
+                return this._planSectionNavigation(bestResult.id, currentState, behavior);
+              }
+            }
+          } catch (error) {
+            console.warn(`Content search failed for provider ${provider.name}:`, error);
+          }
+        }
+      }
+      
+      // No search results found, try fallback
+      if (fallbackSection) {
+        console.warn(`No content found for query "${query}", using fallback ${fallbackSection}`);
+        return this._planSectionNavigation(fallbackSection, currentState, behavior);
+      }
+      
+      throw new Error(`No content found for query "${query}" and no fallback provided`);
+      
+    } catch (error) {
+      // If content navigation fails completely, try fallback
+      if (fallbackSection) {
+        console.warn(`Content navigation failed, using fallback:`, error);
+        return this._planSectionNavigation(fallbackSection, currentState, behavior);
+      }
+      
+      throw error;
+    }
   }
 
   /**
@@ -2394,17 +2549,48 @@ export class UIManager {
   }
 
   /**
-   * Detect available sections based on current UI state
+   * Detect available sections with pluggable provider system
    */
-  private _detectAvailableSections(): Array<{ id: string; title: string; containerId?: string }> {
-    const sections = [];
+  private async _detectAvailableSections(): Promise<SemanticSection[]> {
+    const cacheKey = this._generateSectionCacheKey();
+    
+    // Check cache first
+    if (this._sectionCache.has(cacheKey)) {
+      const cached = this._sectionCache.get(cacheKey)!;
+      // Check if cache is still valid (30 seconds)
+      if (Date.now() - (cached as any)._cacheTime < this._cacheTimeout) {
+        return cached;
+      }
+    }
+
+    // Get static sections (current behavior)
+    const staticSections = this._getStaticSections();
+    
+    // Get dynamic sections from providers
+    const dynamicSections = await this._getDynamicSections();
+    
+    // Combine and deduplicate
+    const allSections = this._mergeSections(staticSections, dynamicSections);
+    
+    // Cache the result
+    (allSections as any)._cacheTime = Date.now();
+    this._sectionCache.set(cacheKey, allSections);
+    
+    return allSections;
+  }
+
+  /**
+   * Get static sections (backward compatibility)
+   */
+  private _getStaticSections(): SemanticSection[] {
+    const sections: SemanticSection[] = [];
 
     // Always available main sections
     sections.push(
-      { id: 'hero', title: 'Hero Section' },
-      { id: 'about', title: 'About Section' },
-      { id: 'projects', title: 'Projects Section' },
-      { id: 'contact', title: 'Contact Section' }
+      { id: 'hero', title: 'Hero Section', type: 'homepage' },
+      { id: 'about', title: 'About Section', type: 'homepage' },
+      { id: 'projects', title: 'Projects Section', type: 'homepage' },
+      { id: 'contact', title: 'Contact Section', type: 'homepage' }
     );
 
     // Add modal-specific sections if modals are open
@@ -2413,14 +2599,85 @@ export class UIManager {
 
       if (topModal.type === 'project') {
         sections.push(
-          { id: 'overview', title: 'Project Overview', containerId: 'project-modal' },
-          { id: 'technical-details', title: 'Technical Details', containerId: 'project-modal' },
-          { id: 'gallery', title: 'Project Gallery', containerId: 'project-modal' }
+          { id: 'overview', title: 'Project Overview', type: 'project', projectId: topModal.id, containerId: 'project-modal' },
+          { id: 'technical-details', title: 'Technical Details', type: 'project', projectId: topModal.id, containerId: 'project-modal' },
+          { id: 'gallery', title: 'Project Gallery', type: 'project', projectId: topModal.id, containerId: 'project-modal' }
         );
       }
     }
 
     return sections;
+  }
+
+  /**
+   * Get dynamic sections from registered providers
+   */
+  private async _getDynamicSections(): Promise<SemanticSection[]> {
+    const allSections: SemanticSection[] = [];
+    const context = this._getNavigationContext();
+    
+    for (const provider of this._contentProviders) {
+      try {
+        const sections = await provider.discoverSections(context);
+        allSections.push(...sections);
+        
+        debugEventEmitter.emit(
+          'navigation_event',
+          {
+            type: 'sections_discovered',
+            providerName: provider.name,
+            sectionCount: sections.length
+          },
+          'ui-manager'
+        );
+      } catch (error) {
+        // Graceful degradation - log but continue
+        console.warn(`Content provider ${provider.name} failed:`, error);
+        
+        debugEventEmitter.emit(
+          'navigation_event',
+          {
+            type: 'provider_error',
+            providerName: provider.name,
+            error: error instanceof Error ? error.message : String(error)
+          },
+          'ui-manager'
+        );
+      }
+    }
+    
+    return allSections;
+  }
+
+  /**
+   * Merge static and dynamic sections, removing duplicates
+   */
+  private _mergeSections(staticSections: SemanticSection[], dynamicSections: SemanticSection[]): SemanticSection[] {
+    const sectionMap = new Map<string, SemanticSection>();
+    
+    // Add static sections first
+    staticSections.forEach(section => {
+      sectionMap.set(section.id, section);
+    });
+    
+    // Add dynamic sections, allowing them to override static ones
+    dynamicSections.forEach(section => {
+      const key = section.semanticId || section.id;
+      sectionMap.set(key, section);
+    });
+    
+    return Array.from(sectionMap.values());
+  }
+
+  /**
+   * Generate cache key for section discovery
+   */
+  private _generateSectionCacheKey(): string {
+    const route = this._getCurrentRoute();
+    const project = this._getProjectParam();
+    const modalIds = this._modalStack.map(m => m.id).join(',');
+    
+    return `${route}:${project || 'none'}:${modalIds}`;
   }
 
   /**
@@ -2615,10 +2872,51 @@ export class UIManager {
   }
 
   /**
+   * Navigate to content by search query (for AI system)
+   */
+  async navigateToContent(
+    query: string, 
+    options?: { projectId?: string; contentType?: string }
+  ): Promise<NavigationResult> {
+    return this.executeIntent({
+      target: { 
+        type: 'content', 
+        query, 
+        projectId: options?.projectId,
+        fallbackSection: 'hero' // Safe fallback
+      },
+      behavior: {
+        scrollBehavior: 'smooth',
+        allowInterruption: true
+      }
+    });
+  }
+
+  /**
+   * Navigate by semantic ID (for AI system)
+   */
+  async navigateToSemanticId(
+    semanticId: string, 
+    fallbackId?: string
+  ): Promise<NavigationResult> {
+    return this.executeIntent({
+      target: { 
+        type: 'semantic', 
+        semanticId, 
+        fallbackId 
+      },
+      behavior: {
+        scrollBehavior: 'smooth',
+        allowInterruption: true
+      }
+    });
+  }
+
+  /**
    * Test navigation scenarios for UX comparison
    */
   async testNavigationScenario(
-    scenario: 'project-switch' | 'section-navigation' | 'modal-nesting',
+    scenario: 'project-switch' | 'section-navigation' | 'modal-nesting' | 'semantic-navigation' | 'content-search',
     mode: 'human' | 'instant' = 'human'
   ): Promise<NavigationResult> {
     const originalMode = this._timingConfig.animationMode;
@@ -2649,6 +2947,18 @@ export class UIManager {
           });
           break;
 
+        case 'semantic-navigation':
+          // Test semantic navigation with fallback
+          result = await this.executeIntent({
+            target: { type: 'semantic', semanticId: 'test-semantic-section', fallbackId: 'about' }
+          });
+          break;
+
+        case 'content-search':
+          // Test content-based navigation
+          result = await this.navigateToContent('technical implementation details');
+          break;
+
         default:
           throw new Error(`Unknown test scenario: ${scenario}`);
       }
@@ -2665,6 +2975,59 @@ export class UIManager {
    */
   setTestLocation(location: any): void {
     this._testLocation = location;
+  }
+
+  /**
+   * Register a content provider for dynamic section discovery
+   */
+  registerContentProvider(provider: ContentProvider): void {
+    this._contentProviders.push(provider);
+    
+    // Clear cache when new provider is added
+    this._sectionCache.clear();
+    
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'content_provider_registered',
+        providerName: provider.name,
+        totalProviders: this._contentProviders.length
+      },
+      'ui-manager'
+    );
+  }
+
+  /**
+   * Unregister a content provider
+   */
+  unregisterContentProvider(providerName: string): boolean {
+    const initialLength = this._contentProviders.length;
+    this._contentProviders = this._contentProviders.filter(p => p.name !== providerName);
+    
+    if (this._contentProviders.length < initialLength) {
+      this._sectionCache.clear();
+      
+      debugEventEmitter.emit(
+        'navigation_event',
+        {
+          type: 'content_provider_unregistered',
+          providerName,
+          totalProviders: this._contentProviders.length
+        },
+        'ui-manager'
+      );
+      
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Get registered content providers
+   */
+  getContentProviders(): ContentProvider[] {
+    return [...this._contentProviders];
   }
 
   /**
