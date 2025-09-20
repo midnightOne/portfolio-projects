@@ -1374,10 +1374,15 @@ export class UIManager {
    * Open modal element (DOM manipulation)
    */
   private async _openModalElement(modalId: string, modalType: string): Promise<boolean> {
+    console.log('🚪 _openModalElement called:', { modalId, modalType, handlersCount: this._modalHandlers.size });
+    
     // Try registered handlers first (homepage, projects page, etc.)
     for (const [context, handler] of this._modalHandlers) {
       try {
+        console.log(`🚪 Trying modal handler: ${context} for ${modalId}`);
         const handled = await handler(modalId, modalType);
+        console.log(`🚪 Handler ${context} result:`, handled);
+        
         if (handled) {
           debugEventEmitter.emit(
             'navigation_event',
@@ -1389,14 +1394,16 @@ export class UIManager {
             },
             'ui-manager'
           );
+          console.log(`✅ Modal ${modalId} successfully opened by handler: ${context}`);
           return true;
         }
       } catch (error) {
-        console.error(`Modal handler ${context} failed:`, error);
+        console.error(`❌ Modal handler ${context} failed:`, error);
       }
     }
 
     // Fallback: emit event for any listening components
+    console.log(`⚠️ No modal handlers succeeded for ${modalId}, emitting fallback event`);
     debugEventEmitter.emit(
       'navigation_event',
       {
@@ -1408,6 +1415,7 @@ export class UIManager {
       'ui-manager'
     );
     
+    console.log(`❌ Modal ${modalId} could not be opened - no successful handlers`);
     return false;
   }
 
@@ -1460,9 +1468,19 @@ export class UIManager {
     const planId = uuidv4();
     const correlationId = `nav_intent_${planId}`;
 
+    console.log('🎯 UIManager.executeIntent called with:', {
+      params: JSON.stringify(params, null, 2),
+      sessionId,
+      planId,
+      correlationId
+    });
+
     // Validate the navigation intent
     const validation = this._validateNavigationIntent(params);
+    console.log('🎯 Navigation intent validation:', validation);
+    
     if (!validation.valid) {
+      console.error('❌ Navigation intent validation failed:', validation.reason);
       return {
         success: false,
         message: validation.reason || 'Invalid navigation intent',
@@ -1547,7 +1565,13 @@ export class UIManager {
 
     try {
       // Create navigation plan
+      console.log('🎯 Creating navigation plan...');
       const plan = await this._createNavigationPlan(params, planId);
+      console.log('🎯 Navigation plan created:', {
+        steps: plan.steps.length,
+        planId: plan.id,
+        stepsPreview: plan.steps.map(s => ({ id: s.id, type: s.type }))
+      });
 
       // Create execution context
       const executionContext: PlanExecutionContext = {

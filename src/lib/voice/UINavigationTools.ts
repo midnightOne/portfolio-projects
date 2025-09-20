@@ -681,10 +681,15 @@ export class UINavigationTools {
   async ui_intent(args: any, sessionId?: string): Promise<NavigationResult> {
     return this.executeAndReport('ui_intent', args, async () => {
       try {
+        console.log('🔍 ui_intent called with args:', JSON.stringify(args, null, 2));
+        
         // Import UIManager dynamically to avoid circular dependencies
         const { uiManager } = await import('@/lib/navigation/UIManager');
         
+        console.log('🔍 UIManager imported, calling executeIntent...');
         const result = await uiManager.executeIntent(args, sessionId);
+        
+        console.log('🔍 UIManager executeIntent result:', JSON.stringify(result, null, 2));
         
         return {
           success: result.success,
@@ -693,6 +698,7 @@ export class UINavigationTools {
           error: result.error
         };
       } catch (error) {
+        console.error('❌ ui_intent error:', error);
         return {
           success: false,
           message: `Failed to execute navigation intent`,

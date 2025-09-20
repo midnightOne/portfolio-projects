@@ -274,6 +274,12 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                                     }, {} as Record<string, any>)
                                 );
                                 zodType = nestedSchema;
+                            } else if (prop.oneOf) {
+                                // Handle oneOf schemas (like ui_intent target parameter)
+                                // For now, use z.any() to avoid schema validation issues
+                                // The OpenAI SDK will handle the actual validation
+                                zodType = z.any().describe(prop.description || 'Union type object');
+                                console.log(`⚠️ Using z.any() for oneOf schema in property: ${key}`);
                             } else {
                                 zodType = z.object({});
                             }
@@ -372,6 +378,12 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                                 break;
                             case 'animateElement':
                                 result = await this._openaiAnimateElement(parameters);
+                                break;
+                            case 'ui_intent':
+                                result = await this._openaiUIIntent(parameters);
+                                break;
+                            case 'ui_describe':
+                                result = await this._openaiUIDescribe(parameters);
                                 break;
                             default:
                                 // Fallback to generic execution for unknown tools
@@ -1009,6 +1021,42 @@ Navigation Flow:
 
     private async _openaiOpenProject(parameters: any): Promise<string> {
         return await this._executeToolCallUnified('openProject', parameters);
+    }
+
+    private async _openaiUIIntent(parameters: any): Promise<string> {
+        console.log('🎯 _openaiUIIntent called with parameters:', JSON.stringify(parameters, null, 2));
+        
+        // Validate that we have the required target parameter
+        if (!parameters.target) {
+            console.error('❌ ui_intent missing target parameter');
+            return JSON.stringify({
+                success: false,
+                message: 'ui_intent requires a target parameter',
+                error: 'MISSING_TARGET'
+            });
+        }
+        
+        if (!parameters.target.type || !parameters.target.id) {
+            console.error('❌ ui_intent target missing type or id:', parameters.target);
+            return JSON.stringify({
+                success: false,
+                message: 'ui_intent target requires both type and id properties',
+                error: 'INVALID_TARGET'
+            });
+        }
+        
+        console.log('✅ ui_intent parameters validated, executing...');
+        
+        // The parameters should already be properly parsed by OpenAI
+        // Just pass them directly to the unified tool execution
+        return await this._executeToolCallUnified('ui_intent', parameters);
+    }
+
+    private async _openaiUIDescribe(parameters: any): Promise<string> {
+        console.log('🔍 _openaiUIDescribe called with parameters:', JSON.stringify(parameters, null, 2));
+        
+        // Pass parameters directly to the unified tool execution
+        return await this._executeToolCallUnified('ui_describe', parameters);
     }
 
     private async _openaiProcessJobSpec(parameters: any): Promise<string> {

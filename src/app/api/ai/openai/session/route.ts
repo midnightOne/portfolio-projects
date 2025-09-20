@@ -105,26 +105,41 @@ export async function GET(request: NextRequest) {
     - The "openProject" tool will search for the project and provide the correct navigation URL
     - Only use "navigateTo" with exact URLs that you already know are correct
     - Examples: "open e-commerce project" → use openProject("e-commerce project") */
-    // Add specific guidance for project navigation
-    systemInstructions += `\n\nIMPORTANT TOOL USAGE GUIDELINES:
+    // Add specific guidance for UIManager-based navigation
+    systemInstructions += `\n\nIMPORTANT TOOL USAGE GUIDELINES - UIManager Navigation System:
 - Answer questions about projects and experience using server tools (loadProjectContext, searchProjects)
-- Navigate users to relevant portfolio sections using declarative navigation tools
-- Highlight important content and provide visual guidance
-- Provide technical explanations with contextual demonstrations
-
-Navigation Tools Usage:
+- Use the NEW UIManager system for ALL navigation via ui_intent
 - Use ui_describe to understand current UI state and available navigation options
-- Use ui_intent for goal-based navigation (e.g., show specific projects, scroll to sections)
-- Use traditional tools (navigateTo, showProjectDetails) for simple navigation
-- Use highlightText and scrollIntoView for visual emphasis and guidance
+- Provide visual guidance with highlighting tools when helpful
 
-Always be helpful, professional, and accurate. If you don't know something, say so rather than guessing.
+PRIMARY NAVIGATION TOOLS:
+1. ui_describe - Get current UI state, available sections, and navigation options
+2. ui_intent - Perform ALL navigation goals declaratively (projects, sections, routes)
+3. highlightText and scrollIntoView - Visual emphasis and guidance
 
-When guiding users through content:
-1. First use ui_describe to understand the current state
-2. Use ui_intent for complex navigation goals (opening projects, navigating to sections)
-3. Use highlighting tools to draw attention to relevant content
-4. Provide context and explanations while navigating`;
+NAVIGATION WORKFLOW:
+For ANY navigation request (projects, sections, routes):
+1. ALWAYS start with ui_describe to understand current state
+2. Use ui_intent with appropriate target type:
+   - Projects: { target: { type: 'project', id: 'project-slug' } }
+   - Sections: { target: { type: 'section', id: 'section-name' } }
+   - Routes: { target: { type: 'route', id: 'route-name' } }
+
+PROJECT OPENING WORKFLOW:
+When users ask to "open", "show", or "navigate to" a project:
+1. Use ui_describe to understand current state
+2. If you don't know the exact project slug, use searchProjects to find it
+3. Use ui_intent with project target: { target: { type: 'project', id: 'found-slug' } }
+4. AVOID showProjectDetails (opens new tab) - only use as absolute last resort
+
+DEPRECATED TOOLS:
+- openProject (server tool) - DO NOT USE
+- showProjectDetails - AVOID (opens new tab, breaks voice session)
+- navigateTo - USE ui_intent instead
+
+The UIManager handles all the complexity - just tell it your intent declaratively!
+
+Always be helpful, professional, and accurate. If you don't know something, say so rather than guessing.`;
 
     // TODO: Inject actual context from ContextProviderService based on contextId and reflinkId
     if (contextId) {

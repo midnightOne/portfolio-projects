@@ -138,21 +138,24 @@ export function ConversationalAgentProvider({
 
   // Initialize provider when reflink session is ready (but don't auto-connect)
   useEffect(() => {
-    console.log('ConversationalAgentProvider initialization check:', {
-      isInitialized,
-      session: session !== null,
-      voiceAIEnabled: isFeatureEnabled('voice_ai'),
-      accessLevel,
-      defaultProvider,
-      hasCurrentAdapter: !!currentAdapter
-    });
+    // Only log initialization check in development mode and less frequently
+    if (process.env.NODE_ENV === 'development') {
+      console.log('ConversationalAgentProvider initialization check:', {
+        isInitialized,
+        session: session !== null,
+        voiceAIEnabled: isFeatureEnabled('voice_ai'),
+        accessLevel,
+        defaultProvider,
+        hasCurrentAdapter: !!currentAdapter
+      });
+    }
     
     // Only initialize if we don't already have an adapter and conditions are met
     if (!isInitialized && !currentAdapter && session !== null && isFeatureEnabled('voice_ai')) {
       console.log('Initializing voice provider (no auto-connect):', defaultProvider);
       initializeProvider(defaultProvider);
     }
-  }, [session, isFeatureEnabled, defaultProvider, isInitialized, accessLevel, currentAdapter]);
+  }, [session, isFeatureEnabled, defaultProvider, isInitialized, currentAdapter]); // Removed accessLevel to reduce re-renders
 
   // Cleanup on unmount
   useEffect(() => {
