@@ -243,8 +243,9 @@ export class UINavigationTools {
           const projectSlug = url.searchParams.get('project');
 
           if (projectSlug) {
-            // Update URL without full navigation to maintain voice session
-            window.history.pushState({}, '', path);
+            // Use replaceState instead of pushState to avoid WebRTC issues in voice sessions
+            console.log('🎯 Using replaceState for project navigation to preserve WebRTC');
+            window.history.replaceState({}, '', path);
 
             // Trigger the project modal by dispatching a popstate event
             window.dispatchEvent(new PopStateEvent('popstate'));
@@ -309,8 +310,9 @@ export class UINavigationTools {
           const currentUrl = new URL(window.location.href);
           currentUrl.searchParams.set('project', mappedProjectSlug);
 
-          // Update URL without full navigation to maintain voice session
-          window.history.pushState({}, '', currentUrl.toString());
+          // Use replaceState instead of pushState to avoid WebRTC issues in voice sessions
+          console.log('🎯 Using replaceState for project details to preserve WebRTC');
+          window.history.replaceState({}, '', currentUrl.toString());
 
           // Trigger the project modal by dispatching a popstate event
           window.dispatchEvent(new PopStateEvent('popstate'));

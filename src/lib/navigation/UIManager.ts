@@ -248,7 +248,7 @@ export interface UIIntentParams {
     waitForReadyMs?: number;            // wait for loader/transition
     scrollBehavior?: "smooth" | "instant";
     allowInterruption?: boolean;        // allow this navigation to be interrupted
-    urlStrategy?: "full" | "minimal" | "none"; // URL update strategy
+    urlStrategy?: "full" | "minimal" | "none" | "replace"; // URL update strategy (deprecated - prefer none for stability)
   };
   scope?: {
     route?: string;
@@ -1079,10 +1079,8 @@ export class UIManager {
 
     this._modalStack.push(modalEntry);
 
-    // Update URL if needed
-    if (shouldTrackInURL) {
-      this._updateURLForModalStack();
-    }
+    // Update internal state (no URL changes)
+    this._updateStateForModalStack();
 
     // Notify listeners
     this._notifyModalStateListeners();
@@ -1119,10 +1117,8 @@ export class UIManager {
     }
 
     if (poppedModal) {
-      // Update URL if the removed modal was tracked
-      if (poppedModal.urlTracked || this._modalStack.some(m => m.urlTracked)) {
-        this._updateURLForModalStack();
-      }
+      // Update internal state (no URL changes)
+      this._updateStateForModalStack();
 
       // Notify listeners
       this._notifyModalStateListeners();
@@ -1171,45 +1167,20 @@ export class UIManager {
   }
 
   /**
-   * Update URL based on current modal stack
+   * Update internal state based on current modal stack (no URL changes)
    */
-  private _updateURLForModalStack(): void {
-    if (typeof window === 'undefined') return;
-
-    const url = new URL(window.location.href);
-
-    // Clear existing modal parameters
-    url.searchParams.delete('project');
-    url.searchParams.delete('modal');
-    url.searchParams.delete('gallery');
-    url.searchParams.delete('example');
-
-    // Add parameters for URL-tracked modals in order
-    const trackedModals = this._modalStack.filter(m => m.urlTracked).sort((a, b) => a.level - b.level);
-
-    trackedModals.forEach(modal => {
-      switch (modal.type) {
-        case 'project':
-          url.searchParams.set('project', modal.id);
-          break;
-        case 'gallery':
-          url.searchParams.set('gallery', modal.id);
-          break;
-        case 'example':
-          url.searchParams.set('example', modal.id);
-          break;
-        default:
-          url.searchParams.set('modal', modal.id);
-          break;
-      }
-    });
-
-    // Update URL without triggering navigation
-    window.history.replaceState({}, '', url.toString());
-
-    // Update internal state to reflect URL change
+  private _updateStateForModalStack(): void {
+    // Pure state-based synchronization - no URL manipulation
+    console.log('🎯 Updating internal state for modal stack (no URL changes)');
+    
+    // Update internal state to reflect modal changes
     this._currentEpoch++;
     this._updateBreadcrumbPath();
+    
+    // Log current modal stack for debugging
+    if (this._modalStack.length > 0) {
+      console.log('📚 Current modal stack:', this._modalStack.map(m => `${m.type}:${m.id}`));
+    }
   }
 
   /**
@@ -2154,7 +2125,7 @@ export class UIManager {
       waitForReadyMs: 1500,
       scrollBehavior: 'smooth' as const,
       allowInterruption: true,
-      urlStrategy: 'full' as const,
+      urlStrategy: 'none' as const,
       ...params.behavior
     };
 
@@ -2227,6 +2198,10 @@ export class UIManager {
 
     // Scenario 1: Currently viewing Project A, want to view Project B (with optional section)
     if (currentProjectModal && currentProjectModal.id !== targetProjectId) {
+      // Check if we have modal handlers available and can avoid route navigation
+      const hasModalHandler = this._modalHandlers.size > 0;
+      const canSkipRouteNavigation = hasModalHandler && (currentRoute === 'home' || currentRoute === 'projects');
+      
       // Close current project modal
       steps.push(this._createCloseModalStep(currentProjectModal.id, behavior));
 
@@ -2235,14 +2210,22 @@ export class UIManager {
         steps.push(this._createDelayStep(this._timingConfig.modalTransitionDelay));
       }
 
-      // Navigate to projects page if not already there
-      if (currentRoute !== 'projects') {
-        steps.push(this._createRouteNavigationStep('projects', behavior));
+      // Only navigate to projects page if we don't have modal handlers or URL strategy requires it
+      if (currentRoute !== 'projects' && !canSkipRouteNavigation) {
+        // For WebRTC sessions, avoid route navigation entirely if possible
+        if (behavior.urlStrategy === 'none') {
+          console.log('🎯 Skipping route navigation to projects page due to urlStrategy: none');
+        } else {
+          console.log(`🎯 Route navigation to projects with urlStrategy: ${behavior.urlStrategy}`);
+          steps.push(this._createRouteNavigationStep('projects', behavior));
 
-        // Add delay for route navigation
-        if (this._timingConfig.animationMode !== 'instant') {
-          steps.push(this._createDelayStep(this._timingConfig.routeNavigationWait));
+          // Add delay for route navigation
+          if (this._timingConfig.animationMode !== 'instant') {
+            steps.push(this._createDelayStep(this._timingConfig.routeNavigationWait));
+          }
         }
+      } else if (canSkipRouteNavigation) {
+        console.log(`🎯 Skipping route navigation - modal handler available on ${currentRoute} page`);
       }
 
       // Open new project modal
@@ -2260,10 +2243,16 @@ export class UIManager {
       
       // Only navigate to projects page if we're not on homepage or don't have a modal handler
       if (currentRoute !== 'projects' && currentRoute !== 'home' && !hasModalHandler) {
-        steps.push(this._createRouteNavigationStep('projects', behavior));
+        // For WebRTC sessions, avoid route navigation entirely if possible
+        if (behavior.urlStrategy === 'none') {
+          console.log('🎯 Skipping route navigation to projects page due to urlStrategy: none (no modal handler scenario)');
+        } else {
+          console.log(`🎯 Route navigation to projects (no modal handler) with urlStrategy: ${behavior.urlStrategy}`);
+          steps.push(this._createRouteNavigationStep('projects', behavior));
 
-        if (this._timingConfig.animationMode !== 'instant') {
-          steps.push(this._createDelayStep(this._timingConfig.routeNavigationWait));
+          if (this._timingConfig.animationMode !== 'instant') {
+            steps.push(this._createDelayStep(this._timingConfig.routeNavigationWait));
+          }
         }
       }
 
@@ -2413,16 +2402,16 @@ export class UIManager {
       timeout: this._timingConfig.stepTimeoutMs,
       execute: async () => {
         try {
-          // Navigate to route
+          // State-only route navigation - no URL manipulation
           if (typeof window !== 'undefined') {
-            window.history.pushState({}, '', `/${route}`);
-
-            // Update internal state
+            console.log(`🎯 State-only route navigation to ${route} (no URL changes)`);
+            
+            // Update internal state only
             this._currentEpoch++;
             this._updateBreadcrumbPath();
-
-            // Trigger any necessary page updates
-            window.dispatchEvent(new PopStateEvent('popstate'));
+            
+            // Update the internal route tracking without URL changes
+            this._currentUIState.currentRoute = route;
           }
 
           return {
@@ -2899,10 +2888,12 @@ export class UIManager {
         execute: async () => {
           try {
             if (typeof window !== 'undefined') {
-              const url = new URL(window.location.href);
-              url.searchParams.delete('project');
-              window.history.pushState({}, '', url.toString());
-              window.dispatchEvent(new PopStateEvent('popstate'));
+              // State-only modal closing - no URL manipulation
+              console.log(`🎯 Closing project modal ${currentProject} (state-only, no URL changes)`);
+              
+              // Update internal state only
+              this._currentEpoch++;
+              this._updateBreadcrumbPath();
 
               return {
                 success: true,
@@ -2938,15 +2929,27 @@ export class UIManager {
         execute: async () => {
           try {
             if (typeof window !== 'undefined') {
-              const url = new URL(window.location.href);
-              url.searchParams.set('project', projectId);
-              window.history.pushState({}, '', url.toString());
-              window.dispatchEvent(new PopStateEvent('popstate'));
+              // Pure state-based modal opening - no URL manipulation
+              console.log(`🎯 Opening modal for project ${projectId} (state-only, no URL changes)`);
+              const modalOpened = await this._openModalElement(projectId, 'project');
+              if (!modalOpened) {
+                console.error(`❌ Failed to open modal for project ${projectId} - no handlers succeeded`);
+                return {
+                  success: false,
+                  message: `No modal handler available for project ${projectId}`,
+                  error: 'NO_MODAL_HANDLER'
+                };
+              }
+              console.log(`✅ Modal opened successfully for project ${projectId}`);
+
+              // Update internal state without URL changes
+              this._currentEpoch++;
+              this._updateBreadcrumbPath();
 
               return {
                 success: true,
                 message: `Opened project ${projectId}`,
-                data: { projectId }
+                data: { projectId, method: 'state-only' }
               };
             }
             return {
@@ -3783,29 +3786,20 @@ export class UIManager {
       return;
     }
 
-    // Listen for navigation events
-    window.addEventListener('popstate', () => {
-      this.updateNavigationState();
-    });
-
-    // Listen for hash changes
+    console.log('🎯 UIManager navigation listeners setup (URL-independent mode)');
+    
+    // Note: We no longer listen to popstate, pushState, or replaceState events
+    // since we're operating in pure state-based mode to avoid WebRTC disruption
+    
+    // Instead, we rely on:
+    // 1. Direct modal handler calls
+    // 2. Internal state management  
+    // 3. Component-level state synchronization
+    
+    // Only listen to hash changes for scroll-to-section functionality
     window.addEventListener('hashchange', () => {
       this.updateNavigationState();
     });
-
-    // Listen for pushState/replaceState (for SPA navigation)
-    const originalPushState = history.pushState;
-    const originalReplaceState = history.replaceState;
-
-    history.pushState = function (...args) {
-      originalPushState.apply(history, args);
-      UIManager.getInstance().updateNavigationState();
-    };
-
-    history.replaceState = function (...args) {
-      originalReplaceState.apply(history, args);
-      UIManager.getInstance().updateNavigationState();
-    };
   }
 
   /**
@@ -3842,6 +3836,31 @@ export class UIManager {
 
     this._currentUIState.visibleAnchors = visibleAnchors;
     this._lastVisibleAnchors = [...visibleAnchors];
+  }
+
+  /**
+   * Check if WebRTC connections are active to determine URL update strategy
+   */
+  private _isWebRTCActive(): boolean {
+    try {
+      // Check if we're in a voice session by looking for WebRTC-related indicators
+      if (typeof window !== 'undefined') {
+        // Check for active MediaStream tracks
+        const hasActiveMediaStreams = navigator.mediaDevices.getUserMedia !== undefined;
+        
+        // Check for ConversationalAgentProvider state
+        const voiceAIElements = document.querySelectorAll('[data-voice-ai="true"]');
+        const hasVoiceAI = voiceAIElements.length > 0;
+        
+        // Check for WebRTC-related objects in window
+        const hasWebRTCIndicators = 'webkitRTCPeerConnection' in window || 'RTCPeerConnection' in window;
+        
+        return hasActiveMediaStreams && (hasVoiceAI || hasWebRTCIndicators);
+      }
+    } catch (error) {
+      console.warn('Error checking WebRTC status:', error);
+    }
+    return false;
   }
 
   /**

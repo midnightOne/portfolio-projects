@@ -129,8 +129,14 @@ PROJECT OPENING WORKFLOW:
 When users ask to "open", "show", or "navigate to" a project:
 1. Use ui_describe to understand current state
 2. If you don't know the exact project slug, use searchProjects to find it
-3. Use ui_intent with project target: { target: { type: 'project', id: 'found-slug' } }
+3. Use ui_intent with project target (URL-independent by default):
+   { 
+     target: { type: 'project', id: 'found-slug' }
+     // No behavior needed - system is now URL-independent by default
+   }
 4. AVOID showProjectDetails (opens new tab) - only use as absolute last resort
+
+IMPORTANT: System now operates in URL-independent mode by default - no URL changes that could disrupt WebRTC!
 
 DEPRECATED TOOLS:
 - openProject (server tool) - DO NOT USE
