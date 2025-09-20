@@ -6,7 +6,7 @@
  * results back to AI providers for conversation continuity.
  */
 
-import { ToolDefinition, ToolResult } from '@/types/voice-agent';
+import { ToolResult } from '@/types/voice-agent';
 import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -678,8 +678,8 @@ export class UINavigationTools {
 
   // Declarative Navigation Tools
 
-  async ui_navigate(args: any, sessionId?: string): Promise<NavigationResult> {
-    return this.executeAndReport('ui_navigate', args, async () => {
+  async ui_intent(args: any, sessionId?: string): Promise<NavigationResult> {
+    return this.executeAndReport('ui_intent', args, async () => {
       try {
         // Import UIManager dynamically to avoid circular dependencies
         const { uiManager } = await import('@/lib/navigation/UIManager');
@@ -708,7 +708,7 @@ export class UINavigationTools {
         // Import UIManager dynamically to avoid circular dependencies
         const { uiManager } = await import('@/lib/navigation/UIManager');
         
-        const description = uiManager.describe();
+        const description = await uiManager.describe();
         
         return {
           success: true,

@@ -140,7 +140,7 @@ export class ContextInjector {
 
     } catch (error) {
       console.error('System prompt injection failed:', error);
-      
+
       // Return minimal context for error cases
       return {
         systemPrompt: 'You are an AI assistant for a portfolio website. Provide helpful responses based on available information.',
@@ -255,7 +255,7 @@ export class ContextInjector {
 
     try {
       const validation = await reflinkManager.validateReflinkWithBudget(reflinkCode);
-      
+
       if (validation.valid && validation.welcomeMessage) {
         return validation.welcomeMessage;
       }
@@ -286,7 +286,7 @@ export class ContextInjector {
 
     try {
       const validation = await reflinkManager.validateReflinkWithBudget(reflinkCode);
-      
+
       if (validation.valid && validation.reflink) {
         const reflink = validation.reflink;
         return {
@@ -361,16 +361,16 @@ export class ContextInjector {
       };
 
       const result = await contextProvider.injectContext(contextRequest);
-      
+
       if (!result.success) {
         throw new Error(result.error || 'Context injection failed');
       }
 
       const context = result.context;
-      
+
       // Determine capabilities based on reflink
       const capabilities = await this.determineCapabilities(reflinkCode);
-      
+
       // Generate welcome message
       const welcomeMessage = await this.generateWelcomeMessage(reflinkCode);
 
@@ -384,22 +384,31 @@ ${context.systemPrompt}
 ${context.hiddenContext ? `\nAdditional Context:\n${context.hiddenContext}` : ''}
 
 Key capabilities:
-- Answer questions about projects and experience
-- Navigate users to relevant portfolio sections using available tools
-- Highlight important content
-- Provide technical explanations
+- Answer questions about projects and experience using server tools (loadProjectContext, searchProjects)
+- Navigate users to relevant portfolio sections using declarative navigation tools
+- Highlight important content and provide visual guidance
+- Provide technical explanations with contextual demonstrations
 ${capabilities.jobAnalysis ? '- Analyze job requirements against the portfolio owner\'s background' : ''}
 ${capabilities.advancedNavigation ? '- Provide advanced navigation and content discovery' : ''}
 
+Navigation Tools Usage:
+- Use ui_describe to understand current UI state and available navigation options
+- Use ui_intent for goal-based navigation (e.g., show specific projects, scroll to sections)
+- Use traditional tools (navigateTo, showProjectDetails) for simple navigation
+- Use highlightText and scrollIntoView for visual emphasis and guidance
+
 Always be helpful, professional, and accurate. If you don't know something, say so rather than guessing.
 
-When you want to navigate or show content, use the available tools to guide the user through the portfolio.
-Use the navigation tools to create an interactive experience that helps users discover relevant information.
+When guiding users through content:
+1. First use ui_describe to understand the current state
+2. Use ui_intent for complex navigation goals (opening projects, navigating to sections)
+3. Use highlighting tools to draw attention to relevant content
+4. Provide context and explanations while navigating
 
 ${context.initialContext ? `\nCurrent Context:\n${context.initialContext}` : ''}`;
 
       // Generate appropriate first message
-      const first_message = welcomeMessage || 
+      const first_message = welcomeMessage ||
         "Hello! I'm here to help you learn about this portfolio. I can answer questions about projects, experience, and background. I can also guide you through relevant sections using interactive navigation. What would you like to know?";
 
       return {
@@ -412,7 +421,7 @@ ${context.initialContext ? `\nCurrent Context:\n${context.initialContext}` : ''}
 
     } catch (error) {
       console.error('ElevenLabs prompt generation failed:', error);
-      
+
       // Return minimal prompt for error cases
       return {
         agent_prompt: `You are a helpful AI assistant for a portfolio website. 

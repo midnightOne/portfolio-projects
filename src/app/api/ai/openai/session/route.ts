@@ -99,13 +99,32 @@ export async function GET(request: NextRequest) {
     // Build system instructions with context (using config as base)
     let systemInstructions = defaultConfig.instructions;
     
+    /* Old tool prompt before moving to UIManager
+    - When users ask to "open", "navigate to", "show me", or "go to" any project, ALWAYS use the "openProject" tool first
+    - Do NOT use "searchProjects" followed by "navigateTo" - use "openProject" instead as it handles both steps
+    - The "openProject" tool will search for the project and provide the correct navigation URL
+    - Only use "navigateTo" with exact URLs that you already know are correct
+    - Examples: "open e-commerce project" → use openProject("e-commerce project") */
     // Add specific guidance for project navigation
     systemInstructions += `\n\nIMPORTANT TOOL USAGE GUIDELINES:
-- When users ask to "open", "navigate to", "show me", or "go to" any project, ALWAYS use the "openProject" tool first
-- Do NOT use "searchProjects" followed by "navigateTo" - use "openProject" instead as it handles both steps
-- The "openProject" tool will search for the project and provide the correct navigation URL
-- Only use "navigateTo" with exact URLs that you already know are correct
-- Examples: "open e-commerce project" → use openProject("e-commerce project")`;
+- Answer questions about projects and experience using server tools (loadProjectContext, searchProjects)
+- Navigate users to relevant portfolio sections using declarative navigation tools
+- Highlight important content and provide visual guidance
+- Provide technical explanations with contextual demonstrations
+
+Navigation Tools Usage:
+- Use ui_describe to understand current UI state and available navigation options
+- Use ui_intent for goal-based navigation (e.g., show specific projects, scroll to sections)
+- Use traditional tools (navigateTo, showProjectDetails) for simple navigation
+- Use highlightText and scrollIntoView for visual emphasis and guidance
+
+Always be helpful, professional, and accurate. If you don't know something, say so rather than guessing.
+
+When guiding users through content:
+1. First use ui_describe to understand the current state
+2. Use ui_intent for complex navigation goals (opening projects, navigating to sections)
+3. Use highlighting tools to draw attention to relevant content
+4. Provide context and explanations while navigating`;
 
     // TODO: Inject actual context from ContextProviderService based on contextId and reflinkId
     if (contextId) {
