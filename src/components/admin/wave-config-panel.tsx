@@ -579,17 +579,17 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
               label="Speed X"
               value={state.config.speedX}
               onChange={(value) => handleConfigChange({ speedX: value })}
-              min={0.0}
-              max={0.005}
-              step={0.0001}
+              min={-0.05}
+              max={0.05}
+              step={0.001}
             />
             <ParameterSlider
               label="Speed Y"
               value={state.config.speedY}
               onChange={(value) => handleConfigChange({ speedY: value })}
-              min={0.0}
-              max={0.005}
-              step={0.0001}
+              min={-0.05}
+              max={0.05}
+              step={0.001}
             />
             <ParameterSlider
               label="Cylinder Bend"
@@ -676,9 +676,9 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
               label="Iridescence Speed"
               value={state.config.iridescenceSpeed}
               onChange={(value) => handleConfigChange({ iridescenceSpeed: value })}
-              min={0.0}
-              max={0.01}
-              step={0.001}
+              min={-2.0}
+              max={2.0}
+              step={0.01}
             />
             <ParameterSlider
               label="Flow Mix Amount"
