@@ -24,6 +24,7 @@ import {
 import { BaseConversationalAgentAdapter } from './IConversationalAgentAdapter';
 import { getClientAIModelManager } from './ClientAIModelManager';
 import { ElevenLabsConfig } from '@/types/voice-config';
+import { uiStateManager } from '@/lib/navigation/UIStateManager';
 
 interface ElevenLabsTokenResponse {
   conversation_token?: string;
@@ -266,6 +267,9 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
           // Start periodic reporting for unified monitoring
           this._startPeriodicReporting();
           
+          // Initialize UI state tracking with background updates
+          this._initializeUIStateTracking();
+          
           this._handleConnectionEvent({
             type: 'connected',
             provider: 'elevenlabs',
@@ -357,6 +361,75 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
     }
   }
 
+  /**
+   * Initialize UI state tracking with background updates
+   */
+  private _initializeUIStateTracking(): void {
+    if (typeof window === 'undefined') {
+      return; // Skip on server side
+    }
+
+    try {
+      // Initialize UI state manager with background update callback
+      uiStateManager.initialize((update) => {
+        this._sendBackgroundUpdate(update);
+      });
+
+      console.log('ElevenLabs: UI state tracking initialized');
+    } catch (error) {
+      console.error('Failed to initialize UI state tracking:', error);
+    }
+  }
+
+  /**
+   * Send background update for ElevenLabs (note: ElevenLabs doesn't have backgroundResult like OpenAI)
+   * Instead, we log the state change for conversation context
+   */
+  private _sendBackgroundUpdate(update: {
+    type: 'ui_state_update';
+    breadcrumbPath: string;
+    visibleAnchors: string[];
+    activeFilters?: any;
+    timestamp: number;
+  }): void {
+    try {
+      // Create a formatted message for logging the UI state change
+      const stateMessage = `UI State Update: User is now at ${update.breadcrumbPath}${
+        update.visibleAnchors.length > 0 
+          ? ` viewing sections: ${update.visibleAnchors.join(', ')}` 
+          : ''
+      }${
+        update.activeFilters?.searchTerm 
+          ? ` searching for: ${update.activeFilters.searchTerm}` 
+          : ''
+      }`;
+
+      // For ElevenLabs, we add this to the transcript for context
+      // The AI will see this in the conversation history
+      this._addTranscriptItem({
+        id: `ui-state-${Date.now()}`,
+        type: 'system_message',
+        content: `[UI State Update] ${stateMessage} | Filters: ${JSON.stringify(update.activeFilters || {})}`,
+        timestamp: new Date(),
+        provider: 'elevenlabs',
+        metadata: {
+          // Use existing metadata fields for our purposes
+          toolName: 'ui-state-update',
+          toolArgs: {
+            breadcrumbPath: update.breadcrumbPath,
+            visibleAnchors: update.visibleAnchors,
+            activeFilters: update.activeFilters
+          }
+        }
+      });
+
+      console.log('ElevenLabs: Background UI state update logged:', stateMessage);
+      
+    } catch (error) {
+      console.error('Failed to send background UI state update:', error);
+    }
+  }
+
   async disconnect(): Promise<void> {
     try {
       this._setConnectionStatus('disconnected');
@@ -377,6 +450,11 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
       if (this._conversationInstance) {
         await this._conversationInstance.endSession();
         this._conversationInstance = null;
+      }
+
+      // Clean up UI state tracking
+      if (typeof window !== 'undefined') {
+        uiStateManager.setBackgroundUpdateCallback(null);
       }
 
       this._handleConnectionEvent({

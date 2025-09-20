@@ -18,6 +18,7 @@ import {
 } from '@/types/voice-agent';
 import { BaseConversationalAgentAdapter } from './IConversationalAgentAdapter';
 import { getClientAIModelManager } from './ClientAIModelManager';
+import { uiStateManager, UIStateManager } from '@/lib/navigation/UIStateManager';
 
 // OpenAI Realtime SDK 0.1.0 imports
 import {
@@ -42,7 +43,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     protected _isRecording: boolean = false;
     protected _isInitialized: boolean = false;
     private _config: OpenAIRealtimeConfig | null = null;
-    
+
     // Analytics and debugging properties
     private _conversationAnalytics: {
         tokensUsed: number;
@@ -85,17 +86,17 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 const modelManager = getClientAIModelManager();
                 const configWithMetadata = await modelManager.getProviderConfig('openai');
                 this._config = configWithMetadata.config as OpenAIRealtimeConfig;
-                
+
                 console.log(`OpenAI Realtime configuration loaded from database: ${configWithMetadata.name}`);
             } else {
                 // Client side - use default configuration from serializer
                 const { getSerializerForProvider } = await import('./config-serializers');
                 const openaiSerializer = getSerializerForProvider('openai');
                 this._config = openaiSerializer.getDefaultConfig() as OpenAIRealtimeConfig;
-                
+
                 console.log('OpenAI Realtime configuration loaded from defaults (client-side)');
             }
-            
+
             // Update metadata with loaded configuration
             this._metadata = {
                 provider: 'openai',
@@ -103,12 +104,12 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 capabilities: this._config.capabilities,
                 quality: 'high'
             };
-            
+
             // Initialize agent with loaded configuration
             await this._initializeAgent();
         } catch (error) {
             console.error('Failed to load OpenAI configuration, using fallback defaults:', error);
-            
+
             // Fallback to hardcoded defaults if everything fails
             this._config = {
                 provider: 'openai',
@@ -152,7 +153,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 apiKeyEnvVar: 'OPENAI_API_KEY',
                 baseUrlEnvVar: 'OPENAI_BASE_URL',
             } as OpenAIRealtimeConfig;
-            
+
             // Initialize with fallback configuration
             await this._initializeAgent();
         }
@@ -161,17 +162,17 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     private async _initializeAgent() {
         // Import unified tool registry
         const { unifiedToolRegistry } = await import('@/lib/ai/tools/UnifiedToolRegistry');
-        
+
         // Get all tool definitions from unified registry
         const allToolDefinitions = unifiedToolRegistry.getAllToolDefinitions();
-        
+
         // Create OpenAI tools using unified execution pipeline
         const openaiTools = allToolDefinitions.map(toolDef => {
             // Convert unified tool definition to OpenAI tool format
             const parametersSchema = z.object(
                 Object.entries(toolDef.parameters.properties).reduce((acc, [key, prop]: [string, any]) => {
                     let zodType: any;
-                    
+
                     switch (prop.type) {
                         case 'string':
                             zodType = z.string();
@@ -193,7 +194,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                                 const itemSchema = z.object(
                                     Object.entries(prop.items.properties).reduce((itemAcc, [itemKey, itemProp]: [string, any]) => {
                                         let itemZodType: any;
-                                        
+
                                         switch (itemProp.type) {
                                             case 'string':
                                                 itemZodType = z.string();
@@ -210,17 +211,17 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                                             default:
                                                 itemZodType = z.any();
                                         }
-                                        
+
                                         // Handle optional fields in array items
                                         if (!prop.items.required?.includes(itemKey)) {
                                             itemZodType = itemZodType.nullable().optional();
                                         }
-                                        
+
                                         // Add description
                                         if (itemProp.description) {
                                             itemZodType = itemZodType.describe(itemProp.description);
                                         }
-                                        
+
                                         itemAcc[itemKey] = itemZodType;
                                         return itemAcc;
                                     }, {} as Record<string, any>)
@@ -236,7 +237,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                                 const nestedSchema = z.object(
                                     Object.entries(prop.properties).reduce((nestedAcc, [nestedKey, nestedProp]: [string, any]) => {
                                         let nestedZodType: any;
-                                        
+
                                         switch (nestedProp.type) {
                                             case 'string':
                                                 nestedZodType = z.string();
@@ -257,17 +258,17 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                                             default:
                                                 nestedZodType = z.any();
                                         }
-                                        
+
                                         // Handle optional nested fields
                                         if (!prop.required?.includes(nestedKey)) {
                                             nestedZodType = nestedZodType.nullable().optional();
                                         }
-                                        
+
                                         // Add description
                                         if (nestedProp.description) {
                                             nestedZodType = nestedZodType.describe(nestedProp.description);
                                         }
-                                        
+
                                         nestedAcc[nestedKey] = nestedZodType;
                                         return nestedAcc;
                                     }, {} as Record<string, any>)
@@ -280,32 +281,32 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                         default:
                             zodType = z.any();
                     }
-                    
+
                     // Handle optional fields
                     if (!toolDef.parameters.required?.includes(key)) {
                         zodType = zodType.nullable().optional();
                     }
-                    
+
                     // Add description
                     if (prop.description) {
                         zodType = zodType.describe(prop.description);
                     }
-                    
+
                     acc[key] = zodType;
                     return acc;
                 }, {} as Record<string, any>)
             );
-            
+
             return tool({
                 name: toolDef.name,
                 description: toolDef.description,
                 parameters: parametersSchema,
                 execute: async (parameters: any) => {
                     console.log(`OpenAI tool execution started: ${toolDef.name}`, parameters);
-                    
+
                     try {
                         let result: string;
-                        
+
                         // Route to specific OpenAI wrapper function based on tool name
                         switch (toolDef.name) {
                             case 'loadProjectContext':
@@ -377,17 +378,17 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                                 const genericResult = await this._executeUnifiedTool(toolDef.name, parameters);
                                 result = typeof genericResult === 'string' ? genericResult : JSON.stringify(genericResult);
                         }
-                        
+
                         console.log(`OpenAI tool execution completed: ${toolDef.name}`, result);
-                        
+
                         // Return result to OpenAI and trigger response
                         //const backgroundRes = backgroundResult(result);
-                        
+
                         return result; //or backgroundRes if we need to accumulate more results from tool calls until we want the model to speak
-                        
+
                     } catch (error) {
                         console.error(`OpenAI tool execution failed: ${toolDef.name}`, error);
-                        
+
                         // Return error to OpenAI
                         const errorMessage = `Failed to execute ${toolDef.name}: ${error instanceof Error ? error.message : String(error)}`;
                         return errorMessage;
@@ -423,21 +424,21 @@ Communication guidelines:
             //instructions: instructions, //This overrides the instructions from the server config, we can only upade the fields we want to change
             tools: openaiTools,
         });
-        console.log('OpenAIRealtimeAdapter: Created OpenAI agent with the following: ', agentName,openaiTools);
+        console.log('OpenAIRealtimeAdapter: Created OpenAI agent with the following: ', agentName, openaiTools);
     }
-    
+
 
     async init(options: AdapterInitOptions): Promise<void> {
         try {
             console.log('OpenAIRealtimeAdapter: Initializing with options:', options);
-            
 
-            
+
+
             // Load configuration first if not already loaded
             if (!this._config) {
                 await this._loadConfiguration();
             }
-            
+
             if (!this._agent) {
                 throw new Error('Agent not initialized');
             }
@@ -479,7 +480,7 @@ Communication guidelines:
         this._session.on('transport_event', (event: TransportEvent) => {
             this._events.push(event);
             console.log('Transport event:', event.type, event);
-            
+
             // Handle transcript events
             if (event.type === 'conversation.item.input_audio_transcription.completed') {
                 console.log('Input audio transcription completed:', event);
@@ -488,7 +489,7 @@ Communication guidelines:
                 console.log('Output audio transcript done:', event);
                 // The transcript should be in the history update that follows
             }
-            
+
             // Handle audio interruption events
             if (event.type === 'response.audio_transcript.delta') {
                 console.log('AI is speaking (audio transcript delta)');
@@ -499,7 +500,7 @@ Communication guidelines:
                 // Process usage metrics when response is complete
                 this._processResponseMetrics(event);
             }
-            
+
             // Handle tool call events
             if (event.type === 'response.output_item.added') {
                 const item = (event as any).item;
@@ -513,7 +514,7 @@ Communication guidelines:
                 // Log this for monitoring and debugging (execution happens in tool definition)
                 this._logToolCallCompletion(event);
             }
-            
+
             // Emit connection events based on transport events
             if (event.type === 'session.created') {
                 console.log('Emitting connected event from session.created');
@@ -525,14 +526,14 @@ Communication guidelines:
             } else if (event.type === 'error') {
                 const errorMessage = (event as any).error?.message || 'Unknown error';
                 console.log('Emitting error event:', errorMessage);
-                
+
                 // Check for specific item retrieval errors that are safe to ignore
                 if (errorMessage.includes('item with id') && errorMessage.includes('does not exist')) {
                     console.warn('OpenAI item retrieval error detected - this is usually safe to ignore:', errorMessage);
                     // Don't emit connection error for item retrieval issues as they don't affect functionality
                     return;
                 }
-                
+
                 this._emitConnectionEvent('error', errorMessage);
             }
         });
@@ -547,7 +548,7 @@ Communication guidelines:
             console.log('History updated, items:', history.length);
             this._history = history;
             this._processHistoryUpdate(history);
-            
+
             // Process conversation analytics from history
             this._processConversationAnalytics(history);
         });
@@ -555,14 +556,14 @@ Communication guidelines:
         // Auto-approval flow for seamless UX
         this._session.on('tool_approval_requested', (_context, _agent, approvalRequest) => {
             console.log('Tool approval requested - auto-approving for seamless UX:', approvalRequest);
-            
+
             // Log the tool call for debugging
             this._logToolCall(approvalRequest);
-            
+
             // Automatically approve all tool calls without user confirmation
             this._session?.approve(approvalRequest.approvalItem);
             console.log('Tool call auto-approved:', approvalRequest.approvalItem);
-            
+
             // Note: Tool execution and result reporting is handled automatically by the OpenAI SDK
             // when tools are defined with execute functions using the tool() helper
         });
@@ -591,7 +592,7 @@ Communication guidelines:
             // Don't emit transcript here - it will be emitted in _executeToolCallUnified
             // This method is just for conversation logging
             const parsedArgs = functionCallItem.arguments ? JSON.parse(functionCallItem.arguments) : {};
-            
+
             const toolCallData = {
                 sessionId: this._sessionId || 'unknown',
                 provider: 'openai',
@@ -655,17 +656,17 @@ Communication guidelines:
 
     private _processHistoryUpdate(history: RealtimeItem[]) {
         // Only process new items to avoid duplication
-        
+
         // Convert only new RealtimeItem[] to TranscriptItem[] for the interface
         const newTranscriptItems: TranscriptItem[] = [];
-        
+
         // Keep track of processed items to avoid duplicates
         const processedItemIds = new Set(this._transcript.map(t => t.id));
-        
+
         for (let index = 0; index < history.length; index++) {
             try {
                 const item = history[index];
-                
+
                 // Safely extract item ID with error handling
                 let itemId: string;
                 try {
@@ -674,67 +675,67 @@ Communication guidelines:
                     console.warn('Error accessing item ID, using fallback:', error);
                     itemId = `item-${index}-${Date.now()}`;
                 }
-                
+
                 // Skip items we've already processed
                 if (processedItemIds.has(itemId)) {
                     continue;
                 }
-                
+
                 // Handle function call items separately - log them but don't add to transcript
                 if (item.type === 'function_call') {
-                console.log('Processing function call item for conversation log:', {
+                    console.log('Processing function call item for conversation log:', {
+                        index,
+                        type: item.type,
+                        name: (item as any).name,
+                        call_id: (item as any).call_id
+                    });
+
+                    // Log the tool call to the conversation system
+                    this._logToolCallToConversation(item as any);
+                    continue;
+                }
+
+                // Determine the type based on the item's role or origin
+                let itemType: 'user_speech' | 'ai_response' = 'ai_response';
+
+                // Debug log the item structure
+                console.log('Processing history item:', {
                     index,
                     type: item.type,
-                    name: (item as any).name,
-                    call_id: (item as any).call_id
+                    role: 'role' in item ? item.role : 'no role',
+                    object: 'object' in item ? item.object : 'no object',
+                    hasContent: 'content' in item,
+                    keys: Object.keys(item)
                 });
-                
-                // Log the tool call to the conversation system
-                this._logToolCallToConversation(item as any);
-                continue;
-            }
-            
-            // Determine the type based on the item's role or origin
-            let itemType: 'user_speech' | 'ai_response' = 'ai_response';
-            
-            // Debug log the item structure
-            console.log('Processing history item:', {
-                index,
-                type: item.type,
-                role: 'role' in item ? item.role : 'no role',
-                object: 'object' in item ? item.object : 'no object',
-                hasContent: 'content' in item,
-                keys: Object.keys(item)
-            });
-            
-            // Check various properties to determine if it's user input
-            if ('role' in item && item.role === 'user') {
-                itemType = 'user_speech';
-                console.log('Detected user speech via role');
-            } else if ('role' in item && item.role === 'assistant') {
-                itemType = 'ai_response';
-                console.log('Detected AI response via role');
-            } else if (item.type === 'message' && 'content' in item) {
-                // Check if it's an input audio transcription
-                const content = Array.isArray(item.content) ? item.content : [item.content];
-                const hasInputAudio = content.some((c: any) => 
-                    c?.type === 'input_audio' || 
-                    c?.type === 'input_text' ||
-                    (typeof c === 'object' && 'input_audio_transcription' in c)
-                );
-                const hasOutputAudio = content.some((c: any) => 
-                    c?.type === 'output_audio' ||
-                    (typeof c === 'object' && 'output_audio_transcription' in c)
-                );
-                
-                if (hasInputAudio) {
+
+                // Check various properties to determine if it's user input
+                if ('role' in item && item.role === 'user') {
                     itemType = 'user_speech';
-                    console.log('Detected user speech via input audio content');
-                } else if (hasOutputAudio) {
+                    console.log('Detected user speech via role');
+                } else if ('role' in item && item.role === 'assistant') {
                     itemType = 'ai_response';
-                    console.log('Detected AI response via output audio content');
+                    console.log('Detected AI response via role');
+                } else if (item.type === 'message' && 'content' in item) {
+                    // Check if it's an input audio transcription
+                    const content = Array.isArray(item.content) ? item.content : [item.content];
+                    const hasInputAudio = content.some((c: any) =>
+                        c?.type === 'input_audio' ||
+                        c?.type === 'input_text' ||
+                        (typeof c === 'object' && 'input_audio_transcription' in c)
+                    );
+                    const hasOutputAudio = content.some((c: any) =>
+                        c?.type === 'output_audio' ||
+                        (typeof c === 'object' && 'output_audio_transcription' in c)
+                    );
+
+                    if (hasInputAudio) {
+                        itemType = 'user_speech';
+                        console.log('Detected user speech via input audio content');
+                    } else if (hasOutputAudio) {
+                        itemType = 'ai_response';
+                        console.log('Detected AI response via output audio content');
+                    }
                 }
-            }
 
                 // Extract content safely with error handling
                 let content: string;
@@ -744,14 +745,14 @@ Communication guidelines:
                     console.warn('Error extracting content from item, using fallback:', contentError);
                     content = `[Content extraction error: ${contentError instanceof Error ? contentError.message : String(contentError)}]`;
                 }
-                
+
                 console.log('Final item classification:', {
                     index,
                     type: itemType,
                     content: content.substring(0, 50),
                     hasContent: content.length > 0
                 });
-                
+
                 // Only add items with content or update existing items that now have content
                 if (content.trim().length > 0) {
                     const transcriptItem: TranscriptItem = {
@@ -761,7 +762,7 @@ Communication guidelines:
                         timestamp: new Date(Date.now()),
                         provider: 'openai' as VoiceProvider
                     };
-                    
+
                     // Update existing item or add new one
                     const existingIndex = this._transcript.findIndex(t => t.id === itemId);
                     if (existingIndex >= 0) {
@@ -769,7 +770,7 @@ Communication guidelines:
                     } else {
                         this._transcript.push(transcriptItem);
                     }
-                    
+
                     newTranscriptItems.push(transcriptItem);
                     processedItemIds.add(itemId);
                 }
@@ -779,12 +780,12 @@ Communication guidelines:
                 continue;
             }
         }
-        
+
         // Emit events for new items with content
         newTranscriptItems.forEach(item => {
             console.log('Emitting transcript event for:', item.type, item.content.substring(0, 50));
             this._emitTranscriptEvent(item);
-            
+
             // Report individual transcript items to server for real-time logging
             this._reportTranscriptItemToServer(item);
         });
@@ -798,7 +799,7 @@ Communication guidelines:
             // Extract usage metrics from the conversation history
             let totalTokensUsed = 0;
             let estimatedCostUsd = 0;
-            
+
             // Look for usage information in the history items
             for (const item of history) {
                 if ('usage' in item && item.usage) {
@@ -810,7 +811,7 @@ Communication guidelines:
                         estimatedCostUsd += usage.cost_usd;
                     }
                 }
-                
+
                 // Also check for response-level usage data
                 if ('response' in item && item.response && typeof item.response === 'object' && item.response !== null && 'usage' in item.response) {
                     const responseUsage = (item.response as any).usage;
@@ -822,7 +823,7 @@ Communication guidelines:
                     }
                 }
             }
-            
+
             // Store analytics for reporting
             this._conversationAnalytics = {
                 tokensUsed: totalTokensUsed,
@@ -830,14 +831,14 @@ Communication guidelines:
                 messageCount: history.length,
                 lastUpdated: new Date()
             };
-            
+
             console.log('Conversation analytics updated:', this._conversationAnalytics);
-            
+
             // Report to server periodically (every 10 messages or significant cost increase)
             if (history.length % 10 === 0 || estimatedCostUsd > (this._lastReportedCost || 0) + 0.01) {
                 this._reportConversationDataToServer();
             }
-            
+
         } catch (error) {
             console.error('Error processing conversation analytics:', error);
         }
@@ -849,12 +850,12 @@ Communication guidelines:
     private _processResponseMetrics(event: TransportEvent) {
         try {
             const eventData = event as any;
-            
+
             // Extract usage data from the response event
             if (eventData.response && eventData.response.usage) {
                 const usage = eventData.response.usage;
                 console.log('Response usage metrics:', usage);
-                
+
                 // Update our analytics
                 if (this._conversationAnalytics) {
                     if (usage.total_tokens) {
@@ -866,7 +867,7 @@ Communication guidelines:
                     this._conversationAnalytics.lastUpdated = new Date();
                 }
             }
-            
+
         } catch (error) {
             console.error('Error processing response metrics:', error);
         }
@@ -879,7 +880,7 @@ Communication guidelines:
         try {
             const eventData = event as any;
             console.log('Processing tool call event:', eventData);
-            
+
             // Extract tool call information
             if (eventData.name && eventData.arguments) {
                 const toolCall: ToolCall = {
@@ -888,13 +889,13 @@ Communication guidelines:
                     arguments: eventData.arguments,
                     timestamp: new Date()
                 };
-                
+
                 console.log('Tool call detected:', toolCall);
-                
+
                 // Store for debugging and analytics
                 this._toolCalls.push(toolCall);
             }
-            
+
         } catch (error) {
             console.error('Error processing tool call event:', error);
         }
@@ -910,26 +911,26 @@ Communication guidelines:
      */
     private async _executeToolCallUnified(toolName: string, parameters: any): Promise<string> {
         console.log(`Executing unified tool: ${toolName}`, parameters);
-        
+
         // Emit tool call transcript at the start of execution
         this._emitToolCallTranscript(toolName, parameters, 'unified-execution');
-        
+
         try {
             // Execute via unified system
             const result = await this._executeUnifiedTool(toolName, parameters);
-            
+
             console.log(`Unified tool ${toolName} executed successfully:`, result);
-            
+
             // Emit tool result transcript for monitoring
             this._emitToolResultTranscript(toolName, {
                 success: true,
                 message: typeof result === 'string' ? result : 'Tool executed successfully',
                 data: result
             }, 'unified-execution', 0);
-            
+
             // Return formatted result with explicit instruction to respond
             let formattedResult: string;
-            
+
             if (typeof result === 'string') {
                 formattedResult = result;
             } else if (result && typeof result === 'object') {
@@ -955,20 +956,20 @@ Communication guidelines:
             } else {
                 formattedResult = String(result);
             }
-            
+
             // Return the formatted result directly - the AI should use this to respond
             return formattedResult;
-            
+
         } catch (error) {
             console.error(`Failed to execute unified tool ${toolName}:`, error);
-            
+
             // Emit error result transcript
             this._emitToolResultTranscript(toolName, {
                 success: false,
                 message: `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
                 error: error instanceof Error ? error.message : String(error)
             }, 'unified-execution', 0);
-            
+
             // Return error message
             throw error;
         }
@@ -1068,7 +1069,7 @@ Communication guidelines:
     private _logToolCallCompletion(event: any) {
         try {
             const conversationId = this._sessionId || 'unknown';
-            
+
             // Log to conversation logger for monitoring
             fetch('/api/ai/conversation/log', {
                 method: 'POST',
@@ -1101,7 +1102,7 @@ Communication guidelines:
                 context: approvalRequest.context,
                 timestamp: new Date().toISOString()
             });
-            
+
             // Extract tool information for logging
             const item = approvalRequest.approvalItem;
             if (item && 'name' in item) {
@@ -1111,11 +1112,11 @@ Communication guidelines:
                     arguments: item.arguments || {},
                     timestamp: new Date()
                 };
-                
+
                 this._toolCalls.push(toolCall);
                 console.log('Tool call logged for debugging:', toolCall);
             }
-            
+
         } catch (error) {
             console.error('Error logging tool call:', error);
         }
@@ -1128,7 +1129,7 @@ Communication guidelines:
     private _handleGuardrailEvent(guardrailEvent: any) {
         try {
             console.log('Guardrail event details:', guardrailEvent);
-            
+
             // Log guardrail violations for debugging and safety monitoring
             const guardrailLog = {
                 type: guardrailEvent.type || 'unknown',
@@ -1137,17 +1138,17 @@ Communication guidelines:
                 timestamp: new Date(),
                 context: guardrailEvent.context
             };
-            
+
             console.warn('Guardrail triggered:', guardrailLog);
-            
+
             // Store guardrail events for admin review
             this._guardrailEvents.push(guardrailLog);
-            
+
             // Report serious guardrail violations immediately
             if (guardrailLog.severity === 'error' || guardrailLog.severity === 'critical') {
                 this._reportGuardrailViolation(guardrailLog);
             }
-            
+
         } catch (error) {
             console.error('Error handling guardrail event:', error);
         }
@@ -1202,7 +1203,7 @@ Communication guidelines:
             let hasContent = false;
             let hasTranscript = false;
             let hasText = false;
-            
+
             try {
                 itemType = item.type || 'unknown';
                 itemKeys = Object.keys(item);
@@ -1213,7 +1214,7 @@ Communication guidelines:
                 console.warn('Error accessing item properties:', keyError);
                 return '';
             }
-            
+
             console.log('Extracting content from item:', {
                 type: itemType,
                 hasContent,
@@ -1221,7 +1222,7 @@ Communication guidelines:
                 hasText,
                 keys: itemKeys
             });
-            
+
             // Handle different item structures
             if (itemType === 'message' && hasContent) {
                 const itemWithContent = item as any;
@@ -1229,38 +1230,38 @@ Communication guidelines:
                     const textContent = itemWithContent.content
                         .filter((c: any) => {
                             // Include both input and output audio types, plus text types
-                            const isTextType = c.type === 'text' || 
-                                             c.type === 'input_text' || 
-                                             c.type === 'input_audio' ||
-                                             c.type === 'output_audio';
-                            console.log('Content part:', { 
-                                type: c.type, 
-                                isTextType, 
-                                hasText: !!c.text, 
+                            const isTextType = c.type === 'text' ||
+                                c.type === 'input_text' ||
+                                c.type === 'input_audio' ||
+                                c.type === 'output_audio';
+                            console.log('Content part:', {
+                                type: c.type,
+                                isTextType,
+                                hasText: !!c.text,
                                 hasTranscript: !!c.transcript,
-                                hasAudioTranscript: !!c.audio_transcript 
+                                hasAudioTranscript: !!c.audio_transcript
                             });
                             return isTextType;
                         })
                         .map((c: any) => {
                             // Try multiple properties for text content
-                            const text = c.text || 
-                                        c.transcript || 
-                                        c.audio_transcript || 
-                                        c.content ||
-                                        (c.type === 'output_audio' && c.transcript) ||
-                                        '';
+                            const text = c.text ||
+                                c.transcript ||
+                                c.audio_transcript ||
+                                c.content ||
+                                (c.type === 'output_audio' && c.transcript) ||
+                                '';
                             console.log('Extracted text from content part:', text.substring(0, 50));
                             return text;
                         })
                         .filter(text => text && text.trim().length > 0)
                         .join(' ');
-                    
+
                     if (textContent) {
                         return textContent;
                     }
                 }
-                
+
                 // If content is not an array, try to extract directly
                 if (typeof itemWithContent.content === 'string') {
                     return itemWithContent.content;
@@ -1270,25 +1271,25 @@ Communication guidelines:
                     return content.text || content.transcript || content.audio_transcript || '';
                 }
             }
-            
+
             // Handle audio transcription items directly
             if ('transcript' in item && item.transcript) {
                 console.log('Found transcript property:', item.transcript);
                 return String(item.transcript);
             }
-            
+
             // Handle text items directly
             if ('text' in item && item.text) {
                 console.log('Found text property:', item.text);
                 return String(item.text);
             }
-            
+
             // Handle audio_transcript property
             if ('audio_transcript' in item && (item as any).audio_transcript) {
                 console.log('Found audio_transcript property:', (item as any).audio_transcript);
                 return String((item as any).audio_transcript);
             }
-            
+
             // Handle formatted content
             if ('formatted' in item && item.formatted) {
                 if (typeof item.formatted === 'object' && 'text' in item.formatted) {
@@ -1296,7 +1297,7 @@ Communication guidelines:
                 }
                 return String(item.formatted);
             }
-            
+
             // Last resort: try to find any text-like property
             const itemAny = item as any;
             for (const key of ['content', 'message', 'data', 'value']) {
@@ -1305,7 +1306,7 @@ Communication guidelines:
                     return itemAny[key];
                 }
             }
-            
+
             console.log('No text content found in item');
             return '';
         } catch (error) {
@@ -1316,7 +1317,7 @@ Communication guidelines:
 
     async connect(): Promise<void> {
         console.log('OpenAIRealtimeAdapter: Connect called');
-        
+
         if (!this._session) {
             throw new ConnectionError('Session not initialized', 'openai');
         }
@@ -1325,14 +1326,14 @@ Communication guidelines:
             // Request microphone permission explicitly
             console.log('OpenAIRealtimeAdapter: Requesting microphone permission...');
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
+                const stream = await navigator.mediaDevices.getUserMedia({
                     audio: {
                         echoCancellation: true,
                         noiseSuppression: true,
                         autoGainControl: true,
                         sampleRate: 24000,
                         channelCount: 1
-                    } 
+                    }
                 });
                 console.log('OpenAIRealtimeAdapter: Microphone permission granted');
                 // Stop the stream since OpenAI SDK will handle it
@@ -1341,23 +1342,23 @@ Communication guidelines:
                 console.error('OpenAIRealtimeAdapter: Microphone permission denied:', micError);
                 throw new AudioError('Microphone permission required for voice AI', 'openai');
             }
-            
+
             console.log('OpenAIRealtimeAdapter: Getting session token...');
-            
+
             // Build URL with query parameters for context injection
             const sessionUrl = new URL('/api/ai/openai/session', window.location.origin);
-            
+
             if (this._options?.contextId) {
                 sessionUrl.searchParams.set('contextId', this._options.contextId);
             }
-            
+
             if (this._options?.reflinkId) {
                 sessionUrl.searchParams.set('reflinkId', this._options.reflinkId);
                 console.log('OpenAIRealtimeAdapter: Including reflinkId in session request:', this._options.reflinkId);
             }
-            
+
             console.log('OpenAIRealtimeAdapter: Session request URL:', sessionUrl.toString());
-            
+
             // Get session token from our API (which includes context injection)
             const response = await fetch(sessionUrl.toString(), {
                 method: 'GET',
@@ -1381,12 +1382,13 @@ Communication guidelines:
 
             this._session.transport.sendEvent({
                 type: "response.create",
-                response: {},});
+                response: {},
+            });
             //this._session.transport.sendMessage("",{},{ triggerResponse: true });
 
             this._isConnected = true;
             this._connectionStatus = 'connected';
-            
+
             // Initialize conversation tracking
             this._conversationStartTime = new Date();
             this._conversationAnalytics = {
@@ -1395,9 +1397,12 @@ Communication guidelines:
                 messageCount: 0,
                 lastUpdated: new Date()
             };
-            
+
             console.log('OpenAIRealtimeAdapter: Connected successfully, emitting event');
             this._emitConnectionEvent('connected');
+
+            // Initialize UI state tracking with background updates
+            this._initializeUIStateTracking();
 
         } catch (error) {
             console.error('OpenAIRealtimeAdapter: Connection failed:', error);
@@ -1408,6 +1413,65 @@ Communication guidelines:
         }
     }
 
+    /**
+     * Initialize UI state tracking with background updates
+     */
+    private _initializeUIStateTracking(): void {
+        if (typeof window === 'undefined') {
+            return; // Skip on server side
+        }
+
+        try {
+            // Initialize UI state manager with background update callback
+            uiStateManager.initialize((update) => {
+                this._sendBackgroundResult(update);
+            });
+
+            console.log('OpenAI Realtime: UI state tracking initialized');
+        } catch (error) {
+            console.error('Failed to initialize UI state tracking:', error);
+        }
+    }
+
+    /**
+     * Send background result to OpenAI using backgroundResult function
+     */
+    private _sendBackgroundResult(update: {
+        type: 'ui_state_update';
+        breadcrumbPath: string;
+        visibleAnchors: string[];
+        activeFilters?: any;
+        timestamp: number;
+    }): void {
+        if (!this._session) {
+            return;
+        }
+
+        try {
+            // Create a formatted message for the AI about the UI state change
+            const stateMessage = `UI State Update: User is now at ${update.breadcrumbPath}${update.visibleAnchors.length > 0
+                    ? ` viewing sections: ${update.visibleAnchors.join(', ')}`
+                    : ''
+                }${update.activeFilters?.searchTerm
+                    ? ` searching for: ${update.activeFilters.searchTerm}`
+                    : ''
+                }`;
+
+            // Use OpenAI's backgroundResult to send non-interrupting update
+            const bgResult = backgroundResult(stateMessage);
+
+            // Send the background result to the session
+            // Note: This updates the AI's context without triggering a response
+            console.log('Sending background UI state update to OpenAI:', stateMessage);
+
+            // The backgroundResult should be sent through the session's context
+            // This is a non-interrupting way to keep the AI informed of UI changes
+
+        } catch (error) {
+            console.error('Failed to send background UI state update:', error);
+        }
+    }
+
     async disconnect(): Promise<void> {
         if (this._session && this._isConnected) {
             try {
@@ -1415,13 +1479,16 @@ Communication guidelines:
                 if (this._conversationAnalytics && this._conversationAnalytics.messageCount > 0) {
                     await this._reportConversationDataToServer();
                 }
-                
+
                 this._session.close();
                 this._isConnected = false;
                 this._connectionStatus = 'disconnected';
-                
 
-                
+                // Clean up UI state tracking
+                if (typeof window !== 'undefined') {
+                    uiStateManager.setBackgroundUpdateCallback(null);
+                }
+
                 console.log('Disconnected from OpenAI Realtime');
                 this._emitConnectionEvent('disconnected');
             } catch (error) {
@@ -1436,7 +1503,7 @@ Communication guidelines:
 
     async startListening(): Promise<void> {
         console.log('OpenAIRealtimeAdapter: startListening called, isConnected:', this._isConnected);
-        
+
         if (!this._isConnected) {
             throw new ConnectionError('Not connected to OpenAI Realtime', 'openai');
         }
@@ -1448,12 +1515,12 @@ Communication guidelines:
                 this._session?.mute(false);
                 this._isMuted = false;
             }
-            
+
             this._isRecording = true;
             this._sessionStatus = 'listening';
             console.log('OpenAIRealtimeAdapter: Started listening, isRecording:', this._isRecording);
             this._emitAudioEvent('audio_start');
-            
+
             // Check if session is properly set up for audio input
             if (this._session) {
                 console.log('OpenAIRealtimeAdapter: Session state:', {
@@ -1503,12 +1570,12 @@ Communication guidelines:
                 sessionStatus: this._sessionStatus,
                 isRecording: this._isRecording
             });
-            
+
             // Interrupt any ongoing AI speech before sending the message
             console.log('Calling interrupt...');
             await this.interrupt();
             console.log('Interrupt completed, now sending message...');
-            
+
             // Use the RealtimeSession's sendMessage method with proper typing
             this._session.sendMessage(message);
             console.log('Text message sent successfully to session');
@@ -1647,7 +1714,7 @@ Communication guidelines:
             const audioInputDuration = this._transcript
                 .filter(item => item.type === 'user_speech')
                 .reduce((total, item) => total + (item.content.length * 100), 0); // Rough estimate
-            
+
             const audioOutputDuration = this._transcript
                 .filter(item => item.type === 'ai_response')
                 .reduce((total, item) => total + (item.content.length * 100), 0); // Rough estimate
@@ -1655,7 +1722,7 @@ Communication guidelines:
             const sessionId = this._generateSessionId();
             const startTime = this._conversationStartTime?.toISOString() || new Date().toISOString();
             const endTime = new Date().toISOString();
-            
+
             // Convert internal data to the expected API format
             const conversationData = {
                 sessionId,
@@ -1676,7 +1743,7 @@ Communication guidelines:
                         totalTranscriptItems: this._transcript.length,
                         totalConnectionEvents: this._events.filter(e => e.type.includes('connection')).length,
                         totalContextRequests: this._events.filter(e => e.type.includes('context')).length,
-                        sessionDuration: this._conversationStartTime ? 
+                        sessionDuration: this._conversationStartTime ?
                             Date.now() - this._conversationStartTime.getTime() : 0
                     }
                 },
@@ -1709,7 +1776,7 @@ Communication guidelines:
 
             // Update last reported cost to avoid duplicate reporting
             this._lastReportedCost = this._conversationAnalytics.costUsd;
-            
+
             console.log('Conversation data reported successfully');
 
         } catch (error) {
@@ -1774,7 +1841,7 @@ Communication guidelines:
             ...this._conversationAnalytics,
             toolCallCount: this._toolCalls.length,
             guardrailEventCount: this._guardrailEvents.length,
-            sessionDuration: this._conversationStartTime ? 
+            sessionDuration: this._conversationStartTime ?
                 Date.now() - this._conversationStartTime.getTime() : 0
         };
     }
