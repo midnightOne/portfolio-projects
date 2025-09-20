@@ -155,12 +155,17 @@ export interface NavigationResult {
 
 // Navigation timing configuration
 interface NavigationTimingConfig {
-  // Animation durations (ms)
+  // Animation durations (ms) - configurable for testing human-like vs instant
   modalOpenDuration: number;
   modalCloseDuration: number;
   scrollDuration: number;
   fadeInDuration: number;
   fadeOutDuration: number;
+
+  // Default delays for human-like navigation (ms)
+  defaultStepDelay: number;           // Delay between navigation steps
+  modalTransitionDelay: number;       // Delay after modal open/close
+  scrollSettleDelay: number;          // Delay after scrolling
 
   // Wait times (ms)
   modalContentLoadWait: number;
@@ -176,6 +181,9 @@ interface NavigationTimingConfig {
   // Interruption handling
   gracefulCancelTimeoutMs: number;
   forceCancelTimeoutMs: number;
+
+  // Animation modes
+  animationMode: 'human' | 'instant' | 'custom';
 }
 
 // Navigation state tracking
@@ -245,12 +253,17 @@ export class UIManager {
 
   // Configurable timing
   private _timingConfig: NavigationTimingConfig = {
-    // Animation durations
+    // Animation durations (human-like by default)
     modalOpenDuration: 300,
     modalCloseDuration: 250,
     scrollDuration: 800,
     fadeInDuration: 200,
     fadeOutDuration: 150,
+
+    // Default delays for human-like navigation
+    defaultStepDelay: 150,           // Small delay between steps
+    modalTransitionDelay: 400,       // Wait for modal animations
+    scrollSettleDelay: 200,          // Wait for scroll to settle
 
     // Wait times
     modalContentLoadWait: 1500,
@@ -265,7 +278,10 @@ export class UIManager {
 
     // Interruption handling
     gracefulCancelTimeoutMs: 2000,
-    forceCancelTimeoutMs: 5000
+    forceCancelTimeoutMs: 5000,
+
+    // Animation mode
+    animationMode: 'human'
   };
 
   private constructor() {
@@ -344,6 +360,55 @@ export class UIManager {
       'navigation_event',
       {
         type: 'config_update',
+        config: this._timingConfig
+      },
+      'navigation-orchestrator'
+    );
+  }
+
+  /**
+   * Set animation mode for testing different UX approaches
+   */
+  setAnimationMode(mode: 'human' | 'instant' | 'custom', customConfig?: Partial<NavigationTimingConfig>): void {
+    if (mode === 'instant') {
+      this._timingConfig = {
+        ...this._timingConfig,
+        modalOpenDuration: 0,
+        modalCloseDuration: 0,
+        scrollDuration: 0,
+        fadeInDuration: 0,
+        fadeOutDuration: 0,
+        defaultStepDelay: 0,
+        modalTransitionDelay: 0,
+        scrollSettleDelay: 0,
+        animationMode: 'instant'
+      };
+    } else if (mode === 'human') {
+      this._timingConfig = {
+        ...this._timingConfig,
+        modalOpenDuration: 300,
+        modalCloseDuration: 250,
+        scrollDuration: 800,
+        fadeInDuration: 200,
+        fadeOutDuration: 150,
+        defaultStepDelay: 150,
+        modalTransitionDelay: 400,
+        scrollSettleDelay: 200,
+        animationMode: 'human'
+      };
+    } else if (mode === 'custom' && customConfig) {
+      this._timingConfig = {
+        ...this._timingConfig,
+        ...customConfig,
+        animationMode: 'custom'
+      };
+    }
+
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'animation_mode_changed',
+        mode,
         config: this._timingConfig
       },
       'navigation-orchestrator'
@@ -622,16 +687,27 @@ export class UIManager {
    * Determine if modal should be tracked in URL
    */
   private _shouldTrackModalInURL(modal: ModalStackEntry): boolean {
-    // Only track top-level modals and important nested modals
+    const currentRoute = this._getCurrentRoute();
+
+    // Always track top-level modals
     if (modal.level === 0) {
-      return true; // Always track top-level modals
+      return true;
     }
 
-    if (modal.level === 1 && modal.type === 'project') {
-      return true; // Track project modals even if nested
+    // Track project modals even if nested (important for navigation)
+    if (modal.type === 'project') {
+      return true;
     }
 
-    // Don't track deep nesting or temporary modals
+    // Track gallery/example modals if they're direct children of project modals
+    if (modal.level === 1 && modal.parentId && (modal.type === 'gallery' || modal.type === 'example')) {
+      const parentModal = this._modalStack.find(m => m.id === modal.parentId);
+      if (parentModal && parentModal.type === 'project') {
+        return true;
+      }
+    }
+
+    // Don't track deep nesting (level 2+) or temporary modals
     return false;
   }
 
@@ -646,20 +722,35 @@ export class UIManager {
     // Clear existing modal parameters
     url.searchParams.delete('project');
     url.searchParams.delete('modal');
+    url.searchParams.delete('gallery');
+    url.searchParams.delete('example');
 
-    // Add parameters for URL-tracked modals
-    const trackedModals = this._modalStack.filter(m => m.urlTracked);
+    // Add parameters for URL-tracked modals in order
+    const trackedModals = this._modalStack.filter(m => m.urlTracked).sort((a, b) => a.level - b.level);
 
     trackedModals.forEach(modal => {
-      if (modal.type === 'project') {
-        url.searchParams.set('project', modal.id);
-      } else {
-        url.searchParams.set('modal', modal.id);
+      switch (modal.type) {
+        case 'project':
+          url.searchParams.set('project', modal.id);
+          break;
+        case 'gallery':
+          url.searchParams.set('gallery', modal.id);
+          break;
+        case 'example':
+          url.searchParams.set('example', modal.id);
+          break;
+        default:
+          url.searchParams.set('modal', modal.id);
+          break;
       }
     });
 
     // Update URL without triggering navigation
     window.history.replaceState({}, '', url.toString());
+
+    // Update internal state to reflect URL change
+    this._currentEpoch++;
+    this._updateBreadcrumbPath();
   }
 
   /**
@@ -780,6 +871,18 @@ export class UIManager {
     const startTime = Date.now();
     const planId = uuidv4();
     const correlationId = `nav_intent_${planId}`;
+
+    // Validate the navigation intent
+    const validation = this._validateNavigationIntent(params);
+    if (!validation.valid) {
+      return {
+        success: false,
+        message: validation.reason || 'Invalid navigation intent',
+        error: 'VALIDATION_FAILED',
+        executedSteps: [],
+        totalTime: Date.now() - startTime
+      };
+    }
 
     // Check if we can accept this request
     if (!this.canAcceptNewRequest()) {
@@ -1450,20 +1553,15 @@ export class UIManager {
         break;
 
       case 'project':
-        // Handle project navigation with optional section
-        steps.push(...this._planProjectNavigation(params.target.id, currentState, defaultBehavior));
-        if (params.target.sectionId) {
-          // Add section navigation after project is loaded
-          steps.push(...this._planSectionNavigation(params.target.sectionId, currentState, defaultBehavior));
-        }
+        // Handle complex project navigation scenarios
+        steps.push(...this._planComplexProjectNavigation(params.target.id, params.target.sectionId, currentState, defaultBehavior));
         break;
 
       case 'section':
-        // Handle section navigation with optional project context
+        // Handle complex section navigation scenarios
         if (params.target.projectId) {
-          // Navigate to project first, then section
-          steps.push(...this._planProjectNavigation(params.target.projectId, currentState, defaultBehavior));
-          steps.push(...this._planSectionNavigation(params.target.id, currentState, defaultBehavior));
+          // Navigate to project first, then section (handles project switching)
+          steps.push(...this._planComplexProjectNavigation(params.target.projectId, params.target.id, currentState, defaultBehavior));
         } else {
           // Direct section navigation (within current context)
           steps.push(...this._planSectionNavigation(params.target.id, currentState, defaultBehavior));
@@ -1489,6 +1587,277 @@ export class UIManager {
       steps,
       totalTimeout: Math.max(30000, steps.length * 5000), // 30s minimum, 5s per step
       idempotencyKey: params.idempotencyKey
+    };
+  }
+
+  /**
+   * Plan complex project navigation handling modal switching and sections
+   */
+  private _planComplexProjectNavigation(
+    targetProjectId: string,
+    targetSectionId: string | undefined,
+    currentState: UIState,
+    behavior: any
+  ): NavigationStep[] {
+    const steps: NavigationStep[] = [];
+    const currentRoute = this._getCurrentRoute();
+    const currentProjectModal = this._modalStack.find(m => m.type === 'project');
+
+    // Scenario 1: Currently viewing Project A, want to view Project B (with optional section)
+    if (currentProjectModal && currentProjectModal.id !== targetProjectId) {
+      // Close current project modal
+      steps.push(this._createCloseModalStep(currentProjectModal.id, behavior));
+
+      // Add delay for modal close animation
+      if (this._timingConfig.animationMode !== 'instant') {
+        steps.push(this._createDelayStep(this._timingConfig.modalTransitionDelay));
+      }
+
+      // Navigate to projects page if not already there
+      if (currentRoute !== 'projects') {
+        steps.push(this._createRouteNavigationStep('projects', behavior));
+
+        // Add delay for route navigation
+        if (this._timingConfig.animationMode !== 'instant') {
+          steps.push(this._createDelayStep(this._timingConfig.routeNavigationWait));
+        }
+      }
+
+      // Open new project modal
+      steps.push(this._createOpenProjectModalStep(targetProjectId, behavior));
+
+      // Add delay for modal open animation
+      if (this._timingConfig.animationMode !== 'instant') {
+        steps.push(this._createDelayStep(this._timingConfig.modalTransitionDelay));
+      }
+    }
+    // Scenario 2: No project modal open, need to open one
+    else if (!currentProjectModal) {
+      // Navigate to projects page if not already there
+      if (currentRoute !== 'projects') {
+        steps.push(this._createRouteNavigationStep('projects', behavior));
+
+        if (this._timingConfig.animationMode !== 'instant') {
+          steps.push(this._createDelayStep(this._timingConfig.routeNavigationWait));
+        }
+      }
+
+      // Open project modal
+      steps.push(this._createOpenProjectModalStep(targetProjectId, behavior));
+
+      if (this._timingConfig.animationMode !== 'instant') {
+        steps.push(this._createDelayStep(this._timingConfig.modalTransitionDelay));
+      }
+    }
+    // Scenario 3: Already viewing the correct project, just need section navigation
+    else if (currentProjectModal.id === targetProjectId) {
+      // Already in the right project, no modal changes needed
+    }
+
+    // Add section navigation if specified
+    if (targetSectionId) {
+      steps.push(this._createSectionScrollStep(targetSectionId, behavior));
+
+      if (this._timingConfig.animationMode !== 'instant') {
+        steps.push(this._createDelayStep(this._timingConfig.scrollSettleDelay));
+      }
+    }
+
+    return steps;
+  }
+
+  /**
+   * Create a delay step for human-like navigation timing
+   */
+  private _createDelayStep(delayMs: number): NavigationStep {
+    return {
+      id: `delay_${delayMs}ms_${Date.now()}`,
+      type: 'wait',
+      timeout: delayMs + 1000, // Add buffer for timeout
+      execute: async () => {
+        if (delayMs > 0) {
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+        return {
+          success: true,
+          message: `Delayed ${delayMs}ms for animation timing`
+        };
+      }
+    };
+  }
+
+  /**
+   * Create a step to close a specific modal
+   */
+  private _createCloseModalStep(modalId: string, behavior: any): NavigationStep {
+    return {
+      id: `close_modal_${modalId}`,
+      type: 'close',
+      timeout: this._timingConfig.stepTimeoutMs,
+      execute: async () => {
+        try {
+          // Find and close the modal
+          const modal = this._modalStack.find(m => m.id === modalId);
+          if (!modal) {
+            return {
+              success: true,
+              message: `Modal ${modalId} already closed`
+            };
+          }
+
+          // Close modal in DOM
+          this._closeModalElement(modalId);
+
+          // Update internal state
+          this._popModal(modalId);
+
+          // Wait for close animation if not instant
+          if (this._timingConfig.animationMode !== 'instant') {
+            await new Promise(resolve => setTimeout(resolve, this._timingConfig.modalCloseDuration));
+          }
+
+          return {
+            success: true,
+            message: `Successfully closed modal ${modalId}`
+          };
+        } catch (error) {
+          return {
+            success: false,
+            message: `Failed to close modal ${modalId}`,
+            error: error instanceof Error ? error.message : String(error)
+          };
+        }
+      }
+    };
+  }
+
+  /**
+   * Create a step to open a project modal
+   */
+  private _createOpenProjectModalStep(projectId: string, behavior: any): NavigationStep {
+    return {
+      id: `open_project_${projectId}`,
+      type: 'modal',
+      timeout: this._timingConfig.stepTimeoutMs,
+      execute: async () => {
+        try {
+          // Add to modal stack
+          this._pushModal({
+            id: projectId,
+            type: 'project',
+            urlTracked: true
+          });
+
+          // Open modal in DOM
+          this._openModalElement(projectId, 'project');
+
+          // Wait for open animation if not instant
+          if (this._timingConfig.animationMode !== 'instant') {
+            await new Promise(resolve => setTimeout(resolve, this._timingConfig.modalOpenDuration));
+          }
+
+          return {
+            success: true,
+            message: `Successfully opened project modal ${projectId}`
+          };
+        } catch (error) {
+          return {
+            success: false,
+            message: `Failed to open project modal ${projectId}`,
+            error: error instanceof Error ? error.message : String(error)
+          };
+        }
+      }
+    };
+  }
+
+  /**
+   * Create a step for route navigation
+   */
+  private _createRouteNavigationStep(route: string, behavior: any): NavigationStep {
+    return {
+      id: `navigate_to_${route}`,
+      type: 'navigate',
+      path: `/${route}`,
+      timeout: this._timingConfig.stepTimeoutMs,
+      execute: async () => {
+        try {
+          // Navigate to route
+          if (typeof window !== 'undefined') {
+            window.history.pushState({}, '', `/${route}`);
+
+            // Update internal state
+            this._currentEpoch++;
+            this._updateBreadcrumbPath();
+
+            // Trigger any necessary page updates
+            window.dispatchEvent(new PopStateEvent('popstate'));
+          }
+
+          return {
+            success: true,
+            message: `Successfully navigated to ${route}`
+          };
+        } catch (error) {
+          return {
+            success: false,
+            message: `Failed to navigate to ${route}`,
+            error: error instanceof Error ? error.message : String(error)
+          };
+        }
+      }
+    };
+  }
+
+  /**
+   * Create a step for section scrolling
+   */
+  private _createSectionScrollStep(sectionId: string, behavior: any): NavigationStep {
+    return {
+      id: `scroll_to_${sectionId}`,
+      type: 'scroll',
+      selector: `#${sectionId}, [data-section="${sectionId}"]`,
+      timeout: this._timingConfig.stepTimeoutMs,
+      execute: async () => {
+        try {
+          if (typeof window === 'undefined') {
+            return {
+              success: true,
+              message: 'Server-side, skipping scroll'
+            };
+          }
+
+          const element = document.querySelector(`#${sectionId}, [data-section="${sectionId}"]`);
+          if (!element) {
+            return {
+              success: false,
+              message: `Section ${sectionId} not found`
+            };
+          }
+
+          // Scroll to element
+          element.scrollIntoView({
+            behavior: this._timingConfig.animationMode === 'instant' ? 'auto' : 'smooth',
+            block: 'start'
+          });
+
+          // Wait for scroll animation if not instant
+          if (this._timingConfig.animationMode !== 'instant') {
+            await new Promise(resolve => setTimeout(resolve, this._timingConfig.scrollDuration));
+          }
+
+          return {
+            success: true,
+            message: `Successfully scrolled to section ${sectionId}`
+          };
+        } catch (error) {
+          return {
+            success: false,
+            message: `Failed to scroll to section ${sectionId}`,
+            error: error instanceof Error ? error.message : String(error)
+          };
+        }
+      }
     };
   }
 
@@ -2217,6 +2586,81 @@ export class UIManager {
   }
 
   /**
+   * Get comprehensive navigation status for debugging and monitoring
+   */
+  getNavigationStatus(): {
+    isExecuting: boolean;
+    currentPlan: string | null;
+    currentStep: string | null;
+    modalStack: ModalStackEntry[];
+    currentRoute: string;
+    currentProject: string | null;
+    animationMode: string;
+    executionQueue: number;
+    lastError: string | null;
+  } {
+    const context = this._getNavigationContext();
+
+    return {
+      isExecuting: this._navigationState.isExecuting,
+      currentPlan: this._navigationState.currentPlanId,
+      currentStep: this._navigationState.currentStepId,
+      modalStack: context.modalStack,
+      currentRoute: context.currentRoute,
+      currentProject: context.currentProject,
+      animationMode: this._timingConfig.animationMode,
+      executionQueue: this._executingPlans.size,
+      lastError: this._navigationState.lastError
+    };
+  }
+
+  /**
+   * Test navigation scenarios for UX comparison
+   */
+  async testNavigationScenario(
+    scenario: 'project-switch' | 'section-navigation' | 'modal-nesting',
+    mode: 'human' | 'instant' = 'human'
+  ): Promise<NavigationResult> {
+    const originalMode = this._timingConfig.animationMode;
+    this.setAnimationMode(mode);
+
+    try {
+      let result: NavigationResult;
+
+      switch (scenario) {
+        case 'project-switch':
+          // Test Project A → Project B scenario
+          result = await this.executeIntent({
+            target: { type: 'project', id: 'test-project-b', sectionId: 'technical-details' }
+          });
+          break;
+
+        case 'section-navigation':
+          // Test section navigation within current context
+          result = await this.executeIntent({
+            target: { type: 'section', id: 'contact' }
+          });
+          break;
+
+        case 'modal-nesting':
+          // Test nested modal scenario
+          result = await this.executeIntent({
+            target: { type: 'modal', id: 'gallery', parentContext: 'project:test-project' }
+          });
+          break;
+
+        default:
+          throw new Error(`Unknown test scenario: ${scenario}`);
+      }
+
+      return result;
+    } finally {
+      // Restore original animation mode
+      this.setAnimationMode(originalMode);
+    }
+  }
+
+  /**
    * Set test location for testing purposes
    */
   setTestLocation(location: any): void {
@@ -2431,6 +2875,62 @@ export class UIManager {
    */
   private _updateBreadcrumbPath(): void {
     this._currentUIState.breadcrumbPath = this._generateBreadcrumbPath();
+    this._currentUIState.modalStack = [...this._modalStack];
+    this._currentUIState.epoch = this._currentEpoch;
+  }
+
+  /**
+   * Get comprehensive navigation context for planning
+   */
+  private _getNavigationContext(): {
+    currentRoute: string;
+    currentProject: string | null;
+    modalStack: ModalStackEntry[];
+    visibleSections: string[];
+    canNavigate: boolean;
+  } {
+    const currentRoute = this._getCurrentRoute();
+    const currentProject = this._modalStack.find(m => m.type === 'project')?.id || null;
+
+    return {
+      currentRoute,
+      currentProject,
+      modalStack: [...this._modalStack],
+      visibleSections: [...this._currentUIState.visibleAnchors],
+      canNavigate: !this._navigationState.isExecuting || this._navigationState.canBeInterrupted
+    };
+  }
+
+  /**
+   * Validate navigation intent against current state
+   */
+  private _validateNavigationIntent(params: UIIntentParams): { valid: boolean; reason?: string } {
+    const context = this._getNavigationContext();
+
+    // Check if we can accept new navigation requests
+    if (!context.canNavigate) {
+      return {
+        valid: false,
+        reason: 'Navigation system is busy and cannot be interrupted'
+      };
+    }
+
+    // Validate target exists (basic validation)
+    if (params.target.type === 'project' && !params.target.id) {
+      return {
+        valid: false,
+        reason: 'Project ID is required for project navigation'
+      };
+    }
+
+    if (params.target.type === 'section' && !params.target.id) {
+      return {
+        valid: false,
+        reason: 'Section ID is required for section navigation'
+      };
+    }
+
+    return { valid: true };
   }
 
   /**
