@@ -17,7 +17,7 @@
 import { debugEventEmitter } from '../debug/debugEventEmitter';
 import { v4 as uuidv4 } from 'uuid';
 
-// UI State interfaces (consolidated from UIStateManager)
+// Comprehensive UI State interfaces for both navigation and AI
 export interface UIState {
   // Hierarchical navigation path (breadcrumb style)
   breadcrumbPath: string;
@@ -32,15 +32,136 @@ export interface UIState {
     techStack?: string[];
   };
 
-  // Minimal interaction context for AI awareness
-  lastUserAction?: {
-    type: 'navigate' | 'search' | 'filter' | 'scroll';
-    timestamp: number;
-  };
-
   // Modal stack and epoch tracking
   modalStack: ModalStackEntry[];
   epoch: number;
+
+  // Enhanced state for AI and navigation
+  currentRoute: string;
+  currentProject?: ProjectState;
+  scrollPosition: ScrollState;
+  mediaState: MediaState;
+  interactionState: InteractionState;
+  lastUserAction?: UserAction;
+}
+
+// Project-specific state tracking
+export interface ProjectState {
+  id: string;
+  slug: string;
+  title: string;
+  currentSection: string; // 'overview', 'technical-details', 'gallery'
+  sectionsVisited: string[];
+  scrollPositions: Record<string, number>; // section -> scroll position
+  mediaInteractions: MediaInteraction[];
+  timeSpent: number; // milliseconds
+}
+
+// Scroll state tracking across all contexts
+export interface ScrollState {
+  // Global scroll positions for each route/modal
+  positions: Record<string, number>; // routeKey -> position
+  
+  // Currently visible sections/anchors with positions
+  visibleElements: Array<{
+    id: string;
+    type: 'section' | 'anchor' | 'media';
+    position: number;
+    visibility: number; // 0-1, how much is visible
+  }>;
+
+  // Scroll behavior context
+  lastScrollDirection: 'up' | 'down' | null;
+  scrollVelocity: number; // pixels per second
+  isScrolling: boolean;
+}
+
+// Media interaction state (carousels, videos, lightboxes)
+export interface MediaState {
+  // Active media viewers
+  activeCarousels: Array<{
+    id: string;
+    currentIndex: number;
+    totalItems: number;
+    isPlaying?: boolean;
+  }>;
+
+  // Video/iframe state
+  activeVideos: Array<{
+    id: string;
+    url: string;
+    currentTime?: number;
+    duration?: number;
+    isPlaying: boolean;
+    volume?: number;
+  }>;
+
+  // Lightbox state
+  lightbox?: {
+    isOpen: boolean;
+    mediaId: string;
+    currentIndex: number;
+    totalItems: number;
+  };
+
+  // Download/external link interactions
+  recentInteractions: Array<{
+    type: 'download' | 'external_link' | 'media_view';
+    target: string;
+    timestamp: number;
+  }>;
+}
+
+// User interaction tracking for AI context
+export interface InteractionState {
+  // Current focus/attention
+  focusedElement?: {
+    id: string;
+    type: string;
+    timestamp: number;
+  };
+
+  // Interaction patterns
+  clickSequence: Array<{
+    elementId: string;
+    elementType: string;
+    timestamp: number;
+    coordinates?: { x: number; y: number };
+  }>;
+
+  // Search/filter history
+  searchHistory: Array<{
+    query: string;
+    filters: Record<string, any>;
+    resultCount: number;
+    timestamp: number;
+  }>;
+
+  // Navigation patterns
+  navigationPath: Array<{
+    from: string;
+    to: string;
+    method: 'click' | 'keyboard' | 'voice' | 'ai';
+    timestamp: number;
+  }>;
+}
+
+// Enhanced user action tracking
+export interface UserAction {
+  type: 'navigate' | 'search' | 'filter' | 'scroll' | 'media' | 'modal' | 'focus';
+  target?: string;
+  context?: Record<string, any>;
+  timestamp: number;
+  sessionId?: string;
+}
+
+// Media interaction details
+export interface MediaInteraction {
+  mediaId: string;
+  type: 'view' | 'play' | 'pause' | 'seek' | 'download' | 'share';
+  timestamp: number;
+  duration?: number; // how long they interacted
+  value?: any; // seek position, etc.
 }
 
 // Enhanced section interface for semantic navigation
@@ -270,6 +391,12 @@ export class UIManager {
   private _intersectionObserver: IntersectionObserver | null = null;
   private _lastVisibleAnchors: string[] = [];
 
+  // State synchronization system
+  private _stateSubscribers: Map<string, (state: Partial<UIState>) => void> = new Map();
+  private _componentStateProviders: Map<string, () => Partial<UIState>> = new Map();
+  private _stateUpdateQueue: Array<{ source: string; update: Partial<UIState>; timestamp: number }> = [];
+  private _lastStateSync: number = 0;
+
   // Debounced update functions
   private _debouncedScrollUpdate: (visibleAnchors: string[]) => void;
   private _debouncedFilterUpdate: (filters: UIState['activeFilters']) => void;
@@ -293,6 +420,9 @@ export class UIManager {
   // Modal stack management
   private _modalStack: ModalStackEntry[] = [];
   private _modalStateListeners: Set<(stack: ModalStackEntry[]) => void> = new Set();
+  
+  // Modal handlers for different contexts (homepage vs projects page)
+  private _modalHandlers: Map<string, (modalId: string, modalType: string) => Promise<boolean>> = new Map();
 
   // Content provider system for extensible section discovery
   private _contentProviders: ContentProvider[] = [];
@@ -333,14 +463,35 @@ export class UIManager {
   };
 
   private constructor() {
-    // Initialize consolidated UI state
+    // Initialize comprehensive UI state
     this._currentUIState = {
       breadcrumbPath: this._generateBreadcrumbPath(),
       visibleAnchors: [],
       activeFilters: undefined,
-      lastUserAction: undefined,
       modalStack: [],
-      epoch: 0
+      epoch: 0,
+      currentRoute: 'home',
+      currentProject: undefined,
+      scrollPosition: {
+        positions: {},
+        visibleElements: [],
+        lastScrollDirection: null,
+        scrollVelocity: 0,
+        isScrolling: false
+      },
+      mediaState: {
+        activeCarousels: [],
+        activeVideos: [],
+        lightbox: undefined,
+        recentInteractions: []
+      },
+      interactionState: {
+        focusedElement: undefined,
+        clickSequence: [],
+        searchHistory: [],
+        navigationPath: []
+      },
+      lastUserAction: undefined
     };
 
     // Initialize debounced functions with specified intervals
@@ -539,7 +690,201 @@ export class UIManager {
     this._currentUIState.breadcrumbPath = this._generateBreadcrumbPath();
     this._currentUIState.modalStack = [...this._modalStack];
     this._currentUIState.epoch = this._currentEpoch;
+    this._currentUIState.currentRoute = this._getCurrentRoute();
+    
+    // Sync state from all providers before returning
+    this._syncStateFromProviders();
+    
     return { ...this._currentUIState };
+  }
+
+  // ============================================================================
+  // STATE SYNCHRONIZATION SYSTEM
+  // ============================================================================
+
+  /**
+   * Register a component as a state provider
+   * Components can provide partial state updates
+   */
+  registerStateProvider(componentId: string, provider: () => Partial<UIState>): void {
+    this._componentStateProviders.set(componentId, provider);
+    
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'state_provider_registered',
+        componentId,
+        providersCount: this._componentStateProviders.size
+      },
+      'ui-manager'
+    );
+  }
+
+  /**
+   * Unregister a state provider
+   */
+  unregisterStateProvider(componentId: string): void {
+    this._componentStateProviders.delete(componentId);
+  }
+
+  /**
+   * Subscribe to state changes
+   */
+  subscribeToState(subscriberId: string, callback: (state: Partial<UIState>) => void): void {
+    this._stateSubscribers.set(subscriberId, callback);
+  }
+
+  /**
+   * Unsubscribe from state changes
+   */
+  unsubscribeFromState(subscriberId: string): void {
+    this._stateSubscribers.delete(subscriberId);
+  }
+
+  /**
+   * Update UI state from external components
+   */
+  updateUIState(source: string, update: Partial<UIState>): void {
+    const timestamp = Date.now();
+    
+    // Add to update queue
+    this._stateUpdateQueue.push({ source, update, timestamp });
+    
+    // Debounce state updates to prevent thrashing
+    if (timestamp - this._lastStateSync > 100) { // 100ms debounce
+      this._processStateUpdates();
+    }
+  }
+
+  /**
+   * Sync state from all registered providers
+   */
+  private _syncStateFromProviders(): void {
+    for (const [componentId, provider] of this._componentStateProviders) {
+      try {
+        const partialState = provider();
+        if (partialState && Object.keys(partialState).length > 0) {
+          this._mergeStateUpdate(partialState, componentId);
+        }
+      } catch (error) {
+        console.error(`State provider ${componentId} failed:`, error);
+      }
+    }
+  }
+
+  /**
+   * Process queued state updates
+   */
+  private _processStateUpdates(): void {
+    if (this._stateUpdateQueue.length === 0) return;
+
+    const updates = [...this._stateUpdateQueue];
+    this._stateUpdateQueue = [];
+    this._lastStateSync = Date.now();
+
+    // Group updates by source and merge
+    const mergedUpdates: Record<string, Partial<UIState>> = {};
+    for (const { source, update } of updates) {
+      if (!mergedUpdates[source]) {
+        mergedUpdates[source] = {};
+      }
+      Object.assign(mergedUpdates[source], update);
+    }
+
+    // Apply all updates
+    for (const [source, update] of Object.entries(mergedUpdates)) {
+      this._mergeStateUpdate(update, source);
+    }
+
+    // Notify subscribers
+    this._notifyStateSubscribers();
+    
+    // Increment epoch to signal state change
+    this._currentUIState.epoch++;
+  }
+
+  /**
+   * Merge a state update into current state
+   */
+  private _mergeStateUpdate(update: Partial<UIState>, source: string): void {
+    // Deep merge for complex objects
+    if (update.scrollPosition) {
+      this._currentUIState.scrollPosition = {
+        ...this._currentUIState.scrollPosition,
+        ...update.scrollPosition,
+        positions: {
+          ...this._currentUIState.scrollPosition.positions,
+          ...update.scrollPosition.positions
+        },
+        visibleElements: update.scrollPosition.visibleElements || this._currentUIState.scrollPosition.visibleElements
+      };
+    }
+
+    if (update.mediaState) {
+      this._currentUIState.mediaState = {
+        ...this._currentUIState.mediaState,
+        ...update.mediaState,
+        activeCarousels: update.mediaState.activeCarousels || this._currentUIState.mediaState.activeCarousels,
+        activeVideos: update.mediaState.activeVideos || this._currentUIState.mediaState.activeVideos,
+        recentInteractions: update.mediaState.recentInteractions || this._currentUIState.mediaState.recentInteractions
+      };
+    }
+
+    if (update.interactionState) {
+      this._currentUIState.interactionState = {
+        ...this._currentUIState.interactionState,
+        ...update.interactionState,
+        clickSequence: update.interactionState.clickSequence || this._currentUIState.interactionState.clickSequence,
+        searchHistory: update.interactionState.searchHistory || this._currentUIState.interactionState.searchHistory,
+        navigationPath: update.interactionState.navigationPath || this._currentUIState.interactionState.navigationPath
+      };
+    }
+
+    if (update.currentProject) {
+      this._currentUIState.currentProject = {
+        ...this._currentUIState.currentProject,
+        ...update.currentProject,
+        sectionsVisited: update.currentProject.sectionsVisited || this._currentUIState.currentProject?.sectionsVisited || [],
+        scrollPositions: {
+          ...this._currentUIState.currentProject?.scrollPositions,
+          ...update.currentProject.scrollPositions
+        },
+        mediaInteractions: update.currentProject.mediaInteractions || this._currentUIState.currentProject?.mediaInteractions || []
+      };
+    }
+
+    // Simple properties
+    if (update.currentRoute) this._currentUIState.currentRoute = update.currentRoute;
+    if (update.visibleAnchors) this._currentUIState.visibleAnchors = update.visibleAnchors;
+    if (update.activeFilters) this._currentUIState.activeFilters = update.activeFilters;
+    if (update.lastUserAction) this._currentUIState.lastUserAction = update.lastUserAction;
+    if (update.breadcrumbPath) this._currentUIState.breadcrumbPath = update.breadcrumbPath;
+
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'ui_state_updated',
+        source,
+        updateKeys: Object.keys(update),
+        epoch: this._currentUIState.epoch
+      },
+      'ui-manager'
+    );
+  }
+
+  /**
+   * Notify all state subscribers
+   */
+  private _notifyStateSubscribers(): void {
+    const currentState = { ...this._currentUIState };
+    
+    for (const [subscriberId, callback] of this._stateSubscribers) {
+      try {
+        callback(currentState);
+      } catch (error) {
+        console.error(`State subscriber ${subscriberId} failed:`, error);
+      }
+    }
   }
 
   /**
@@ -847,8 +1192,8 @@ export class UIManager {
       !expectedStack.some(expected => expected.id === current.id)
     );
 
-    toClose.forEach(modal => {
-      this._closeModalElement(modal.id);
+    toClose.forEach(async modal => {
+      await this._closeModalElement(modal.id);
     });
 
     // Open modals that should be open
@@ -856,8 +1201,8 @@ export class UIManager {
       !currentTracked.some(current => current.id === expected.id)
     );
 
-    toOpen.forEach(modal => {
-      this._openModalElement(modal.id, modal.type);
+    toOpen.forEach(async modal => {
+      await this._openModalElement(modal.id, modal.type);
     });
 
     // Update internal stack
@@ -883,34 +1228,163 @@ export class UIManager {
   }
 
   /**
+   * Register a modal handler for a specific context
+   */
+  registerModalHandler(context: string, handler: (modalId: string, modalType: string) => Promise<boolean>): void {
+    this._modalHandlers.set(context, handler);
+    
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'modal_handler_registered',
+        context,
+        handlersCount: this._modalHandlers.size
+      },
+      'ui-manager'
+    );
+  }
+
+  /**
+   * Unregister a modal handler
+   */
+  unregisterModalHandler(context: string): void {
+    this._modalHandlers.delete(context);
+  }
+
+  /**
+   * Register that a modal was opened externally (by modal handlers)
+   * This keeps the UIManager's modal stack in sync with actual UI state
+   */
+  registerExternalModal(modalId: string, modalType: 'project' | 'example' | 'gallery' | 'generic', context?: any): void {
+    // Check if modal is already in stack
+    const existingModal = this._modalStack.find(m => m.id === modalId && m.type === modalType);
+    if (existingModal) {
+      return; // Already registered
+    }
+
+    this._pushModal({
+      id: modalId,
+      type: modalType,
+      urlTracked: false, // External modals don't affect URL by default
+      context
+    });
+
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'external_modal_registered',
+        modalId,
+        modalType,
+        stackSize: this._modalStack.length
+      },
+      'ui-manager'
+    );
+  }
+
+  /**
+   * Unregister that a modal was closed externally
+   */
+  unregisterExternalModal(modalId: string, modalType: 'project' | 'example' | 'gallery' | 'generic'): void {
+    const modalIndex = this._modalStack.findIndex(m => m.id === modalId && m.type === modalType);
+    if (modalIndex === -1) {
+      return; // Not found
+    }
+
+    this._modalStack.splice(modalIndex, 1);
+    this._notifyModalStateListeners();
+
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'external_modal_unregistered',
+        modalId,
+        modalType,
+        stackSize: this._modalStack.length
+      },
+      'ui-manager'
+    );
+  }
+
+  /**
    * Open modal element (DOM manipulation)
    */
-  private _openModalElement(modalId: string, modalType: string): void {
-    // This would integrate with your actual modal system
+  private async _openModalElement(modalId: string, modalType: string): Promise<boolean> {
+    // Try registered handlers first (homepage, projects page, etc.)
+    for (const [context, handler] of this._modalHandlers) {
+      try {
+        const handled = await handler(modalId, modalType);
+        if (handled) {
+          debugEventEmitter.emit(
+            'navigation_event',
+            {
+              type: 'modal_dom_open',
+              modalId,
+              modalType,
+              handledBy: context
+            },
+            'ui-manager'
+          );
+          return true;
+        }
+      } catch (error) {
+        console.error(`Modal handler ${context} failed:`, error);
+      }
+    }
+
+    // Fallback: emit event for any listening components
     debugEventEmitter.emit(
       'navigation_event',
       {
         type: 'modal_dom_open',
         modalId,
-        modalType
+        modalType,
+        handledBy: 'event-system'
       },
-      'navigation-orchestrator'
+      'ui-manager'
     );
+    
+    return false;
   }
 
   /**
    * Close modal element (DOM manipulation)
    */
-  private _closeModalElement(modalId: string): void {
-    // This would integrate with your actual modal system
+  private async _closeModalElement(modalId: string): Promise<boolean> {
+    // Try registered handlers first (homepage, projects page, etc.)
+    for (const [context, handler] of this._modalHandlers) {
+      try {
+        // Check if this handler can close the modal
+        // We'll use a special modalType 'close' to indicate close operation
+        const handled = await handler(modalId, 'close');
+        if (handled) {
+          debugEventEmitter.emit(
+            'navigation_event',
+            {
+              type: 'modal_dom_close',
+              modalId,
+              handledBy: context
+            },
+            'ui-manager'
+          );
+          return true;
+        }
+      } catch (error) {
+        console.error(`Modal close handler ${context} failed:`, error);
+      }
+    }
+
+    // Fallback: emit event for any listening components
     debugEventEmitter.emit(
       'navigation_event',
       {
         type: 'modal_dom_close',
-        modalId
+        modalId,
+        handledBy: 'event-system'
       },
-      'navigation-orchestrator'
+      'ui-manager'
     );
+    
+    return false;
   }
 
   /**
@@ -1692,8 +2166,11 @@ export class UIManager {
     }
     // Scenario 2: No project modal open, need to open one
     else if (!currentProjectModal) {
-      // Navigate to projects page if not already there
-      if (currentRoute !== 'projects') {
+      // Check if we have a modal handler available (homepage or projects page)
+      const hasModalHandler = this._modalHandlers.size > 0;
+      
+      // Only navigate to projects page if we're not on homepage or don't have a modal handler
+      if (currentRoute !== 'projects' && currentRoute !== 'home' && !hasModalHandler) {
         steps.push(this._createRouteNavigationStep('projects', behavior));
 
         if (this._timingConfig.animationMode !== 'instant') {
@@ -1701,7 +2178,7 @@ export class UIManager {
         }
       }
 
-      // Open project modal
+      // Open project modal (will use registered handler if available)
       steps.push(this._createOpenProjectModalStep(targetProjectId, behavior));
 
       if (this._timingConfig.animationMode !== 'instant') {
@@ -1765,7 +2242,10 @@ export class UIManager {
           }
 
           // Close modal in DOM
-          this._closeModalElement(modalId);
+          const modalClosed = await this._closeModalElement(modalId);
+          if (!modalClosed) {
+            console.warn(`No handler available to close modal ${modalId}, proceeding anyway`);
+          }
 
           // Update internal state
           this._popModal(modalId);
@@ -1808,7 +2288,10 @@ export class UIManager {
           });
 
           // Open modal in DOM
-          this._openModalElement(projectId, 'project');
+          const modalOpened = await this._openModalElement(projectId, 'project');
+          if (!modalOpened) {
+            throw new Error(`No modal handler available for project ${projectId}`);
+          }
 
           // Wait for open animation if not instant
           if (this._timingConfig.animationMode !== 'instant') {
@@ -2928,8 +3411,26 @@ export class UIManager {
       switch (scenario) {
         case 'project-switch':
           // Test Project A → Project B scenario
+          // First check if we have a project modal open, if not open one
+          const currentProjectModal = this._modalStack.find(m => m.type === 'project');
+          if (!currentProjectModal) {
+            // Open first project
+            result = await this.executeIntent({
+              target: { type: 'project', id: 'portfolio-website' }
+            });
+            if (!result.success) break;
+            
+            // Wait a bit, then switch to different project
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+          
+          // Now switch to a different project with a section
+          const targetProject = currentProjectModal?.id === 'e-commerce-platform' 
+            ? 'task-management-app' 
+            : 'e-commerce-platform';
+            
           result = await this.executeIntent({
-            target: { type: 'project', id: 'test-project-b', sectionId: 'technical-details' }
+            target: { type: 'project', id: targetProject, sectionId: 'technical-details' }
           });
           break;
 
