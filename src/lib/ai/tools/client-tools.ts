@@ -423,7 +423,8 @@ export const uiIntentToolDefinition: UnifiedToolDefinition = {
           openIfNeeded: { type: 'boolean', default: true, description: 'Open modal or navigate if required' },
           closeBlocking: { type: 'boolean', default: true, description: 'Close top modal if it blocks target' },
           waitForReadyMs: { type: 'number', default: 1500, description: 'Wait for loader/transition' },
-          scrollBehavior: { type: 'string', enum: ['smooth', 'instant'], default: 'smooth' }
+          scrollBehavior: { type: 'string', enum: ['smooth', 'instant'], default: 'smooth' },
+          allowInterruption: { type: 'boolean', default: true, description: 'Allow this navigation to be interrupted by new requests' }
         }
       },
       scope: {

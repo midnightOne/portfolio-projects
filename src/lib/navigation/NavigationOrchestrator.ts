@@ -24,6 +24,7 @@ export interface UIIntentParams {
     closeBlocking?: boolean;            // close top modal if it blocks target
     waitForReadyMs?: number;            // wait for loader/transition
     scrollBehavior?: "smooth"|"instant";
+    allowInterruption?: boolean;        // allow this navigation to be interrupted
   };
   scope?: { 
     route?: string; 
@@ -86,6 +87,55 @@ export interface NavigationResult {
   totalTime: number;
 }
 
+// Navigation timing configuration
+interface NavigationTimingConfig {
+  // Animation durations (ms)
+  modalOpenDuration: number;
+  modalCloseDuration: number;
+  scrollDuration: number;
+  fadeInDuration: number;
+  fadeOutDuration: number;
+  
+  // Wait times (ms)
+  modalContentLoadWait: number;
+  routeNavigationWait: number;
+  elementReadyWait: number;
+  animationBufferWait: number;
+  
+  // Retry and timeout settings
+  stepTimeoutMs: number;
+  maxRetries: number;
+  retryDelayBase: number;
+  
+  // Interruption handling
+  gracefulCancelTimeoutMs: number;
+  forceCancelTimeoutMs: number;
+}
+
+// Navigation state tracking
+interface NavigationState {
+  isExecuting: boolean;
+  currentPlanId: string | null;
+  currentStepIndex: number;
+  currentStepId: string | null;
+  startTime: number | null;
+  canBeInterrupted: boolean;
+  interruptionRequested: boolean;
+  lastError: string | null;
+}
+
+// Plan execution context
+interface PlanExecutionContext {
+  planId: string;
+  sessionId?: string;
+  correlationId?: string;
+  startTime: number;
+  abortController: AbortController;
+  currentStepIndex: number;
+  executedSteps: string[];
+  canBeInterrupted: boolean;
+}
+
 // Navigation orchestrator implementation
 export class NavigationOrchestrator {
   private static instance: NavigationOrchestrator | null = null;
@@ -93,6 +143,46 @@ export class NavigationOrchestrator {
   private _executingPlans: Map<string, Promise<NavigationResult>> = new Map();
   private _completedPlans: Map<string, NavigationResult> = new Map();
   private _isInitialized: boolean = false;
+  
+  // Enhanced state management
+  private _navigationState: NavigationState = {
+    isExecuting: false,
+    currentPlanId: null,
+    currentStepIndex: -1,
+    currentStepId: null,
+    startTime: null,
+    canBeInterrupted: true,
+    interruptionRequested: false,
+    lastError: null
+  };
+  
+  private _executionContexts: Map<string, PlanExecutionContext> = new Map();
+  private _pendingInterruptions: Map<string, UIIntentParams> = new Map();
+  
+  // Configurable timing
+  private _timingConfig: NavigationTimingConfig = {
+    // Animation durations
+    modalOpenDuration: 300,
+    modalCloseDuration: 250,
+    scrollDuration: 800,
+    fadeInDuration: 200,
+    fadeOutDuration: 150,
+    
+    // Wait times
+    modalContentLoadWait: 1500,
+    routeNavigationWait: 2000,
+    elementReadyWait: 500,
+    animationBufferWait: 100,
+    
+    // Retry and timeout
+    stepTimeoutMs: 8000,
+    maxRetries: 3,
+    retryDelayBase: 1000,
+    
+    // Interruption handling
+    gracefulCancelTimeoutMs: 2000,
+    forceCancelTimeoutMs: 5000
+  };
 
   private constructor() {
     this._setupEpochTracking();
@@ -114,16 +204,109 @@ export class NavigationOrchestrator {
     }
 
     this._isInitialized = true;
-    console.log('NavigationOrchestrator initialized');
+    this._setupGlobalErrorHandling();
+    console.log('NavigationOrchestrator initialized with robust state management');
   }
 
   /**
-   * Execute a navigation intent declaratively
+   * Configure navigation timing parameters
+   */
+  configureTiming(config: Partial<NavigationTimingConfig>): void {
+    this._timingConfig = { ...this._timingConfig, ...config };
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'config_update',
+        config: this._timingConfig
+      },
+      'navigation-orchestrator'
+    );
+  }
+
+  /**
+   * Get current timing configuration
+   */
+  getTimingConfig(): NavigationTimingConfig {
+    return { ...this._timingConfig };
+  }
+
+  /**
+   * Get current navigation state
+   */
+  getNavigationState(): NavigationState {
+    return { ...this._navigationState };
+  }
+
+  /**
+   * Check if orchestrator can accept new navigation requests
+   */
+  canAcceptNewRequest(): boolean {
+    return !this._navigationState.isExecuting || this._navigationState.canBeInterrupted;
+  }
+
+  /**
+   * Request interruption of current navigation
+   */
+  async requestInterruption(newIntent: UIIntentParams, force: boolean = false): Promise<boolean> {
+    if (!this._navigationState.isExecuting) {
+      return true; // No interruption needed
+    }
+
+    const currentPlanId = this._navigationState.currentPlanId;
+    if (!currentPlanId) {
+      return true;
+    }
+
+    if (force) {
+      return this._forceInterruption(currentPlanId, newIntent);
+    } else {
+      return this._gracefulInterruption(currentPlanId, newIntent);
+    }
+  }
+
+  /**
+   * Setup global error handling for navigation
+   */
+  private _setupGlobalErrorHandling(): void {
+    if (typeof window !== 'undefined') {
+      // Handle page unload during navigation
+      window.addEventListener('beforeunload', () => {
+        this._cleanupAllExecutions('page_unload');
+      });
+
+      // Handle visibility changes (tab switching, etc.)
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden && this._navigationState.isExecuting) {
+          this._pauseCurrentExecution();
+        } else if (!document.hidden && this._navigationState.isExecuting) {
+          this._resumeCurrentExecution();
+        }
+      });
+    }
+  }
+
+  /**
+   * Execute a navigation intent declaratively with robust state management
    */
   async executeIntent(params: UIIntentParams, sessionId?: string): Promise<NavigationResult> {
     const startTime = Date.now();
     const planId = uuidv4();
     const correlationId = `nav_intent_${planId}`;
+
+    // Check if we can accept this request
+    if (!this.canAcceptNewRequest()) {
+      // Try graceful interruption first
+      const interruptionSuccessful = await this.requestInterruption(params, false);
+      if (!interruptionSuccessful) {
+        return {
+          success: false,
+          message: 'Navigation orchestrator is busy and cannot be interrupted',
+          error: 'ORCHESTRATOR_BUSY',
+          executedSteps: [],
+          totalTime: Date.now() - startTime
+        };
+      }
+    }
 
     // Check idempotency
     if (params.idempotencyKey) {
@@ -159,6 +342,18 @@ export class NavigationOrchestrator {
       }
     }
 
+    // Update navigation state
+    this._updateNavigationState({
+      isExecuting: true,
+      currentPlanId: planId,
+      currentStepIndex: -1,
+      currentStepId: null,
+      startTime,
+      canBeInterrupted: params.behavior?.allowInterruption !== false,
+      interruptionRequested: false,
+      lastError: null
+    });
+
     debugEventEmitter.emit(
       'navigation_event',
       {
@@ -175,8 +370,22 @@ export class NavigationOrchestrator {
       // Create navigation plan
       const plan = await this._createNavigationPlan(params, planId);
       
-      // Execute plan
-      const executionPromise = this._executePlan(plan, sessionId, correlationId);
+      // Create execution context
+      const executionContext: PlanExecutionContext = {
+        planId,
+        sessionId,
+        correlationId,
+        startTime,
+        abortController: new AbortController(),
+        currentStepIndex: -1,
+        executedSteps: [],
+        canBeInterrupted: params.behavior?.allowInterruption !== false
+      };
+      
+      this._executionContexts.set(planId, executionContext);
+      
+      // Execute plan with enhanced context
+      const executionPromise = this._executePlanWithContext(plan, executionContext);
       
       // Store execution promise for idempotency
       if (params.idempotencyKey) {
@@ -185,7 +394,7 @@ export class NavigationOrchestrator {
 
       const result = await executionPromise;
       
-      // Store completed result
+      // Store completed result and cleanup
       if (params.idempotencyKey) {
         this._executingPlans.delete(params.idempotencyKey);
         this._completedPlans.set(params.idempotencyKey, result);
@@ -198,6 +407,21 @@ export class NavigationOrchestrator {
           });
         }
       }
+
+      // Cleanup execution context
+      this._executionContexts.delete(planId);
+      
+      // Reset navigation state
+      this._updateNavigationState({
+        isExecuting: false,
+        currentPlanId: null,
+        currentStepIndex: -1,
+        currentStepId: null,
+        startTime: null,
+        canBeInterrupted: true,
+        interruptionRequested: false,
+        lastError: result.success ? null : result.error || 'Unknown error'
+      });
 
       const totalTime = Date.now() - startTime;
       
@@ -212,6 +436,9 @@ export class NavigationOrchestrator {
         sessionId || 'navigation-orchestrator',
         correlationId
       );
+
+      // Handle any pending interruptions
+      await this._processPendingInterruptions();
 
       return {
         ...result,
@@ -246,8 +473,358 @@ export class NavigationOrchestrator {
       if (params.idempotencyKey) {
         this._executingPlans.delete(params.idempotencyKey);
       }
+      
+      // Cleanup execution context
+      this._executionContexts.delete(planId);
+      
+      // Reset navigation state
+      this._updateNavigationState({
+        isExecuting: false,
+        currentPlanId: null,
+        currentStepIndex: -1,
+        currentStepId: null,
+        startTime: null,
+        canBeInterrupted: true,
+        interruptionRequested: false,
+        lastError: errorMessage
+      });
 
       return errorResult;
+    }
+  }
+
+  /**
+   * Enhanced plan execution with context and interruption support
+   */
+  private async _executePlanWithContext(plan: NavigationPlan, context: PlanExecutionContext): Promise<NavigationResult> {
+    const executedSteps: string[] = [];
+    let lastError: string | undefined;
+
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'plan_start',
+        planId: plan.id,
+        stepsCount: plan.steps.length,
+        totalTimeout: plan.totalTimeout,
+        canBeInterrupted: context.canBeInterrupted
+      },
+      context.sessionId || 'navigation-orchestrator',
+      context.correlationId
+    );
+
+    try {
+      // Execute steps sequentially with interruption checks
+      for (let i = 0; i < plan.steps.length; i++) {
+        // Check for interruption requests
+        if (this._navigationState.interruptionRequested) {
+          debugEventEmitter.emit(
+            'navigation_event',
+            {
+              type: 'plan_interrupted',
+              planId: plan.id,
+              stepIndex: i,
+              executedSteps: executedSteps.length
+            },
+            context.sessionId || 'navigation-orchestrator',
+            context.correlationId
+          );
+          
+          return {
+            success: false,
+            message: `Navigation interrupted at step ${i + 1}/${plan.steps.length}`,
+            error: 'NAVIGATION_INTERRUPTED',
+            executedSteps,
+            totalTime: 0
+          };
+        }
+
+        // Check abort signal
+        if (context.abortController.signal.aborted) {
+          return {
+            success: false,
+            message: `Navigation aborted at step ${i + 1}/${plan.steps.length}`,
+            error: 'NAVIGATION_ABORTED',
+            executedSteps,
+            totalTime: 0
+          };
+        }
+
+        const step = plan.steps[i];
+        const stepStartTime = Date.now();
+
+        // Update current step state
+        this._updateNavigationState({
+          currentStepIndex: i,
+          currentStepId: step.id
+        });
+        
+        context.currentStepIndex = i;
+
+        debugEventEmitter.emit(
+          'navigation_event',
+          {
+            type: 'step_start',
+            planId: plan.id,
+            stepId: step.id,
+            stepType: step.type,
+            stepIndex: i,
+            canBeInterrupted: context.canBeInterrupted
+          },
+          context.sessionId || 'navigation-orchestrator',
+          context.correlationId
+        );
+
+        try {
+          // Execute step with enhanced retry logic
+          const result = await this._executeStepWithEnhancedRetries(step, context);
+          const stepTime = Date.now() - stepStartTime;
+
+          if (result.success) {
+            executedSteps.push(step.id);
+            context.executedSteps.push(step.id);
+            
+            debugEventEmitter.emit(
+              'navigation_event',
+              {
+                type: 'step_complete',
+                planId: plan.id,
+                stepId: step.id,
+                result,
+                executionTime: stepTime
+              },
+              context.sessionId || 'navigation-orchestrator',
+              context.correlationId
+            );
+          } else {
+            lastError = result.error || result.message;
+            debugEventEmitter.emit(
+              'navigation_event',
+              {
+                type: 'step_error',
+                planId: plan.id,
+                stepId: step.id,
+                error: lastError,
+                executionTime: stepTime
+              },
+              context.sessionId || 'navigation-orchestrator',
+              context.correlationId
+            );
+
+            // Decide whether to continue or abort
+            if (!result.shouldRetry) {
+              break; // Critical failure, abort plan
+            }
+          }
+
+        } catch (error) {
+          const stepTime = Date.now() - stepStartTime;
+          lastError = error instanceof Error ? error.message : String(error);
+          
+          debugEventEmitter.emit(
+            'navigation_event',
+            {
+              type: 'step_exception',
+              planId: plan.id,
+              stepId: step.id,
+              error: lastError,
+              executionTime: stepTime
+            },
+            context.sessionId || 'navigation-orchestrator',
+            context.correlationId
+          );
+
+          break; // Exception, abort plan
+        }
+      }
+
+      // Determine overall result
+      const success = executedSteps.length > 0 && !lastError;
+      const message = success 
+        ? `Navigation completed successfully (${executedSteps.length}/${plan.steps.length} steps)`
+        : `Navigation failed: ${lastError || 'Unknown error'}`;
+
+      return {
+        success,
+        message,
+        data: {
+          planId: plan.id,
+          target: plan.target,
+          stepsPlanned: plan.steps.length,
+          stepsExecuted: executedSteps.length
+        },
+        error: lastError,
+        executedSteps,
+        totalTime: 0 // Will be set by caller
+      };
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        message: `Plan execution failed: ${errorMessage}`,
+        error: errorMessage,
+        executedSteps,
+        totalTime: 0
+      };
+    }
+  }
+
+  /**
+   * Update navigation state safely
+   */
+  private _updateNavigationState(updates: Partial<NavigationState>): void {
+    this._navigationState = { ...this._navigationState, ...updates };
+    
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'state_update',
+        state: this._navigationState
+      },
+      'navigation-orchestrator'
+    );
+  }
+
+  /**
+   * Graceful interruption handling
+   */
+  private async _gracefulInterruption(currentPlanId: string, newIntent: UIIntentParams): Promise<boolean> {
+    if (!this._navigationState.canBeInterrupted) {
+      return false;
+    }
+
+    this._updateNavigationState({ interruptionRequested: true });
+    this._pendingInterruptions.set(currentPlanId, newIntent);
+
+    // Wait for graceful cancellation
+    const timeout = setTimeout(() => {
+      this._forceInterruption(currentPlanId, newIntent);
+    }, this._timingConfig.gracefulCancelTimeoutMs);
+
+    // Check if interruption completed
+    const checkInterval = setInterval(() => {
+      if (!this._navigationState.isExecuting || this._navigationState.currentPlanId !== currentPlanId) {
+        clearTimeout(timeout);
+        clearInterval(checkInterval);
+        return true;
+      }
+    }, 100);
+
+    return true;
+  }
+
+  /**
+   * Force interruption handling
+   */
+  private async _forceInterruption(currentPlanId: string, newIntent: UIIntentParams): Promise<boolean> {
+    const context = this._executionContexts.get(currentPlanId);
+    if (context) {
+      context.abortController.abort();
+    }
+
+    // Force cleanup after timeout
+    setTimeout(() => {
+      this._cleanupExecution(currentPlanId, 'force_interrupted');
+    }, this._timingConfig.forceCancelTimeoutMs);
+
+    this._pendingInterruptions.set(currentPlanId, newIntent);
+    return true;
+  }
+
+  /**
+   * Process pending interruptions
+   */
+  private async _processPendingInterruptions(): Promise<void> {
+    if (this._pendingInterruptions.size === 0) {
+      return;
+    }
+
+    // Execute the most recent interruption request
+    const entries = Array.from(this._pendingInterruptions.entries());
+    const [planId, intent] = entries[entries.length - 1];
+    
+    this._pendingInterruptions.clear();
+    
+    // Execute the pending intent
+    setTimeout(() => {
+      this.executeIntent(intent);
+    }, this._timingConfig.animationBufferWait);
+  }
+
+  /**
+   * Cleanup execution context
+   */
+  private _cleanupExecution(planId: string, reason: string): void {
+    const context = this._executionContexts.get(planId);
+    if (context) {
+      context.abortController.abort();
+      this._executionContexts.delete(planId);
+    }
+
+    if (this._navigationState.currentPlanId === planId) {
+      this._updateNavigationState({
+        isExecuting: false,
+        currentPlanId: null,
+        currentStepIndex: -1,
+        currentStepId: null,
+        startTime: null,
+        canBeInterrupted: true,
+        interruptionRequested: false,
+        lastError: `Execution cleaned up: ${reason}`
+      });
+    }
+
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'execution_cleanup',
+        planId,
+        reason
+      },
+      'navigation-orchestrator'
+    );
+  }
+
+  /**
+   * Cleanup all executions
+   */
+  private _cleanupAllExecutions(reason: string): void {
+    this._executionContexts.forEach((context, planId) => {
+      this._cleanupExecution(planId, reason);
+    });
+    this._pendingInterruptions.clear();
+  }
+
+  /**
+   * Pause current execution (for tab switching, etc.)
+   */
+  private _pauseCurrentExecution(): void {
+    if (this._navigationState.isExecuting) {
+      debugEventEmitter.emit(
+        'navigation_event',
+        {
+          type: 'execution_paused',
+          planId: this._navigationState.currentPlanId
+        },
+        'navigation-orchestrator'
+      );
+    }
+  }
+
+  /**
+   * Resume current execution
+   */
+  private _resumeCurrentExecution(): void {
+    if (this._navigationState.isExecuting) {
+      debugEventEmitter.emit(
+        'navigation_event',
+        {
+          type: 'execution_resumed',
+          planId: this._navigationState.currentPlanId
+        },
+        'navigation-orchestrator'
+      );
     }
   }
 
@@ -495,16 +1072,25 @@ export class NavigationOrchestrator {
   }
 
   /**
-   * Execute a single step with retry logic
+   * Execute a single step with enhanced retry logic and configurable timing
    */
-  private async _executeStepWithRetries(step: NavigationStep, sessionId?: string, correlationId?: string): Promise<NavigationStepResult> {
-    const maxRetries = step.retries || 2;
+  private async _executeStepWithEnhancedRetries(step: NavigationStep, context: PlanExecutionContext): Promise<NavigationStepResult> {
+    const maxRetries = step.retries || this._timingConfig.maxRetries;
     let lastResult: NavigationStepResult | null = null;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        // Add timeout wrapper
-        const timeoutMs = step.timeout || 5000;
+        // Check for interruption before each attempt
+        if (context.abortController.signal.aborted || this._navigationState.interruptionRequested) {
+          return {
+            success: false,
+            message: 'Step execution interrupted',
+            error: 'STEP_INTERRUPTED'
+          };
+        }
+
+        // Add timeout wrapper with configurable timing
+        const timeoutMs = step.timeout || this._timingConfig.stepTimeoutMs;
         const result = await Promise.race([
           step.execute(),
           new Promise<NavigationStepResult>((_, reject) => 
@@ -518,9 +1104,10 @@ export class NavigationOrchestrator {
 
         lastResult = result;
 
-        // Wait before retry
+        // Wait before retry with configurable delay
         if (attempt < maxRetries) {
-          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+          const retryDelay = this._timingConfig.retryDelayBase * Math.pow(2, attempt); // Exponential backoff
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
         }
 
       } catch (error) {
@@ -532,7 +1119,8 @@ export class NavigationOrchestrator {
         };
 
         if (attempt < maxRetries) {
-          await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+          const retryDelay = this._timingConfig.retryDelayBase * Math.pow(2, attempt);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
         }
       }
     }
@@ -687,7 +1275,7 @@ export class NavigationOrchestrator {
       });
 
       // Add a brief wait for modal close animation
-      steps.push(this._createWaitStep(300));
+      steps.push(this._createWaitStep(this._timingConfig.modalCloseDuration + this._timingConfig.animationBufferWait));
     }
 
     // Open target project modal (only if we're not already viewing it)
@@ -726,7 +1314,10 @@ export class NavigationOrchestrator {
       });
 
       // Add wait for modal open animation and content loading
-      steps.push(this._createWaitStep(behavior.waitForReadyMs || 1500));
+      steps.push(this._createWaitStep(
+        behavior.waitForReadyMs || 
+        (this._timingConfig.modalOpenDuration + this._timingConfig.modalContentLoadWait)
+      ));
     }
 
     return steps;
@@ -999,12 +1590,39 @@ export class NavigationOrchestrator {
   }
 
   /**
-   * Cleanup resources
+   * Cleanup resources and reset state
    */
   destroy(): void {
+    // Cleanup all active executions
+    this._cleanupAllExecutions('orchestrator_destroy');
+    
+    // Clear all maps and state
     this._executingPlans.clear();
     this._completedPlans.clear();
+    this._executionContexts.clear();
+    this._pendingInterruptions.clear();
+    
+    // Reset navigation state
+    this._navigationState = {
+      isExecuting: false,
+      currentPlanId: null,
+      currentStepIndex: -1,
+      currentStepId: null,
+      startTime: null,
+      canBeInterrupted: true,
+      interruptionRequested: false,
+      lastError: null
+    };
+    
     this._isInitialized = false;
+    
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'orchestrator_destroyed'
+      },
+      'navigation-orchestrator'
+    );
   }
 }
 
