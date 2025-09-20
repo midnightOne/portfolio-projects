@@ -678,18 +678,18 @@ export class UINavigationTools {
 
   // Declarative Navigation Tools
 
-  async ui_intent(args: any, sessionId?: string): Promise<NavigationResult> {
-    return this.executeAndReport('ui_intent', args, async () => {
+  async ui_navigate(args: any, sessionId?: string): Promise<NavigationResult> {
+    return this.executeAndReport('ui_navigate', args, async () => {
       try {
-        // Import NavigationOrchestrator dynamically to avoid circular dependencies
-        const { navigationOrchestrator } = await import('@/lib/navigation/NavigationOrchestrator');
+        // Import UIManager dynamically to avoid circular dependencies
+        const { uiManager } = await import('@/lib/navigation/UIManager');
         
-        const result = await navigationOrchestrator.executeIntent(args, sessionId);
+        const result = await uiManager.executeIntent(args, sessionId);
         
         return {
           success: result.success,
           message: result.message,
-          data: result.data,
+          data: result.executedSteps || result.data,
           error: result.error
         };
       } catch (error) {
@@ -705,10 +705,10 @@ export class UINavigationTools {
   async ui_describe(args: any = {}, sessionId?: string): Promise<NavigationResult> {
     return this.executeAndReport('ui_describe', args, async () => {
       try {
-        // Import NavigationOrchestrator dynamically to avoid circular dependencies
-        const { navigationOrchestrator } = await import('@/lib/navigation/NavigationOrchestrator');
+        // Import UIManager dynamically to avoid circular dependencies
+        const { uiManager } = await import('@/lib/navigation/UIManager');
         
-        const description = await navigationOrchestrator.describeUI();
+        const description = uiManager.describe();
         
         return {
           success: true,

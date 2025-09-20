@@ -1,10 +1,11 @@
 /**
- * NavigationOrchestrator - Declarative Navigation System
+ * UIManager - Unified UI State Management and Navigation System
  * 
  * Provides goal-based navigation planning and execution with step sequencing,
  * error handling, timeout management, and idempotency support.
+ * Also provides UI state description with epoch tracking for AI tools.
  * 
- * Enables single-call navigation goals instead of multi-step tool sequences.
+ * Enables single-call navigation goals and UI state queries instead of multi-step tool sequences.
  */
 
 import { debugEventEmitter } from '../debug/debugEventEmitter';
@@ -149,8 +150,8 @@ interface PlanExecutionContext {
 }
 
 // Navigation orchestrator implementation
-export class NavigationOrchestrator {
-  private static instance: NavigationOrchestrator | null = null;
+export class UIManager {
+  private static instance: UIManager | null = null;
   private _currentEpoch: number = 0;
   private _executingPlans: Map<string, Promise<NavigationResult>> = new Map();
   private _completedPlans: Map<string, NavigationResult> = new Map();
@@ -204,11 +205,11 @@ export class NavigationOrchestrator {
     this._setupEpochTracking();
   }
 
-  static getInstance(): NavigationOrchestrator {
-    if (!NavigationOrchestrator.instance) {
-      NavigationOrchestrator.instance = new NavigationOrchestrator();
+  static getInstance(): UIManager {
+    if (!UIManager.instance) {
+      UIManager.instance = new UIManager();
     }
-    return NavigationOrchestrator.instance;
+    return UIManager.instance;
   }
 
   /**
@@ -258,6 +259,51 @@ export class NavigationOrchestrator {
    */
   canAcceptNewRequest(): boolean {
     return !this._navigationState.isExecuting || this._navigationState.canBeInterrupted;
+  }
+
+  /**
+   * Describe current UI state with epoch and available affordances
+   */
+  describe(): UIDescribeResponse {
+    const currentState = uiStateManager.getCurrentState();
+    
+    // Get current route from URL or state
+    const route = this._getCurrentRoute();
+    
+    // Build view stack (route + open modals)
+    const viewStack = [route];
+    if (currentState.modalStack.length > 0) {
+      currentState.modalStack.forEach(modal => {
+        viewStack.push(`${modal.type}Modal:${modal.id}`);
+      });
+    }
+    
+    // Get available sections based on current context
+    const sections = this._getAvailableSections(currentState);
+    
+    // Get available transitions based on current state
+    const transitions = this._getAvailableTransitions(currentState);
+    
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'ui_describe',
+        epoch: currentState.epoch,
+        route,
+        viewStack,
+        sectionsCount: sections.length,
+        transitionsCount: transitions.length
+      },
+      'ui-manager'
+    );
+    
+    return {
+      epoch: currentState.epoch,
+      route,
+      viewStack,
+      sections,
+      transitions
+    };
   }
 
   /**
@@ -1897,7 +1943,101 @@ export class NavigationOrchestrator {
       'navigation-orchestrator'
     );
   }
+
+  /**
+   * Get current route from URL or state
+   */
+  private _getCurrentRoute(): string {
+    if (typeof window === 'undefined') return 'home';
+    
+    const pathname = window.location.pathname;
+    if (pathname === '/' || pathname === '') return 'home';
+    if (pathname.startsWith('/projects')) return 'projects';
+    if (pathname.startsWith('/about')) return 'about';
+    if (pathname.startsWith('/contact')) return 'contact';
+    if (pathname.startsWith('/admin')) return 'admin';
+    
+    // Extract route from pathname
+    const segments = pathname.split('/').filter(Boolean);
+    return segments[0] || 'home';
+  }
+
+  /**
+   * Get available sections based on current context
+   */
+  private _getAvailableSections(currentState: any): Array<{ id: string; title: string; containerId?: string }> {
+    const sections = [];
+    
+    // Always available main sections
+    sections.push(
+      { id: 'hero', title: 'Hero Section' },
+      { id: 'about', title: 'About Section' },
+      { id: 'projects', title: 'Projects Section' },
+      { id: 'contact', title: 'Contact Section' }
+    );
+    
+    // Add modal-specific sections if modals are open
+    if (currentState.modalStack.length > 0) {
+      const topModal = currentState.modalStack[currentState.modalStack.length - 1];
+      
+      if (topModal.type === 'project') {
+        sections.push(
+          { id: 'overview', title: 'Project Overview', containerId: 'project-modal' },
+          { id: 'technical-details', title: 'Technical Details', containerId: 'project-modal' },
+          { id: 'gallery', title: 'Project Gallery', containerId: 'project-modal' }
+        );
+      }
+    }
+    
+    return sections;
+  }
+
+  /**
+   * Get available transitions based on current state
+   */
+  private _getAvailableTransitions(currentState: any): Array<{
+    id: string;
+    kind: "open" | "close" | "route" | "tab";
+    target?: string;
+    requires?: string[];
+  }> {
+    const transitions = [];
+    
+    // Route transitions (always available)
+    transitions.push(
+      { id: 'route:home', kind: 'route', target: 'home' },
+      { id: 'route:projects', kind: 'route', target: 'projects' },
+      { id: 'route:about', kind: 'route', target: 'about' },
+      { id: 'route:contact', kind: 'route', target: 'contact' }
+    );
+    
+    // Modal transitions based on current state
+    if (currentState.modalStack.length === 0) {
+      // Can open project modals
+      transitions.push(
+        { id: 'open:project-modal', kind: 'open', target: 'project-modal' }
+      );
+    } else {
+      // Can close current modals
+      const topModal = currentState.modalStack[currentState.modalStack.length - 1];
+      transitions.push(
+        { id: `close:${topModal.id}`, kind: 'close', target: topModal.id }
+      );
+      
+      // Can open nested modals if not too deep
+      if (currentState.modalStack.length < 3) {
+        transitions.push(
+          { id: 'open:nested-modal', kind: 'open', target: 'nested-modal', requires: [`open:${topModal.id}`] }
+        );
+      }
+    }
+    
+    return transitions;
+  }
 }
 
 // Export singleton instance
-export const navigationOrchestrator = NavigationOrchestrator.getInstance();
+export const uiManager = UIManager.getInstance();
+
+// Backward compatibility export
+export const navigationOrchestrator = uiManager;
