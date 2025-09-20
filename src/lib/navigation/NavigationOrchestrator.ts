@@ -18,6 +18,7 @@ export interface UIIntentParams {
     | { type: "section"; id: string; projectId?: string }   // e.g., {type:"section", id:"contact", projectId:"aurora-avatar"}
     | { type: "route"; id: string }     // e.g., {type:"route", id:"home"}
     | { type: "project"; id: string; sectionId?: string }   // e.g., {type:"project", id:"aurora-avatar", sectionId:"technical-details"}
+    | { type: "modal"; id: string; parentContext?: string } // e.g., {type:"modal", id:"gallery", parentContext:"project:aurora-avatar"}
     | { type: "element"; id: string };  // tab, accordion, etc.
   behavior?: {
     openIfNeeded?: boolean;             // open modal or navigate if required
@@ -25,6 +26,7 @@ export interface UIIntentParams {
     waitForReadyMs?: number;            // wait for loader/transition
     scrollBehavior?: "smooth"|"instant";
     allowInterruption?: boolean;        // allow this navigation to be interrupted
+    urlStrategy?: "full" | "minimal" | "none"; // URL update strategy
   };
   scope?: { 
     route?: string; 
@@ -32,6 +34,16 @@ export interface UIIntentParams {
     projectId?: string; 
   };
   idempotencyKey?: string;
+}
+
+// Modal state management
+interface ModalStackEntry {
+  id: string;
+  type: 'project' | 'example' | 'gallery' | 'generic';
+  parentId?: string;
+  urlTracked: boolean;        // Whether this modal affects URL
+  level: number;              // Nesting level (0 = top level)
+  context?: any;              // Additional context data
 }
 
 export interface UIDescribeResponse {
@@ -159,6 +171,10 @@ export class NavigationOrchestrator {
   private _executionContexts: Map<string, PlanExecutionContext> = new Map();
   private _pendingInterruptions: Map<string, UIIntentParams> = new Map();
   
+  // Modal stack management
+  private _modalStack: ModalStackEntry[] = [];
+  private _modalStateListeners: Set<(stack: ModalStackEntry[]) => void> = new Set();
+  
   // Configurable timing
   private _timingConfig: NavigationTimingConfig = {
     // Animation durations
@@ -282,7 +298,264 @@ export class NavigationOrchestrator {
           this._resumeCurrentExecution();
         }
       });
+
+      // Handle browser back/forward for modal stack
+      window.addEventListener('popstate', (event) => {
+        this._handleBrowserNavigation(event);
+      });
     }
+  }
+
+  /**
+   * Get current modal stack
+   */
+  getModalStack(): ModalStackEntry[] {
+    return [...this._modalStack];
+  }
+
+  /**
+   * Add modal state listener
+   */
+  addModalStateListener(listener: (stack: ModalStackEntry[]) => void): void {
+    this._modalStateListeners.add(listener);
+  }
+
+  /**
+   * Remove modal state listener
+   */
+  removeModalStateListener(listener: (stack: ModalStackEntry[]) => void): void {
+    this._modalStateListeners.delete(listener);
+  }
+
+  /**
+   * Push modal to stack with smart URL management
+   */
+  private _pushModal(entry: Omit<ModalStackEntry, 'level'>): void {
+    const level = this._modalStack.length;
+    const modalEntry: ModalStackEntry = { ...entry, level };
+
+    // Determine URL tracking strategy
+    const shouldTrackInURL = this._shouldTrackModalInURL(modalEntry);
+    modalEntry.urlTracked = shouldTrackInURL;
+
+    this._modalStack.push(modalEntry);
+
+    // Update URL if needed
+    if (shouldTrackInURL) {
+      this._updateURLForModalStack();
+    }
+
+    // Notify listeners
+    this._notifyModalStateListeners();
+
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'modal_pushed',
+        modalId: entry.id,
+        level,
+        urlTracked: shouldTrackInURL,
+        stackSize: this._modalStack.length
+      },
+      'navigation-orchestrator'
+    );
+  }
+
+  /**
+   * Pop modal from stack
+   */
+  private _popModal(modalId?: string): ModalStackEntry | null {
+    let poppedModal: ModalStackEntry | null = null;
+
+    if (modalId) {
+      // Remove specific modal and all modals above it
+      const index = this._modalStack.findIndex(m => m.id === modalId);
+      if (index !== -1) {
+        const removed = this._modalStack.splice(index);
+        poppedModal = removed[0];
+      }
+    } else {
+      // Remove top modal
+      poppedModal = this._modalStack.pop() || null;
+    }
+
+    if (poppedModal) {
+      // Update URL if the removed modal was tracked
+      if (poppedModal.urlTracked || this._modalStack.some(m => m.urlTracked)) {
+        this._updateURLForModalStack();
+      }
+
+      // Notify listeners
+      this._notifyModalStateListeners();
+
+      debugEventEmitter.emit(
+        'navigation_event',
+        {
+          type: 'modal_popped',
+          modalId: poppedModal.id,
+          level: poppedModal.level,
+          stackSize: this._modalStack.length
+        },
+        'navigation-orchestrator'
+      );
+    }
+
+    return poppedModal;
+  }
+
+  /**
+   * Determine if modal should be tracked in URL
+   */
+  private _shouldTrackModalInURL(modal: ModalStackEntry): boolean {
+    // Only track top-level modals and important nested modals
+    if (modal.level === 0) {
+      return true; // Always track top-level modals
+    }
+
+    if (modal.level === 1 && modal.type === 'project') {
+      return true; // Track project modals even if nested
+    }
+
+    // Don't track deep nesting or temporary modals
+    return false;
+  }
+
+  /**
+   * Update URL based on current modal stack
+   */
+  private _updateURLForModalStack(): void {
+    if (typeof window === 'undefined') return;
+
+    const url = new URL(window.location.href);
+    
+    // Clear existing modal parameters
+    url.searchParams.delete('project');
+    url.searchParams.delete('modal');
+
+    // Add parameters for URL-tracked modals
+    const trackedModals = this._modalStack.filter(m => m.urlTracked);
+    
+    trackedModals.forEach(modal => {
+      if (modal.type === 'project') {
+        url.searchParams.set('project', modal.id);
+      } else {
+        url.searchParams.set('modal', modal.id);
+      }
+    });
+
+    // Update URL without triggering navigation
+    window.history.replaceState({}, '', url.toString());
+  }
+
+  /**
+   * Handle browser back/forward navigation
+   */
+  private _handleBrowserNavigation(event: PopStateEvent): void {
+    if (typeof window === 'undefined') return;
+
+    const url = new URL(window.location.href);
+    const projectParam = url.searchParams.get('project');
+    const modalParam = url.searchParams.get('modal');
+
+    // Reconstruct expected modal stack from URL
+    const expectedStack: ModalStackEntry[] = [];
+    
+    if (projectParam) {
+      expectedStack.push({
+        id: projectParam,
+        type: 'project',
+        urlTracked: true,
+        level: 0
+      });
+    }
+
+    if (modalParam) {
+      expectedStack.push({
+        id: modalParam,
+        type: 'generic',
+        urlTracked: true,
+        level: expectedStack.length
+      });
+    }
+
+    // Sync modal stack with URL
+    this._syncModalStackWithURL(expectedStack);
+  }
+
+  /**
+   * Sync modal stack with URL state
+   */
+  private _syncModalStackWithURL(expectedStack: ModalStackEntry[]): void {
+    // Close modals that shouldn't be open
+    const currentTracked = this._modalStack.filter(m => m.urlTracked);
+    const toClose = currentTracked.filter(current => 
+      !expectedStack.some(expected => expected.id === current.id)
+    );
+
+    toClose.forEach(modal => {
+      this._closeModalElement(modal.id);
+    });
+
+    // Open modals that should be open
+    const toOpen = expectedStack.filter(expected =>
+      !currentTracked.some(current => current.id === expected.id)
+    );
+
+    toOpen.forEach(modal => {
+      this._openModalElement(modal.id, modal.type);
+    });
+
+    // Update internal stack
+    this._modalStack = this._modalStack.filter(m => !m.urlTracked);
+    this._modalStack.push(...expectedStack);
+
+    // Notify listeners
+    this._notifyModalStateListeners();
+  }
+
+  /**
+   * Notify modal state listeners
+   */
+  private _notifyModalStateListeners(): void {
+    const stack = [...this._modalStack];
+    this._modalStateListeners.forEach(listener => {
+      try {
+        listener(stack);
+      } catch (error) {
+        console.error('Error in modal state listener:', error);
+      }
+    });
+  }
+
+  /**
+   * Open modal element (DOM manipulation)
+   */
+  private _openModalElement(modalId: string, modalType: string): void {
+    // This would integrate with your actual modal system
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'modal_dom_open',
+        modalId,
+        modalType
+      },
+      'navigation-orchestrator'
+    );
+  }
+
+  /**
+   * Close modal element (DOM manipulation)
+   */
+  private _closeModalElement(modalId: string): void {
+    // This would integrate with your actual modal system
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'modal_dom_close',
+        modalId
+      },
+      'navigation-orchestrator'
+    );
   }
 
   /**

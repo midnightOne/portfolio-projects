@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NavigationOrchestrator Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        
+        .test-controls {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        
+        button {
+            background: #007cba;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        button:hover {
+            background: #005a87;
+        }
+        
+        .status {
+            background: #e7f3ff;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        
+        .error {
+            background: #ffe7e7;
+            color: #d00;
+        }
+        
+        .success {
+            background: #e7ffe7;
+            color: #080;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+        
+        .modal.open {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .close-modal {
+            float: right;
+            font-size: 24px;
+            cursor: pointer;
+            color: #999;
+        }
+        
+        .close-modal:hover {
+            color: #000;
+        }
+        
+        .highlight {
+            background: rgba(59, 130, 246, 0.3);
+            padding: 2px 4px;
+            border-radius: 3px;
+            transition: all 0.3s ease;
+        }
+        
+        .voice-highlight {
+            outline: 2px solid #3b82f6;
+            outline-offset: 2px;
+            background-color: rgba(59, 130, 246, 0.1);
+            border-radius: 4px;
+            transition: all 0.3s ease;
+            animation: voice-pulse 2s infinite;
+        }
+        
+        @keyframes voice-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+            50% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+        }
+        
+        .section-content {
+            min-height: 200px;
+            padding: 20px;
+            margin: 10px 0;
+        }
+        
+        #hero { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        #about { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; }
+        #projects { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; }
+        #contact { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: white; }
+    </style>
+</head>
+<body>
+    <h1>NavigationOrchestrator Test Page</h1>
+    
+    <div class="test-section">
+        <h2>Navigation State</h2>
+        <div id="state-display" class="status">Loading...</div>
+        <button onclick="updateStateDisplay()">Refresh State</button>
+        <button onclick="clearStatus()">Clear Status</button>
+    </div>
+    
+    <div class="test-section">
+        <h2>Basic Navigation Tests</h2>
+        <div class="test-controls">
+            <button onclick="testSectionNavigation('hero')">Navigate to Hero</button>
+            <button onclick="testSectionNavigation('about')">Navigate to About</button>
+            <button onclick="testSectionNavigation('projects')">Navigate to Projects</button>
+            <button onclick="testSectionNavigation('contact')">Navigate to Contact</button>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Modal Navigation Tests</h2>
+        <div class="test-controls">
+            <button onclick="testModalNavigation('project-a')">Open Project A Modal</button>
+            <button onclick="testModalNavigation('project-b')">Open Project B Modal</button>
+            <button onclick="testModalSwitching()">Test Modal Switching</button>
+            <button onclick="testNestedModal()">Test Nested Modal</button>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Advanced Tests</h2>
+        <div class="test-controls">
+            <button onclick="testInterruption()">Test Interruption</button>
+            <button onclick="testRapidRequests()">Test Rapid Requests</button>
+            <button onclick="testErrorRecovery()">Test Error Recovery</button>
+            <button onclick="testTimingConfiguration()">Test Timing Config</button>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test Results</h2>
+        <div id="test-results" class="status">Ready for testing...</div>
+    </div>
+    
+    <!-- Page Sections -->
+    <section id="hero" class="section-content">
+        <h2>Hero Section</h2>
+        <p>This is the hero section of the page. It contains the main introduction and call-to-action.</p>
+        <div id="hero-subsection">Hero subsection content</div>
+    </section>
+    
+    <section id="about" class="section-content">
+        <h2>About Section</h2>
+        <p>This section contains information about the company, team, or individual.</p>
+        <div id="about-details">Detailed about information</div>
+    </section>
+    
+    <section id="projects" class="section-content">
+        <h2>Projects Section</h2>
+        <p>This section showcases various projects and work samples.</p>
+        <div id="project-grid">
+            <div class="project-item" data-project="project-a">Project A</div>
+            <div class="project-item" data-project="project-b">Project B</div>
+        </div>
+    </section>
+    
+    <section id="contact" class="section-content">
+        <h2>Contact Section</h2>
+        <p>This section contains contact information and forms.</p>
+        <div id="contact-form">Contact form would go here</div>
+    </section>
+    
+    <!-- Modals -->
+    <div id="project-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" onclick="closeModal('project-modal')">&times;</span>
+            <div id="modal-content">
+                <h2 id="modal-title">Project Details</h2>
+                <div id="modal-body">
+                    <section id="overview">
+                        <h3>Overview</h3>
+                        <p>Project overview content goes here.</p>
+                    </section>
+                    <section id="technical-details">
+                        <h3>Technical Details</h3>
+                        <p>Technical implementation details and specifications.</p>
+                    </section>
+                    <section id="gallery">
+                        <h3>Gallery</h3>
+                        <p>Project images and screenshots.</p>
+                    </section>
+                </div>
+                <button onclick="openNestedModal()">Open Example Modal</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="example-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" onclick="closeModal('example-modal')">&times;</span>
+            <h2>Example Nested Modal</h2>
+            <p>This is a nested modal within the project modal.</p>
+            <section id="nested-section">
+                <h3>Nested Section</h3>
+                <p>Content within the nested modal.</p>
+            </section>
+        </div>
+    </div>
+    
+    <script type="module">
+        // Mock NavigationOrchestrator for testing
+        class MockNavigationOrchestrator {
+            constructor() {
+                this._currentEpoch = 0;
+                this._navigationState = {
+                    isExecuting: false,
+                    currentPlanId: null,
+                    currentStepIndex: -1,
+                    currentStepId: null,
+                    startTime: null,
+                    canBeInterrupted: true,
+                    interruptionRequested: false,
+                    lastError: null
+                };
+                this._timingConfig = {
+                    modalOpenDuration: 300,
+                    modalCloseDuration: 250,
+                    scrollDuration: 800,
+                    fadeInDuration: 200,
+                    fadeOutDuration: 150,
+                    modalContentLoadWait: 1500,
+                    routeNavigationWait: 2000,
+                    elementReadyWait: 500,
+                    animationBufferWait: 100,
+                    stepTimeoutMs: 8000,
+                    maxRetries: 3,
+                    retryDelayBase: 1000,
+                    gracefulCancelTimeoutMs: 2000,
+                    forceCancelTimeoutMs: 5000
+                };
+                this._executingPlans = new Map();
+            }
+            
+            initialize() {
+                console.log('MockNavigationOrchestrator initialized');
+            }
+            
+            configureTiming(config) {
+                this._timingConfig = { ...this._timingConfig, ...config };
+                this.logStatus(`Timing configured: ${JSON.stringify(config, null, 2)}`);
+            }
+            
+            getTimingConfig() {
+                return { ...this._timingConfig };
+            }
+            
+            getNavigationState() {
+                return { ...this._navigationState };
+            }
+            
+            canAcceptNewRequest() {
+                return !this._navigationState.isExecuting || this._navigationState.canBeInterrupted;
+            }
+            
+            async executeIntent(params, sessionId) {
+                const startTime = Date.now();
+                const planId = `plan_${Date.now()}`;
+                
+                this.logStatus(`Executing intent: ${JSON.stringify(params, null, 2)}`);
+                
+                // Update state
+                this._navigationState = {
+                    ...this._navigationState,
+                    isExecuting: true,
+                    currentPlanId: planId,
+                    startTime
+                };
+                
+                try {
+                    // Simulate navigation steps
+                    const steps = await this._createNavigationPlan(params);
+                    const result = await this._executePlan(steps, params);
+                    
+                    const totalTime = Date.now() - startTime;
+                    
+                    // Reset state
+                    this._navigationState = {
+                        ...this._navigationState,
+                        isExecuting: false,
+                        currentPlanId: null,
+                        startTime: null
+                    };
+                    
+                    this.logStatus(`Navigation completed in ${totalTime}ms: ${result.message}`, 'success');
+                    
+                    return {
+                        ...result,
+                        totalTime
+                    };
+                    
+                } catch (error) {
+                    const totalTime = Date.now() - startTime;
+                    
+                    // Reset state
+                    this._navigationState = {
+                        ...this._navigationState,
+                        isExecuting: false,
+                        currentPlanId: null,
+                        startTime: null,
+                        lastError: error.message
+                    };
+                    
+                    this.logStatus(`Navigation failed after ${totalTime}ms: ${error.message}`, 'error');
+                    
+                    return {
+                        success: false,
+                        message: `Navigation failed: ${error.message}`,
+                        error: error.message,
+                        executedSteps: [],
+                        totalTime
+                    };
+                }
+            }
+            
+            async _createNavigationPlan(params) {
+                const steps = [];
+                
+                switch (params.target.type) {
+                    case 'section':
+                        if (params.target.projectId) {
+                            steps.push({ type: 'modal', action: 'open', target: params.target.projectId });
+                            steps.push({ type: 'wait', duration: this._timingConfig.modalContentLoadWait });
+                        }
+                        steps.push({ type: 'scroll', target: params.target.id });
+                        break;
+                        
+                    case 'project':
+                        steps.push({ type: 'modal', action: 'open', target: params.target.id });
+                        steps.push({ type: 'wait', duration: this._timingConfig.modalContentLoadWait });
+                        if (params.target.sectionId) {
+                            steps.push({ type: 'scroll', target: params.target.sectionId });
+                        }
+                        break;
+                        
+                    case 'route':
+                        steps.push({ type: 'navigate', target: params.target.id });
+                        break;
+                }
+                
+                return steps;
+            }
+            
+            async _executePlan(steps, params) {
+                const executedSteps = [];
+                
+                for (let i = 0; i < steps.length; i++) {
+                    const step = steps[i];
+                    
+                    this._navigationState.currentStepIndex = i;
+                    this._navigationState.currentStepId = step.type;
+                    
+                    this.logStatus(`Executing step ${i + 1}/${steps.length}: ${step.type} ${step.target || step.action || ''}`);
+                    
+                    await this._executeStep(step);
+                    executedSteps.push(step.type);
+                    
+                    // Small delay between steps
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                }
+                
+                return {
+                    success: true,
+                    message: `Successfully executed ${executedSteps.length} steps`,
+                    executedSteps
+                };
+            }
+            
+            async _executeStep(step) {
+                switch (step.type) {
+                    case 'scroll':
+                        return this._scrollToElement(step.target);
+                    case 'modal':
+                        return step.action === 'open' ? this._openModal(step.target) : this._closeModal(step.target);
+                    case 'wait':
+                        return new Promise(resolve => setTimeout(resolve, step.duration));
+                    case 'navigate':
+                        return this._navigateToRoute(step.target);
+                    default:
+                        throw new Error(`Unknown step type: ${step.type}`);
+                }
+            }
+            
+            _scrollToElement(elementId) {
+                const element = document.getElementById(elementId);
+                if (!element) {
+                    throw new Error(`Element not found: ${elementId}`);
+                }
+                
+                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                
+                // Add highlight effect
+                element.classList.add('voice-highlight');
+                setTimeout(() => {
+                    element.classList.remove('voice-highlight');
+                }, 3000);
+                
+                return Promise.resolve();
+            }
+            
+            _openModal(modalId) {
+                // Simulate URL change for project modals
+                if (modalId.startsWith('project-')) {
+                    const url = new URL(window.location);
+                    url.searchParams.set('modal', modalId);
+                    window.history.pushState({}, '', url.toString());
+                }
+                
+                const modal = document.getElementById('project-modal');
+                const title = document.getElementById('modal-title');
+                const body = document.getElementById('modal-body');
+                
+                if (modal && title) {
+                    title.textContent = `${modalId.toUpperCase()} Details`;
+                    modal.classList.add('open');
+                    
+                    // Simulate content loading
+                    body.style.opacity = '0.5';
+                    setTimeout(() => {
+                        body.style.opacity = '1';
+                    }, this._timingConfig.modalOpenDuration);
+                }
+                
+                return new Promise(resolve => {
+                    setTimeout(resolve, this._timingConfig.modalOpenDuration);
+                });
+            }
+            
+            _closeModal(modalId) {
+                const modal = document.getElementById(modalId || 'project-modal');
+                if (modal) {
+                    modal.classList.remove('open');
+                    
+                    // Remove URL parameter
+                    const url = new URL(window.location);
+                    url.searchParams.delete('modal');
+                    window.history.pushState({}, '', url.toString());
+                }
+                
+                return new Promise(resolve => {
+                    setTimeout(resolve, this._timingConfig.modalCloseDuration);
+                });
+            }
+            
+            _navigateToRoute(route) {
+                // Simulate route navigation
+                this.logStatus(`Navigating to route: ${route}`);
+                return Promise.resolve();
+            }
+            
+            logStatus(message, type = 'info') {
+                const resultsDiv = document.getElementById('test-results');
+                const timestamp = new Date().toLocaleTimeString();
+                const statusClass = type === 'error' ? 'error' : type === 'success' ? 'success' : '';
+                
+                resultsDiv.innerHTML += `<div class="${statusClass}">[${timestamp}] ${message}</div>`;
+                resultsDiv.scrollTop = resultsDiv.scrollHeight;
+            }
+        }
+        
+        // Global orchestrator instance
+        window.orchestrator = new MockNavigationOrchestrator();
+        window.orchestrator.initialize();
+        
+        // Test functions
+        window.testSectionNavigation = async (sectionId) => {
+            await window.orchestrator.executeIntent({
+                target: { type: 'section', id: sectionId }
+            });
+        };
+        
+        window.testModalNavigation = async (projectId) => {
+            await window.orchestrator.executeIntent({
+                target: { type: 'project', id: projectId }
+            });
+        };
+        
+        window.testModalSwitching = async () => {
+            // Open first modal
+            await window.orchestrator.executeIntent({
+                target: { type: 'project', id: 'project-a' }
+            });
+            
+            // Wait a bit
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Switch to second modal
+            await window.orchestrator.executeIntent({
+                target: { type: 'project', id: 'project-b' },
+                behavior: { closeBlocking: true }
+            });
+        };
+        
+        window.testNestedModal = async () => {
+            // Open project modal first
+            await window.orchestrator.executeIntent({
+                target: { type: 'project', id: 'project-a' }
+            });
+            
+            // Wait a bit
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Open nested modal (this would need custom handling)
+            window.openNestedModal();
+        };
+        
+        window.testInterruption = async () => {
+            // Start a long navigation
+            const promise1 = window.orchestrator.executeIntent({
+                target: { type: 'section', id: 'hero' },
+                behavior: { waitForReadyMs: 3000 }
+            });
+            
+            // Interrupt with new navigation after short delay
+            setTimeout(async () => {
+                await window.orchestrator.executeIntent({
+                    target: { type: 'section', id: 'contact' }
+                });
+            }, 500);
+            
+            await promise1;
+        };
+        
+        window.testRapidRequests = async () => {
+            const requests = [
+                window.orchestrator.executeIntent({ target: { type: 'section', id: 'hero' } }),
+                window.orchestrator.executeIntent({ target: { type: 'section', id: 'about' } }),
+                window.orchestrator.executeIntent({ target: { type: 'section', id: 'projects' } }),
+                window.orchestrator.executeIntent({ target: { type: 'section', id: 'contact' } })
+            ];
+            
+            const results = await Promise.allSettled(requests);
+            window.orchestrator.logStatus(`Rapid requests completed: ${results.length} total`);
+        };
+        
+        window.testErrorRecovery = async () => {
+            try {
+                await window.orchestrator.executeIntent({
+                    target: { type: 'section', id: 'nonexistent-section' }
+                });
+            } catch (error) {
+                window.orchestrator.logStatus(`Error recovery test completed: ${error.message}`);
+            }
+        };
+        
+        window.testTimingConfiguration = () => {
+            window.orchestrator.configureTiming({
+                modalOpenDuration: 500,
+                scrollDuration: 1200,
+                maxRetries: 5
+            });
+        };
+        
+        // Utility functions
+        window.updateStateDisplay = () => {
+            const state = window.orchestrator.getNavigationState();
+            const config = window.orchestrator.getTimingConfig();
+            
+            document.getElementById('state-display').innerHTML = `
+Navigation State:
+${JSON.stringify(state, null, 2)}
+
+Timing Configuration:
+${JSON.stringify(config, null, 2)}
+            `;
+        };
+        
+        window.clearStatus = () => {
+            document.getElementById('test-results').innerHTML = 'Status cleared...';
+        };
+        
+        window.closeModal = (modalId) => {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.classList.remove('open');
+            }
+        };
+        
+        window.openNestedModal = () => {
+            const modal = document.getElementById('example-modal');
+            if (modal) {
+                modal.classList.add('open');
+            }
+        };
+        
+        // Initialize display
+        window.updateStateDisplay();
+        
+        // Handle URL changes
+        window.addEventListener('popstate', () => {
+            window.updateStateDisplay();
+        });
+    </script>
+</body>
+</html>
