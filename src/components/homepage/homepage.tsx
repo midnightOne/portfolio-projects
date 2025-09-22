@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { SectionRenderer, type HomepageConfig, type SectionConfig, sortSectionsByOrder, getEnabledSections } from './section-renderer';
@@ -164,45 +164,6 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
     debug: process.env.NODE_ENV === 'development'
   });
 
-  // Register modal handler with UIManager
-  useEffect(() => {
-    const uiManager = UIManager.getInstance();
-    
-    const modalHandler = async (modalId: string, modalType: string): Promise<boolean> => {
-      if (modalType === 'project') {
-        // Handle project modal opening
-        try {
-          const success = await handleProjectClickInternal(modalId);
-          return success;
-        } catch (error) {
-          console.error('Failed to open project modal on homepage:', error);
-          return false;
-        }
-      } else if (modalType === 'close') {
-        // Handle modal closing
-        try {
-          // If a project modal is open, close it regardless of modalId match
-          // This handles generic close requests like "close modal" or "close project-modal"
-          if (selectedProject && projectModalOpen) {
-            console.log(`🎯 Homepage closing project modal: ${selectedProject.slug} (requested: ${modalId})`);
-            handleCloseModal();
-            return true;
-          }
-          return false; // No modal open
-        } catch (error) {
-          console.error('Failed to close project modal on homepage:', error);
-          return false;
-        }
-      }
-      return false;
-    };
-
-    uiManager.registerModalHandler('homepage', modalHandler);
-
-    return () => {
-      uiManager.unregisterModalHandler('homepage');
-    };
-  }, []);
 
   // Sort and filter enabled sections
   const enabledSections = getEnabledSections(activeConfig.sections);
@@ -235,7 +196,7 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
     }
   };
 
-  const handleProjectClickInternal = async (projectSlug: string): Promise<boolean> => {
+  const handleProjectClickInternal = useCallback(async (projectSlug: string): Promise<boolean> => {
     setProjectLoading(true);
     setProjectModalOpen(true);
     
@@ -294,14 +255,14 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
       
       return false;
     }
-  };
+  }, [updateUIState]);
 
   // Wrapper for onProjectClick interface compatibility (void return)
   const handleProjectClick = (projectSlug: string): void => {
     handleProjectClickInternal(projectSlug);
   };
 
-  const handleCloseModal = () => {
+  const handleCloseModal = useCallback(() => {
     const uiManager = UIManager.getInstance();
     
     // Calculate time spent if there was a selected project
@@ -337,7 +298,47 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
     updateUIState({
       currentProject: undefined
     });
-  };
+  }, [selectedProject, updateUIState]);
+
+  // Register modal handler with UIManager
+  useEffect(() => {
+    const uiManager = UIManager.getInstance();
+    
+    const modalHandler = async (modalId: string, modalType: string): Promise<boolean> => {
+      if (modalType === 'project') {
+        // Handle project modal opening
+        try {
+          const success = await handleProjectClickInternal(modalId);
+          return success;
+        } catch (error) {
+          console.error('Failed to open project modal on homepage:', error);
+          return false;
+        }
+      } else if (modalType === 'close') {
+        // Handle modal closing
+        try {
+          // If a project modal is open, close it regardless of modalId match
+          // This handles generic close requests like "close modal" or "close project-modal"
+          if (selectedProject && projectModalOpen) {
+            console.log(`🎯 Homepage closing project modal: ${selectedProject.slug} (requested: ${modalId})`);
+            handleCloseModal();
+            return true;
+          }
+          return false; // No modal open
+        } catch (error) {
+          console.error('Failed to close project modal on homepage:', error);
+          return false;
+        }
+      }
+      return false;
+    };
+
+    uiManager.registerModalHandler('homepage', modalHandler);
+
+    return () => {
+      uiManager.unregisterModalHandler('homepage');
+    };
+  }, [selectedProject, projectModalOpen, handleCloseModal, handleProjectClickInternal]);
 
   // ============================================================================
   // NAVIGATION HANDLERS
