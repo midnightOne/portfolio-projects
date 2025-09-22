@@ -768,3 +768,8 @@ export class UINavigationTools {
 
 // Export singleton instance
 export const uiNavigationTools = UINavigationTools.getInstance();
+
+// Expose globally for integration tests and debugging
+if (typeof window !== 'undefined') {
+  (window as any).UINavigationTools = UINavigationTools;
+}

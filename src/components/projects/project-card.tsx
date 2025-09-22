@@ -135,7 +135,7 @@ export function ProjectCard({
       className={cn(
         "group cursor-pointer border border-border/50 rounded-xl bg-card text-card-foreground shadow-sm",
         "hover:shadow-xl hover:border-border overflow-hidden",
-        "active:shadow-lg transition-shadow touch-manipulation h-full flex flex-col",
+        "active:shadow-lg transition-shadow touch-manipulation h-full flex flex-col project-card",
         className
       )}
       onClick={handleClick}
@@ -143,6 +143,8 @@ export function ProjectCard({
       tabIndex={0}
       onKeyDown={handleKeyDown}
       aria-label={`View details for ${project.title}`}
+      data-project-id={project.slug}
+      data-semantic-id="project-card"
       style={{
         willChange: "transform, opacity"
       }}
