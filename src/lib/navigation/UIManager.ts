@@ -237,7 +237,7 @@ export interface UIIntentParams {
   | { type: "section"; id: string; projectId?: string }   // e.g., {type:"section", id:"contact", projectId:"aurora-avatar"}
   | { type: "route"; id: string }     // e.g., {type:"route", id:"home"}
   | { type: "project"; id: string; sectionId?: string }   // e.g., {type:"project", id:"aurora-avatar", sectionId:"technical-details"}
-  | { type: "modal"; id: string; parentContext?: string } // e.g., {type:"modal", id:"gallery", parentContext:"project:aurora-avatar"}
+  | { type: "modal"; id: string; parentContext?: string } // e.g., {type:"modal", id:"gallery"} or {type:"modal", id:"close"}
   | { type: "element"; id: string }   // tab, accordion, etc.
   // New semantic navigation types (with fallbacks for safety)
   | { type: "semantic"; semanticId: string; fallbackId?: string } // Semantic ID navigation with fallback
@@ -2151,6 +2151,13 @@ export class UIManager {
         }
         break;
 
+      case 'modal':
+        // Handle explicit modal operations (open/close)
+        // While declarative section navigation is preferred, explicit modal operations
+        // are still useful for internal use and edge cases
+        steps.push(...this._planModalNavigation(params.target.id, currentState, defaultBehavior));
+        break;
+
       case 'element':
         steps.push(...this._planElementNavigation(params.target.id, currentState, defaultBehavior));
         break;
@@ -2836,6 +2843,39 @@ export class UIManager {
   }
 
   /**
+   * Plan explicit modal operations (open/close)
+   * While declarative section navigation is preferred, explicit modal operations
+   * are useful for internal use and edge cases
+   */
+  private _planModalNavigation(modalId: string, currentState: UIState, behavior: Required<UIIntentParams['behavior']>): NavigationStep[] {
+    const steps: NavigationStep[] = [];
+    
+    // Handle explicit close operations
+    if (modalId === 'close' || modalId === 'close-all') {
+      // Close all modals or specific types
+      const modalsToClose = modalId === 'close-all' ? 
+        this._modalStack : 
+        this._modalStack.filter(m => m.type === 'project'); // Default to project modals
+      
+      for (const modal of modalsToClose) {
+        console.log(`🎯 Explicitly closing modal: ${modal.id}`);
+        steps.push(this._createCloseModalStep(modal.id, behavior));
+        
+        // Add delay for modal close animation
+        if (this._timingConfig.animationMode !== 'instant') {
+          steps.push(this._createDelayStep(this._timingConfig.modalTransitionDelay));
+        }
+      }
+    } else {
+      // Handle modal opening (treat as project opening)
+      console.log(`🎯 Explicitly opening modal: ${modalId}`);
+      steps.push(this._createOpenProjectModalStep(modalId, behavior));
+    }
+    
+    return steps;
+  }
+
+  /**
    * Plan navigation to a specific project
    */
   private _planProjectNavigation(projectId: string, currentState: UIState, behavior: Required<UIIntentParams['behavior']>): NavigationStep[] {
@@ -2983,6 +3023,21 @@ export class UIManager {
    */
   private _planSectionNavigation(sectionId: string, currentState: UIState, behavior: Required<UIIntentParams['behavior']>): NavigationStep[] {
     const steps: NavigationStep[] = [];
+
+    // Declarative modal closing: If navigating to a section, close any blocking modals first
+    if (behavior.closeBlocking && this._modalStack.length > 0) {
+      const blockingModals = this._modalStack.filter(m => m.type === 'project'); // Project modals block section navigation
+      
+      for (const modal of blockingModals) {
+        console.log(`🎯 Declaratively closing modal ${modal.id} to navigate to section ${sectionId}`);
+        steps.push(this._createCloseModalStep(modal.id, behavior));
+        
+        // Add delay for modal close animation
+        if (this._timingConfig.animationMode !== 'instant') {
+          steps.push(this._createDelayStep(this._timingConfig.modalTransitionDelay));
+        }
+      }
+    }
 
     // Create scroll step
     steps.push({

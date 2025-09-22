@@ -181,12 +181,14 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
       } else if (modalType === 'close') {
         // Handle modal closing
         try {
-          // Check if this modal is currently open
-          if (selectedProject && selectedProject.slug === modalId && projectModalOpen) {
+          // If a project modal is open, close it regardless of modalId match
+          // This handles generic close requests like "close modal" or "close project-modal"
+          if (selectedProject && projectModalOpen) {
+            console.log(`🎯 Homepage closing project modal: ${selectedProject.slug} (requested: ${modalId})`);
             handleCloseModal();
             return true;
           }
-          return false; // Not our modal or not open
+          return false; // No modal open
         } catch (error) {
           console.error('Failed to close project modal on homepage:', error);
           return false;

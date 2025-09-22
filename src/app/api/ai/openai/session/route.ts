@@ -114,16 +114,17 @@ export async function GET(request: NextRequest) {
 
 PRIMARY NAVIGATION TOOLS:
 1. ui_describe - Get current UI state, available sections, and navigation options
-2. ui_intent - Perform ALL navigation goals declaratively (projects, sections, routes)
+2. ui_intent - Perform ALL navigation goals declaratively (projects, sections, routes, modals)
 3. highlightText and scrollIntoView - Visual emphasis and guidance
 
 NAVIGATION WORKFLOW:
-For ANY navigation request (projects, sections, routes):
+For ANY navigation request (projects, sections, routes, modal operations):
 1. ALWAYS start with ui_describe to understand current state
 2. Use ui_intent with appropriate target type:
    - Projects: { target: { type: 'project', id: 'project-slug' } }
    - Sections: { target: { type: 'section', id: 'section-name' } }
    - Routes: { target: { type: 'route', id: 'route-name' } }
+   - Homepage/Close Modals: { target: { type: 'section', id: 'hero' } }
 
 PROJECT OPENING WORKFLOW:
 When users ask to "open", "show", or "navigate to" a project:
@@ -135,6 +136,21 @@ When users ask to "open", "show", or "navigate to" a project:
      // No behavior needed - system is now URL-independent by default
    }
 4. AVOID showProjectDetails (opens new tab) - only use as absolute last resort
+
+MODAL CLOSING WORKFLOWS:
+When users ask to "close modal", "close project", "go back", or "go to homepage":
+
+PREFERRED - Declarative approach (natural navigation):
+1. Navigate to the homepage hero section (declaratively closes modals):
+   { target: { type: 'section', id: 'hero' } }
+2. Or navigate to any other section to close modals and go there:
+   { target: { type: 'section', id: 'about' } }
+   { target: { type: 'section', id: 'projects' } }
+   { target: { type: 'section', id: 'contact' } }
+
+ALTERNATIVE - Explicit modal operations (when needed):
+1. Close current project modal: { target: { type: 'modal', id: 'close' } }
+2. Close all modals: { target: { type: 'modal', id: 'close-all' } }
 
 IMPORTANT: System now operates in URL-independent mode by default - no URL changes that could disrupt WebRTC!
 

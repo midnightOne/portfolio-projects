@@ -410,6 +410,15 @@ export const uiIntentToolDefinition: UnifiedToolDefinition = {
           {
             type: 'object',
             properties: {
+              type: { const: 'modal' },
+              id: { type: 'string', description: 'Modal ID or operation ("close", "close-all", or specific modal ID)' },
+              parentContext: { type: 'string', description: 'Optional parent context for modal' }
+            },
+            required: ['type', 'id']
+          },
+          {
+            type: 'object',
+            properties: {
               type: { const: 'element' },
               id: { type: 'string', description: 'Element ID for tabs, accordions, etc.' }
             },
