@@ -10,7 +10,7 @@ import { UnifiedToolDefinition } from './types';
 // Navigation Tools - Direct browser execution
 export const navigateToToolDefinition: UnifiedToolDefinition = {
   name: 'navigateTo',
-  description: 'Navigate to a specific page or URL in the portfolio. For projects, use exact URLs like "/projects?project=slug" or search first with searchProjects to find the correct slug.',
+  description: 'INTERNAL/RECOVERY TOOL: Low-level page navigation. Use ui.navigate instead for better reliability. Only use this for debugging or when ui.navigate fails.',
   parameters: {
     type: 'object',
     properties: {
@@ -39,7 +39,7 @@ export const navigateToToolDefinition: UnifiedToolDefinition = {
 
 export const showProjectDetailsToolDefinition: UnifiedToolDefinition = {
   name: 'showProjectDetails',
-  description: 'Show details for a specific project in a modal. Use searchProjects first to find the exact project slug if you only have a partial name.',
+  description: 'INTERNAL/RECOVERY TOOL: Low-level project modal display. Use ui.navigate with project target instead for better reliability.',
   parameters: {
     type: 'object',
     properties: {
@@ -72,7 +72,7 @@ export const showProjectDetailsToolDefinition: UnifiedToolDefinition = {
 
 export const scrollIntoViewToolDefinition: UnifiedToolDefinition = {
   name: 'scrollIntoView',
-  description: 'Scroll to bring a specific element into view on the current page. For homepage sections, use section names like "hero", "about", "bio", "projects", "contact", or CSS selectors.',
+  description: 'INTERNAL/RECOVERY TOOL: Low-level element scrolling. Use ui.navigate with section target instead for better reliability and context awareness.',
   parameters: {
     type: 'object',
     properties: {
@@ -109,7 +109,7 @@ export const scrollIntoViewToolDefinition: UnifiedToolDefinition = {
 
 export const highlightTextToolDefinition: UnifiedToolDefinition = {
   name: 'highlightText',
-  description: 'Highlight specific text or elements on the page for visual emphasis. For homepage sections, use section names like "hero", "about", "bio", "projects", "contact", or CSS selectors.',
+  description: 'INTERNAL/RECOVERY TOOL: Low-level text highlighting. Use ui.navigate for navigation with automatic highlighting, or use this only for specific emphasis needs.',
   parameters: {
     type: 'object',
     properties: {
@@ -367,10 +367,10 @@ export const animateElementToolDefinition: UnifiedToolDefinition = {
   }
 };
 
-// Declarative Navigation Tools - Goal-based navigation
-export const uiIntentToolDefinition: UnifiedToolDefinition = {
-  name: 'ui_intent',
-  description: 'Achieve a navigation goal declaratively; the UI will perform all required steps automatically.',
+// PRIMARY NAVIGATION TOOL - Use this for all navigation requests
+export const uiNavigateToolDefinition: UnifiedToolDefinition = {
+  name: 'ui.navigate',
+  description: 'PRIMARY NAVIGATION TOOL: Achieve any navigation goal declaratively. The UI will automatically plan and execute all required steps. Use this instead of step-by-step tools like navigateTo, scrollIntoView, etc.',
   parameters: {
     type: 'object',
     properties: {
@@ -464,8 +464,8 @@ export const uiIntentToolDefinition: UnifiedToolDefinition = {
 };
 
 export const uiDescribeToolDefinition: UnifiedToolDefinition = {
-  name: 'ui_describe',
-  description: 'Get current UI state and available navigation affordances.',
+  name: 'ui.describe',
+  description: 'Get current UI state and available navigation affordances. Use this to understand what navigation options are available.',
   parameters: {
     type: 'object',
     properties: {}
@@ -516,7 +516,7 @@ export const clientToolDefinitions: UnifiedToolDefinition[] = [
   fillFormFieldToolDefinition,
   submitFormToolDefinition,
   animateElementToolDefinition,
-  uiIntentToolDefinition,
+  uiNavigateToolDefinition,
   uiDescribeToolDefinition
 ];
 

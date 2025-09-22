@@ -218,7 +218,7 @@ export class UINavigationTools {
     }
   }
 
-  // Navigation tools
+  // INTERNAL/RECOVERY NAVIGATION TOOLS - Use ui.navigate instead for better reliability
 
   async navigateTo(args: { path: string; newTab?: boolean }, sessionId?: string): Promise<NavigationResult> {
     return this.executeAndReport('navigateTo', args, async () => {
@@ -678,20 +678,21 @@ export class UINavigationTools {
     }, sessionId);
   }
 
-  // Declarative Navigation Tools
+  // PRIMARY NAVIGATION INTERFACE - Use these methods for all navigation
 
-  async ui_intent(args: any, sessionId?: string): Promise<NavigationResult> {
-    return this.executeAndReport('ui_intent', args, async () => {
+  async ['ui.navigate'](args: any, sessionId?: string): Promise<NavigationResult> {
+    return this.executeAndReport('ui.navigate', args, async () => {
       try {
-        console.log('🔍 ui_intent called with args:', JSON.stringify(args, null, 2));
+        console.log('🧭 ui.navigate called with args:', JSON.stringify(args, null, 2));
         
         // Import UIManager dynamically to avoid circular dependencies
-        const { uiManager } = await import('@/lib/navigation/UIManager');
+        const { UIManager } = await import('@/lib/navigation/UIManager');
+        const uiManager = UIManager.getInstance();
         
-        console.log('🔍 UIManager imported, calling executeIntent...');
+        console.log('🧭 UIManager imported, calling executeIntent...');
         const result = await uiManager.executeIntent(args, sessionId);
         
-        console.log('🔍 UIManager executeIntent result:', JSON.stringify(result, null, 2));
+        console.log('🧭 UIManager executeIntent result:', JSON.stringify(result, null, 2));
         
         return {
           success: result.success,
@@ -700,7 +701,7 @@ export class UINavigationTools {
           error: result.error
         };
       } catch (error) {
-        console.error('❌ ui_intent error:', error);
+        console.error('❌ ui.navigate error:', error);
         return {
           success: false,
           message: `Failed to execute navigation intent`,
@@ -710,11 +711,12 @@ export class UINavigationTools {
     }, sessionId);
   }
 
-  async ui_describe(args: any = {}, sessionId?: string): Promise<NavigationResult> {
-    return this.executeAndReport('ui_describe', args, async () => {
+  async ['ui.describe'](args: any = {}, sessionId?: string): Promise<NavigationResult> {
+    return this.executeAndReport('ui.describe', args, async () => {
       try {
         // Import UIManager dynamically to avoid circular dependencies
-        const { uiManager } = await import('@/lib/navigation/UIManager');
+        const { UIManager } = await import('@/lib/navigation/UIManager');
+        const uiManager = UIManager.getInstance();
         
         const description = await uiManager.describe();
         
@@ -732,6 +734,8 @@ export class UINavigationTools {
       }
     }, sessionId);
   }
+
+  // LEGACY/RECOVERY NAVIGATION TOOLS - Use ui.navigate instead for better reliability
 
   // Utility methods
 
