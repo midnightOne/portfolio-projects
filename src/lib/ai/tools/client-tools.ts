@@ -10,7 +10,7 @@ import { UnifiedToolDefinition } from './types';
 // Navigation Tools - Direct browser execution
 export const navigateToToolDefinition: UnifiedToolDefinition = {
   name: 'navigateTo',
-  description: 'INTERNAL/RECOVERY TOOL: Low-level page navigation. Use ui.navigate instead for better reliability. Only use this for debugging or when ui.navigate fails.',
+  description: 'INTERNAL/RECOVERY TOOL: Low-level page navigation. Use ui_navigate instead for better reliability. Only use this for debugging or when ui_navigate fails.',
   parameters: {
     type: 'object',
     properties: {
@@ -39,7 +39,7 @@ export const navigateToToolDefinition: UnifiedToolDefinition = {
 
 export const showProjectDetailsToolDefinition: UnifiedToolDefinition = {
   name: 'showProjectDetails',
-  description: 'INTERNAL/RECOVERY TOOL: Low-level project modal display. Use ui.navigate with project target instead for better reliability.',
+  description: 'INTERNAL/RECOVERY TOOL: Low-level project modal display. Use ui_navigate with project target instead for better reliability.',
   parameters: {
     type: 'object',
     properties: {
@@ -72,7 +72,7 @@ export const showProjectDetailsToolDefinition: UnifiedToolDefinition = {
 
 export const scrollIntoViewToolDefinition: UnifiedToolDefinition = {
   name: 'scrollIntoView',
-  description: 'INTERNAL/RECOVERY TOOL: Low-level element scrolling. Use ui.navigate with section target instead for better reliability and context awareness.',
+  description: 'INTERNAL/RECOVERY TOOL: Low-level element scrolling. Use ui_navigate with section target instead for better reliability and context awareness.',
   parameters: {
     type: 'object',
     properties: {
@@ -109,7 +109,7 @@ export const scrollIntoViewToolDefinition: UnifiedToolDefinition = {
 
 export const highlightTextToolDefinition: UnifiedToolDefinition = {
   name: 'highlightText',
-  description: 'INTERNAL/RECOVERY TOOL: Low-level text highlighting. Use ui.navigate for navigation with automatic highlighting, or use this only for specific emphasis needs.',
+  description: 'INTERNAL/RECOVERY TOOL: Low-level text highlighting. Use ui_navigate for navigation with automatic highlighting, or use this only for specific emphasis needs.',
   parameters: {
     type: 'object',
     properties: {
@@ -369,7 +369,7 @@ export const animateElementToolDefinition: UnifiedToolDefinition = {
 
 // PRIMARY NAVIGATION TOOL - Use this for all navigation requests
 export const uiNavigateToolDefinition: UnifiedToolDefinition = {
-  name: 'ui.navigate',
+  name: 'ui_navigate',
   description: 'PRIMARY NAVIGATION TOOL: Achieve any navigation goal declaratively. The UI will automatically plan and execute all required steps. Use this instead of step-by-step tools like navigateTo, scrollIntoView, etc.',
   parameters: {
     type: 'object',
@@ -464,7 +464,7 @@ export const uiNavigateToolDefinition: UnifiedToolDefinition = {
 };
 
 export const uiDescribeToolDefinition: UnifiedToolDefinition = {
-  name: 'ui.describe',
+  name: 'ui_describe',
   description: 'Get current UI state and available navigation affordances. Use this to understand what navigation options are available.',
   parameters: {
     type: 'object',

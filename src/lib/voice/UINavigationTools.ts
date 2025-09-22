@@ -218,7 +218,7 @@ export class UINavigationTools {
     }
   }
 
-  // INTERNAL/RECOVERY NAVIGATION TOOLS - Use ui.navigate instead for better reliability
+  // INTERNAL/RECOVERY NAVIGATION TOOLS - Use ui_navigate instead for better reliability
 
   async navigateTo(args: { path: string; newTab?: boolean }, sessionId?: string): Promise<NavigationResult> {
     return this.executeAndReport('navigateTo', args, async () => {
@@ -680,10 +680,10 @@ export class UINavigationTools {
 
   // PRIMARY NAVIGATION INTERFACE - Use these methods for all navigation
 
-  async ['ui.navigate'](args: any, sessionId?: string): Promise<NavigationResult> {
-    return this.executeAndReport('ui.navigate', args, async () => {
+  async ['ui_navigate'](args: any, sessionId?: string): Promise<NavigationResult> {
+    return this.executeAndReport('ui_navigate', args, async () => {
       try {
-        console.log('🧭 ui.navigate called with args:', JSON.stringify(args, null, 2));
+        console.log('🧭 ui_navigate called with args:', JSON.stringify(args, null, 2));
         
         // Import UIManager dynamically to avoid circular dependencies
         const { UIManager } = await import('@/lib/navigation/UIManager');
@@ -701,7 +701,7 @@ export class UINavigationTools {
           error: result.error
         };
       } catch (error) {
-        console.error('❌ ui.navigate error:', error);
+        console.error('❌ ui_navigate error:', error);
         return {
           success: false,
           message: `Failed to execute navigation intent`,
@@ -711,8 +711,8 @@ export class UINavigationTools {
     }, sessionId);
   }
 
-  async ['ui.describe'](args: any = {}, sessionId?: string): Promise<NavigationResult> {
-    return this.executeAndReport('ui.describe', args, async () => {
+  async ['ui_describe'](args: any = {}, sessionId?: string): Promise<NavigationResult> {
+    return this.executeAndReport('ui_describe', args, async () => {
       try {
         // Import UIManager dynamically to avoid circular dependencies
         const { UIManager } = await import('@/lib/navigation/UIManager');
@@ -735,7 +735,7 @@ export class UINavigationTools {
     }, sessionId);
   }
 
-  // LEGACY/RECOVERY NAVIGATION TOOLS - Use ui.navigate instead for better reliability
+  // LEGACY/RECOVERY NAVIGATION TOOLS - Use ui_navigate instead for better reliability
 
   // Utility methods
 

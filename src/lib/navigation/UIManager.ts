@@ -16,6 +16,7 @@
 
 import { debugEventEmitter } from '../debug/debugEventEmitter';
 import { v4 as uuidv4 } from 'uuid';
+import { getSemanticIDRegistry, SemanticIDRegistryProvider } from './SemanticIDRegistry';
 
 // Comprehensive UI State interfaces for both navigation and AI
 export interface UIState {
@@ -520,6 +521,9 @@ export class UIManager {
     }, 2000); // 2 seconds for general state updates
 
     this._setupEpochTracking();
+    
+    // Initialize and register semantic ID registry
+    this._initializeSemanticRegistry();
   }
 
   static getInstance(): UIManager {
@@ -606,6 +610,10 @@ export class UIManager {
     this._setupIntersectionObserver();
     this._setupNavigationListeners();
     this._setupGlobalErrorHandling();
+    
+    // Initialize semantic ID registry
+    this._initializeSemanticRegistryOnDOMReady();
+    
     this._isInitialized = true;
 
     // Initial state capture
@@ -2498,24 +2506,41 @@ export class UIManager {
     behavior: any
   ): Promise<NavigationStep[]> {
     try {
-      // Try to find section by semantic ID
-      const sections = await this._detectAvailableSections();
-      const targetSection = sections.find(s => s.semanticId === semanticId || s.id === semanticId);
+      // First, try to validate semantic ID using registry
+      const isValidSemantic = await this.validateSemanticID(semanticId);
       
-      if (targetSection) {
-        // Found semantic section, navigate to it
-        if (targetSection.projectId && targetSection.projectId !== this._getProjectParam()) {
-          // Need to switch projects first
-          return this._planComplexProjectNavigation(targetSection.projectId, targetSection.id, currentState, behavior);
-        } else {
-          // Direct section navigation
-          return this._planSectionNavigation(targetSection.id, currentState, behavior);
+      if (isValidSemantic) {
+        // Semantic ID is valid, try to find section
+        const sections = await this._detectAvailableSections();
+        const targetSection = sections.find(s => s.semanticId === semanticId || s.id === semanticId);
+        
+        if (targetSection) {
+          // Found semantic section, navigate to it
+          if (targetSection.projectId && targetSection.projectId !== this._getProjectParam()) {
+            // Need to switch projects first
+            return this._planComplexProjectNavigation(targetSection.projectId, targetSection.id, currentState, behavior);
+          } else {
+            // Direct section navigation
+            return this._planSectionNavigation(targetSection.id, currentState, behavior);
+          }
         }
       }
       
-      // Semantic section not found, try fallback
+      // Semantic section not found or invalid, try fallback
       if (fallbackId) {
-        console.warn(`Semantic ID ${semanticId} not found, using fallback ${fallbackId}`);
+        console.warn(`Semantic ID ${semanticId} not found or invalid, using fallback ${fallbackId}`);
+        
+        debugEventEmitter.emit(
+          'navigation_event',
+          {
+            type: 'semantic_navigation_fallback',
+            semanticId,
+            fallbackId,
+            reason: isValidSemantic ? 'section_not_found' : 'invalid_semantic_id'
+          },
+          'ui-manager'
+        );
+        
         return this._planSectionNavigation(fallbackId, currentState, behavior);
       }
       
@@ -2525,6 +2550,18 @@ export class UIManager {
       // If semantic navigation fails completely, try fallback
       if (fallbackId) {
         console.warn(`Semantic navigation failed, using fallback:`, error);
+        
+        debugEventEmitter.emit(
+          'navigation_event',
+          {
+            type: 'semantic_navigation_error_fallback',
+            semanticId,
+            fallbackId,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          },
+          'ui-manager'
+        );
+        
         return this._planSectionNavigation(fallbackId, currentState, behavior);
       }
       
@@ -3690,6 +3727,107 @@ export class UIManager {
     }
     
     return false;
+  }
+
+  /**
+   * Initialize semantic ID registry when DOM is ready
+   */
+  private _initializeSemanticRegistryOnDOMReady(): void {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const initRegistry = () => {
+      try {
+        const semanticRegistry = getSemanticIDRegistry();
+        semanticRegistry.initialize();
+        
+        // Register as content provider for section discovery
+        this.registerContentProvider(semanticRegistry);
+        
+        debugEventEmitter.emit(
+          'navigation_event',
+          {
+            type: 'semantic_registry_initialized_dom_ready',
+            registryName: semanticRegistry.name
+          },
+          'ui-manager'
+        );
+      } catch (error) {
+        console.error('Failed to initialize semantic ID registry on DOM ready:', error);
+      }
+    };
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initRegistry);
+    } else {
+      // DOM is already ready
+      initRegistry();
+    }
+  }
+
+  /**
+   * Initialize semantic ID registry and register it as a content provider
+   */
+  private _initializeSemanticRegistry(): void {
+    try {
+      const semanticRegistry = getSemanticIDRegistry();
+      
+      // Register as content provider for section discovery
+      this.registerContentProvider(semanticRegistry);
+      
+      debugEventEmitter.emit(
+        'navigation_event',
+        {
+          type: 'semantic_registry_integrated',
+          registryName: semanticRegistry.name
+        },
+        'ui-manager'
+      );
+    } catch (error) {
+      console.error('Failed to initialize semantic ID registry:', error);
+      
+      debugEventEmitter.emit(
+        'navigation_event',
+        {
+          type: 'semantic_registry_integration_failed',
+          error: error instanceof Error ? error.message : 'Unknown error'
+        },
+        'ui-manager'
+      );
+    }
+  }
+
+  /**
+   * Get the semantic ID registry instance
+   */
+  getSemanticIDRegistry(): SemanticIDRegistryProvider | null {
+    const provider = this._contentProviders.find(p => p.name === 'semantic-id-registry');
+    return provider as SemanticIDRegistryProvider || null;
+  }
+
+  /**
+   * Resolve semantic ID to element using the registry
+   */
+  resolveSemanticID(semanticId: string): Element | null {
+    const registry = this.getSemanticIDRegistry();
+    if (!registry) {
+      return null;
+    }
+    
+    return registry.resolveSemanticID(semanticId);
+  }
+
+  /**
+   * Validate semantic ID using the registry
+   */
+  async validateSemanticID(semanticId: string): Promise<boolean> {
+    const registry = this.getSemanticIDRegistry();
+    if (!registry) {
+      return false;
+    }
+    
+    return registry.validateSection(semanticId);
   }
 
   /**
