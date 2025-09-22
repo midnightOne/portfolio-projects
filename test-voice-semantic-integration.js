@@ -14,9 +14,31 @@ async function testVoiceSemanticIntegration() {
   const page = await browser.newPage();
   
   try {
-    // Navigate to voice test page
+    // Navigate to voice test page and handle login
     await page.goto('http://localhost:3000/admin/ai/voice-test');
     await page.waitForLoadState('networkidle');
+    
+    // Check if we're on login page and authenticate
+    const isLoginPage = await page.locator('input[name="username"], input[type="text"]').count() > 0;
+    if (isLoginPage) {
+      console.log('🔐 Login required, authenticating...');
+      
+      // Fill login form
+      await page.fill('input[name="username"], input[type="text"]', 'admin');
+      await page.fill('input[name="password"], input[type="password"]', 'admin2025');
+      
+      // Submit login
+      const submitButton = await page.locator('button[type="submit"]').first();
+      if (await submitButton.count() > 0) {
+        await submitButton.click();
+      } else {
+        // Try to find submit button by text
+        await page.click('button:has-text("Sign In"), button:has-text("Login"), button:has-text("Submit")');
+      }
+      await page.waitForLoadState('networkidle');
+      
+      console.log('✅ Authenticated successfully');
+    }
     
     console.log('✅ Voice test page loaded');
     

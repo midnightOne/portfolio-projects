@@ -94,8 +94,8 @@ export class SemanticIDRegistryProvider implements ContentProvider {
       fallbackId: 'skills'
     },
     'home': {
-      selector: '[data-semantic-id="home"], #home, .hero-section, main, body, [data-section-type="hero"], [data-section-id*="hero"]',
-      aliases: ['homepage', 'landing', 'intro'],
+      selector: '[data-semantic-id="home"], #home, .hero-section, [data-section-type="hero"], [data-section-id*="hero"], main, html',
+      aliases: ['homepage', 'landing', 'intro', 'top'],
       fallbackId: 'home'
     }
   };
