@@ -402,10 +402,11 @@ export class BackendToolService {
         });
       }
 
-      // Apply tag filtering
+      // Apply tag filtering (case-insensitive)
       if (tags && tags.length > 0) {
+        const tagsLower = tags.map(t => t.toLowerCase());
         searchResults = searchResults.filter((project: any) =>
-          project.tags.some((tag: string) => tags.includes(tag))
+          project.tags.some((tag: string) => tagsLower.includes(tag.toLowerCase()))
         );
       }
 

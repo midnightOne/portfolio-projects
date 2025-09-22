@@ -504,7 +504,7 @@ Navigation Flow:
         // Enhanced transport event handling with comprehensive logging
         this._session.on('transport_event', (event: TransportEvent) => {
             this._events.push(event);
-            console.log('Transport event:', event.type, event);
+            //console.log('Transport event:', event.type, event);
 
             // Handle transcript events
             if (event.type === 'conversation.item.input_audio_transcription.completed') {
