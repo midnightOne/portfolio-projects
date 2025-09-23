@@ -252,17 +252,20 @@ model AIGeneralSettings {
 }
 
 model ProjectAIIndex {
-  projectId     String   @id @db.VarChar(255)
+  projectId     String        @id @db.VarChar(255)
   summary       String
-  keywords      Json     @default("[]")
-  topics        Json     @default("[]")
-  technologies  Json     @default("[]")
-  sectionsCount Int      @default(0)
-  mediaCount    Int      @default(0)
-  contentHash   String?  @db.VarChar(255)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @default(now())
-  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  keywords      Json          @default("[]")
+  topics        Json          @default("[]")
+  technologies  Json          @default("[]")
+  sectionsCount Int           @default(0)
+  mediaCount    Int           @default(0)
+  contentHash   String?       @db.VarChar(255)
+  contentTiers  Json?         // T0-T4 tier content storage
+  embeddingVector Unsupported("vector(1536)")?     // Vector embedding for semantic search
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @default(now())
+  project       Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contentChunks ContextChunk[] // Relation to hierarchical content chunks
 
   @@index([contentHash])
   @@index([updatedAt])
@@ -555,4 +558,79 @@ enum AIRateLimitTier {
   UNLIMITED
 
   @@map("ai_rate_limit_tier")
+}
+
+// Hierarchical Content Storage Models for T0-T4 Tier System
+
+model ContentEntity {
+  id           String         @id @default(cuid())
+  entityType   ContentEntityType
+  slug         String         // Project slug, 'bio', 'resume', etc.
+  title        String?        @db.VarChar(255)
+  description  String?
+  tags         Json           @default("[]") // String array of tags
+  technologies Json           @default("[]") // String array of technologies
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  contentChunks ContextChunk[]
+
+  @@unique([entityType, slug])
+  @@index([entityType])
+  @@index([slug])
+  @@index([tags], type: Gin)
+  @@index([technologies], type: Gin)
+  @@map("content_entities")
+}
+
+model ContextChunk {
+  id              String         @id @default(cuid())
+  entityId        String         @map("entity_id")
+  projectIndexId  String?        @map("project_index_id") // Optional link to ProjectAIIndex
+  tier            Int            // 0-4 representing T0-T4 tiers
+  chunkId         String         @map("chunk_id") // Unique identifier within entity (e.g., "section-1", "summary")
+  title           String?        @db.VarChar(255)
+  content         String         // The actual text content for this tier
+  tokenCount      Int            @default(0) @map("token_count") // Estimated token count
+  embeddingVector Unsupported("vector(1536)")?        @map("embedding_vector") // Vector embedding
+  metadata        Json           @default("{}") // Additional metadata (importance score, keywords, etc.)
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  
+  // Relations
+  entity          ContentEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  projectIndex    ProjectAIIndex? @relation(fields: [projectIndexId], references: [projectId], onDelete: SetNull)
+
+  @@unique([entityId, tier, chunkId])
+  @@index([entityId])
+  @@index([tier])
+  @@index([chunkId])
+  @@index([tokenCount])
+  @@index([projectIndexId])
+  @@map("context_chunks")
+}
+
+model ContentVersion {
+  id              String    @id @default(cuid())
+  entityId        String    @map("entity_id")
+  versionNumber   Int       @map("version_number")
+  contentHash     String    @map("content_hash") @db.VarChar(255)
+  changesSummary  String?   @map("changes_summary")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  
+  @@unique([entityId, versionNumber])
+  @@index([entityId])
+  @@index([contentHash])
+  @@index([createdAt])
+  @@map("content_versions")
+}
+
+enum ContentEntityType {
+  PROJECT
+  BIO
+  RESUME
+  EXPERIENCE
+  SKILLS
+  CUSTOM
+
+  @@map("content_entity_type")
 }

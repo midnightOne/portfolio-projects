@@ -14,6 +14,10 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed-homepage": "node scripts/seed-homepage-config.js",
+
+    "db:setup-pgvector": "tsx scripts/setup-pgvector.ts",
+    "db:test-content": "tsx scripts/test-hierarchical-content.ts",
+    "db:verify-content": "tsx scripts/verify-hierarchical-content-system.ts",
     "db:post-reset": "node scripts/post-reset-setup.js",
     "db:setup": "tsx scripts/setup-database.ts",
     "db:test": "tsx scripts/test-db-connection.ts",
