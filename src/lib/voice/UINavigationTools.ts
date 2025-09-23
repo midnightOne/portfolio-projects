@@ -680,17 +680,88 @@ export class UINavigationTools {
 
   // PRIMARY NAVIGATION INTERFACE - Use these methods for all navigation
 
-  async ['ui_navigate'](args: any, sessionId?: string): Promise<NavigationResult> {
-    return this.executeAndReport('ui_navigate', args, async () => {
+  async ['ui_intent'](args: any, sessionId?: string): Promise<NavigationResult> {
+    return this.executeAndReport('ui_intent', args, async () => {
       try {
-        console.log('🧭 ui_navigate called with args:', JSON.stringify(args, null, 2));
+        console.log('🎯 ui_intent called with args:', JSON.stringify(args, null, 2));
+        
+        // Parse args if they come as a string (from voice interface)
+        let params = args;
+        if (typeof args === 'string') {
+          try {
+            params = JSON.parse(args);
+          } catch (parseError) {
+            console.error('❌ Failed to parse ui_intent args:', parseError);
+            throw new Error('Invalid JSON parameters for ui_intent');
+          }
+        }
+        
+        // Ensure params has the correct structure for UIIntentParams
+        if (!params.target) {
+          console.error('❌ ui_intent missing target:', params);
+          throw new Error('ui_intent requires a target parameter');
+        }
         
         // Import UIManager dynamically to avoid circular dependencies
         const { UIManager } = await import('@/lib/navigation/UIManager');
         const uiManager = UIManager.getInstance();
         
-        console.log('🧭 UIManager imported, calling executeIntent...');
-        const result = await uiManager.executeIntent(args, sessionId);
+        console.log('🎯 UIManager imported, calling executeIntent with params:', JSON.stringify(params, null, 2));
+        const result = await uiManager.executeIntent(params, sessionId);
+        
+        console.log('🎯 UIManager executeIntent result:', JSON.stringify(result, null, 2));
+        
+        return {
+          success: result.success,
+          message: result.message,
+          data: result.executedSteps || result.data,
+          error: result.error,
+          executedSteps: result.executedSteps || [],
+          totalTime: result.totalTime || 0
+        };
+        
+      } catch (error) {
+        console.error('❌ ui_intent error:', error);
+        return {
+          success: false,
+          message: error instanceof Error ? error.message : 'Unknown error in ui_intent',
+          error: error instanceof Error ? error.message : 'Unknown error',
+          data: null,
+          executedSteps: [],
+          totalTime: 0
+        };
+      }
+    });
+  }
+
+  async ['ui_navigate'](args: any, sessionId?: string): Promise<NavigationResult> {
+    return this.executeAndReport('ui_navigate', args, async () => {
+      try {
+        console.log('🧭 ui_navigate called with args:', JSON.stringify(args, null, 2));
+        
+        // Parse args if they come as a string (from voice interface)
+        let params = args;
+        if (typeof args === 'string') {
+          try {
+            params = JSON.parse(args);
+          } catch (parseError) {
+            console.error('❌ Failed to parse ui_navigate args:', parseError);
+            throw new Error('Invalid JSON parameters for ui_navigate');
+          }
+        }
+        
+        // Ensure params has the correct structure for UIIntentParams
+        if (!params.target) {
+          console.error('❌ ui_navigate missing target:', params);
+          throw new Error('ui_navigate requires a target parameter');
+        }
+        
+        // Import UIManager dynamically to avoid circular dependencies
+        const { UIManager } = await import('@/lib/navigation/UIManager');
+        const uiManager = UIManager.getInstance();
+        
+        console.log('🧭 UIManager imported, calling executeIntent with params:', JSON.stringify(params, null, 2));
+        const result = await uiManager.executeIntent(params, sessionId);
         
         console.log('🧭 UIManager executeIntent result:', JSON.stringify(result, null, 2));
         

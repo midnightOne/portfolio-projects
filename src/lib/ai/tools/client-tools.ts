@@ -504,6 +504,107 @@ export const uiDescribeToolDefinition: UnifiedToolDefinition = {
   }
 };
 
+// UIManager Navigation Tools - Declarative navigation system
+export const uiIntentToolDefinition: UnifiedToolDefinition = {
+  name: 'ui_intent',
+  description: 'PRIMARY NAVIGATION TOOL: Execute declarative navigation intents using the UIManager system. Use this for ALL navigation goals including projects, sections, routes, and modal operations.',
+  parameters: {
+    type: 'object',
+    properties: {
+      epoch: {
+        type: 'number',
+        description: 'Client UI state version for consistency checking (optional)'
+      },
+      target: {
+        type: 'object',
+        description: 'Navigation target specification',
+        oneOf: [
+          {
+            type: 'object',
+            properties: {
+              type: { type: 'string', enum: ['project'] },
+              id: { type: 'string', description: 'Project slug (e.g., "e-commerce-platform")' },
+              sectionId: { type: 'string', description: 'Optional section within project' }
+            },
+            required: ['type', 'id']
+          },
+          {
+            type: 'object',
+            properties: {
+              type: { type: 'string', enum: ['section'] },
+              id: { type: 'string', description: 'Section identifier (e.g., "hero", "about", "contact")' },
+              projectId: { type: 'string', description: 'Optional project context' }
+            },
+            required: ['type', 'id']
+          },
+          {
+            type: 'object',
+            properties: {
+              type: { type: 'string', enum: ['route'] },
+              id: { type: 'string', description: 'Route name (e.g., "home", "projects")' }
+            },
+            required: ['type', 'id']
+          },
+          {
+            type: 'object',
+            properties: {
+              type: { type: 'string', enum: ['modal'] },
+              id: { type: 'string', description: 'Modal identifier or "close" to close modals' },
+              parentContext: { type: 'string', description: 'Optional parent context' }
+            },
+            required: ['type', 'id']
+          },
+          {
+            type: 'object',
+            properties: {
+              type: { type: 'string', enum: ['element'] },
+              id: { type: 'string', description: 'Element identifier for tabs, accordions, etc.' }
+            },
+            required: ['type', 'id']
+          }
+        ]
+      },
+      behavior: {
+        type: 'object',
+        description: 'Navigation behavior options',
+        properties: {
+          openIfNeeded: { type: 'boolean', description: 'Open modal or navigate if required' },
+          closeBlocking: { type: 'boolean', description: 'Close blocking modals if needed' },
+          waitForReadyMs: { type: 'number', description: 'Wait time for transitions' },
+          scrollBehavior: { type: 'string', enum: ['smooth', 'instant'], description: 'Scroll animation type' },
+          allowInterruption: { type: 'boolean', description: 'Allow navigation to be interrupted' }
+        }
+      },
+      scope: {
+        type: 'object',
+        description: 'Navigation scope constraints',
+        properties: {
+          route: { type: 'string', description: 'Limit to specific route' },
+          modalId: { type: 'string', description: 'Limit to specific modal' },
+          projectId: { type: 'string', description: 'Limit to specific project' }
+        }
+      },
+      idempotencyKey: {
+        type: 'string',
+        description: 'Unique key to prevent duplicate navigation operations'
+      }
+    },
+    required: ['target']
+  },
+  executionContext: 'client',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean' },
+      message: { type: 'string' },
+      data: { type: 'object' },
+      error: { type: 'string' },
+      executedSteps: { type: 'array', items: { type: 'string' } },
+      totalTime: { type: 'number' }
+    }
+  }
+};
+
 // Export all client-side tool definitions
 export const clientToolDefinitions: UnifiedToolDefinition[] = [
   navigateToToolDefinition,
@@ -517,7 +618,8 @@ export const clientToolDefinitions: UnifiedToolDefinition[] = [
   submitFormToolDefinition,
   animateElementToolDefinition,
   uiNavigateToolDefinition,
-  uiDescribeToolDefinition
+  uiDescribeToolDefinition,
+  uiIntentToolDefinition
 ];
 
 // Individual tools are already exported above with their definitions
