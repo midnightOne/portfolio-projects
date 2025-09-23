@@ -155,9 +155,15 @@ export class VectorOperations {
     limit: number = 10,
     tierFilter?: number
   ): Promise<VectorSearchResult[]> {
+    const startTime = Date.now();
+    
+    // Time the embedding string conversion
+    const embeddingConversionStart = Date.now();
     const embeddingString = `[${embedding.join(',')}]`;
+    const embeddingConversionTime = Date.now() - embeddingConversionStart;
     
     // Build the query dynamically to handle optional tier filtering
+    const queryBuildStart = Date.now();
     let query = `
       SELECT 
         c.id,
@@ -185,8 +191,25 @@ export class VectorOperations {
       query += ` ORDER BY c.embedding_vector <=> $1::vector(1536) LIMIT $2`;
       params.push(limit);
     }
+    const queryBuildTime = Date.now() - queryBuildStart;
 
+    // Time the actual database query execution
+    const dbQueryStart = Date.now();
     const results = await this.prisma.$queryRawUnsafe<VectorSearchResult[]>(query, ...params);
+    const dbQueryTime = Date.now() - dbQueryStart;
+    
+    const totalTime = Date.now() - startTime;
+
+    // Log detailed vector search performance
+    console.log(`[VectorOps] Semantic search performance:`, {
+      embeddingConversion: `${embeddingConversionTime}ms`,
+      queryBuild: `${queryBuildTime}ms`,
+      dbQuery: `${dbQueryTime}ms`,
+      total: `${totalTime}ms`,
+      results: results.length,
+      limit,
+      tierFilter
+    });
 
     return results;
   }

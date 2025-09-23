@@ -19,6 +19,7 @@ import VectorOperations, { VectorSearchResult } from './VectorOperations';
 import { debugEventEmitter } from '../debug/debugEventEmitter';
 import OpenAI from 'openai';
 import { ContentProvider, SemanticSection, NavigationContext } from '../navigation/UIManager';
+import { embeddingCache } from './EmbeddingCache';
 
 const prisma = new PrismaClient();
 
@@ -71,6 +72,11 @@ export interface ContentSearchResult {
     diversifiedResults: number;
     queryEmbeddingTime: number;
     searchTime: number;
+    timingBreakdown?: Record<string, number>;
+    uiStateEnhanced?: boolean;
+    originalResults?: number;
+    rankedResults?: number;
+    uiContext?: any;
   };
 }
 
@@ -156,6 +162,8 @@ export class ContentSearchService implements ContentProvider {
    */
   async searchContentInternal(params: ContentSearchParams): Promise<ContentSearchResult> {
     const startTime = Date.now();
+    const timings: Record<string, number> = {};
+    
     const {
       query,
       scope = {},
@@ -179,24 +187,51 @@ export class ContentSearchService implements ContentProvider {
       // Step 1: Generate query embedding for semantic search
       const embeddingStartTime = Date.now();
       let queryEmbedding: number[] = [];
+      let cacheHit = false;
+      const embeddingTimings: Record<string, number> = {};
       
       if (this.openai && query.trim()) {
         try {
-          const response = await this.openai.embeddings.create({
-            model: this.embeddingModel,
-            input: query,
-            dimensions: this.embeddingDimensions
-          });
-          queryEmbedding = response.data[0].embedding;
+          // Check cache first
+          const cacheCheckStart = Date.now();
+          const cachedEmbedding = embeddingCache.get(query, this.embeddingModel);
+          embeddingTimings.cacheCheck = Date.now() - cacheCheckStart;
+          
+          if (cachedEmbedding) {
+            queryEmbedding = cachedEmbedding;
+            cacheHit = true;
+            embeddingTimings.cacheRetrieval = Date.now() - cacheCheckStart;
+          } else {
+            // Generate new embedding
+            const apiCallStart = Date.now();
+            const response = await this.openai.embeddings.create({
+              model: this.embeddingModel,
+              input: query,
+              dimensions: this.embeddingDimensions
+            });
+            embeddingTimings.openaiApiCall = Date.now() - apiCallStart;
+            
+            const extractionStart = Date.now();
+            queryEmbedding = response.data[0].embedding;
+            embeddingTimings.dataExtraction = Date.now() - extractionStart;
+            
+            // Cache the result
+            const cacheStoreStart = Date.now();
+            embeddingCache.set(query, queryEmbedding, this.embeddingModel);
+            embeddingTimings.cacheStore = Date.now() - cacheStoreStart;
+          }
         } catch (error) {
           console.error('Failed to generate query embedding:', error);
           // Continue with metadata-only search
         }
       }
       
-      const queryEmbeddingTime = Date.now() - embeddingStartTime;
+      timings.queryEmbeddingTime = Date.now() - embeddingStartTime;
+      timings.embeddingCacheHit = cacheHit;
+      timings.embeddingBreakdown = embeddingTimings;
 
       // Step 2: Perform semantic search with metadata filtering
+      const hybridSearchStartTime = Date.now();
       const searchResults = await this._performHybridSearch(
         queryEmbedding,
         query,
@@ -205,24 +240,44 @@ export class ContentSearchService implements ContentProvider {
         filters,
         k * 3 // Get more results for diversification
       );
+      timings.hybridSearchTime = Date.now() - hybridSearchStartTime;
 
       // Step 3: Apply MMR diversification
+      const mmrStartTime = Date.now();
       const diversifiedResults = this._applyMMR(searchResults, k, diversifyBy);
+      timings.mmrTime = Date.now() - mmrStartTime;
 
       // Step 4: Format results for return
+      const formatStartTime = Date.now();
       const formattedResults = await this._formatSearchResults(diversifiedResults, query);
+      timings.formatTime = Date.now() - formatStartTime;
 
-      const searchTime = Date.now() - startTime;
+      timings.totalTime = Date.now() - startTime;
 
+      // Enhanced debug logging with detailed timings
       debugEventEmitter.emit('content-search-complete', {
         query,
         totalResults: formattedResults.length,
         semanticResults: searchResults.length,
         diversifiedResults: diversifiedResults.length,
-        searchTime,
-        queryEmbeddingTime,
+        timings,
         timestamp: Date.now()
       });
+
+      // Log performance breakdown for debugging
+      console.log(`[ContentSearch] Performance breakdown for query "${query}":`, {
+        embedding: `${timings.queryEmbeddingTime}ms${timings.embeddingCacheHit ? ' (cached)' : ' (API)'}`,
+        hybridSearch: `${timings.hybridSearchTime}ms`,
+        mmr: `${timings.mmrTime}ms`,
+        format: `${timings.formatTime}ms`,
+        total: `${timings.totalTime}ms`,
+        results: `${searchResults.length} → ${diversifiedResults.length} → ${formattedResults.length}`
+      });
+
+      // Log detailed embedding breakdown if not cached
+      if (!timings.embeddingCacheHit && timings.embeddingBreakdown) {
+        console.log(`[ContentSearch] Embedding generation breakdown:`, timings.embeddingBreakdown);
+      }
 
       return {
         items: formattedResults,
@@ -235,8 +290,10 @@ export class ContentSearchService implements ContentProvider {
           semanticResults: searchResults.length,
           filteredResults: searchResults.length,
           diversifiedResults: diversifiedResults.length,
-          queryEmbeddingTime,
-          searchTime
+          queryEmbeddingTime: timings.queryEmbeddingTime,
+          searchTime: timings.totalTime,
+          // Add detailed timing breakdown
+          timingBreakdown: timings
         }
       };
 
@@ -259,7 +316,8 @@ export class ContentSearchService implements ContentProvider {
           filteredResults: 0,
           diversifiedResults: 0,
           queryEmbeddingTime: 0,
-          searchTime: Date.now() - startTime
+          searchTime: Date.now() - startTime,
+          timingBreakdown: {}
         }
       };
     }
@@ -531,6 +589,7 @@ export class ContentSearchService implements ContentProvider {
     chunksWithEmbeddings: number;
     entitiesByType: Record<string, number>;
     chunksByTier: Record<number, number>;
+    embeddingCache: any;
   }> {
     try {
       const [
@@ -561,7 +620,8 @@ export class ContentSearchService implements ContentProvider {
         chunksByTier: chunksByTier.reduce((acc, item) => {
           acc[item.tier] = item._count.id;
           return acc;
-        }, {} as Record<number, number>)
+        }, {} as Record<number, number>),
+        embeddingCache: embeddingCache.getStats()
       };
     } catch (error) {
       console.error('Failed to get search stats:', error);
@@ -569,7 +629,8 @@ export class ContentSearchService implements ContentProvider {
         totalChunks: 0,
         chunksWithEmbeddings: 0,
         entitiesByType: {},
-        chunksByTier: {}
+        chunksByTier: {},
+        embeddingCache: embeddingCache.getStats()
       };
     }
   }
@@ -590,21 +651,25 @@ export class ContentSearchService implements ContentProvider {
     limit: number
   ): Promise<InternalSearchResult[]> {
     
+    const hybridTimings: Record<string, number> = {};
     let results: InternalSearchResult[] = [];
 
     // If we have embeddings, use semantic search
     if (queryEmbedding.length > 0) {
       try {
+        // Time the vector search operation
+        const vectorSearchStart = Date.now();
         const semanticResults = await this.vectorOps.semanticSearch(
           queryEmbedding,
           limit,
           maxTier
         );
+        hybridTimings.vectorSearchTime = Date.now() - vectorSearchStart;
 
-        // Get all chunk IDs for batch query (avoid N+1 problem)
+        // Time the batch chunk fetch
+        const chunkFetchStart = Date.now();
         const chunkIds = semanticResults.map(result => result.id);
         
-        // Batch fetch all chunks with entities in one query
         const chunks = await prisma.contextChunk.findMany({
           where: {
             id: { in: chunkIds }
@@ -613,8 +678,10 @@ export class ContentSearchService implements ContentProvider {
             entity: true
           }
         });
+        hybridTimings.chunkFetchTime = Date.now() - chunkFetchStart;
         
-        // Create a map for fast lookup
+        // Time the result processing
+        const processingStart = Date.now();
         const chunkMap = new Map(chunks.map(chunk => [chunk.id, chunk]));
         
         // Convert to internal format and apply additional filtering
@@ -644,6 +711,8 @@ export class ContentSearchService implements ContentProvider {
             createdAt: chunk.createdAt
           });
         }
+        hybridTimings.processingTime = Date.now() - processingStart;
+        
       } catch (error) {
         console.error('Semantic search failed, falling back to metadata search:', error);
       }
@@ -652,6 +721,7 @@ export class ContentSearchService implements ContentProvider {
     // If semantic search failed or returned few results, supplement with metadata search using raw SQL
     if (results.length < limit / 2) {
       try {
+        const metadataSearchStart = Date.now();
         const metadataResults = await this._performMetadataSearchRawSQL(
           query,
           scope,
@@ -659,8 +729,10 @@ export class ContentSearchService implements ContentProvider {
           filters,
           limit
         );
+        hybridTimings.metadataSearchTime = Date.now() - metadataSearchStart;
 
-        // Add metadata results that aren't already in semantic results
+        // Time the result merging
+        const mergingStart = Date.now();
         const existingIds = new Set(results.map(r => r.id));
         
         for (const result of metadataResults) {
@@ -684,10 +756,22 @@ export class ContentSearchService implements ContentProvider {
             createdAt: result.createdAt
           });
         }
+        hybridTimings.mergingTime = Date.now() - mergingStart;
+        
       } catch (error) {
         console.error('Metadata search failed:', error);
       }
     }
+
+    // Log hybrid search performance breakdown
+    console.log(`[HybridSearch] Performance breakdown:`, {
+      vectorSearch: hybridTimings.vectorSearchTime ? `${hybridTimings.vectorSearchTime}ms` : 'skipped',
+      chunkFetch: hybridTimings.chunkFetchTime ? `${hybridTimings.chunkFetchTime}ms` : 'skipped',
+      processing: hybridTimings.processingTime ? `${hybridTimings.processingTime}ms` : 'skipped',
+      metadataSearch: hybridTimings.metadataSearchTime ? `${hybridTimings.metadataSearchTime}ms` : 'skipped',
+      merging: hybridTimings.mergingTime ? `${hybridTimings.mergingTime}ms` : 'skipped',
+      totalResults: results.length
+    });
 
     return results.slice(0, limit);
   }

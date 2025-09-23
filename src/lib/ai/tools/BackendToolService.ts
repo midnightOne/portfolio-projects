@@ -1306,6 +1306,9 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
     parameters: any,
     context: ServerToolExecutionContext
   ): Promise<any> {
+    const backendToolStartTime = Date.now();
+    const backendTimings: Record<string, number> = {};
+    
     try {
       const {
         query,
@@ -1329,6 +1332,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
       });
 
       // Create cache key for request-scoped caching
+      const cacheKeyStart = Date.now();
       const cacheKey = `content_search:${JSON.stringify({
         query,
         scope,
@@ -1340,21 +1344,30 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
           project: uiState?.currentProject
         }
       })}`;
+      backendTimings.cacheKeyGeneration = Date.now() - cacheKeyStart;
 
       // Check request-scoped cache
+      const cacheCheckStart = Date.now();
       const cachedResult = this._getCachedData(cacheKey, 30000); // 30 second cache
+      backendTimings.cacheCheck = Date.now() - cacheCheckStart;
+      
       if (cachedResult) {
         console.log('Content search cache hit:', { cacheKey, sessionId: context.sessionId });
         return cachedResult;
       }
 
       // Enhance scope with UI state context
+      const scopeEnhanceStart = Date.now();
       const enhancedScope = this._enhanceScopeWithUIState(scope, uiState);
+      backendTimings.scopeEnhancement = Date.now() - scopeEnhanceStart;
       
       // Enhance filters with UI state context
+      const filterEnhanceStart = Date.now();
       const enhancedFilters = this._enhanceFiltersWithUIState(filters, uiState);
+      backendTimings.filterEnhancement = Date.now() - filterEnhanceStart;
 
       // Perform content search using ContentSearchService
+      const contentSearchStart = Date.now();
       const searchResult = await this.contentSearchService.searchContent({
         query,
         scope: enhancedScope,
@@ -1363,13 +1376,19 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         diversifyBy,
         filters: enhancedFilters
       });
+      backendTimings.contentSearchService = Date.now() - contentSearchStart;
 
       // Apply UI state-aware ranking and filtering
+      const rankingStart = Date.now();
       const rankedResults = this._applyUIStateAwareRanking(searchResult.items, uiState, k);
+      backendTimings.uiStateRanking = Date.now() - rankingStart;
 
       // Enhance navigation targets with UI state compatibility
+      const enhancementStart = Date.now();
       const enhancedResults = this._enhanceNavigationTargets(rankedResults, uiState);
+      backendTimings.navigationEnhancement = Date.now() - enhancementStart;
 
+      const resultBuildStart = Date.now();
       const finalResult = {
         ...searchResult,
         items: enhancedResults,
@@ -1385,6 +1404,9 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
           }
         }
       };
+      backendTimings.resultBuilding = Date.now() - resultBuildStart;
+
+      backendTimings.totalBackendTime = Date.now() - backendToolStartTime;
 
       console.log('Content search completed with UI state awareness:', {
         query,
@@ -1396,8 +1418,23 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         sessionId: context.sessionId
       });
 
+      // Log backend tool performance breakdown
+      console.log(`[BackendTool] Content search performance breakdown:`, {
+        cacheKeyGen: `${backendTimings.cacheKeyGeneration}ms`,
+        cacheCheck: `${backendTimings.cacheCheck}ms`,
+        scopeEnhance: `${backendTimings.scopeEnhancement}ms`,
+        filterEnhance: `${backendTimings.filterEnhancement}ms`,
+        contentSearch: `${backendTimings.contentSearchService}ms`,
+        uiRanking: `${backendTimings.uiStateRanking}ms`,
+        navEnhance: `${backendTimings.navigationEnhancement}ms`,
+        resultBuild: `${backendTimings.resultBuilding}ms`,
+        totalBackend: `${backendTimings.totalBackendTime}ms`
+      });
+
       // Cache the result for request-scoped caching
+      const cacheStoreStart = Date.now();
       this._setCachedData(cacheKey, finalResult);
+      backendTimings.cacheStore = Date.now() - cacheStoreStart;
 
       return finalResult;
 
