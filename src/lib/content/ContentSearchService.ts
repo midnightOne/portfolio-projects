@@ -590,57 +590,6 @@ export class ContentSearchService implements ContentProvider {
     limit: number
   ): Promise<InternalSearchResult[]> {
     
-    // Build WHERE conditions for metadata filtering
-    const whereConditions: any = {
-      tier: { lte: maxTier }
-    };
-
-    // Scope filtering
-    if (scope.projectId) {
-      whereConditions.entity = {
-        entityType: 'PROJECT',
-        slug: scope.projectId
-      };
-    } else if (scope.entityType) {
-      whereConditions.entity = {
-        entityType: scope.entityType
-      };
-    }
-
-    // Tag filtering - use array_contains for JSON arrays
-    if (filters.tags && filters.tags.length > 0) {
-      whereConditions.entity = {
-        ...whereConditions.entity,
-        tags: {
-          hasSome: filters.tags
-        }
-      };
-    }
-
-    // Technology filtering - use array_contains for JSON arrays
-    if (filters.technologies && filters.technologies.length > 0) {
-      whereConditions.entity = {
-        ...whereConditions.entity,
-        technologies: {
-          hasSome: filters.technologies
-        }
-      };
-    }
-
-    // Date range filtering
-    if (filters.dateRange) {
-      const dateFilter: any = {};
-      if (filters.dateRange.from) {
-        dateFilter.gte = filters.dateRange.from;
-      }
-      if (filters.dateRange.to) {
-        dateFilter.lte = filters.dateRange.to;
-      }
-      if (Object.keys(dateFilter).length > 0) {
-        whereConditions.createdAt = dateFilter;
-      }
-    }
-
     let results: InternalSearchResult[] = [];
 
     // If we have embeddings, use semantic search
@@ -691,53 +640,39 @@ export class ContentSearchService implements ContentProvider {
       }
     }
 
-    // If semantic search failed or returned few results, supplement with metadata search
+    // If semantic search failed or returned few results, supplement with metadata search using raw SQL
     if (results.length < limit / 2) {
       try {
-        // Add text search conditions
-        const textSearchConditions = {
-          ...whereConditions,
-          OR: [
-            { content: { contains: query, mode: 'insensitive' as const } },
-            { title: { contains: query, mode: 'insensitive' as const } },
-            { entity: { title: { contains: query, mode: 'insensitive' as const } } }
-          ]
-        };
-
-        const metadataResults = await prisma.contextChunk.findMany({
-          where: textSearchConditions,
-          include: {
-            entity: true
-          },
-          orderBy: [
-            { tier: 'asc' },
-            { tokenCount: 'desc' }
-          ],
-          take: limit
-        });
+        const metadataResults = await this._performMetadataSearchRawSQL(
+          query,
+          scope,
+          maxTier,
+          filters,
+          limit
+        );
 
         // Add metadata results that aren't already in semantic results
         const existingIds = new Set(results.map(r => r.id));
         
-        for (const chunk of metadataResults) {
-          if (existingIds.has(chunk.id) || !chunk.entity) continue;
+        for (const result of metadataResults) {
+          if (existingIds.has(result.id)) continue;
 
           results.push({
-            id: chunk.id,
-            entityId: chunk.entityId,
-            entityType: chunk.entity.entityType,
-            entitySlug: chunk.entity.slug,
-            entityTitle: chunk.entity.title,
-            tier: chunk.tier,
-            chunkId: chunk.chunkId,
-            title: chunk.title,
-            content: chunk.content,
-            tokenCount: chunk.tokenCount,
+            id: result.id,
+            entityId: result.entityId,
+            entityType: result.entityType,
+            entitySlug: result.entitySlug,
+            entityTitle: result.entityTitle,
+            tier: result.tier,
+            chunkId: result.chunkId,
+            title: result.title,
+            content: result.content,
+            tokenCount: result.tokenCount,
             similarity: 0.5, // Default similarity for metadata matches
-            metadata: chunk.metadata as any,
-            tags: chunk.entity.tags as string[],
-            technologies: chunk.entity.technologies as string[],
-            createdAt: chunk.createdAt
+            metadata: result.metadata,
+            tags: result.tags,
+            technologies: result.technologies,
+            createdAt: result.createdAt
           });
         }
       } catch (error) {
@@ -746,6 +681,130 @@ export class ContentSearchService implements ContentProvider {
     }
 
     return results.slice(0, limit);
+  }
+
+  /**
+   * Perform metadata search using raw SQL to avoid Prisma JSON limitations
+   */
+  private async _performMetadataSearchRawSQL(
+    query: string,
+    scope: ContentSearchParams['scope'] = {},
+    maxTier: number,
+    filters: ContentSearchParams['filters'] = {},
+    limit: number
+  ): Promise<InternalSearchResult[]> {
+    
+    // Build the base SQL query
+    let sql = `
+      SELECT 
+        c.id,
+        c.entity_id as "entityId",
+        c.tier,
+        c.chunk_id as "chunkId", 
+        c.title,
+        c.content,
+        c.token_count as "tokenCount",
+        c.metadata,
+        c.created_at as "createdAt",
+        e.id as entity_id,
+        e."entityType",
+        e.slug as "entitySlug",
+        e.title as "entityTitle",
+        e.tags,
+        e.technologies
+      FROM context_chunks c
+      JOIN content_entities e ON c.entity_id = e.id
+      WHERE c.tier <= $1
+    `;
+
+    const params: any[] = [maxTier];
+    let paramIndex = 2;
+
+    // Add scope filtering
+    if (scope.projectId) {
+      sql += ` AND e."entityType" = 'PROJECT' AND e.slug = $${paramIndex}`;
+      params.push(scope.projectId);
+      paramIndex++;
+    } else if (scope.entityType) {
+      sql += ` AND e."entityType" = $${paramIndex}`;
+      params.push(scope.entityType);
+      paramIndex++;
+    }
+
+    // Add tag filtering using JSON operations
+    if (filters.tags && filters.tags.length > 0) {
+      const tagConditions = filters.tags.map((_, index) => 
+        `e.tags::jsonb ? $${paramIndex + index}`
+      ).join(' OR ');
+      sql += ` AND (${tagConditions})`;
+      params.push(...filters.tags);
+      paramIndex += filters.tags.length;
+    }
+
+    // Add technology filtering using JSON operations
+    if (filters.technologies && filters.technologies.length > 0) {
+      const techConditions = filters.technologies.map((_, index) => 
+        `e.technologies::jsonb ? $${paramIndex + index}`
+      ).join(' OR ');
+      sql += ` AND (${techConditions})`;
+      params.push(...filters.technologies);
+      paramIndex += filters.technologies.length;
+    }
+
+    // Add date range filtering
+    if (filters.dateRange) {
+      if (filters.dateRange.from) {
+        sql += ` AND c.created_at >= $${paramIndex}`;
+        params.push(filters.dateRange.from);
+        paramIndex++;
+      }
+      if (filters.dateRange.to) {
+        sql += ` AND c.created_at <= $${paramIndex}`;
+        params.push(filters.dateRange.to);
+        paramIndex++;
+      }
+    }
+
+    // Add text search conditions
+    if (query.trim()) {
+      sql += ` AND (
+        c.content ILIKE $${paramIndex} OR 
+        c.title ILIKE $${paramIndex} OR 
+        e.title ILIKE $${paramIndex}
+      )`;
+      params.push(`%${query}%`);
+      paramIndex++;
+    }
+
+    // Add ordering and limit
+    sql += ` ORDER BY c.tier ASC, c.token_count DESC LIMIT $${paramIndex}`;
+    params.push(limit);
+
+    try {
+      const rawResults = await prisma.$queryRawUnsafe<any[]>(sql, ...params);
+
+      return rawResults.map(row => ({
+        id: row.id,
+        entityId: row.entityId,
+        entityType: row.entityType,
+        entitySlug: row.entitySlug,
+        entityTitle: row.entityTitle,
+        tier: row.tier,
+        chunkId: row.chunkId,
+        title: row.title,
+        content: row.content,
+        tokenCount: row.tokenCount,
+        similarity: 0.5, // Default for metadata search
+        metadata: row.metadata,
+        tags: Array.isArray(row.tags) ? row.tags : [],
+        technologies: Array.isArray(row.technologies) ? row.technologies : [],
+        createdAt: row.createdAt
+      }));
+
+    } catch (error) {
+      console.error('Raw SQL metadata search failed:', error);
+      return [];
+    }
   }
 
   /**
