@@ -99,13 +99,70 @@ export async function GET(request: NextRequest) {
     // Build system instructions with context (using config as base)
     let systemInstructions = defaultConfig.instructions;
     
-    // Add specific guidance for project navigation
-    systemInstructions += `\n\nIMPORTANT TOOL USAGE GUIDELINES:
-- When users ask to "open", "navigate to", "show me", or "go to" any project, ALWAYS use the "openProject" tool first
-- Do NOT use "searchProjects" followed by "navigateTo" - use "openProject" instead as it handles both steps
-- The "openProject" tool will search for the project and provide the correct navigation URL
-- Only use "navigateTo" with exact URLs that you already know are correct
-- Examples: "open e-commerce project" → use openProject("e-commerce project")`;
+    /* Old tool prompt before moving to UIManager
+    - When users ask to "open", "navigate to", "show me", or "go to" any project, ALWAYS use the "openProject" tool first
+    - Do NOT use "searchProjects" followed by "navigateTo" - use "openProject" instead as it handles both steps
+    - The "openProject" tool will search for the project and provide the correct navigation URL
+    - Only use "navigateTo" with exact URLs that you already know are correct
+    - Examples: "open e-commerce project" → use openProject("e-commerce project") */
+    // Add specific guidance for UIManager-based navigation
+    systemInstructions += `\n\nIMPORTANT TOOL USAGE GUIDELINES - UIManager Navigation System:
+- Answer questions about projects and experience using server tools (loadProjectContext, searchProjects)
+- Use the NEW UIManager system for ALL navigation via ui_intent
+- Use ui_describe to understand current UI state and available navigation options
+- Provide visual guidance with highlighting tools when helpful
+- Before calling any long-running tools (such as searches, loading content, or analyzing data), provide a brief (one sentence) conversational filler to keep the user engaged. Then proceed with the tool call, and once results return, share the outcome.
+
+PRIMARY NAVIGATION TOOLS:
+1. ui_describe - Get current UI state, available sections, and navigation options
+2. ui_intent - Perform ALL navigation goals declaratively (projects, sections, routes, modals)
+3. highlightText and scrollIntoView - Visual emphasis and guidance
+
+NAVIGATION WORKFLOW:
+For ANY navigation request (projects, sections, routes, modal operations):
+1. ALWAYS start with ui_describe to understand current state
+2. Use ui_intent with appropriate target type:
+   - Projects: { target: { type: 'project', id: 'project-slug' } }
+   - Sections: { target: { type: 'section', id: 'section-name' } }
+   - Routes: { target: { type: 'route', id: 'route-name' } }
+   - Homepage/Close Modals: { target: { type: 'section', id: 'hero' } }
+
+PROJECT OPENING WORKFLOW:
+When users ask to "open", "show", or "navigate to" a project:
+1. Use ui_describe to understand current state
+2. If you don't know the exact project slug, use searchProjects to find it
+3. Use ui_intent with project target (URL-independent by default):
+   { 
+     target: { type: 'project', id: 'found-slug' }
+     // No behavior needed - system is now URL-independent by default
+   }
+4. AVOID showProjectDetails (opens new tab) - only use as absolute last resort
+
+MODAL CLOSING WORKFLOWS:
+When users ask to "close modal", "close project", "go back", or "go to homepage":
+
+PREFERRED - Declarative approach (natural navigation):
+1. Navigate to the homepage hero section (declaratively closes modals):
+   { target: { type: 'section', id: 'hero' } }
+2. Or navigate to any other section to close modals and go there:
+   { target: { type: 'section', id: 'about' } }
+   { target: { type: 'section', id: 'projects' } }
+   { target: { type: 'section', id: 'contact' } }
+
+ALTERNATIVE - Explicit modal operations (when needed):
+1. Close current project modal: { target: { type: 'modal', id: 'close' } }
+2. Close all modals: { target: { type: 'modal', id: 'close-all' } }
+
+IMPORTANT: System now operates in URL-independent mode by default - no URL changes that could disrupt WebRTC!
+
+DEPRECATED TOOLS:
+- openProject (server tool) - DO NOT USE
+- showProjectDetails - AVOID (opens new tab, breaks voice session)
+- navigateTo - USE ui_intent instead
+
+The UIManager handles all the complexity - just tell it your intent declaratively!
+
+Always be helpful, professional, and accurate. If you don't know something, say so rather than guessing.`;
 
     // TODO: Inject actual context from ContextProviderService based on contextId and reflinkId
     if (contextId) {

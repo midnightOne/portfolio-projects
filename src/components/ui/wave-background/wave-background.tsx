@@ -112,8 +112,15 @@ export function WaveBackground({
     lastSampleTime: 0
   });
 
-  // Determine current theme
-  const currentTheme = (theme === 'system' ? systemTheme : theme) as 'light' | 'dark';
+  // State to track DOM-based theme changes (for SimpleThemeToggle compatibility)
+  const [domTheme, setDomTheme] = useState<'light' | 'dark'>('light');
+
+  // Determine current theme (reactive to both next-themes and DOM changes)
+  const currentTheme = React.useMemo(() => {
+    const nextThemeResolved = (theme === 'system' ? systemTheme : theme) as 'light' | 'dark';
+    // Use next-themes if available, otherwise use DOM-based theme
+    return nextThemeResolved || domTheme;
+  }, [theme, systemTheme, domTheme]);
 
   // ============================================================================
   // CONFIGURATION LOADING
@@ -294,14 +301,49 @@ export function WaveBackground({
       }
     };
 
+    // Watch for DOM class changes (for SimpleThemeToggle compatibility)
+    const updateDomTheme = () => {
+      const isDark = document.documentElement.classList.contains('dark');
+      const newDomTheme = isDark ? 'dark' : 'light';
+      setDomTheme(newDomTheme);
+    };
+
+    // Initial DOM theme detection
+    updateDomTheme();
+
+    // Watch for DOM class changes
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+          updateDomTheme();
+        }
+      });
+    });
+
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class']
+    });
+
     window.addEventListener('resize', handleResize);
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      observer.disconnect();
       window.removeEventListener('resize', handleResize);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []); // Empty dependency array - only run once on mount
+
+  // Log theme changes for debugging
+  useEffect(() => {
+    console.log('Wave background theme changed to:', currentTheme, {
+      nextTheme: theme,
+      systemTheme,
+      domTheme,
+      domClasses: document.documentElement.className
+    });
+  }, [currentTheme, theme, systemTheme, domTheme]);
 
   // ============================================================================
   // RENDER
@@ -328,7 +370,7 @@ export function WaveBackground({
       <WaveEngine
         key="wave-engine" // Stable key to prevent re-mounting
         config={state.config}
-        theme={currentTheme || 'light'}
+        theme={currentTheme}
         width={dimensions.width}
         height={dimensions.height}
         interactive={interactive}

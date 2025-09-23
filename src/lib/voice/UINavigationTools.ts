@@ -6,7 +6,7 @@
  * results back to AI providers for conversation continuity.
  */
 
-import { ToolDefinition, ToolResult } from '@/types/voice-agent';
+import { ToolResult } from '@/types/voice-agent';
 import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -218,7 +218,7 @@ export class UINavigationTools {
     }
   }
 
-  // Navigation tools
+  // INTERNAL/RECOVERY NAVIGATION TOOLS - Use ui_navigate instead for better reliability
 
   async navigateTo(args: { path: string; newTab?: boolean }, sessionId?: string): Promise<NavigationResult> {
     return this.executeAndReport('navigateTo', args, async () => {
@@ -243,8 +243,9 @@ export class UINavigationTools {
           const projectSlug = url.searchParams.get('project');
 
           if (projectSlug) {
-            // Update URL without full navigation to maintain voice session
-            window.history.pushState({}, '', path);
+            // Use replaceState instead of pushState to avoid WebRTC issues in voice sessions
+            console.log('🎯 Using replaceState for project navigation to preserve WebRTC');
+            window.history.replaceState({}, '', path);
 
             // Trigger the project modal by dispatching a popstate event
             window.dispatchEvent(new PopStateEvent('popstate'));
@@ -309,8 +310,9 @@ export class UINavigationTools {
           const currentUrl = new URL(window.location.href);
           currentUrl.searchParams.set('project', mappedProjectSlug);
 
-          // Update URL without full navigation to maintain voice session
-          window.history.pushState({}, '', currentUrl.toString());
+          // Use replaceState instead of pushState to avoid WebRTC issues in voice sessions
+          console.log('🎯 Using replaceState for project details to preserve WebRTC');
+          window.history.replaceState({}, '', currentUrl.toString());
 
           // Trigger the project modal by dispatching a popstate event
           window.dispatchEvent(new PopStateEvent('popstate'));
@@ -676,6 +678,65 @@ export class UINavigationTools {
     }, sessionId);
   }
 
+  // PRIMARY NAVIGATION INTERFACE - Use these methods for all navigation
+
+  async ['ui_navigate'](args: any, sessionId?: string): Promise<NavigationResult> {
+    return this.executeAndReport('ui_navigate', args, async () => {
+      try {
+        console.log('🧭 ui_navigate called with args:', JSON.stringify(args, null, 2));
+        
+        // Import UIManager dynamically to avoid circular dependencies
+        const { UIManager } = await import('@/lib/navigation/UIManager');
+        const uiManager = UIManager.getInstance();
+        
+        console.log('🧭 UIManager imported, calling executeIntent...');
+        const result = await uiManager.executeIntent(args, sessionId);
+        
+        console.log('🧭 UIManager executeIntent result:', JSON.stringify(result, null, 2));
+        
+        return {
+          success: result.success,
+          message: result.message,
+          data: result.executedSteps || result.data,
+          error: result.error
+        };
+      } catch (error) {
+        console.error('❌ ui_navigate error:', error);
+        return {
+          success: false,
+          message: `Failed to execute navigation intent`,
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    }, sessionId);
+  }
+
+  async ['ui_describe'](args: any = {}, sessionId?: string): Promise<NavigationResult> {
+    return this.executeAndReport('ui_describe', args, async () => {
+      try {
+        // Import UIManager dynamically to avoid circular dependencies
+        const { UIManager } = await import('@/lib/navigation/UIManager');
+        const uiManager = UIManager.getInstance();
+        
+        const description = await uiManager.describe();
+        
+        return {
+          success: true,
+          message: 'UI state described successfully',
+          data: description
+        };
+      } catch (error) {
+        return {
+          success: false,
+          message: `Failed to describe UI state`,
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    }, sessionId);
+  }
+
+  // LEGACY/RECOVERY NAVIGATION TOOLS - Use ui_navigate instead for better reliability
+
   // Utility methods
 
   getNavigationHistory(): Array<{ action: string; params: any; timestamp: Date }> {
@@ -707,3 +768,8 @@ export class UINavigationTools {
 
 // Export singleton instance
 export const uiNavigationTools = UINavigationTools.getInstance();
+
+// Expose globally for integration tests and debugging
+if (typeof window !== 'undefined') {
+  (window as any).UINavigationTools = UINavigationTools;
+}

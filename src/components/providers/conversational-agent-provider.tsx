@@ -138,21 +138,24 @@ export function ConversationalAgentProvider({
 
   // Initialize provider when reflink session is ready (but don't auto-connect)
   useEffect(() => {
-    console.log('ConversationalAgentProvider initialization check:', {
-      isInitialized,
-      session: session !== null,
-      voiceAIEnabled: isFeatureEnabled('voice_ai'),
-      accessLevel,
-      defaultProvider,
-      hasCurrentAdapter: !!currentAdapter
-    });
+    // Only log initialization check in development mode and less frequently
+    if (process.env.NODE_ENV === 'development') {
+      console.log('ConversationalAgentProvider initialization check:', {
+        isInitialized,
+        session: session !== null,
+        voiceAIEnabled: isFeatureEnabled('voice_ai'),
+        accessLevel,
+        defaultProvider,
+        hasCurrentAdapter: !!currentAdapter
+      });
+    }
     
     // Only initialize if we don't already have an adapter and conditions are met
     if (!isInitialized && !currentAdapter && session !== null && isFeatureEnabled('voice_ai')) {
       console.log('Initializing voice provider (no auto-connect):', defaultProvider);
       initializeProvider(defaultProvider);
     }
-  }, [session, isFeatureEnabled, defaultProvider, isInitialized, accessLevel, currentAdapter]);
+  }, [session, isFeatureEnabled, defaultProvider, isInitialized, currentAdapter]); // Removed accessLevel to reduce re-renders
 
   // Cleanup on unmount
   useEffect(() => {
@@ -162,6 +165,72 @@ export function ConversationalAgentProvider({
       }
     };
   }, []);
+
+  // WebRTC connection monitoring and recovery
+  useEffect(() => {
+    if (!currentAdapter || !isConnected) return;
+
+    let recoveryTimeout: NodeJS.Timeout;
+    let isRecovering = false;
+
+    const handleVisibilityChange = () => {
+      // When page becomes visible again, check connection status
+      if (!document.hidden && isConnected && currentAdapter) {
+        // Small delay to allow page to fully restore
+        setTimeout(() => {
+          if (currentAdapter && typeof currentAdapter.isConnected === 'function') {
+            const actuallyConnected = currentAdapter.isConnected();
+            if (!actuallyConnected && !isRecovering) {
+              console.warn('🔄 WebRTC connection lost, attempting recovery...');
+              isRecovering = true;
+              
+              // Attempt to reconnect
+              currentAdapter.connect().catch(error => {
+                console.error('❌ WebRTC recovery failed:', error);
+                setLastError('Connection lost. Please refresh to restore voice functionality.');
+              }).finally(() => {
+                isRecovering = false;
+              });
+            }
+          }
+        }, 1000);
+      }
+    };
+
+    const handlePopState = () => {
+      // Monitor for popstate events that might disrupt WebRTC
+      if (isConnected && currentAdapter) {
+        // Small delay to check if connection was affected
+        clearTimeout(recoveryTimeout);
+        recoveryTimeout = setTimeout(() => {
+          if (currentAdapter && typeof currentAdapter.isConnected === 'function') {
+            const actuallyConnected = currentAdapter.isConnected();
+            if (!actuallyConnected && !isRecovering) {
+              console.warn('🔄 WebRTC connection lost after navigation, attempting recovery...');
+              isRecovering = true;
+              
+              currentAdapter.connect().catch(error => {
+                console.error('❌ WebRTC recovery after navigation failed:', error);
+                setLastError('Connection lost during navigation. Please refresh to restore voice functionality.');
+              }).finally(() => {
+                isRecovering = false;
+              });
+            }
+          }
+        }, 2000); // Give more time for navigation to settle
+      }
+    };
+
+    // Add event listeners
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('popstate', handlePopState);
+      clearTimeout(recoveryTimeout);
+    };
+  }, [currentAdapter, isConnected]);
 
   /**
    * Initialize voice provider

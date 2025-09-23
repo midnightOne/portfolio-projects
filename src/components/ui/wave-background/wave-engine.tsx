@@ -16,8 +16,8 @@ export interface WaveConfiguration {
   wavesX: number;              // 0.5 - 10.0 (wave frequency on X axis)
   wavesY: number;              // 0.5 - 10.0 (wave frequency on Y axis)
   displacementHeight: number;  // 0.0 - 2.0 (wave amplitude)
-  speedX: number;              // 0.0 - 0.005 (animation speed X)
-  speedY: number;              // 0.0 - 0.005 (animation speed Y)
+  speedX: number;              // -0.05 - 0.05 (animation speed X, negative values reverse direction)
+  speedY: number;              // -0.05 - 0.05 (animation speed Y, negative values reverse direction)
   cylinderBend: number;        // 0.0 - 1.0 (tunnel effect intensity)
   
   // Theme-Specific Colors
@@ -26,7 +26,7 @@ export interface WaveConfiguration {
   
   // Effects
   iridescenceWidth: number;    // 1.0 - 50.0 (shimmer effect width)
-  iridescenceSpeed: number;    // 0.0 - 0.01 (shimmer animation speed)
+  iridescenceSpeed: number;    // -2.0 - 2.0 (shimmer animation speed, negative values reverse direction)
   flowMixAmount: number;       // 0.0 - 1.0 (flow texture blend)
   revealAnimationSpeed: number; // 0.5 - 10.0 (reveal animation duration in seconds)
   
@@ -547,13 +547,14 @@ export function WaveEngine({
     const { width: currentWidth, height: currentHeight } = dimensionsRef.current;
 
     try {
-      console.log('Setting up wave mesh with config...');
+      console.log('Setting up wave mesh with config...', { theme, lightTheme: config.lightTheme, darkTheme: config.darkTheme });
       
       // Geometry matching original (4x4 with 256x256 segments for high detail)
       const planeGeometry = new THREE.PlaneGeometry(4, 4, 256, 256);
 
       // Shader uniforms
       const colorScheme = theme === 'dark' ? config.darkTheme : config.lightTheme;
+      console.log('setupWaveMesh: Selected color scheme for theme', theme, ':', colorScheme);
       const uniforms: WaveShaderUniforms = {
         u_time: { value: 0 },
         u_constantTime: { value: 0 },

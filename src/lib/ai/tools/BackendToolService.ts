@@ -327,7 +327,7 @@ export class BackendToolService {
         title: project.title,
         description: project.description || project.briefOverview || '',
         slug: project.slug,
-        tags: typeof project.tags === 'string' ? project.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : [],
+        tags: Array.isArray(project.tags) ? project.tags.map((tag: any) => typeof tag === 'object' ? tag.name : tag).filter(Boolean) : [],
         status: project.status,
         viewCount: project.viewCount || 0,
         workDate: project.workDate,
@@ -402,10 +402,11 @@ export class BackendToolService {
         });
       }
 
-      // Apply tag filtering
+      // Apply tag filtering (case-insensitive)
       if (tags && tags.length > 0) {
+        const tagsLower = tags.map(t => t.toLowerCase());
         searchResults = searchResults.filter((project: any) =>
-          project.tags.some((tag: string) => tags.includes(tag))
+          project.tags.some((tag: string) => tagsLower.includes(tag.toLowerCase()))
         );
       }
 
@@ -569,7 +570,7 @@ export class BackendToolService {
         title: project.title,
         description: project.description || project.briefOverview || '',
         slug: project.slug,
-        tags: typeof project.tags === 'string' ? project.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : [],
+        tags: Array.isArray(project.tags) ? project.tags.map((tag: any) => typeof tag === 'object' ? tag.name : tag).filter(Boolean) : [],
         lastUpdated: project.updatedAt,
         workDate: project.workDate,
         visibility: project.visibility || 'PUBLIC',

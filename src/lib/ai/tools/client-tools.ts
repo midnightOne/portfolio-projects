@@ -10,7 +10,7 @@ import { UnifiedToolDefinition } from './types';
 // Navigation Tools - Direct browser execution
 export const navigateToToolDefinition: UnifiedToolDefinition = {
   name: 'navigateTo',
-  description: 'Navigate to a specific page or URL in the portfolio. For projects, use exact URLs like "/projects?project=slug" or search first with searchProjects to find the correct slug.',
+  description: 'INTERNAL/RECOVERY TOOL: Low-level page navigation. Use ui_navigate instead for better reliability. Only use this for debugging or when ui_navigate fails.',
   parameters: {
     type: 'object',
     properties: {
@@ -39,7 +39,7 @@ export const navigateToToolDefinition: UnifiedToolDefinition = {
 
 export const showProjectDetailsToolDefinition: UnifiedToolDefinition = {
   name: 'showProjectDetails',
-  description: 'Show details for a specific project in a modal. Use searchProjects first to find the exact project slug if you only have a partial name.',
+  description: 'INTERNAL/RECOVERY TOOL: Low-level project modal display. Use ui_navigate with project target instead for better reliability.',
   parameters: {
     type: 'object',
     properties: {
@@ -72,7 +72,7 @@ export const showProjectDetailsToolDefinition: UnifiedToolDefinition = {
 
 export const scrollIntoViewToolDefinition: UnifiedToolDefinition = {
   name: 'scrollIntoView',
-  description: 'Scroll to bring a specific element into view on the current page. For homepage sections, use section names like "hero", "about", "bio", "projects", "contact", or CSS selectors.',
+  description: 'INTERNAL/RECOVERY TOOL: Low-level element scrolling. Use ui_navigate with section target instead for better reliability and context awareness.',
   parameters: {
     type: 'object',
     properties: {
@@ -109,7 +109,7 @@ export const scrollIntoViewToolDefinition: UnifiedToolDefinition = {
 
 export const highlightTextToolDefinition: UnifiedToolDefinition = {
   name: 'highlightText',
-  description: 'Highlight specific text or elements on the page for visual emphasis. For homepage sections, use section names like "hero", "about", "bio", "projects", "contact", or CSS selectors.',
+  description: 'INTERNAL/RECOVERY TOOL: Low-level text highlighting. Use ui_navigate for navigation with automatic highlighting, or use this only for specific emphasis needs.',
   parameters: {
     type: 'object',
     properties: {
@@ -367,6 +367,143 @@ export const animateElementToolDefinition: UnifiedToolDefinition = {
   }
 };
 
+// PRIMARY NAVIGATION TOOL - Use this for all navigation requests
+export const uiNavigateToolDefinition: UnifiedToolDefinition = {
+  name: 'ui_navigate',
+  description: 'PRIMARY NAVIGATION TOOL: Achieve any navigation goal declaratively. The UI will automatically plan and execute all required steps. Use this instead of step-by-step tools like navigateTo, scrollIntoView, etc.',
+  parameters: {
+    type: 'object',
+    properties: {
+      epoch: {
+        type: 'number',
+        description: 'Agent\'s last-known UI state version (optional)'
+      },
+      target: {
+        type: 'object',
+        oneOf: [
+          {
+            type: 'object',
+            properties: {
+              type: { const: 'section' },
+              id: { type: 'string', description: 'Section identifier (e.g., "hero", "about", "contact")' },
+              projectId: { type: 'string', description: 'Optional project context for section navigation' }
+            },
+            required: ['type', 'id']
+          },
+          {
+            type: 'object',
+            properties: {
+              type: { const: 'route' },
+              id: { type: 'string', description: 'Route identifier (e.g., "home", "projects", "about")' }
+            },
+            required: ['type', 'id']
+          },
+          {
+            type: 'object',
+            properties: {
+              type: { const: 'project' },
+              id: { type: 'string', description: 'Project slug (e.g., "e-commerce-platform")' },
+              sectionId: { type: 'string', description: 'Optional section to scroll to within project' }
+            },
+            required: ['type', 'id']
+          },
+          {
+            type: 'object',
+            properties: {
+              type: { const: 'modal' },
+              id: { type: 'string', description: 'Modal ID or operation ("close", "close-all", or specific modal ID)' },
+              parentContext: { type: 'string', description: 'Optional parent context for modal' }
+            },
+            required: ['type', 'id']
+          },
+          {
+            type: 'object',
+            properties: {
+              type: { const: 'element' },
+              id: { type: 'string', description: 'Element ID for tabs, accordions, etc.' }
+            },
+            required: ['type', 'id']
+          }
+        ]
+      },
+      behavior: {
+        type: 'object',
+        properties: {
+          openIfNeeded: { type: 'boolean', default: true, description: 'Open modal or navigate if required' },
+          closeBlocking: { type: 'boolean', default: true, description: 'Close top modal if it blocks target' },
+          waitForReadyMs: { type: 'number', default: 1500, description: 'Wait for loader/transition' },
+          scrollBehavior: { type: 'string', enum: ['smooth', 'instant'], default: 'smooth' },
+          allowInterruption: { type: 'boolean', default: true, description: 'Allow this navigation to be interrupted by new requests' }
+        }
+      },
+      scope: {
+        type: 'object',
+        properties: {
+          route: { type: 'string', description: 'Limit scope to specific route' },
+          modalId: { type: 'string', description: 'Limit scope to specific modal' },
+          projectId: { type: 'string', description: 'Limit scope to specific project' }
+        }
+      },
+      idempotencyKey: {
+        type: 'string',
+        description: 'Unique key to prevent duplicate navigation actions'
+      }
+    },
+    required: ['target']
+  },
+  executionContext: 'client',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean' },
+      message: { type: 'string' },
+      executedSteps: { type: 'array', items: { type: 'string' } },
+      totalTime: { type: 'number' }
+    }
+  }
+};
+
+export const uiDescribeToolDefinition: UnifiedToolDefinition = {
+  name: 'ui_describe',
+  description: 'Get current UI state and available navigation affordances. Use this to understand what navigation options are available.',
+  parameters: {
+    type: 'object',
+    properties: {}
+  },
+  executionContext: 'client',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      epoch: { type: 'number' },
+      route: { type: 'string' },
+      viewStack: { type: 'array', items: { type: 'string' } },
+      sections: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            title: { type: 'string' },
+            containerId: { type: 'string' }
+          }
+        }
+      },
+      transitions: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            kind: { type: 'string', enum: ['open', 'close', 'route', 'tab'] },
+            target: { type: 'string' },
+            requires: { type: 'array', items: { type: 'string' } }
+          }
+        }
+      }
+    }
+  }
+};
+
 // Export all client-side tool definitions
 export const clientToolDefinitions: UnifiedToolDefinition[] = [
   navigateToToolDefinition,
@@ -378,7 +515,9 @@ export const clientToolDefinitions: UnifiedToolDefinition[] = [
   reportUIStateToolDefinition,
   fillFormFieldToolDefinition,
   submitFormToolDefinition,
-  animateElementToolDefinition
+  animateElementToolDefinition,
+  uiNavigateToolDefinition,
+  uiDescribeToolDefinition
 ];
 
 // Individual tools are already exported above with their definitions

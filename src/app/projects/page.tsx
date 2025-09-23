@@ -10,6 +10,7 @@ import { ProjectTimeline } from '@/components/projects/project-timeline';
 import { ProjectModal } from '@/components/projects/project-modal';
 import { SimpleLoading } from '@/components/ui/simple-loading';
 import { useProjects } from '@/hooks/use-projects';
+import { UIManager } from '@/lib/navigation/UIManager';
 import type { ViewMode, TimelineGroupBy } from '@/components/layout/navigation-bar';
 import type { ProjectWithRelations } from '@/lib/types/project';
 
@@ -40,18 +41,6 @@ function ProjectsPageContent() {
   const [projectModalOpen, setProjectModalOpen] = React.useState(false);
   const [projectLoading, setProjectLoading] = React.useState(false);
 
-  // Handle URL-based project opening
-  React.useEffect(() => {
-    if (!searchParams) return;
-    
-    const projectSlug = searchParams.get('project');
-    if (projectSlug && !projectModalOpen) {
-      handleProjectClick(projectSlug, false);
-    } else if (!projectSlug && projectModalOpen) {
-      handleCloseModal(false);
-    }
-  }, [searchParams?.get('project')]);
-
   const fetchProjectDetails = async (projectSlug: string): Promise<ProjectWithRelations | null> => {
     try {
             setProjectLoading(true);
@@ -75,7 +64,7 @@ function ProjectsPageContent() {
     }
   };
 
-  const handleProjectClick = async (projectSlug: string, updateUrl: boolean = true) => {
+  const handleProjectClick = React.useCallback(async (projectSlug: string, updateUrl: boolean = true) => {
     setProjectLoading(true);
     setProjectModalOpen(true);
     
@@ -98,9 +87,9 @@ function ProjectsPageContent() {
         window.history.pushState({}, '', url.toString());
       }
     }
-  };
+  }, []);
 
-  const handleCloseModal = (updateUrl: boolean = true) => {
+  const handleCloseModal = React.useCallback((updateUrl: boolean = true) => {
     setSelectedProject(null);
     setProjectModalOpen(false);
     setProjectLoading(false);
@@ -111,7 +100,58 @@ function ProjectsPageContent() {
       url.searchParams.delete('project');
       window.history.pushState({}, '', url.toString());
     }
-  };
+  }, []);
+
+  // Register modal handler with UIManager
+  React.useEffect(() => {
+    const uiManager = UIManager.getInstance();
+    
+    const modalHandler = async (modalId: string, modalType: string): Promise<boolean> => {
+      if (modalType === 'project') {
+        // Handle project modal opening
+        try {
+          await handleProjectClick(modalId, true);
+          return true;
+        } catch (error) {
+          console.error('Failed to open project modal on projects page:', error);
+          return false;
+        }
+      } else if (modalType === 'close') {
+        // Handle modal closing
+        try {
+          // If a project modal is open, close it regardless of modalId match
+          if (selectedProject && projectModalOpen) {
+            console.log(`🎯 Projects page closing project modal: ${selectedProject.slug} (requested: ${modalId})`);
+            handleCloseModal(true);
+            return true;
+          }
+          return false; // No modal open
+        } catch (error) {
+          console.error('Failed to close project modal on projects page:', error);
+          return false;
+        }
+      }
+      return false;
+    };
+
+    uiManager.registerModalHandler('projects', modalHandler);
+
+    return () => {
+      uiManager.unregisterModalHandler('projects');
+    };
+  }, [selectedProject, projectModalOpen, handleCloseModal, handleProjectClick]);
+
+  // Handle URL-based project opening
+  React.useEffect(() => {
+    if (!searchParams) return;
+    
+    const projectSlug = searchParams.get('project');
+    if (projectSlug && !projectModalOpen) {
+      handleProjectClick(projectSlug, false);
+    } else if (!projectSlug && projectModalOpen) {
+      handleCloseModal(false);
+    }
+  }, [searchParams?.get('project')]);
 
   // Handle browser back/forward
   React.useEffect(() => {

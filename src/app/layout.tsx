@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { SessionProvider } from "@/components/providers/session-provider";
 import { UIThemeProvider } from "@/components/providers/ui-theme-provider";
+import { NavigationProvider } from "@/components/providers/navigation-provider";
 // Removed reflink session provider from global layout
 import { ToastProvider } from "@/components/ui/toast";
 import "./globals.css";
@@ -45,9 +46,11 @@ export default function RootLayout({
       <body className={inter.className} suppressHydrationWarning>
         <UIThemeProvider enableSystem>
           <SessionProvider>
-            <ToastProvider>
-              {children}
-            </ToastProvider>
+            <NavigationProvider>
+              <ToastProvider>
+                {children}
+              </ToastProvider>
+            </NavigationProvider>
           </SessionProvider>
         </UIThemeProvider>
       </body>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { SectionRenderer, type HomepageConfig, type SectionConfig, sortSectionsByOrder, getEnabledSections } from './section-renderer';
@@ -8,6 +8,8 @@ import { ProjectModal } from '@/components/projects/project-modal';
 import { ScrollToTop } from '@/components/layout/scroll-to-top';
 import { useProjects } from '@/hooks/use-projects';
 import { useHomepageConfig } from '@/hooks/use-homepage-config';
+import { UIManager } from '@/lib/navigation/UIManager';
+import { useUIStateSync } from '@/hooks/use-ui-state-sync';
 import { cn } from '@/lib/utils';
 import type { ProjectWithRelations } from '@/lib/types/project';
 
@@ -139,6 +141,30 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
   // Use provided config, dynamic config, or default config in that order
   const activeConfig = config || (enableDynamicConfig ? dynamicConfig : null) || DEFAULT_HOMEPAGE_CONFIG;
 
+  // UI State Synchronization with UIManager
+  const { updateState: updateUIState } = useUIStateSync('homepage', {
+    provider: () => ({
+      currentRoute: 'home',
+      currentProject: selectedProject ? {
+        id: selectedProject.id,
+        slug: selectedProject.slug,
+        title: selectedProject.title,
+        currentSection: 'overview', // Default section
+        sectionsVisited: ['overview'],
+        scrollPositions: {},
+        mediaInteractions: [],
+        timeSpent: 0
+      } : undefined,
+      lastUserAction: {
+        type: 'navigate',
+        target: 'homepage',
+        timestamp: Date.now()
+      }
+    }),
+    debug: process.env.NODE_ENV === 'development'
+  });
+
+
   // Sort and filter enabled sections
   const enabledSections = getEnabledSections(activeConfig.sections);
   const sortedSections = sortSectionsByOrder(enabledSections);
@@ -170,24 +196,149 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
     }
   };
 
-  const handleProjectClick = async (projectSlug: string) => {
+  const handleProjectClickInternal = useCallback(async (projectSlug: string): Promise<boolean> => {
     setProjectLoading(true);
     setProjectModalOpen(true);
+    
+    // Update UI state - modal opening
+    updateUIState({
+      lastUserAction: {
+        type: 'modal',
+        target: projectSlug,
+        context: { action: 'open', source: 'homepage' },
+        timestamp: Date.now()
+      }
+    });
     
     const projectDetails = await fetchProjectDetails(projectSlug);
     if (projectDetails) {
       setSelectedProject(projectDetails);
+      
+      // Register modal with UIManager for state synchronization
+      const uiManager = UIManager.getInstance();
+      uiManager.registerExternalModal(projectSlug, 'project', { source: 'homepage' });
+      
+      // Update UI state - project loaded
+      updateUIState({
+        currentProject: {
+          id: projectDetails.id,
+          slug: projectDetails.slug,
+          title: projectDetails.title,
+          currentSection: 'overview',
+          sectionsVisited: ['overview'],
+          scrollPositions: { overview: 0 },
+          mediaInteractions: [],
+          timeSpent: Date.now() // Start time tracking
+        },
+        lastUserAction: {
+          type: 'modal',
+          target: projectSlug,
+          context: { action: 'loaded', source: 'homepage' },
+          timestamp: Date.now()
+        }
+      });
+      
+      return true;
     } else {
       // Project not found, close modal
       setProjectModalOpen(false);
+      
+      // Update UI state - modal failed
+      updateUIState({
+        lastUserAction: {
+          type: 'modal',
+          target: projectSlug,
+          context: { action: 'failed', source: 'homepage', error: 'Project not found' },
+          timestamp: Date.now()
+        }
+      });
+      
+      return false;
     }
+  }, [updateUIState]);
+
+  // Wrapper for onProjectClick interface compatibility (void return)
+  const handleProjectClick = (projectSlug: string): void => {
+    handleProjectClickInternal(projectSlug);
   };
 
-  const handleCloseModal = () => {
+  const handleCloseModal = useCallback(() => {
+    const uiManager = UIManager.getInstance();
+    
+    // Calculate time spent if there was a selected project
+    // Use the timeSpent from currentProject state if available, or calculate from modal open time
+    const currentProjectState = uiManager.getCurrentUIState().currentProject;
+    const timeSpent = selectedProject && currentProjectState ? 
+      Date.now() - (currentProjectState.timeSpent || Date.now()) : 0;
+    
+    // Unregister modal with UIManager if there was a selected project
+    if (selectedProject) {
+      uiManager.unregisterExternalModal(selectedProject.slug, 'project');
+      
+      // Update UI state - modal closing with time spent
+      updateUIState({
+        lastUserAction: {
+          type: 'modal',
+          target: selectedProject.slug,
+          context: { 
+            action: 'close', 
+            source: 'homepage',
+            timeSpent: timeSpent
+          },
+          timestamp: Date.now()
+        }
+      });
+    }
+    
     setSelectedProject(null);
     setProjectModalOpen(false);
     setProjectLoading(false);
-  };
+    
+    // Clear current project from UI state
+    updateUIState({
+      currentProject: undefined
+    });
+  }, [selectedProject, updateUIState]);
+
+  // Register modal handler with UIManager
+  useEffect(() => {
+    const uiManager = UIManager.getInstance();
+    
+    const modalHandler = async (modalId: string, modalType: string): Promise<boolean> => {
+      if (modalType === 'project') {
+        // Handle project modal opening
+        try {
+          const success = await handleProjectClickInternal(modalId);
+          return success;
+        } catch (error) {
+          console.error('Failed to open project modal on homepage:', error);
+          return false;
+        }
+      } else if (modalType === 'close') {
+        // Handle modal closing
+        try {
+          // If a project modal is open, close it regardless of modalId match
+          // This handles generic close requests like "close modal" or "close project-modal"
+          if (selectedProject && projectModalOpen) {
+            console.log(`🎯 Homepage closing project modal: ${selectedProject.slug} (requested: ${modalId})`);
+            handleCloseModal();
+            return true;
+          }
+          return false; // No modal open
+        } catch (error) {
+          console.error('Failed to close project modal on homepage:', error);
+          return false;
+        }
+      }
+      return false;
+    };
+
+    uiManager.registerModalHandler('homepage', modalHandler);
+
+    return () => {
+      uiManager.unregisterModalHandler('homepage');
+    };
+  }, [selectedProject, projectModalOpen, handleCloseModal, handleProjectClickInternal]);
 
   // ============================================================================
   // NAVIGATION HANDLERS

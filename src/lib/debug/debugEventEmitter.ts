@@ -19,7 +19,8 @@ type DebugEventType =
   | 'connection_event'
   | 'transcript_event'
   | 'audio_event'
-  | 'tool_event';
+  | 'tool_event'
+  | 'navigation_event';
 
 interface DebugEvent {
   type: DebugEventType;
