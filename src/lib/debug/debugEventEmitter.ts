@@ -36,7 +36,20 @@ type DebugEventType =
   | 'ui-section-registry-update-error'
   | 'ui-navigation-complete-refresh'
   | 'ui-navigation-refresh-error'
-  | 'ui-manager-integration-connected';
+  | 'ui-manager-integration-connected'
+  // Content search events
+  | 'content-search-start'
+  | 'content-search-complete'
+  | 'content-search-error'
+  | 'content-get-start'
+  | 'content-get-complete'
+  | 'content-get-error'
+  | 'content-sections-discovered'
+  | 'content-navigation-error'
+  | 'content-search-mmr-configured'
+  | 'content-search-service-initialized'
+  | 'content-search-service-registered'
+  | 'content-search-service-registration-error';
 
 interface DebugEvent {
   type: DebugEventType;

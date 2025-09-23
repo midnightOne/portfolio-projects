@@ -553,7 +553,7 @@ export const processUploadedFileToolDefinition: UnifiedToolDefinition = {
 
 // Content Search and Retrieval Tools - Semantic search with pgvector
 export const contentSearchToolDefinition: UnifiedToolDefinition = {
-  name: 'content.search',
+  name: 'content_search',
   description: 'Search portfolio content semantically across projects and sections using hybrid search (semantic + metadata filtering).',
   parameters: {
     type: 'object',
@@ -665,7 +665,7 @@ export const contentSearchToolDefinition: UnifiedToolDefinition = {
 };
 
 export const contentGetToolDefinition: UnifiedToolDefinition = {
-  name: 'content.get',
+  name: 'content_get',
   description: 'Fetch specific content details by ID with token budget control and tier filtering.',
   parameters: {
     type: 'object',

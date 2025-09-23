@@ -162,11 +162,11 @@ export class BackendToolService {
           result = await this.handleProcessUploadedFile(parameters, context);
           break;
 
-        case 'content.search':
+        case 'content_search':
           result = await this.handleContentSearch(parameters, context);
           break;
 
-        case 'content.get':
+        case 'content_get':
           result = await this.handleContentGet(parameters, context);
           break;
 

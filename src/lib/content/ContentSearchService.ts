@@ -152,9 +152,9 @@ export class ContentSearchService implements ContentProvider {
   }
 
   /**
-   * Search content using hybrid semantic + metadata approach
+   * Search content using hybrid semantic + metadata approach (internal method)
    */
-  async searchContent(params: ContentSearchParams): Promise<ContentSearchResult> {
+  async searchContentInternal(params: ContentSearchParams): Promise<ContentSearchResult> {
     const startTime = Date.now();
     const {
       query,
@@ -370,7 +370,7 @@ export class ContentSearchService implements ContentProvider {
         maxTier: 2 // Use T1-T2 for section discovery
       };
 
-      const searchResult = await this.searchContent(searchParams);
+      const searchResult = await this.searchContentInternal(searchParams);
       
       // Convert search results to semantic sections
       const sections: SemanticSection[] = searchResult.items.map(item => ({
@@ -405,6 +405,35 @@ export class ContentSearchService implements ContentProvider {
 
 
   /**
+   * Public API: Search content with full parameters (maintains original API)
+   */
+  async searchContent(params: ContentSearchParams): Promise<ContentSearchResult>;
+  /**
+   * ContentProvider interface: Search content (required by ContentProvider interface)
+   */
+  async searchContent(query: string, options?: any): Promise<any[]>;
+  /**
+   * Implementation for both overloads
+   */
+  async searchContent(
+    paramsOrQuery: ContentSearchParams | string, 
+    options?: any
+  ): Promise<ContentSearchResult | any[]> {
+    if (typeof paramsOrQuery === 'string') {
+      // ContentProvider interface call
+      const params: ContentSearchParams = {
+        query: paramsOrQuery,
+        ...options
+      };
+      const result = await this.searchContentInternal(params);
+      return result.items;
+    } else {
+      // Full API call
+      return this.searchContentInternal(paramsOrQuery);
+    }
+  }
+
+  /**
    * ContentProvider interface: Validate section exists
    */
   async validateSection(sectionId: string): Promise<boolean> {
@@ -425,7 +454,7 @@ export class ContentSearchService implements ContentProvider {
   async navigateToContent(query: string, uiManager?: any): Promise<{ success: boolean; message: string; target?: any }> {
     try {
       // Search for relevant content
-      const searchResult = await this.searchContent({
+      const searchResult = await this.searchContentInternal({
         query,
         k: 1, // Get best match
         maxTier: 2

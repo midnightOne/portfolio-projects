@@ -3559,26 +3559,7 @@ export class UIManager {
     };
   }
 
-  /**
-   * Navigate to content by search query (for AI system)
-   */
-  async navigateToContent(
-    query: string, 
-    options?: { projectId?: string; contentType?: string }
-  ): Promise<NavigationResult> {
-    return this.executeIntent({
-      target: { 
-        type: 'content', 
-        query, 
-        projectId: options?.projectId,
-        fallbackSection: 'hero' // Safe fallback
-      },
-      behavior: {
-        scrollBehavior: 'smooth',
-        allowInterruption: true
-      }
-    });
-  }
+
 
   /**
    * Navigate by semantic ID (for AI system)
@@ -3967,7 +3948,7 @@ export class UIManager {
                 
                 if (navResult.success && navResult.target) {
                   // Execute the navigation using UIManager
-                  const result = await this.executeIntent(navResult.target);
+                  const result = await this.executeIntent({ target: navResult.target });
                   
                   debugEventEmitter.emit(
                     'navigation_event',
@@ -4000,7 +3981,7 @@ export class UIManager {
                 const fallbackTarget = this._createNavigationTargetFromSearchResult(bestMatch);
                 
                 if (fallbackTarget) {
-                  const result = await this.executeIntent(fallbackTarget);
+                  const result = await this.executeIntent({ target: fallbackTarget });
                   
                   debugEventEmitter.emit(
                     'navigation_event',
