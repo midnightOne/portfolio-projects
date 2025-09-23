@@ -46,11 +46,11 @@ curl -X POST http://localhost:3000/api/ai/tools/execute \
     "executionContext": "client"
   }'
 
-# Test ui_navigate tool
+# Test ui_intent tool
 curl -X POST http://localhost:3000/api/ai/tools/execute \
   -H "Content-Type: application/json" \
   -d '{
-    "toolName": "ui_navigate",
+    "toolName": "ui_intent",
     "parameters": {
       "target": {
         "type": "semantic",
@@ -100,7 +100,7 @@ node run-all-integration-tests.js
 ### **Voice + Semantic Integration Test**
 - ✅ Tool availability via API
 - ✅ `ui_describe` tool execution
-- ✅ `ui_navigate` tool execution
+- ✅ `ui_intent` tool execution
 - ✅ Semantic fallback behavior
 - ✅ Voice configuration access
 - ✅ Tool name consistency (no old `ui.navigate` names)
@@ -138,7 +138,7 @@ console.log('Semantic IDs:', registry?.getAllSemanticIDs?.());
 // Check tool availability
 const tools = window.UINavigationTools?.getInstance?.();
 console.log('Available tools:', Object.keys(tools || {}));
-console.log('ui_navigate:', typeof tools?.['ui_navigate']);
+console.log('ui_intent:', typeof tools?.['ui_intent']);
 ```
 
 **4. Navigation doesn't work**

@@ -26,7 +26,7 @@ async function testFixesVerification() {
         UINavigationToolsClass: typeof window.UINavigationTools !== 'undefined',
         getInstance: typeof window.UINavigationTools?.getInstance === 'function',
         instance: window.UINavigationTools?.getInstance?.() !== null,
-        hasUiNavigate: typeof window.UINavigationTools?.getInstance?.()?.['ui_navigate'] === 'function',
+        hasUiIntent: typeof window.UINavigationTools?.getInstance?.()?.['ui_intent'] === 'function',
         hasUiDescribe: typeof window.UINavigationTools?.getInstance?.()?.['ui_describe'] === 'function'
       };
     });
@@ -43,8 +43,8 @@ async function testFixesVerification() {
         // Test ui_describe
         const describeResult = await tools['ui_describe']({});
         
-        // Test ui_navigate
-        const navigateResult = await tools['ui_navigate']({
+        // Test ui_intent
+        const navigateResult = await tools['ui_intent']({
           target: { type: 'semantic', semanticId: 'about', fallbackId: 'about' }
         });
         
