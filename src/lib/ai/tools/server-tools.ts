@@ -554,13 +554,46 @@ export const processUploadedFileToolDefinition: UnifiedToolDefinition = {
 // Content Search and Retrieval Tools - Semantic search with pgvector
 export const contentSearchToolDefinition: UnifiedToolDefinition = {
   name: 'content_search',
-  description: 'Search portfolio content semantically across projects and sections using hybrid search (semantic + metadata filtering).',
+  description: 'Search portfolio content semantically across projects and sections using hybrid search (semantic + metadata filtering) with UI state context awareness.',
   parameters: {
     type: 'object',
     properties: {
       query: {
         type: 'string',
         description: 'Natural language search query to find relevant content'
+      },
+      uiState: {
+        type: 'object',
+        description: 'Current UI state context for context-aware search ranking',
+        properties: {
+          breadcrumbPath: {
+            type: 'string',
+            description: 'Hierarchical navigation path (e.g., "home.projects.aurora-avatar.technical-details")'
+          },
+          visibleAnchors: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Currently visible content anchors'
+          },
+          activeFilters: {
+            type: 'object',
+            properties: {
+              searchTerm: { type: 'string' },
+              tags: { type: 'array', items: { type: 'string' } },
+              techStack: { type: 'array', items: { type: 'string' } }
+            }
+          },
+          currentRoute: { type: 'string', description: 'Current route (home, projects, about)' },
+          currentProject: { type: 'string', description: 'Current project slug if viewing project' },
+          currentModal: { type: 'string', description: 'Current modal ID if modal is open' },
+          lastUserAction: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', enum: ['navigate', 'search', 'filter', 'scroll'] },
+              timestamp: { type: 'number' }
+            }
+          }
+        }
       },
       scope: {
         type: 'object',
@@ -666,7 +699,7 @@ export const contentSearchToolDefinition: UnifiedToolDefinition = {
 
 export const contentGetToolDefinition: UnifiedToolDefinition = {
   name: 'content_get',
-  description: 'Fetch specific content details by ID with token budget control and tier filtering.',
+  description: 'Fetch specific content details by ID with token budget control, tier filtering, and UI state context for navigation target generation.',
   parameters: {
     type: 'object',
     properties: {
@@ -676,6 +709,39 @@ export const contentGetToolDefinition: UnifiedToolDefinition = {
         description: 'Content chunk IDs to fetch',
         minItems: 1,
         maxItems: 10
+      },
+      uiState: {
+        type: 'object',
+        description: 'Current UI state context for navigation target compatibility',
+        properties: {
+          breadcrumbPath: {
+            type: 'string',
+            description: 'Hierarchical navigation path (e.g., "home.projects.aurora-avatar.technical-details")'
+          },
+          visibleAnchors: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Currently visible content anchors'
+          },
+          activeFilters: {
+            type: 'object',
+            properties: {
+              searchTerm: { type: 'string' },
+              tags: { type: 'array', items: { type: 'string' } },
+              techStack: { type: 'array', items: { type: 'string' } }
+            }
+          },
+          currentRoute: { type: 'string', description: 'Current route (home, projects, about)' },
+          currentProject: { type: 'string', description: 'Current project slug if viewing project' },
+          currentModal: { type: 'string', description: 'Current modal ID if modal is open' },
+          lastUserAction: {
+            type: 'object',
+            properties: {
+              type: { type: 'string', enum: ['navigate', 'search', 'filter', 'scroll'] },
+              timestamp: { type: 'number' }
+            }
+          }
+        }
       },
       maxTokens: {
         type: 'number',
@@ -714,7 +780,8 @@ export const contentGetToolDefinition: UnifiedToolDefinition = {
                 tokenEstimate: { type: 'number' },
                 tier: { type: 'number' },
                 title: { type: 'string' },
-                metadata: { type: 'object' }
+                metadata: { type: 'object' },
+                navTarget: { type: 'object', description: 'Navigation target compatible with current UI state' }
               }
             }
           },

@@ -74,7 +74,8 @@ export class BackendToolService {
     sessionId: string,
     accessLevel: 'basic' | 'limited' | 'premium',
     reflinkId?: string,
-    userId?: string
+    userId?: string,
+    uiState?: any
   ): Promise<UnifiedToolResult> {
     const startTime = Date.now();
 
@@ -112,7 +113,8 @@ export class BackendToolService {
         sessionId,
         accessLevel,
         reflinkId,
-        userId
+        userId,
+        uiState
       };
 
       // Route to appropriate handler
@@ -1298,7 +1300,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
   }
 
   /**
-   * Handle content search using ContentSearchService
+   * Handle content search using ContentSearchService with UI state context awareness
    */
   private async handleContentSearch(
     parameters: any,
@@ -1307,6 +1309,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
     try {
       const {
         query,
+        uiState,
         scope = {},
         k = 5,
         maxTier = 3,
@@ -1316,6 +1319,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
 
       console.log('Content search request:', {
         query,
+        uiState,
         scope,
         k,
         maxTier,
@@ -1324,34 +1328,92 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         sessionId: context.sessionId
       });
 
+      // Create cache key for request-scoped caching
+      const cacheKey = `content_search:${JSON.stringify({
+        query,
+        scope,
+        maxTier,
+        diversifyBy,
+        filters,
+        uiContext: {
+          route: uiState?.currentRoute,
+          project: uiState?.currentProject
+        }
+      })}`;
+
+      // Check request-scoped cache
+      const cachedResult = this._getCachedData(cacheKey, 30000); // 30 second cache
+      if (cachedResult) {
+        console.log('Content search cache hit:', { cacheKey, sessionId: context.sessionId });
+        return cachedResult;
+      }
+
+      // Enhance scope with UI state context
+      const enhancedScope = this._enhanceScopeWithUIState(scope, uiState);
+      
+      // Enhance filters with UI state context
+      const enhancedFilters = this._enhanceFiltersWithUIState(filters, uiState);
+
       // Perform content search using ContentSearchService
       const searchResult = await this.contentSearchService.searchContent({
         query,
-        scope,
-        k,
+        scope: enhancedScope,
+        k: k * 2, // Get more results for UI state-aware ranking
         maxTier,
         diversifyBy,
-        filters
+        filters: enhancedFilters
       });
 
-      console.log('Content search completed:', {
+      // Apply UI state-aware ranking and filtering
+      const rankedResults = this._applyUIStateAwareRanking(searchResult.items, uiState, k);
+
+      // Enhance navigation targets with UI state compatibility
+      const enhancedResults = this._enhanceNavigationTargets(rankedResults, uiState);
+
+      const finalResult = {
+        ...searchResult,
+        items: enhancedResults,
+        searchMetadata: {
+          ...searchResult.searchMetadata,
+          uiStateEnhanced: true,
+          originalResults: searchResult.items.length,
+          rankedResults: enhancedResults.length,
+          uiContext: {
+            currentRoute: uiState?.currentRoute,
+            currentProject: uiState?.currentProject,
+            breadcrumbPath: uiState?.breadcrumbPath
+          }
+        }
+      };
+
+      console.log('Content search completed with UI state awareness:', {
         query,
-        totalResults: searchResult.totalResults,
-        returnedItems: searchResult.items.length,
-        searchTime: searchResult.searchMetadata.searchTime,
+        totalResults: finalResult.totalResults,
+        originalResults: searchResult.items.length,
+        rankedResults: enhancedResults.length,
+        uiContext: finalResult.searchMetadata.uiContext,
+        searchTime: finalResult.searchMetadata.searchTime,
         sessionId: context.sessionId
       });
 
-      return searchResult;
+      // Cache the result for request-scoped caching
+      this._setCachedData(cacheKey, finalResult);
+
+      return finalResult;
 
     } catch (error) {
       console.error('Content search failed:', error);
-      throw new Error(`Content search failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      // Include UI state context in error messages
+      const uiContext = parameters.uiState ? 
+        ` (UI context: ${parameters.uiState.currentRoute || 'unknown'})` : '';
+      
+      throw new Error(`Content search failed${uiContext}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
   /**
-   * Handle content retrieval using ContentSearchService
+   * Handle content retrieval using ContentSearchService with UI state context
    */
   private async handleContentGet(
     parameters: any,
@@ -1360,12 +1422,14 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
     try {
       const {
         ids,
+        uiState,
         maxTokens = 900,
         includeTiers = [1, 2, 3]
       } = parameters;
 
       console.log('Content get request:', {
         ids,
+        uiState,
         maxTokens,
         includeTiers,
         sessionId: context.sessionId
@@ -1380,6 +1444,24 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         throw new Error('Maximum 10 content IDs allowed per request');
       }
 
+      // Create cache key for request-scoped caching
+      const cacheKey = `content_get:${JSON.stringify({
+        ids: ids.sort(), // Sort for consistent caching
+        maxTokens,
+        includeTiers,
+        uiContext: {
+          route: uiState?.currentRoute,
+          project: uiState?.currentProject
+        }
+      })}`;
+
+      // Check request-scoped cache
+      const cachedResult = this._getCachedData(cacheKey, 60000); // 60 second cache for content get
+      if (cachedResult) {
+        console.log('Content get cache hit:', { cacheKey, sessionId: context.sessionId });
+        return cachedResult;
+      }
+
       // Retrieve content using ContentSearchService
       const getResult = await this.contentSearchService.getContent({
         ids,
@@ -1387,19 +1469,256 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         includeTiers
       });
 
-      console.log('Content get completed:', {
+      // Enhance results with navigation targets compatible with current UI state
+      const enhancedItems = getResult.items.map(item => ({
+        ...item,
+        navTarget: this._createNavigationTargetForContent(item, uiState)
+      }));
+
+      const finalResult = {
+        ...getResult,
+        items: enhancedItems,
+        uiStateContext: {
+          currentRoute: uiState?.currentRoute,
+          currentProject: uiState?.currentProject,
+          breadcrumbPath: uiState?.breadcrumbPath,
+          navigationTargetsGenerated: enhancedItems.length
+        }
+      };
+
+      console.log('Content get completed with UI state context:', {
         requestedIds: ids.length,
-        returnedItems: getResult.items.length,
-        totalTokens: getResult.totalTokens,
-        truncated: getResult.truncated,
+        returnedItems: finalResult.items.length,
+        totalTokens: finalResult.totalTokens,
+        truncated: finalResult.truncated,
+        uiContext: finalResult.uiStateContext,
         sessionId: context.sessionId
       });
 
-      return getResult;
+      // Cache the result for request-scoped caching
+      this._setCachedData(cacheKey, finalResult);
+
+      return finalResult;
 
     } catch (error) {
       console.error('Content get failed:', error);
-      throw new Error(`Content retrieval failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      // Include UI state context in error messages
+      const uiContext = parameters.uiState ? 
+        ` (UI context: ${parameters.uiState.currentRoute || 'unknown'})` : '';
+      
+      throw new Error(`Content retrieval failed${uiContext}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+  /**
+   * UI State-Aware Helper Methods
+   */
+
+  /**
+   * Enhance search scope with UI state context
+   */
+  private _enhanceScopeWithUIState(scope: any, uiState?: any): any {
+    if (!uiState) return scope;
+
+    const enhancedScope = { ...scope };
+
+    // If no explicit scope provided, infer from UI state
+    if (!scope.route && uiState.currentRoute) {
+      enhancedScope.route = uiState.currentRoute;
+    }
+
+    if (!scope.projectId && uiState.currentProject) {
+      enhancedScope.projectId = uiState.currentProject;
+    }
+
+    // Extract project from breadcrumb path if available
+    if (!enhancedScope.projectId && uiState.breadcrumbPath) {
+      const pathParts = uiState.breadcrumbPath.split('.');
+      if (pathParts.length >= 3 && pathParts[1] === 'projects') {
+        enhancedScope.projectId = pathParts[2];
+      }
+    }
+
+    return enhancedScope;
+  }
+
+  /**
+   * Enhance search filters with UI state context
+   */
+  private _enhanceFiltersWithUIState(filters: any, uiState?: any): any {
+    if (!uiState?.activeFilters) return filters;
+
+    const enhancedFilters = { ...filters };
+
+    // Merge active UI filters with explicit filters
+    if (uiState.activeFilters.tags && uiState.activeFilters.tags.length > 0) {
+      enhancedFilters.tags = [
+        ...(enhancedFilters.tags || []),
+        ...uiState.activeFilters.tags
+      ];
+    }
+
+    if (uiState.activeFilters.techStack && uiState.activeFilters.techStack.length > 0) {
+      enhancedFilters.technologies = [
+        ...(enhancedFilters.technologies || []),
+        ...uiState.activeFilters.techStack
+      ];
+    }
+
+    return enhancedFilters;
+  }
+
+  /**
+   * Apply UI state-aware ranking to search results
+   */
+  private _applyUIStateAwareRanking(results: any[], uiState?: any, targetCount: number = 5): any[] {
+    if (!uiState || !results.length) {
+      return results.slice(0, targetCount);
+    }
+
+    // Create scoring function based on UI state
+    const scoredResults = results.map(result => {
+      let contextScore = result.score || 0;
+
+      // Boost results from current project
+      if (uiState.currentProject && result.project === uiState.currentProject) {
+        contextScore += 0.3;
+      }
+
+      // Boost results matching current route context
+      if (uiState.currentRoute) {
+        if (uiState.currentRoute === 'projects' && result.project) {
+          contextScore += 0.2;
+        } else if (uiState.currentRoute === 'home' && !result.project) {
+          contextScore += 0.2;
+        }
+      }
+
+      // Boost results matching visible anchors
+      if (uiState.visibleAnchors && uiState.visibleAnchors.length > 0) {
+        const hasVisibleAnchor = uiState.visibleAnchors.some((anchor: string) =>
+          result.title?.toLowerCase().includes(anchor.toLowerCase()) ||
+          result.oneLiner?.toLowerCase().includes(anchor.toLowerCase())
+        );
+        if (hasVisibleAnchor) {
+          contextScore += 0.25;
+        }
+      }
+
+      // Boost results matching active filters
+      if (uiState.activeFilters) {
+        if (uiState.activeFilters.tags && result.facets?.tech) {
+          const tagMatch = uiState.activeFilters.tags.some((tag: string) =>
+            result.facets.tech.includes(tag)
+          );
+          if (tagMatch) {
+            contextScore += 0.15;
+          }
+        }
+      }
+
+      return {
+        ...result,
+        contextScore,
+        originalScore: result.score
+      };
+    });
+
+    // Sort by context score and return top results
+    return scoredResults
+      .sort((a, b) => b.contextScore - a.contextScore)
+      .slice(0, targetCount)
+      .map(({ contextScore, originalScore, ...result }) => ({
+        ...result,
+        score: contextScore // Update score to reflect context awareness
+      }));
+  }
+
+  /**
+   * Enhance navigation targets with UI state compatibility
+   */
+  private _enhanceNavigationTargets(results: any[], uiState?: any): any[] {
+    return results.map(result => ({
+      ...result,
+      navTarget: this._createNavigationTargetForContent(result, uiState)
+    }));
+  }
+
+  /**
+   * Create navigation target compatible with current UI state
+   */
+  private _createNavigationTargetForContent(content: any, uiState?: any): any {
+    // Base navigation target
+    const navTarget: any = {
+      type: 'section',
+      id: content.id
+    };
+
+    // If content is project-related, create project navigation
+    if (content.project) {
+      navTarget.type = 'project';
+      navTarget.id = content.project;
+      
+      // If we're already in the project, navigate to specific section
+      if (uiState?.currentProject === content.project) {
+        navTarget.type = 'section';
+        navTarget.id = content.id;
+        navTarget.scope = {
+          projectId: content.project
+        };
+      }
+    }
+
+    // Add behavior based on current UI state
+    navTarget.behavior = {
+      openIfNeeded: true,
+      closeBlocking: false,
+      scrollBehavior: 'smooth'
+    };
+
+    // Add scope context
+    if (uiState) {
+      navTarget.scope = {
+        route: uiState.currentRoute,
+        modalId: uiState.currentModal,
+        projectId: uiState.currentProject,
+        ...navTarget.scope
+      };
+    }
+
+    return navTarget;
+  }
+
+  /**
+   * Request-scoped cache for stateless caching
+   * Note: This is a simple in-memory cache that gets cleared after each request
+   */
+  private _requestCache = new Map<string, { data: any; timestamp: number }>();
+
+  /**
+   * Get cached data for request-scoped caching
+   */
+  private _getCachedData(key: string, maxAgeMs: number = 30000): any | null {
+    const cached = this._requestCache.get(key);
+    if (cached && (Date.now() - cached.timestamp) < maxAgeMs) {
+      return cached.data;
+    }
+    return null;
+  }
+
+  /**
+   * Set cached data for request-scoped caching
+   */
+  private _setCachedData(key: string, data: any): void {
+    this._requestCache.set(key, {
+      data,
+      timestamp: Date.now()
+    });
+
+    // Clean up old cache entries (simple cleanup)
+    if (this._requestCache.size > 100) {
+      const oldestKey = this._requestCache.keys().next().value;
+      this._requestCache.delete(oldestKey);
     }
   }
 }
