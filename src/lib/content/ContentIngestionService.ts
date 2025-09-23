@@ -1008,12 +1008,13 @@ Include: technical architecture, key features, implementation details, technolog
     const totalEntities = await prisma.contentEntity.count();
     const totalChunks = await prisma.contextChunk.count();
     
-    // Count chunks with embeddings using pgvector field
-    const chunksWithEmbeddings = await prisma.contextChunk.count({
-      where: {
-        embeddingVector: { not: null }
-      }
-    });
+    // Count chunks with embeddings using raw SQL (since embeddingVector is Unsupported)
+    const embeddingCountResult = await prisma.$queryRaw<{ count: bigint }[]>`
+      SELECT COUNT(*) as count 
+      FROM context_chunks 
+      WHERE embedding_vector IS NOT NULL
+    `;
+    const chunksWithEmbeddings = Number(embeddingCountResult[0]?.count || 0);
 
     const tierDistribution = await prisma.contextChunk.groupBy({
       by: ['tier'],

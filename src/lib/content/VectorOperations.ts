@@ -68,41 +68,81 @@ export class VectorOperations {
 
     if (existing) {
       // Update existing chunk with vector
-      const result = await this.prisma.$queryRaw<{ id: string; updated_at: Date }[]>`
-        UPDATE context_chunks 
-        SET 
-          title = ${truncatedTitle || null},
-          content = ${data.content},
-          token_count = ${data.tokenCount},
-          embedding_vector = ${embeddingString ? `${embeddingString}::vector(1536)` : null},
-          metadata = ${JSON.stringify(data.metadata || {})}::jsonb,
-          updated_at = NOW()
-        WHERE id = ${existing.id}
-        RETURNING id, updated_at
-      `;
+      let result;
+      if (embeddingString) {
+        result = await this.prisma.$queryRaw<{ id: string; updated_at: Date }[]>`
+          UPDATE context_chunks 
+          SET 
+            title = ${truncatedTitle || null},
+            content = ${data.content},
+            token_count = ${data.tokenCount},
+            embedding_vector = ${embeddingString}::vector(1536),
+            metadata = ${JSON.stringify(data.metadata || {})}::jsonb,
+            updated_at = NOW()
+          WHERE id = ${existing.id}
+          RETURNING id, updated_at
+        `;
+      } else {
+        result = await this.prisma.$queryRaw<{ id: string; updated_at: Date }[]>`
+          UPDATE context_chunks 
+          SET 
+            title = ${truncatedTitle || null},
+            content = ${data.content},
+            token_count = ${data.tokenCount},
+            embedding_vector = NULL,
+            metadata = ${JSON.stringify(data.metadata || {})}::jsonb,
+            updated_at = NOW()
+          WHERE id = ${existing.id}
+          RETURNING id, updated_at
+        `;
+      }
       return { id: result[0].id, created_at: result[0].updated_at };
     } else {
       // Create new chunk with vector
-      const result = await this.prisma.$queryRaw<{ id: string; created_at: Date }[]>`
-        INSERT INTO context_chunks (
-          id, entity_id, project_index_id, tier, chunk_id, title, content, token_count, 
-          embedding_vector, metadata, created_at, updated_at
-        ) VALUES (
-          gen_random_uuid(),
-          ${data.entityId},
-          ${data.projectIndexId || null},
-          ${data.tier},
-          ${data.chunkId},
-          ${truncatedTitle || null},
-          ${data.content},
-          ${data.tokenCount},
-          ${embeddingString ? `${embeddingString}::vector(1536)` : null},
-          ${JSON.stringify(data.metadata || {})}::jsonb,
-          NOW(),
-          NOW()
-        )
-        RETURNING id, created_at
-      `;
+      let result;
+      if (embeddingString) {
+        result = await this.prisma.$queryRaw<{ id: string; created_at: Date }[]>`
+          INSERT INTO context_chunks (
+            id, entity_id, project_index_id, tier, chunk_id, title, content, token_count, 
+            embedding_vector, metadata, created_at, updated_at
+          ) VALUES (
+            gen_random_uuid(),
+            ${data.entityId},
+            ${data.projectIndexId || null},
+            ${data.tier},
+            ${data.chunkId},
+            ${truncatedTitle || null},
+            ${data.content},
+            ${data.tokenCount},
+            ${embeddingString}::vector(1536),
+            ${JSON.stringify(data.metadata || {})}::jsonb,
+            NOW(),
+            NOW()
+          )
+          RETURNING id, created_at
+        `;
+      } else {
+        result = await this.prisma.$queryRaw<{ id: string; created_at: Date }[]>`
+          INSERT INTO context_chunks (
+            id, entity_id, project_index_id, tier, chunk_id, title, content, token_count, 
+            embedding_vector, metadata, created_at, updated_at
+          ) VALUES (
+            gen_random_uuid(),
+            ${data.entityId},
+            ${data.projectIndexId || null},
+            ${data.tier},
+            ${data.chunkId},
+            ${truncatedTitle || null},
+            ${data.content},
+            ${data.tokenCount},
+            NULL,
+            ${JSON.stringify(data.metadata || {})}::jsonb,
+            NOW(),
+            NOW()
+          )
+          RETURNING id, created_at
+        `;
+      }
       return result[0];
     }
   }
