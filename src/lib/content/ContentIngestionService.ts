@@ -7,6 +7,12 @@
  * 3. OpenAI embedding generation for semantic search
  * 4. UIManager integration for real-time section discovery
  * 5. Batch processing with progress tracking and cost estimation
+ * 
+ * NOTE: pgvector operations use raw SQL queries (see VectorOperations.ts):
+ * - prisma/sql/findSimilarContent.sql
+ * - prisma/sql/insertContextChunk.sql  
+ * - prisma/sql/semanticSearch.sql
+ * - prisma/sql/updateEmbedding.sql
  */
 
 import { PrismaClient } from '@prisma/client';
@@ -60,6 +66,20 @@ export interface IngestionProgress {
   startTime: number;
   estimatedTimeRemaining: number;
   errors: string[];
+}
+
+// Content ingestion result interface
+export interface ContentIngestionResult {
+  entityId: string;
+  entityType: string;
+  slug: string;
+  tiersCreated: number[];
+  totalChunks: number;
+  embeddingsGenerated: number;
+  costEstimate: number;
+  processingTime: number;
+  success: boolean;
+  error?: string;
 }
 
 // Event types for UIManager integration

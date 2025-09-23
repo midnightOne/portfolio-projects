@@ -7,6 +7,13 @@
  * 3. OpenAI embedding generation
  * 4. UIManager integration events
  * 5. Batch processing with progress tracking
+ * 
+ * NOTE: pgvector fields (embeddingVector) are not accessible via Prisma client
+ * due to Unsupported("vector(1536)") type. Use raw SQL queries instead:
+ * - prisma/sql/findSimilarContent.sql
+ * - prisma/sql/insertContextChunk.sql  
+ * - prisma/sql/semanticSearch.sql
+ * - prisma/sql/updateEmbedding.sql
  */
 
 import { PrismaClient } from '@prisma/client';
@@ -465,9 +472,8 @@ async function testContentRetrieval() {
       console.log(`     T${tier}: ${count} chunks`);
     });
 
-    // Show embedding status
-    const chunksWithEmbeddings = entity.contentChunks.filter(c => c.embeddingVector).length;
-    console.log(`   - Embeddings: ${chunksWithEmbeddings}/${entity.contentChunks.length}`);
+    // Show embedding status (note: embeddingVector field not accessible via Prisma client due to Unsupported type)
+    console.log(`   - Total chunks: ${entity.contentChunks.length} (embedding status requires raw query)`);
 
     // Show source distribution
     const sourceCounts = entity.contentChunks.reduce((acc, chunk) => {
@@ -486,7 +492,7 @@ async function testContentRetrieval() {
         console.log(`\n📄 T${tier} Sample (${chunk.chunkId}) [${source}]:`);
         console.log(`   Title: ${chunk.title || 'N/A'}`);
         console.log(`   Tokens: ${chunk.tokenCount}`);
-        console.log(`   Embedding: ${chunk.embeddingVector ? 'Yes' : 'No'}`);
+        console.log(`   Embedding: (requires raw query to check)`);
         console.log(`   Content: ${chunk.content.substring(0, 100)}${chunk.content.length > 100 ? '...' : ''}`);
       }
     }

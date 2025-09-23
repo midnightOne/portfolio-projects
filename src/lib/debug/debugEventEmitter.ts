@@ -20,7 +20,23 @@ type DebugEventType =
   | 'transcript_event'
   | 'audio_event'
   | 'tool_event'
-  | 'navigation_event';
+  | 'navigation_event'
+  // Content ingestion events
+  | 'content-ingestion-start'
+  | 'content-ingestion-complete'
+  | 'content-ingestion-error'
+  | 'content-ingestion-progress'
+  // UI Manager integration events
+  | 'ui-content-updated'
+  | 'ui-section-cache-cleared'
+  | 'ui-navigation-affordances-updated'
+  | 'ui-navigation-affordances-update-error'
+  | 'ui-sections-discovered'
+  | 'ui-section-registry-updated'
+  | 'ui-section-registry-update-error'
+  | 'ui-navigation-complete-refresh'
+  | 'ui-navigation-refresh-error'
+  | 'ui-manager-integration-connected';
 
 interface DebugEvent {
   type: DebugEventType;

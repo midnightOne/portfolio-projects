@@ -563,6 +563,12 @@ enum AIRateLimitTier {
 }
 
 // Hierarchical Content Storage Models for T0-T4 Tier System
+// NOTE: pgvector fields (embeddingVector) use Unsupported("vector(1536)") type
+// and are not accessible via Prisma client. Use raw SQL queries instead:
+// - prisma/sql/findSimilarContent.sql
+// - prisma/sql/insertContextChunk.sql  
+// - prisma/sql/semanticSearch.sql
+// - prisma/sql/updateEmbedding.sql
 
 model ContentEntity {
   id           String         @id @default(cuid())

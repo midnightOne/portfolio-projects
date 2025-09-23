@@ -3819,6 +3819,103 @@ export class UIManager {
   }
 
   /**
+   * Update navigation affordances (called by content ingestion)
+   */
+  _updateNavigationAffordances(): void {
+    try {
+      // Clear section cache to force refresh
+      this._sectionCache.clear();
+      
+      // Update current UI state
+      this._currentEpoch++;
+      this._updateBreadcrumbPath();
+      
+      // Emit debug event
+      debugEventEmitter.emit(
+        'navigation_event',
+        {
+          type: 'navigation_affordances_updated',
+          epoch: this._currentEpoch,
+          timestamp: Date.now()
+        },
+        'ui-manager'
+      );
+      
+      // Trigger background state update
+      this._debouncedStateUpdate();
+      
+    } catch (error) {
+      console.error('Failed to update navigation affordances:', error);
+      
+      debugEventEmitter.emit(
+        'navigation_event',
+        {
+          type: 'navigation_affordances_update_failed',
+          error: error instanceof Error ? error.message : 'Unknown error',
+          timestamp: Date.now()
+        },
+        'ui-manager'
+      );
+    }
+  }
+
+  /**
+   * Update section registry (called by content ingestion)
+   */
+  _updateSectionRegistry(entityType: string, slug: string, sections: Array<{ id: string; title: string }>): void {
+    try {
+      const cacheKey = `${entityType}:${slug}`;
+      
+      // Convert to SemanticSection format
+      const semanticSections: SemanticSection[] = sections.map(section => ({
+        id: section.id,
+        title: section.title,
+        type: entityType === 'PROJECT' ? 'project' : 'content',
+        metadata: {
+          entityType,
+          slug,
+          source: 'content-ingestion'
+        }
+      }));
+      
+      // Update cache
+      this._sectionCache.set(cacheKey, semanticSections);
+      
+      // Emit debug event
+      debugEventEmitter.emit(
+        'navigation_event',
+        {
+          type: 'section_registry_updated',
+          entityType,
+          slug,
+          sectionsCount: sections.length,
+          cacheKey,
+          timestamp: Date.now()
+        },
+        'ui-manager'
+      );
+      
+      // Update navigation affordances
+      this._updateNavigationAffordances();
+      
+    } catch (error) {
+      console.error('Failed to update section registry:', error);
+      
+      debugEventEmitter.emit(
+        'navigation_event',
+        {
+          type: 'section_registry_update_failed',
+          error: error instanceof Error ? error.message : 'Unknown error',
+          entityType,
+          slug,
+          timestamp: Date.now()
+        },
+        'ui-manager'
+      );
+    }
+  }
+
+  /**
    * Validate semantic ID using the registry
    */
   async validateSemanticID(semanticId: string): Promise<boolean> {
