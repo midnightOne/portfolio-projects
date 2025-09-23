@@ -1358,7 +1358,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
       const searchResult = await this.contentSearchService.searchContent({
         query,
         scope: enhancedScope,
-        k: k * 2, // Get more results for UI state-aware ranking
+        k: Math.min(k + 3, k * 1.5), // Get slightly more results for UI state-aware ranking
         maxTier,
         diversifyBy,
         filters: enhancedFilters

@@ -601,16 +601,25 @@ export class ContentSearchService implements ContentProvider {
           maxTier
         );
 
+        // Get all chunk IDs for batch query (avoid N+1 problem)
+        const chunkIds = semanticResults.map(result => result.id);
+        
+        // Batch fetch all chunks with entities in one query
+        const chunks = await prisma.contextChunk.findMany({
+          where: {
+            id: { in: chunkIds }
+          },
+          include: {
+            entity: true
+          }
+        });
+        
+        // Create a map for fast lookup
+        const chunkMap = new Map(chunks.map(chunk => [chunk.id, chunk]));
+        
         // Convert to internal format and apply additional filtering
         for (const result of semanticResults) {
-          // Get full entity and chunk data
-          const chunk = await prisma.contextChunk.findUnique({
-            where: { id: result.id },
-            include: {
-              entity: true
-            }
-          });
-
+          const chunk = chunkMap.get(result.id);
           if (!chunk || !chunk.entity) continue;
 
           // Apply metadata filters
