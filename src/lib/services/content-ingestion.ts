@@ -8,6 +8,7 @@
 import { PrismaClient } from '@prisma/client';
 import { ProjectIndexer } from './project-indexer';
 import { ContextManager } from './ai/context-manager';
+import VectorOperations from '../content/VectorOperations';
 
 const prisma = new PrismaClient();
 
@@ -33,10 +34,12 @@ export interface ContentIngestionResult {
 export class ContentIngestionPipeline {
   private projectIndexer: ProjectIndexer;
   private contextManager: ContextManager;
+  private vectorOps: VectorOperations;
 
   constructor() {
     this.projectIndexer = ProjectIndexer.getInstance();
     this.contextManager = new ContextManager();
+    this.vectorOps = new VectorOperations(prisma);
   }
 
   /**
@@ -104,35 +107,26 @@ export class ContentIngestionPipeline {
       // Generate tier content
       const tierContents = await this.generateProjectTiers(project);
 
-      // Store tier content as context chunks
+      // Store tier content as context chunks using VectorOperations
       const chunks = [];
       for (const tierContent of tierContents) {
-        const chunk = await prisma.contextChunk.upsert({
-          where: {
-            entityId_tier_chunkId: {
-              entityId: entity.id,
-              tier: tierContent.tier,
-              chunkId: tierContent.chunkId
-            }
-          },
-          create: {
-            entityId: entity.id,
-            projectIndexId: project.id,
-            tier: tierContent.tier,
-            chunkId: tierContent.chunkId,
-            title: tierContent.title,
-            content: tierContent.content,
-            tokenCount: tierContent.tokenCount,
-            metadata: tierContent.metadata
-          },
-          update: {
-            title: tierContent.title,
-            content: tierContent.content,
-            tokenCount: tierContent.tokenCount,
-            metadata: tierContent.metadata
-          }
+        const chunkResult = await this.vectorOps.upsertContextChunkWithVector({
+          entityId: entity.id,
+          projectIndexId: project.id,
+          tier: tierContent.tier,
+          chunkId: tierContent.chunkId,
+          title: tierContent.title,
+          content: tierContent.content,
+          tokenCount: tierContent.tokenCount,
+          embedding: undefined, // No embeddings in this version
+          metadata: tierContent.metadata
         });
-        chunks.push(chunk);
+        
+        // Get the full chunk data for return
+        const chunk = await prisma.contextChunk.findUnique({
+          where: { id: chunkResult.id }
+        });
+        if (chunk) chunks.push(chunk);
       }
 
       // Create content version record

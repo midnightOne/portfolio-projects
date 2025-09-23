@@ -1,11 +1,13 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions", "typedSql"]
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [pgvector(map: "vector", schema: "public")]
 }
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
@@ -591,7 +593,7 @@ model ContextChunk {
   title           String?        @db.VarChar(255)
   content         String         // The actual text content for this tier
   tokenCount      Int            @default(0) @map("token_count") // Estimated token count
-  embeddingVector Unsupported("vector(1536)")?        @map("embedding_vector") // Vector embedding
+  embeddingVector Unsupported("vector(1536)")?        @map("embedding_vector") // Vector embedding for semantic search
   metadata        Json           @default("{}") // Additional metadata (importance score, keywords, etc.)
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @updatedAt @map("updated_at")

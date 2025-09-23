@@ -13,6 +13,7 @@ import { PrismaClient } from '@prisma/client';
 import { ProjectIndexer } from '../services/project-indexer';
 import { ContextManager } from '../services/ai/context-manager';
 import { debugEventEmitter } from '../debug/debugEventEmitter';
+import VectorOperations from './VectorOperations';
 import OpenAI from 'openai';
 import { EventEmitter } from 'events';
 
@@ -73,6 +74,7 @@ export interface ContentIngestionEvents {
 export class ContentIngestionService extends EventEmitter {
   private projectIndexer: ProjectIndexer;
   private contextManager: ContextManager;
+  private vectorOps: VectorOperations;
   private openai: OpenAI;
   private embeddingModel = 'text-embedding-3-small';
   private embeddingDimensions = 1536;
@@ -89,6 +91,7 @@ export class ContentIngestionService extends EventEmitter {
     super();
     this.projectIndexer = ProjectIndexer.getInstance();
     this.contextManager = new ContextManager();
+    this.vectorOps = new VectorOperations(prisma);
     
     // Initialize OpenAI client (optional for testing)
     const apiKey = process.env.OPENAI_API_KEY;
@@ -238,45 +241,26 @@ export class ContentIngestionService extends EventEmitter {
         }
       }
 
-      // Store tier content as context chunks
+      // Store tier content as context chunks using VectorOperations for embedding support
       const chunks = [];
       for (const tierContent of tierContents) {
-        const chunk = await prisma.contextChunk.upsert({
-          where: {
-            entityId_tier_chunkId: {
-              entityId: entity.id,
-              tier: tierContent.tier,
-              chunkId: tierContent.chunkId
-            }
-          },
-          create: {
-            entityId: entity.id,
-            projectIndexId: project.id,
-            tier: tierContent.tier,
-            chunkId: tierContent.chunkId,
-            title: tierContent.title,
-            content: tierContent.content,
-            tokenCount: tierContent.tokenCount,
-            // Note: embeddingVector field is not available until pgvector is enabled
-            // For now, we store embeddings in metadata
-            metadata: {
-              ...tierContent.metadata,
-              embedding: tierContent.embedding || null
-            }
-          },
-          update: {
-            title: tierContent.title,
-            content: tierContent.content,
-            tokenCount: tierContent.tokenCount,
-            // Note: embeddingVector field is not available until pgvector is enabled
-            // For now, we store embeddings in metadata
-            metadata: {
-              ...tierContent.metadata,
-              embedding: tierContent.embedding || null
-            }
-          }
+        const chunkResult = await this.vectorOps.upsertContextChunkWithVector({
+          entityId: entity.id,
+          projectIndexId: project.id,
+          tier: tierContent.tier,
+          chunkId: tierContent.chunkId,
+          title: tierContent.title,
+          content: tierContent.content,
+          tokenCount: tierContent.tokenCount,
+          embedding: tierContent.embedding,
+          metadata: tierContent.metadata
         });
-        chunks.push(chunk);
+        
+        // Get the full chunk data for return
+        const chunk = await prisma.contextChunk.findUnique({
+          where: { id: chunkResult.id }
+        });
+        if (chunk) chunks.push(chunk);
       }
 
       // Create content version record
@@ -1024,13 +1008,10 @@ Include: technical architecture, key features, implementation details, technolog
     const totalEntities = await prisma.contentEntity.count();
     const totalChunks = await prisma.contextChunk.count();
     
-    // Count chunks with embeddings stored in metadata (until pgvector is available)
+    // Count chunks with embeddings using pgvector field
     const chunksWithEmbeddings = await prisma.contextChunk.count({
       where: {
-        metadata: {
-          path: ['embedding'],
-          not: null
-        }
+        embeddingVector: { not: null }
       }
     });
 
