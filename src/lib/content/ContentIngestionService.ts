@@ -20,6 +20,7 @@ import { ProjectIndexer } from '../services/project-indexer';
 import { ContextManager } from '../services/ai/context-manager';
 import { debugEventEmitter } from '../debug/debugEventEmitter';
 import VectorOperations from './VectorOperations';
+import { IndexMaintenanceService } from '../database/IndexMaintenanceService';
 import OpenAI from 'openai';
 import { EventEmitter } from 'events';
 
@@ -95,6 +96,7 @@ export class ContentIngestionService extends EventEmitter {
   private projectIndexer: ProjectIndexer;
   private contextManager: ContextManager;
   private vectorOps: VectorOperations;
+  private indexMaintenance: IndexMaintenanceService;
   private openai: OpenAI;
   private embeddingModel = 'text-embedding-3-small';
   private embeddingDimensions = 1536;
@@ -112,6 +114,11 @@ export class ContentIngestionService extends EventEmitter {
     this.projectIndexer = ProjectIndexer.getInstance();
     this.contextManager = new ContextManager();
     this.vectorOps = new VectorOperations(prisma);
+    this.indexMaintenance = IndexMaintenanceService.getInstance(prisma, {
+      autoAnalyzeThreshold: 50,    // Analyze after 50 changes (more frequent for better performance)
+      reindexThreshold: 5000,      // Reindex after 5k changes
+      enableAutoMaintenance: true
+    });
     
     // Initialize OpenAI client (optional for testing)
     const apiKey = process.env.OPENAI_API_KEY;
@@ -304,6 +311,16 @@ export class ContentIngestionService extends EventEmitter {
       });
 
       const processingTime = Date.now() - startTime;
+
+      // Trigger index maintenance after content changes
+      try {
+        const maintenanceResult = await this.indexMaintenance.onContentChange('insert', chunks.length);
+        if (maintenanceResult) {
+          console.log(`🔧 Index maintenance triggered: ${maintenanceResult.action} (${maintenanceResult.duration}ms)`);
+        }
+      } catch (error) {
+        console.warn('Index maintenance failed (non-critical):', error);
+      }
 
       debugEventEmitter.emit('content-ingestion-complete', {
         projectId: project.id,
