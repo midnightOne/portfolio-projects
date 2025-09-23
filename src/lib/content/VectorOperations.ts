@@ -157,10 +157,8 @@ export class VectorOperations {
   ): Promise<VectorSearchResult[]> {
     const embeddingString = `[${embedding.join(',')}]`;
     
-    const tierCondition = tierFilter !== undefined ? 
-      `AND c.tier <= ${tierFilter}` : '';
-
-    const results = await this.prisma.$queryRaw<VectorSearchResult[]>`
+    // Build the query dynamically to handle optional tier filtering
+    let query = `
       SELECT 
         c.id,
         c.title,
@@ -170,14 +168,25 @@ export class VectorOperations {
         e.title as entity_title,
         e.slug as entity_slug,
         e."entityType" as entity_type,
-        (1 - (c.embedding_vector <=> ${embeddingString}::vector(1536))) as similarity_score
+        (1 - (c.embedding_vector <=> $1::vector(1536))) as similarity_score
       FROM context_chunks c
       JOIN content_entities e ON c.entity_id = e.id
       WHERE c.embedding_vector IS NOT NULL
-      ${tierCondition}
-      ORDER BY c.embedding_vector <=> ${embeddingString}::vector(1536)
-      LIMIT ${limit}
     `;
+    
+    const params: any[] = [embeddingString];
+    
+    if (tierFilter !== undefined) {
+      query += ` AND c.tier <= $2`;
+      params.push(tierFilter);
+      query += ` ORDER BY c.embedding_vector <=> $1::vector(1536) LIMIT $3`;
+      params.push(limit);
+    } else {
+      query += ` ORDER BY c.embedding_vector <=> $1::vector(1536) LIMIT $2`;
+      params.push(limit);
+    }
+
+    const results = await this.prisma.$queryRawUnsafe<VectorSearchResult[]>(query, ...params);
 
     return results;
   }
@@ -192,10 +201,8 @@ export class VectorOperations {
   ): Promise<L2DistanceResult[]> {
     const embeddingString = `[${embedding.join(',')}]`;
     
-    const tierCondition = maxTier !== undefined ? 
-      `AND c.tier <= ${maxTier}` : '';
-
-    const results = await this.prisma.$queryRaw<L2DistanceResult[]>`
+    // Build the query dynamically to handle optional tier filtering
+    let query = `
       SELECT 
         c.id,
         c.title,
@@ -204,14 +211,25 @@ export class VectorOperations {
         c.token_count,
         e.title as entity_title,
         e.slug as entity_slug,
-        (c.embedding_vector <-> ${embeddingString}::vector(1536)) as l2_distance
+        (c.embedding_vector <-> $1::vector(1536)) as l2_distance
       FROM context_chunks c
       JOIN content_entities e ON c.entity_id = e.id
       WHERE c.embedding_vector IS NOT NULL
-      ${tierCondition}
-      ORDER BY c.embedding_vector <-> ${embeddingString}::vector(1536)
-      LIMIT ${limit}
     `;
+    
+    const params: any[] = [embeddingString];
+    
+    if (maxTier !== undefined) {
+      query += ` AND c.tier <= $2`;
+      params.push(maxTier);
+      query += ` ORDER BY c.embedding_vector <-> $1::vector(1536) LIMIT $3`;
+      params.push(limit);
+    } else {
+      query += ` ORDER BY c.embedding_vector <-> $1::vector(1536) LIMIT $2`;
+      params.push(limit);
+    }
+
+    const results = await this.prisma.$queryRawUnsafe<L2DistanceResult[]>(query, ...params);
 
     return results;
   }

@@ -10,6 +10,7 @@ import { UnifiedToolDefinition, UnifiedToolResult, ServerToolExecutionContext } 
 import { serverToolDefinitions } from './server-tools';
 import { contextInjector } from '@/lib/services/ai/context-injector';
 import { projectIndexer } from '@/lib/services/project-indexer';
+import ContentSearchService from '@/lib/content/ContentSearchService';
 
 export interface BackendToolExecutionRequest {
   toolName: string;
@@ -26,8 +27,10 @@ export interface BackendToolExecutionRequest {
 export class BackendToolService {
   private static instance: BackendToolService;
   private toolDefinitions: Map<string, UnifiedToolDefinition> = new Map();
+  private contentSearchService: ContentSearchService;
 
   private constructor() {
+    this.contentSearchService = new ContentSearchService();
     this.initializeTools();
   }
 
@@ -157,6 +160,14 @@ export class BackendToolService {
 
         case 'processUploadedFile':
           result = await this.handleProcessUploadedFile(parameters, context);
+          break;
+
+        case 'content.search':
+          result = await this.handleContentSearch(parameters, context);
+          break;
+
+        case 'content.get':
+          result = await this.handleContentGet(parameters, context);
           break;
 
         default:
@@ -1284,6 +1295,112 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
   private isStopWord(word: string): boolean {
     const stopWords = ['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them'];
     return stopWords.includes(word.toLowerCase());
+  }
+
+  /**
+   * Handle content search using ContentSearchService
+   */
+  private async handleContentSearch(
+    parameters: any,
+    context: ServerToolExecutionContext
+  ): Promise<any> {
+    try {
+      const {
+        query,
+        scope = {},
+        k = 5,
+        maxTier = 3,
+        diversifyBy = 'project',
+        filters = {}
+      } = parameters;
+
+      console.log('Content search request:', {
+        query,
+        scope,
+        k,
+        maxTier,
+        diversifyBy,
+        filters,
+        sessionId: context.sessionId
+      });
+
+      // Perform content search using ContentSearchService
+      const searchResult = await this.contentSearchService.searchContent({
+        query,
+        scope,
+        k,
+        maxTier,
+        diversifyBy,
+        filters
+      });
+
+      console.log('Content search completed:', {
+        query,
+        totalResults: searchResult.totalResults,
+        returnedItems: searchResult.items.length,
+        searchTime: searchResult.searchMetadata.searchTime,
+        sessionId: context.sessionId
+      });
+
+      return searchResult;
+
+    } catch (error) {
+      console.error('Content search failed:', error);
+      throw new Error(`Content search failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle content retrieval using ContentSearchService
+   */
+  private async handleContentGet(
+    parameters: any,
+    context: ServerToolExecutionContext
+  ): Promise<any> {
+    try {
+      const {
+        ids,
+        maxTokens = 900,
+        includeTiers = [1, 2, 3]
+      } = parameters;
+
+      console.log('Content get request:', {
+        ids,
+        maxTokens,
+        includeTiers,
+        sessionId: context.sessionId
+      });
+
+      // Validate parameters
+      if (!Array.isArray(ids) || ids.length === 0) {
+        throw new Error('Content IDs array is required and must not be empty');
+      }
+
+      if (ids.length > 10) {
+        throw new Error('Maximum 10 content IDs allowed per request');
+      }
+
+      // Retrieve content using ContentSearchService
+      const getResult = await this.contentSearchService.getContent({
+        ids,
+        maxTokens,
+        includeTiers
+      });
+
+      console.log('Content get completed:', {
+        requestedIds: ids.length,
+        returnedItems: getResult.items.length,
+        totalTokens: getResult.totalTokens,
+        truncated: getResult.truncated,
+        sessionId: context.sessionId
+      });
+
+      return getResult;
+
+    } catch (error) {
+      console.error('Content get failed:', error);
+      throw new Error(`Content retrieval failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 }
 

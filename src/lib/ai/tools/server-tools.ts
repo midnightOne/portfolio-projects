@@ -2,7 +2,8 @@
  * Server-Side Tool Definitions
  * 
  * This file defines all server-side tools that require backend processing
- * for context loading, job analysis, user profiles, and data processing.
+ * for context loading, job analysis, user profiles, data processing,
+ * and content search/retrieval.
  */
 
 import { UnifiedToolDefinition } from './types';
@@ -318,7 +319,7 @@ export const analyzeUserIntentToolDefinition: UnifiedToolDefinition = {
         properties: {
           currentPage: { type: 'string' },
           currentModal: { type: 'string' },
-          recentActions: { 
+          recentActions: {
             type: 'array',
             items: { type: 'string' },
             description: 'List of recent user actions'
@@ -338,12 +339,12 @@ export const analyzeUserIntentToolDefinition: UnifiedToolDefinition = {
         properties: {
           intent: { type: 'string' },
           confidence: { type: 'number' },
-          entities: { 
+          entities: {
             type: 'array',
             items: { type: 'string' },
             description: 'Extracted entities from user message'
           },
-          suggestedActions: { 
+          suggestedActions: {
             type: 'array',
             items: { type: 'string' },
             description: 'Suggested actions based on intent'
@@ -550,6 +551,182 @@ export const processUploadedFileToolDefinition: UnifiedToolDefinition = {
   }
 };
 
+// Content Search and Retrieval Tools - Semantic search with pgvector
+export const contentSearchToolDefinition: UnifiedToolDefinition = {
+  name: 'content.search',
+  description: 'Search portfolio content semantically across projects and sections using hybrid search (semantic + metadata filtering).',
+  parameters: {
+    type: 'object',
+    properties: {
+      query: {
+        type: 'string',
+        description: 'Natural language search query to find relevant content'
+      },
+      scope: {
+        type: 'object',
+        properties: {
+          route: {
+            type: 'string',
+            description: 'Limit search to current route context (e.g., "home", "projects")'
+          },
+          projectId: {
+            type: 'string',
+            description: 'Limit search to specific project by ID or slug'
+          },
+          entityType: {
+            type: 'string',
+            description: 'Limit search to specific entity type (PROJECT, BIO, RESUME, etc.)'
+          }
+        }
+      },
+      k: {
+        type: 'number',
+        description: 'Number of results to return',
+        default: 5,
+        minimum: 1,
+        maximum: 20
+      },
+      maxTier: {
+        type: 'number',
+        description: 'Maximum content tier to return (1=summary, 2=bullets, 3=detailed, 4=full)',
+        enum: [1, 2, 3, 4],
+        default: 3
+      },
+      diversifyBy: {
+        type: 'string',
+        description: 'Diversification strategy for results',
+        enum: ['project', 'type'],
+        default: 'project'
+      },
+      filters: {
+        type: 'object',
+        properties: {
+          tags: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Filter by content tags'
+          },
+          technologies: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Filter by technology stack'
+          },
+          dateRange: {
+            type: 'object',
+            properties: {
+              from: { type: 'string', format: 'date' },
+              to: { type: 'string', format: 'date' }
+            },
+            description: 'Filter by date range'
+          },
+          minImportance: {
+            type: 'number',
+            description: 'Minimum importance score (0-1)',
+            minimum: 0,
+            maximum: 1
+          }
+        }
+      }
+    },
+    required: ['query']
+  },
+  executionContext: 'server',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean' },
+      data: {
+        type: 'object',
+        properties: {
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                project: { type: 'string' },
+                title: { type: 'string' },
+                oneLiner: { type: 'string' },
+                why: { type: 'string' },
+                navTarget: { type: 'object' },
+                score: { type: 'number' },
+                facets: { type: 'object' }
+              }
+            }
+          },
+          more: { type: 'boolean' },
+          totalResults: { type: 'number' },
+          searchMetadata: { type: 'object' }
+        }
+      },
+      error: { type: 'string' }
+    }
+  }
+};
+
+export const contentGetToolDefinition: UnifiedToolDefinition = {
+  name: 'content.get',
+  description: 'Fetch specific content details by ID with token budget control and tier filtering.',
+  parameters: {
+    type: 'object',
+    properties: {
+      ids: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Content chunk IDs to fetch',
+        minItems: 1,
+        maxItems: 10
+      },
+      maxTokens: {
+        type: 'number',
+        description: 'Token budget for response to prevent context overflow',
+        default: 900,
+        minimum: 100,
+        maximum: 4000
+      },
+      includeTiers: {
+        type: 'array',
+        items: {
+          type: 'number',
+          enum: [0, 1, 2, 3, 4]
+        },
+        description: 'Which content tiers to include (0=metadata, 1=summary, 2=bullets, 3=detailed, 4=full)',
+        default: [1, 2, 3]
+      }
+    },
+    required: ['ids']
+  },
+  executionContext: 'server',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean' },
+      data: {
+        type: 'object',
+        properties: {
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                content: { type: 'string' },
+                tokenEstimate: { type: 'number' },
+                tier: { type: 'number' },
+                title: { type: 'string' },
+                metadata: { type: 'object' }
+              }
+            }
+          },
+          totalTokens: { type: 'number' },
+          truncated: { type: 'boolean' }
+        }
+      },
+      error: { type: 'string' }
+    }
+  }
+};
+
 // Export all server-side tool definitions
 export const serverToolDefinitions: UnifiedToolDefinition[] = [
   loadProjectContextToolDefinition,
@@ -562,7 +739,9 @@ export const serverToolDefinitions: UnifiedToolDefinition[] = [
   generateNavigationSuggestionsToolDefinition,
   getNavigationHistoryToolDefinition,
   submitContactFormToolDefinition,
-  processUploadedFileToolDefinition
+  processUploadedFileToolDefinition,
+  contentSearchToolDefinition,
+  contentGetToolDefinition
 ];
 
 // Note: getServerToolDefinitions function has been removed

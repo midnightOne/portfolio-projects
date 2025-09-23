@@ -3935,6 +3935,192 @@ export class UIManager {
   }
 
   /**
+   * Navigate to content based on search query using registered content providers
+   * Provides graceful fallback handling for robust navigation
+   */
+  async navigateToContent(query: string): Promise<NavigationResult> {
+    const startTime = Date.now();
+    
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'content_navigation_start',
+        query,
+        providersCount: this._contentProviders.length
+      },
+      'ui-manager'
+    );
+
+    try {
+      // Try to find content using registered providers
+      for (const provider of this._contentProviders) {
+        if (provider.searchContent) {
+          try {
+            const searchResults = await provider.searchContent(query, { k: 1 });
+            
+            if (searchResults && searchResults.length > 0) {
+              const bestMatch = searchResults[0];
+              
+              // If the provider has a navigateToContent method, use it
+              if ('navigateToContent' in provider && typeof provider.navigateToContent === 'function') {
+                const navResult = await provider.navigateToContent(query, this);
+                
+                if (navResult.success && navResult.target) {
+                  // Execute the navigation using UIManager
+                  const result = await this.executeIntent(navResult.target);
+                  
+                  debugEventEmitter.emit(
+                    'navigation_event',
+                    {
+                      type: 'content_navigation_success',
+                      query,
+                      provider: provider.name,
+                      target: navResult.target,
+                      totalTime: Date.now() - startTime
+                    },
+                    'ui-manager'
+                  );
+                  
+                  return {
+                    success: result.success,
+                    message: result.message || `Navigated to content: "${query}"`,
+                    data: {
+                      query,
+                      provider: provider.name,
+                      target: navResult.target,
+                      searchResult: bestMatch
+                    },
+                    error: result.error,
+                    executedSteps: result.executedSteps || [],
+                    totalTime: Date.now() - startTime
+                  };
+                }
+              } else {
+                // Fallback: try to create navigation target from search result
+                const fallbackTarget = this._createNavigationTargetFromSearchResult(bestMatch);
+                
+                if (fallbackTarget) {
+                  const result = await this.executeIntent(fallbackTarget);
+                  
+                  debugEventEmitter.emit(
+                    'navigation_event',
+                    {
+                      type: 'content_navigation_fallback_success',
+                      query,
+                      provider: provider.name,
+                      target: fallbackTarget,
+                      totalTime: Date.now() - startTime
+                    },
+                    'ui-manager'
+                  );
+                  
+                  return {
+                    success: result.success,
+                    message: result.message || `Found and navigated to content: "${query}"`,
+                    data: {
+                      query,
+                      provider: provider.name,
+                      target: fallbackTarget,
+                      searchResult: bestMatch,
+                      fallback: true
+                    },
+                    error: result.error,
+                    executedSteps: result.executedSteps || [],
+                    totalTime: Date.now() - startTime
+                  };
+                }
+              }
+            }
+          } catch (providerError) {
+            console.warn(`Content provider ${provider.name} failed for query "${query}":`, providerError);
+            // Continue to next provider
+          }
+        }
+      }
+
+      // No content found with any provider
+      debugEventEmitter.emit(
+        'navigation_event',
+        {
+          type: 'content_navigation_not_found',
+          query,
+          providersSearched: this._contentProviders.length,
+          totalTime: Date.now() - startTime
+        },
+        'ui-manager'
+      );
+
+      return {
+        success: false,
+        message: `No content found for query: "${query}"`,
+        data: {
+          query,
+          providersSearched: this._contentProviders.length
+        },
+        error: 'CONTENT_NOT_FOUND',
+        executedSteps: [],
+        totalTime: Date.now() - startTime
+      };
+
+    } catch (error) {
+      const errorMsg = `Content navigation failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      
+      debugEventEmitter.emit(
+        'navigation_event',
+        {
+          type: 'content_navigation_error',
+          query,
+          error: errorMsg,
+          totalTime: Date.now() - startTime
+        },
+        'ui-manager'
+      );
+
+      return {
+        success: false,
+        message: errorMsg,
+        data: { query },
+        error: errorMsg,
+        executedSteps: [],
+        totalTime: Date.now() - startTime
+      };
+    }
+  }
+
+  /**
+   * Create navigation target from search result (fallback method)
+   */
+  private _createNavigationTargetFromSearchResult(searchResult: any): UIIntentParams['target'] | null {
+    try {
+      // If search result has navTarget, use it
+      if (searchResult.navTarget) {
+        return searchResult.navTarget;
+      }
+
+      // Try to infer navigation target from search result properties
+      if (searchResult.project) {
+        return {
+          type: 'project',
+          id: searchResult.project,
+          sectionId: searchResult.id
+        };
+      }
+
+      if (searchResult.id) {
+        return {
+          type: 'section',
+          id: searchResult.id
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Failed to create navigation target from search result:', error);
+      return null;
+    }
+  }
+
+  /**
    * Get location object (real or test)
    */
   private _getLocation(): any {
