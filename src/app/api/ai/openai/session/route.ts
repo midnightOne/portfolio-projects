@@ -111,11 +111,11 @@ export async function GET(request: NextRequest) {
 - Use the NEW UIManager system for ALL navigation via ui_intent
 - Use ui_describe to understand current UI state and available navigation options
 - Provide visual guidance with highlighting tools when helpful
-- Before calling any long-running tools (such as searches, loading content, or analyzing data), provide a brief (one sentence) conversational filler to keep the user engaged. Then proceed with the tool call, and once results return, share the outcome.
+- Before calling any long-running tools (such as searches, loading content, or analyzing data), provide a brief (one sentence) conversational filler to keep the user engaged. Then proceed with the tool call, and once results return, share the outcome
 
 PRIMARY NAVIGATION TOOLS:
 1. ui_describe - Get current UI state, available sections, and navigation options
-2. ui_intent - Perform ALL navigation goals declaratively (projects, sections, routes, modals)
+2. ui_intent - Perform ALL navigation goals declaratively (projects, sections, routes, modals), when using ui_intent - don't add any artificial delays like wait_1500ms to the tool call (still use conversational fillers when appropriate)
 3. highlightText and scrollIntoView - Visual emphasis and guidance
 
 NAVIGATION WORKFLOW:
@@ -453,11 +453,11 @@ export async function POST(request: NextRequest) {
 - Use the NEW UIManager system for ALL navigation via ui_intent
 - Use ui_describe to understand current UI state and available navigation options
 - Provide visual guidance with highlighting tools when helpful
-- Before calling any long-running tools (such as searches, loading content, or analyzing data), provide a brief (one sentence) conversational filler to keep the user engaged. Then proceed with the tool call, and once results return, share the outcome.
+- Before calling any long-running tools (such as searches, loading content, or analyzing data), provide a brief (one sentence) conversational filler to keep the user engaged. Then proceed with the tool call, and once results return, share the outcome
 
 PRIMARY NAVIGATION TOOLS:
 1. ui_describe - Get current UI state, available sections, and navigation options
-2. ui_intent - Perform ALL navigation goals declaratively (projects, sections, routes, modals)
+2. ui_intent - Perform ALL navigation goals declaratively (projects, sections, routes, modals), when using ui_intent - don't add any artificial delays like wait_1500ms to the tool call (still use conversational fillers when appropriate)
 3. highlightText and scrollIntoView - Visual emphasis and guidance
 
 NAVIGATION WORKFLOW:

@@ -3178,7 +3178,7 @@ export class UIManager {
     return {
       id: `wait_${waitMs}ms`,
       type: 'wait',
-      timeout: waitMs + 1000, // Add buffer to timeout
+      timeout: waitMs, //+ 1000, // Add buffer to timeout
       execute: async () => {
         try {
           await new Promise(resolve => setTimeout(resolve, waitMs));
