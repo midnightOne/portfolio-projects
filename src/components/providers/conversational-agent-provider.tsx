@@ -17,6 +17,9 @@ import { IConversationalAgentAdapter, AdapterRegistry } from '@/lib/voice/IConve
 import { OpenAIRealtimeAdapter } from '@/lib/voice/OpenAIRealtimeAdapter';
 import { ElevenLabsAdapter } from '@/lib/voice/ElevenLabsAdapter';
 import { useReflinkSession } from './reflink-session-provider';
+
+// Import timing debug utilities for production monitoring
+import { initializeTimingDebug } from '@/lib/monitoring/simple-timing-debug';
 import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 
 interface ConversationalAgentContextType {
@@ -134,6 +137,13 @@ export function ConversationalAgentProvider({
     // Register adapter factories
     AdapterRegistry.register('openai', async () => new OpenAIRealtimeAdapter());
     AdapterRegistry.register('elevenlabs', async () => new ElevenLabsAdapter());
+    
+    // Initialize timing debug utilities
+    try {
+      initializeTimingDebug();
+    } catch (error) {
+      console.warn('Failed to initialize timing debug:', error);
+    }
   }, []);
 
   // Initialize provider when reflink session is ready (but don't auto-connect)

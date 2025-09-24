@@ -5,6 +5,7 @@ import { UIThemeProvider } from "@/components/providers/ui-theme-provider";
 import { NavigationProvider } from "@/components/providers/navigation-provider";
 // Removed reflink session provider from global layout
 import { ToastProvider } from "@/components/ui/toast";
+import TimingDebugInitializer from "@/components/debug/TimingDebugInitializer";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -39,15 +40,25 @@ export default function RootLayout({
                   document.documentElement.classList.add('light');
                 }
               })();
+              
+              // Initialize timing debug placeholder
+              window.timingDebugReady = false;
+              window.initTimingDebug = function() {
+                if (!window.timingDebugReady) {
+                  console.log('⏳ Timing debug is loading...');
+                }
+              };
             `,
           }}
         />
+        <script src="/timing-debug.js" async></script>
       </head>
       <body className={inter.className} suppressHydrationWarning>
         <UIThemeProvider enableSystem>
           <SessionProvider>
             <NavigationProvider>
               <ToastProvider>
+                <TimingDebugInitializer />
                 {children}
               </ToastProvider>
             </NavigationProvider>

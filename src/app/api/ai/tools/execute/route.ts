@@ -67,13 +67,16 @@ interface UnifiedToolExecuteResponse {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse<UnifiedToolExecuteResponse>> {
-  const startTime = Date.now();
+  const apiRouteStartTime = Date.now();
+  const apiTimings: Record<string, number> = {};
   let toolCallId: string | undefined;
   let sessionId: string | undefined;
   let toolName: string | undefined;
   let reflinkId: string | undefined;
 
   try {
+    // Time request parsing
+    const requestParseStart = Date.now();
     const body: UnifiedToolExecuteRequest = await request.json();
     const { 
       toolName: requestedToolName, 
@@ -83,6 +86,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
       reflinkId: requestReflinkId,
       uiState: requestUIState
     } = body;
+    apiTimings.requestParsing = Date.now() - requestParseStart;
     
     toolName = requestedToolName;
     sessionId = requestSessionId || 'anonymous';
@@ -115,6 +119,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
     }
 
     // Emit debug event for server-side tool call start with correlation ID
+    const debugEmitStart = Date.now();
     const toolCorrelationId = `server_tool_${toolCallId}`;
     debugEventEmitter.emit('tool_call_start', {
       toolName,
@@ -126,9 +131,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
       reflinkId,
       timestamp: new Date()
     }, 'unified-tools-api', toolCorrelationId, sessionId, toolCallId);
+    apiTimings.debugEmit = Date.now() - debugEmitStart;
 
     // Validate tool exists and is server-side
+    const toolValidationStart = Date.now();
     const toolDef = unifiedToolRegistry.getToolDefinition(toolName);
+    apiTimings.toolValidation = Date.now() - toolValidationStart;
     if (!toolDef) {
       const error = `Tool '${toolName}' not found in registry.`;
       const notFoundCorrelationId = `server_tool_${toolCallId}`;
@@ -190,7 +198,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
     }
 
     // Validate reflink and access control using contextInjector
+    const accessControlStart = Date.now();
     const validation = await contextInjector.validateAndFilterContext(sessionId, reflinkId);
+    apiTimings.accessControl = Date.now() - accessControlStart;
     if (!validation.valid) {
       const error = validation.error || 'Access denied.';
       const accessDeniedCorrelationId = `server_tool_${toolCallId}`;
@@ -223,6 +233,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
     }
 
     // Execute tool via BackendToolService
+    const backendServiceStart = Date.now();
     const backendService = BackendToolService.getInstance();
     const toolResult = await backendService.executeTool(
       toolName, 
@@ -233,8 +244,20 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
       undefined, // userId
       requestUIState // uiState
     );
+    apiTimings.backendServiceExecution = Date.now() - backendServiceStart;
 
-    const executionTime = Date.now() - startTime;
+    const executionTime = Date.now() - apiRouteStartTime;
+    apiTimings.totalApiRoute = executionTime;
+
+    // Log API route performance breakdown
+    console.log(`[APIRoute] /api/ai/tools/execute ${toolName} performance breakdown:`, {
+      requestParsing: `${apiTimings.requestParsing}ms`,
+      debugEmit: `${apiTimings.debugEmit}ms`,
+      toolValidation: `${apiTimings.toolValidation}ms`,
+      accessControl: `${apiTimings.accessControl}ms`,
+      backendServiceExecution: `${apiTimings.backendServiceExecution}ms`,
+      totalApiRoute: `${apiTimings.totalApiRoute}ms`
+    });
     const successCorrelationId = `server_tool_${toolCallId}`;
 
     // Emit debug event for server-side tool call completion with correlation ID

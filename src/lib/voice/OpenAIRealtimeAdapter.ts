@@ -935,25 +935,35 @@ Navigation Flow:
      * This method handles the execution and ensures proper result formatting
      */
     private async _executeToolCallUnified(toolName: string, parameters: any): Promise<string> {
+        const adapterStartTime = Date.now();
+        const adapterTimings: Record<string, number> = {};
+        
         console.log(`Executing unified tool: ${toolName}`, parameters);
 
         // Emit tool call transcript at the start of execution
+        const transcriptStart = Date.now();
         this._emitToolCallTranscript(toolName, parameters, 'unified-execution');
+        adapterTimings.transcriptEmit = Date.now() - transcriptStart;
 
         try {
             // Execute via unified system
+            const unifiedExecutionStart = Date.now();
             const result = await this._executeUnifiedTool(toolName, parameters);
+            adapterTimings.unifiedExecution = Date.now() - unifiedExecutionStart;
 
             console.log(`Unified tool ${toolName} executed successfully:`, result);
 
             // Emit tool result transcript for monitoring
+            const resultTranscriptStart = Date.now();
             this._emitToolResultTranscript(toolName, {
                 success: true,
                 message: typeof result === 'string' ? result : 'Tool executed successfully',
                 data: result
             }, 'unified-execution', 0);
+            adapterTimings.resultTranscript = Date.now() - resultTranscriptStart;
 
             // Return formatted result with explicit instruction to respond
+            const formattingStart = Date.now();
             let formattedResult: string;
 
             if (typeof result === 'string') {
@@ -981,6 +991,17 @@ Navigation Flow:
             } else {
                 formattedResult = String(result);
             }
+            adapterTimings.resultFormatting = Date.now() - formattingStart;
+            adapterTimings.totalAdapter = Date.now() - adapterStartTime;
+
+            // Log adapter-level timing breakdown
+            console.log(`[OpenAIAdapter] ${toolName} performance breakdown:`, {
+                transcriptEmit: `${adapterTimings.transcriptEmit}ms`,
+                unifiedExecution: `${adapterTimings.unifiedExecution}ms`,
+                resultTranscript: `${adapterTimings.resultTranscript}ms`,
+                resultFormatting: `${adapterTimings.resultFormatting}ms`,
+                totalAdapter: `${adapterTimings.totalAdapter}ms`
+            });
 
             // Return the formatted result directly - the AI should use this to respond
             return formattedResult;

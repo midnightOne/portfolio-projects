@@ -278,21 +278,38 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
    * Includes comprehensive debug event emission with toolCallId correlation.
    */
   protected async _executeUnifiedTool(toolName: string, args: any): Promise<any> {
+    const unifiedToolStartTime = Date.now();
+    const unifiedTimings: Record<string, number> = {};
+    
     // Import dependencies dynamically to avoid circular imports
+    const importStart = Date.now();
     const { unifiedToolRegistry } = await import('@/lib/ai/tools/UnifiedToolRegistry');
     const { debugEventEmitter } = await import('@/lib/debug/debugEventEmitter');
     const { v4: uuidv4 } = await import('uuid');
+    const { productionTimingMonitor } = await import('@/lib/monitoring/ProductionTimingMonitor');
+    unifiedTimings.imports = Date.now() - importStart;
 
+    const registryLookupStart = Date.now();
     const toolDef = unifiedToolRegistry.getToolDefinition(toolName);
     if (!toolDef) {
       throw new Error(`Tool '${toolName}' not found in unified registry.`);
     }
+    unifiedTimings.registryLookup = Date.now() - registryLookupStart;
 
     const toolCallId = uuidv4();
     const sessionId = this._options?.contextId || 'unknown-session';
     const startTime = Date.now();
     
+    // Start production timing monitoring
+    if (typeof window !== 'undefined' && (window as any).timingMonitor) {
+      (window as any).timingMonitor.startTiming(toolCallId, toolName, sessionId, {
+        provider: this._provider,
+        toolType: toolDef.executionContext
+      });
+    }
+    
     // Emit debug event for tool call start with correlation ID
+    const debugEmitStart = Date.now();
     debugEventEmitter.emit('tool_call_start', {
       toolName,
       args,
@@ -301,6 +318,7 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
       executionContext: toolDef.executionContext,
       provider: this._provider
     }, `${this._provider}-adapter`);
+    unifiedTimings.debugEmit = Date.now() - debugEmitStart;
 
     try {
       let result: any;
@@ -311,6 +329,7 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
           throw new Error(`Client-side tool '${toolName}' cannot be executed in server environment`);
         }
 
+        const clientToolStart = Date.now();
         const { uiNavigationTools } = await import('./UINavigationTools');
         const uiToolHandler = (uiNavigationTools as any)[toolName];
         
@@ -321,20 +340,39 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
         } else {
           throw new Error(`Client-side UI tool handler for '${toolName}' not found.`);
         }
+        unifiedTimings.clientToolExecution = Date.now() - clientToolStart;
+        
       } else if (toolDef.executionContext === 'server') {
         // Execute server-side tools via unified API endpoint
+        const apiCallStart = Date.now();
+        const requestBody = JSON.stringify({
+          toolName: toolName,
+          parameters: args,
+          sessionId: sessionId,
+          toolCallId: toolCallId,
+          reflinkId: this._options?.reflinkId
+        });
+        unifiedTimings.requestSerialization = Date.now() - apiCallStart;
+
+        // Mark network start for production timing
+        if (typeof window !== 'undefined' && (window as any).timingMonitor) {
+          (window as any).timingMonitor.markNetworkStart(toolCallId);
+        }
+        
+        const fetchStart = Date.now();
         const response = await fetch('/api/ai/tools/execute', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            toolName: toolName,
-            parameters: args,
-            sessionId: sessionId,
-            toolCallId: toolCallId,
-            reflinkId: this._options?.reflinkId
-          }),
+          body: requestBody,
         });
+        unifiedTimings.fetchCall = Date.now() - fetchStart;
+        
+        // Mark network end for production timing
+        if (typeof window !== 'undefined' && (window as any).timingMonitor) {
+          (window as any).timingMonitor.markNetworkEnd(toolCallId);
+        }
 
+        const responseProcessStart = Date.now();
         if (!response.ok) {
           const errorText = await response.text();
           throw new Error(`Server tool '${toolName}' failed: ${response.status} - ${errorText}`);
@@ -345,12 +383,50 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
           throw new Error(serverResult.error || 'Server tool execution failed');
         }
         
+        // Add server execution time to production timing
+        if (serverResult.metadata?.executionTime && typeof window !== 'undefined' && (window as any).timingMonitor) {
+          (window as any).timingMonitor.addServerTiming(toolCallId, serverResult.metadata.executionTime);
+        }
+        
         result = serverResult.data;
+        unifiedTimings.responseProcessing = Date.now() - responseProcessStart;
+        
       } else {
         throw new Error(`Invalid execution context '${toolDef.executionContext}' for tool '${toolName}'`);
       }
 
       const executionTime = Date.now() - startTime;
+      unifiedTimings.totalUnifiedTool = Date.now() - unifiedToolStartTime;
+
+      // Log detailed timing breakdown with correlation ID for production tracking
+      const timingLog = {
+        toolCallId,
+        sessionId,
+        toolName,
+        provider: this._provider,
+        timings: {
+          imports: `${unifiedTimings.imports}ms`,
+          registryLookup: `${unifiedTimings.registryLookup}ms`,
+          debugEmit: `${unifiedTimings.debugEmit}ms`,
+          requestSerialization: unifiedTimings.requestSerialization ? `${unifiedTimings.requestSerialization}ms` : 'N/A',
+          fetchCall: unifiedTimings.fetchCall ? `${unifiedTimings.fetchCall}ms` : 'N/A',
+          responseProcessing: unifiedTimings.responseProcessing ? `${unifiedTimings.responseProcessing}ms` : 'N/A',
+          clientToolExecution: unifiedTimings.clientToolExecution ? `${unifiedTimings.clientToolExecution}ms` : 'N/A',
+          totalUnifiedTool: `${unifiedTimings.totalUnifiedTool}ms`,
+          originalExecutionTime: `${executionTime}ms`
+        },
+        timestamp: new Date().toISOString()
+      };
+      
+      console.log(`[UnifiedTool] ${toolName} performance breakdown:`, timingLog);
+      
+      // Also emit as a structured event for production monitoring
+      debugEventEmitter.emit('tool_performance_breakdown', timingLog, `${this._provider}-adapter`);
+
+      // Complete production timing monitoring
+      if (typeof window !== 'undefined' && (window as any).timingMonitor) {
+        (window as any).timingMonitor.completeTiming(toolCallId, true);
+      }
 
       // Emit debug event for successful tool call completion
       debugEventEmitter.emit('tool_call_complete', {
@@ -361,13 +437,19 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
         sessionId,
         toolCallId,
         executionContext: toolDef.executionContext,
-        provider: this._provider
+        provider: this._provider,
+        timingBreakdown: unifiedTimings
       }, `${this._provider}-adapter`);
 
       return result;
     } catch (error) {
       const executionTime = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
+
+      // Complete production timing monitoring with error
+      if (typeof window !== 'undefined' && (window as any).timingMonitor) {
+        (window as any).timingMonitor.completeTiming(toolCallId, false);
+      }
 
       // Emit debug event for failed tool call completion
       debugEventEmitter.emit('tool_call_complete', {
