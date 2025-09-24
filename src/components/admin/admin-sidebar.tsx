@@ -408,6 +408,17 @@ export function AdminSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
+                  isActive={isItemActive('/admin/ai/tool-testing')}
+                >
+                  <Link href="/admin/ai/tool-testing" className="flex items-center gap-2">
+                    <Terminal className="size-4" />
+                    <span>Tool Testing</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
                   isActive={isItemActive('/admin/ai/voice-debug')}
                 >
                   <Link href="/admin/ai/voice-debug" className="flex items-center gap-2">
