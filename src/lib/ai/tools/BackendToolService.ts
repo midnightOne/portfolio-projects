@@ -87,7 +87,7 @@ export class BackendToolService {
       return await contextFrameManager.getCompleteContext(config);
     } catch (error) {
       console.error('Failed to get F-I-D context for server tool:', error);
-      
+
       // Return minimal context on error
       return {
         frame: { systemRules: '', voiceSettings: {}, routingPrimer: '', tokenCount: 0 },
@@ -256,27 +256,56 @@ export class BackendToolService {
     const { projectId, includeContent = false, includeMedia = false, includeTechnicalDetails = true } = args;
 
     try {
-      // Use context injector to load filtered project context
-      const filteredContext = await contextInjector.loadFilteredContext(
-        context.sessionId,
-        `Load project context for ${projectId}`,
-        context.reflinkId,
-        {
-          projectId,
-          includeContent,
-          includeMedia,
-          includeTechnicalDetails,
-          accessLevel: context.accessLevel
-        }
-      );
+      // Import prisma here to avoid circular dependencies
+      const { prisma } = await import('@/lib/database/connection');
+      
+      // Try to load real project data from database
+      let projectData = null;
+      try {
+        projectData = await prisma.project.findFirst({
+          where: {
+            OR: [
+              { slug: projectId },
+              { id: projectId }
+            ],
+            status: 'PUBLISHED',
+            visibility: 'PUBLIC'
+          },
+          select: {
+            id: true,
+            title: true,
+            slug: true,
+            description: true,
+            briefOverview: true,
+            workDate: true,
+            tags: {
+              select: {
+                name: true
+              }
+            },
+            mediaItems: includeMedia ? {
+              select: {
+                id: true,
+                url: true,
+                thumbnailUrl: true,
+                altText: true,
+                type: true
+              },
+              take: 5
+            } : false
+          }
+        });
+      } catch (dbError) {
+        console.warn('Failed to load project from database:', dbError);
+      }
 
-      // For now, return structured mock data that can be enhanced with real project data
+      // Return structured project context data
       const contextData = {
         projectId,
-        title: `Project ${projectId}`,
-        briefSummary: 'Project context loaded with access control filtering',
-        detailedSummary: filteredContext.publicContext || 'Detailed project analysis available',
-        keyTechnologies: ['javascript', 'typescript', 'react'],
+        title: projectData?.title || `Project ${projectId}`,
+        briefSummary: projectData?.description || projectData?.briefOverview || 'Project context loaded',
+        detailedSummary: projectData?.briefOverview || 'Detailed project analysis available',
+        keyTechnologies: projectData?.tags?.map(t => t.name) || ['javascript', 'typescript', 'react'],
         mainTopics: ['web development', 'frontend'],
         contentStructure: {
           totalSections: 0,
@@ -285,12 +314,14 @@ export class BackendToolService {
           estimatedReadTime: 0
         },
         sections: includeContent ? [] : undefined,
-        mediaContext: includeMedia ? [] : undefined,
+        mediaContext: includeMedia ? (projectData?.mediaItems || []) : undefined,
         keywords: [],
         topics: [],
-        technologies: [],
+        technologies: projectData?.tags?.map(t => t.name) || [],
         accessLevel: context.accessLevel,
-        filteredForReflink: !!context.reflinkId
+        filteredForReflink: !!context.reflinkId,
+        projectFound: !!projectData,
+        loadedDirectly: true // Flag to indicate this was loaded without contextInjector
       };
 
       return contextData;
@@ -307,25 +338,16 @@ export class BackendToolService {
     const { includePrivate = false, includeSkills = true, includeExperience = true } = args;
 
     try {
-      // Use context injector to get filtered profile data
-      const filteredContext = await contextInjector.loadFilteredContext(
-        context.sessionId,
-        'Load user profile information',
-        context.reflinkId,
-        {
-          includePrivate: includePrivate && context.accessLevel === 'premium',
-          includeSkills,
-          includeExperience,
-          accessLevel: context.accessLevel
-        }
-      );
-
-      // Return structured profile data with access control
+      // Return structured profile data directly without contextInjector to avoid hanging
+      // TODO: In the future, this could load real profile data from database
       const profileData = {
         name: 'Portfolio Owner',
         title: 'Full-Stack Developer',
         bio: 'Experienced developer with expertise in modern web technologies',
-        skills: includeSkills ? ['JavaScript', 'TypeScript', 'React', 'Node.js', 'Python'] : [],
+        skills: includeSkills ? [
+          'JavaScript', 'TypeScript', 'React', 'Next.js', 'Node.js', 
+          'Python', 'PostgreSQL', 'Prisma', 'Tailwind CSS', 'Git'
+        ] : [],
         experience: includeExperience ? '5+ years of professional development experience' : undefined,
         contact: {
           email: includePrivate && context.accessLevel === 'premium' ? 'contact@example.com' : undefined,
@@ -335,11 +357,12 @@ export class BackendToolService {
         },
         location: 'Remote',
         availability: 'Available for new opportunities',
-        interests: ['Web Development', 'AI/ML', 'Open Source'],
+        interests: ['Web Development', 'AI/ML', 'Open Source', 'Full-Stack Development'],
         education: 'Computer Science Degree',
         certifications: ['AWS Certified', 'React Certified'],
         accessLevel: context.accessLevel,
-        filteredForReflink: !!context.reflinkId
+        filteredForReflink: !!context.reflinkId,
+        profileLoadedDirectly: true // Flag to indicate this was loaded without contextInjector
       };
 
       return profileData;
@@ -356,17 +379,46 @@ export class BackendToolService {
     const { query, tags, category, limit = 10, includeContent = true } = args;
 
     try {
-      // Fetch real projects from the database
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ||
-        (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
-      const response = await fetch(`${baseUrl}/api/projects?limit=${limit * 2}`);
+      // Import prisma here to avoid circular dependencies
+      const { prisma } = await import('@/lib/database/connection');
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch projects: ${response.statusText}`);
-      }
-
-      const projectsData = await response.json();
-      const projects = projectsData.data?.items || [];
+      // Fetch projects directly from database instead of HTTP call to avoid hanging
+      const projects = await prisma.project.findMany({
+        where: {
+          status: 'PUBLISHED',
+          visibility: 'PUBLIC'
+        },
+        select: {
+          id: true,
+          title: true,
+          slug: true,
+          description: true,
+          briefOverview: true,
+          workDate: true,
+          status: true,
+          visibility: true,
+          viewCount: true,
+          createdAt: true,
+          updatedAt: true,
+          tags: {
+            select: {
+              id: true,
+              name: true,
+              color: true
+            }
+          },
+          thumbnailImage: {
+            select: {
+              id: true,
+              url: true,
+              thumbnailUrl: true,
+              altText: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: limit * 2 // Get more for filtering
+      });
 
       // Convert projects to search result format
       let searchResults = projects.map((project: any) => ({
@@ -374,7 +426,7 @@ export class BackendToolService {
         title: project.title,
         description: project.description || project.briefOverview || '',
         slug: project.slug,
-        tags: Array.isArray(project.tags) ? project.tags.map((tag: any) => typeof tag === 'object' ? tag.name : tag).filter(Boolean) : [],
+        tags: Array.isArray(project.tags) ? project.tags.map((tag: any) => tag.name).filter(Boolean) : [],
         status: project.status,
         viewCount: project.viewCount || 0,
         workDate: project.workDate,
@@ -598,18 +650,49 @@ export class BackendToolService {
     const maxProjects = args.maxProjects ?? 20;
 
     try {
-      // Fetch real projects from the database
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ||
-        (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
-      const limitParam = maxProjects && maxProjects > 0 ? `limit=${maxProjects}` : 'limit=20';
-      const response = await fetch(`${baseUrl}/api/projects?${limitParam}`);
+      // Import prisma here to avoid circular dependencies
+      const { prisma } = await import('@/lib/database/connection');
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch projects: ${response.statusText}`);
-      }
-
-      const projectsData = await response.json();
-      const projects = projectsData.data?.items || [];
+      // Fetch projects directly from database instead of HTTP call to avoid hanging
+      const projects = await prisma.project.findMany({
+        where: {
+          status: 'PUBLISHED',
+          visibility: includePrivate ? undefined : 'PUBLIC'
+        },
+        select: {
+          id: true,
+          title: true,
+          slug: true,
+          description: true,
+          briefOverview: true,
+          workDate: true,
+          status: true,
+          visibility: true,
+          viewCount: true,
+          createdAt: true,
+          updatedAt: true,
+          tags: {
+            select: {
+              id: true,
+              name: true,
+              color: true
+            },
+            take: 5
+          },
+          thumbnailImage: {
+            select: {
+              id: true,
+              url: true,
+              thumbnailUrl: true,
+              altText: true
+            }
+          }
+        },
+        orderBy: sortBy === 'date' ? { workDate: 'desc' } :
+          sortBy === 'title' ? { title: 'asc' } :
+            { createdAt: 'desc' },
+        take: maxProjects
+      });
 
       // Process projects for summary
       const recentProjects = projects.map((project: any) => ({
@@ -617,7 +700,7 @@ export class BackendToolService {
         title: project.title,
         description: project.description || project.briefOverview || '',
         slug: project.slug,
-        tags: Array.isArray(project.tags) ? project.tags.map((tag: any) => typeof tag === 'object' ? tag.name : tag).filter(Boolean) : [],
+        tags: Array.isArray(project.tags) ? project.tags.map((tag: any) => tag.name).filter(Boolean) : [],
         lastUpdated: project.updatedAt,
         workDate: project.workDate,
         visibility: project.visibility || 'PUBLIC',
@@ -1334,7 +1417,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
   }
 
   /**
-   * Handle content search using ContentSearchService with UI state context awareness
+   * Handle content search using ContentSearchService with UI state context awareness // Entry point for content_search tool
    */
   private async handleContentSearch(
     parameters: any,
@@ -1342,7 +1425,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
   ): Promise<any> {
     const backendToolStartTime = Date.now();
     const backendTimings: Record<string, number> = {};
-    
+
     try {
       const {
         query,
@@ -1384,7 +1467,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
       const cacheCheckStart = Date.now();
       const cachedResult = this._getCachedData(cacheKey, 60); // 60 second cache
       backendTimings.cacheCheck = Date.now() - cacheCheckStart;
-      
+
       if (cachedResult) {
         console.log('Content search cache hit:', { cacheKey, sessionId: context.sessionId });
         return cachedResult;
@@ -1399,7 +1482,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
       const scopeEnhanceStart = Date.now();
       const enhancedScope = this._enhanceScopeWithUIState(scope, uiState, fidContext, query);
       backendTimings.scopeEnhancement = Date.now() - scopeEnhanceStart;
-      
+
       // Enhance filters with UI state context and F-I-D insights
       const filterEnhanceStart = Date.now();
       const enhancedFilters = this._enhanceFiltersWithUIState(filters, uiState, fidContext);
@@ -1459,9 +1542,9 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
 
       // Log backend tool performance breakdown
       console.log(`[BackendTool] Content search performance breakdown:`, {
-        fidContextLoading:  `${backendTimings.fidContextLoading}ms`,
-        scopeEnhancement:  `${backendTimings.scopeEnhancement}ms`,
-        filterEnhancement:  `${backendTimings.filterEnhancement}ms`,
+        fidContextLoading: `${backendTimings.fidContextLoading}ms`,
+        scopeEnhancement: `${backendTimings.scopeEnhancement}ms`,
+        filterEnhancement: `${backendTimings.filterEnhancement}ms`,
         cacheKeyGen: `${backendTimings.cacheKeyGeneration}ms`,
         cacheCheck: `${backendTimings.cacheCheck}ms`,
         scopeEnhance: `${backendTimings.scopeEnhancement}ms`,
@@ -1482,11 +1565,11 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
 
     } catch (error) {
       console.error('Content search failed:', error);
-      
+
       // Include UI state context in error messages
-      const uiContext = parameters.uiState ? 
+      const uiContext = parameters.uiState ?
         ` (UI context: ${parameters.uiState.currentRoute || 'unknown'})` : '';
-      
+
       throw new Error(`Content search failed${uiContext}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -1584,11 +1667,11 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
 
     } catch (error) {
       console.error('Content get failed:', error);
-      
+
       // Include UI state context in error messages
-      const uiContext = parameters.uiState ? 
+      const uiContext = parameters.uiState ?
         ` (UI context: ${parameters.uiState.currentRoute || 'unknown'})` : '';
-      
+
       throw new Error(`Content retrieval failed${uiContext}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -1609,7 +1692,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
 
     // NEVER auto-apply filtering based on UI state
     // Only apply explicit scope parameters passed by the agent
-    
+
     // Only apply route filtering if explicitly provided in scope
     if (scope.route) {
       enhancedScope.route = scope.route;
@@ -1747,7 +1830,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
 
     // Combine and sort by context score
     const allScoredResults = [...scoredCurrentProject, ...scoredOtherProjects];
-    
+
     return allScoredResults
       .sort((a, b) => b.contextScore - a.contextScore)
       .slice(0, targetCount)
@@ -1781,7 +1864,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
     if (content.project) {
       navTarget.type = 'project';
       navTarget.id = content.project;
-      
+
       // If we're already in the project, navigate to specific section
       if (uiState?.currentProject === content.project) {
         navTarget.type = 'section';
