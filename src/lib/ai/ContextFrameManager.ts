@@ -17,12 +17,24 @@
  * - Raw SQL queries for pgvector integration
  */
 
-import { PrismaClient } from '@prisma/client';
 import { debugEventEmitter } from '../debug/debugEventEmitter';
 import { ContentSearchService } from '../content/ContentSearchService';
 import { NavigationContext } from '../navigation/UIManager';
 
-const prisma = new PrismaClient();
+// Environment detection
+const isServer = typeof window === 'undefined';
+const isBrowser = typeof window !== 'undefined';
+
+// Conditional Prisma import for server-side only
+let prisma: any = null;
+if (isServer) {
+  try {
+    const { PrismaClient } = require('@prisma/client');
+    prisma = new PrismaClient();
+  } catch (error) {
+    console.warn('Prisma not available in this environment');
+  }
+}
 
 // F-I-D Context Interfaces
 export interface FrameContext {
@@ -145,7 +157,10 @@ export class ContextFrameManager {
   private readonly TOKENS_PER_CHAR = 0.25;
 
   private constructor() {
-    this.contentSearchService = new ContentSearchService();
+    // Only initialize ContentSearchService on server side
+    if (isServer) {
+      this.contentSearchService = new ContentSearchService();
+    }
     this.initializeFrameContext();
   }
 
@@ -169,6 +184,12 @@ export class ContextFrameManager {
     const startTime = Date.now();
 
     try {
+      // If in browser environment, fetch from API
+      if (isBrowser) {
+        return await this.fetchContextFromAPI(config, 'complete');
+      }
+
+      // Server-side processing
       // Load Frame context (always loaded, cached)
       const frame = await this.getFrameContext();
       
@@ -227,6 +248,12 @@ export class ContextFrameManager {
    * Get Frame context (≤400 tokens) - System rules, voice settings, routing primer
    */
   async getFrameContext(): Promise<FrameContext> {
+    // If in browser environment, fetch from API
+    if (isBrowser) {
+      const result = await this.fetchContextFromAPI({}, 'frame');
+      return result.frame;
+    }
+
     const cacheKey = 'frame-context';
     const cached = this.frameCache.get(cacheKey);
     
@@ -275,6 +302,12 @@ export class ContextFrameManager {
    * Get Index context (≤400-600 tokens) - Route-aware metadata and project summaries
    */
   async getIndexContext(config: ContextSwapConfig): Promise<IndexContext> {
+    // If in browser environment, fetch from API
+    if (isBrowser) {
+      const result = await this.fetchContextFromAPI(config, 'index');
+      return result.index;
+    }
+
     const cacheKey = `index-${config.route}-${config.projectId || 'none'}`;
     const cached = this.indexCache.get(cacheKey);
     
@@ -359,8 +392,8 @@ export class ContextFrameManager {
       let totalTokens = 0;
       let truncated = false;
 
-      // If user intent is provided, search for relevant content
-      if (config.userIntent) {
+      // If user intent is provided, search for relevant content (server-side only)
+      if (config.userIntent && isServer && this.contentSearchService) {
         const searchResult = await this.contentSearchService.searchContent({
           query: config.userIntent,
           scope: {
@@ -568,12 +601,17 @@ export class ContextFrameManager {
    */
   private async loadSystemRules(): Promise<string> {
     try {
-      // Load from database or configuration
-      const settings = await prisma.aIGeneralSettings.findFirst();
+      // Only attempt database access on server side
+      if (isServer && prisma) {
+        const settings = await prisma.aIGeneralSettings.findFirst();
+        
+        const baseRules = `You are an AI assistant for a portfolio website. You help visitors learn about the portfolio owner's background, projects, and expertise. Always maintain a professional, helpful tone and provide accurate information based only on available content.`;
+        
+        return settings?.systemPrompt || baseRules;
+      }
       
-      const baseRules = `You are an AI assistant for a portfolio website. You help visitors learn about the portfolio owner's background, projects, and expertise. Always maintain a professional, helpful tone and provide accurate information based only on available content.`;
-      
-      return settings?.systemPrompt || baseRules;
+      // Browser fallback
+      return `You are an AI assistant for a portfolio website. You help visitors learn about the portfolio owner's background, projects, and expertise. Always maintain a professional, helpful tone and provide accurate information based only on available content.`;
     } catch (error) {
       console.error('Failed to load system rules:', error);
       return `You are an AI assistant for a portfolio website. Provide helpful, accurate information about the portfolio owner's work and background.`;
@@ -585,26 +623,28 @@ export class ContextFrameManager {
    */
   private async loadVoiceSettings(): Promise<VoiceSettings> {
     try {
-      // Load default voice configuration
-      const voiceConfig = await prisma.voiceProviderConfig.findFirst({
-        where: { isDefault: true }
-      });
+      // Only attempt database access on server side
+      if (isServer && prisma) {
+        const voiceConfig = await prisma.voiceProviderConfig.findFirst({
+          where: { isDefault: true }
+        });
 
-      if (voiceConfig) {
-        const config = JSON.parse(voiceConfig.configJson);
-        return {
-          provider: voiceConfig.provider as 'openai' | 'elevenlabs',
-          model: config.model || 'gpt-4o-realtime-preview',
-          voice: config.voice || 'alloy',
-          temperature: config.temperature || 0.7,
-          maxTokens: config.maxTokens || 4000
-        };
+        if (voiceConfig) {
+          const config = JSON.parse(voiceConfig.configJson);
+          return {
+            provider: voiceConfig.provider as 'openai' | 'elevenlabs',
+            model: config.model || 'gpt-realtime',
+            voice: config.voice || 'alloy',
+            temperature: config.temperature || 0.7,
+            maxTokens: config.maxTokens || 4000
+          };
+        }
       }
 
-      // Default settings
+      // Default settings for both server and browser
       return {
         provider: 'openai',
-        model: 'gpt-4o-realtime-preview',
+        model: 'gpt-realtime',
         voice: 'alloy',
         temperature: 0.7,
         maxTokens: 4000
@@ -613,7 +653,7 @@ export class ContextFrameManager {
       console.error('Failed to load voice settings:', error);
       return {
         provider: 'openai',
-        model: 'gpt-4o-realtime-preview',
+        model: 'gpt-realtime',
         voice: 'alloy',
         temperature: 0.7,
         maxTokens: 4000
@@ -670,6 +710,12 @@ export class ContextFrameManager {
    */
   private async loadProjectSummaries(config: ContextSwapConfig): Promise<ProjectSummary[]> {
     try {
+      // Only attempt database access on server side
+      if (!isServer || !prisma) {
+        // Browser fallback - return mock data or empty array
+        return this.getMockProjectSummaries(config);
+      }
+
       let whereClause = '';
       const params: any[] = [];
       let paramIndex = 1;
@@ -700,7 +746,7 @@ export class ContextFrameManager {
         LIMIT 10
       `;
 
-      const results = await prisma.$queryRawUnsafe<any[]>(sql, ...params);
+      const results = await prisma.$queryRawUnsafe(sql, ...params) as any[];
 
       return results.map(row => ({
         id: row.id,
@@ -750,6 +796,12 @@ export class ContextFrameManager {
     maxTokens: number
   ): Promise<{ chunks: ContentChunk[]; tokenCount: number; truncated: boolean }> {
     try {
+      // Only attempt database access on server side
+      if (!isServer || !prisma) {
+        // Browser fallback
+        return { chunks: [], tokenCount: 0, truncated: false };
+      }
+
       let whereClause = 'WHERE c.tier <= 3'; // Load T1-T3 content
       const params: any[] = [];
       let paramIndex = 1;
@@ -780,7 +832,7 @@ export class ContextFrameManager {
         LIMIT 20
       `;
 
-      const results = await prisma.$queryRawUnsafe<any[]>(sql, ...params);
+      const results = await prisma.$queryRawUnsafe(sql, ...params) as any[];
 
       const chunks: ContentChunk[] = [];
       let totalTokens = 0;
@@ -919,7 +971,7 @@ export class ContextFrameManager {
       systemRules: 'You are an AI assistant for a portfolio website.',
       voiceSettings: {
         provider: 'openai',
-        model: 'gpt-4o-realtime-preview',
+        model: 'gpt-realtime',
         voice: 'alloy',
         temperature: 0.7,
         maxTokens: 4000
@@ -992,6 +1044,106 @@ export class ContextFrameManager {
     this.frameCache.clear();
     this.indexCache.clear();
     this.detailsCache.clear();
+  }
+
+  /**
+   * Fetch F-I-D context from API (browser environment)
+   */
+  private async fetchContextFromAPI(
+    config: Partial<ContextSwapConfig>, 
+    contextType: 'frame' | 'index' | 'details' | 'complete' = 'complete'
+  ): Promise<any> {
+    try {
+      const response = await fetch('/api/ai/context/fid', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          route: config.route || 'home',
+          projectId: config.projectId,
+          userIntent: config.userIntent,
+          lastActions: config.lastActions || [],
+          contextType
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'API request failed');
+      }
+
+      return result.data;
+
+    } catch (error) {
+      console.error('Failed to fetch F-I-D context from API:', error);
+      
+      // Return fallback data based on context type
+      switch (contextType) {
+        case 'frame':
+          return {
+            frame: await this.getMinimalFrameContext()
+          };
+        case 'index':
+          return {
+            index: await this.getMinimalIndexContext(config.route || 'home')
+          };
+        case 'details':
+          return {
+            details: { contentChunks: [], searchResults: [], tokenCount: 0, truncated: false }
+          };
+        case 'complete':
+        default:
+          return {
+            frame: await this.getMinimalFrameContext(),
+            index: await this.getMinimalIndexContext(config.route || 'home'),
+            details: { contentChunks: [], searchResults: [], tokenCount: 0, truncated: false },
+            totalTokens: 0,
+            budgetExceeded: false
+          };
+      }
+    }
+  }
+
+  /**
+   * Get mock project summaries for browser environment
+   */
+  private getMockProjectSummaries(config: ContextSwapConfig): ProjectSummary[] {
+    // Return basic mock data for browser environments
+    const mockProjects: ProjectSummary[] = [
+      {
+        id: 'mock-1',
+        slug: 'portfolio-website',
+        title: 'Portfolio Website',
+        description: 'Personal portfolio showcasing projects and skills',
+        tags: ['React', 'Next.js', 'TypeScript'],
+        technologies: ['React', 'Next.js', 'TypeScript', 'Tailwind CSS'],
+        tier1Summary: 'A modern portfolio website built with Next.js and React',
+        importance: 0.9
+      },
+      {
+        id: 'mock-2',
+        slug: 'task-management-app',
+        title: 'Task Management App',
+        description: 'Full-stack task management application',
+        tags: ['React', 'Node.js', 'MongoDB'],
+        technologies: ['React', 'Node.js', 'MongoDB', 'Express'],
+        tier1Summary: 'A comprehensive task management solution with real-time updates',
+        importance: 0.8
+      }
+    ];
+
+    // Filter by project if specified
+    if (config.projectId) {
+      return mockProjects.filter(p => p.slug === config.projectId);
+    }
+
+    return mockProjects;
   }
 }
 
