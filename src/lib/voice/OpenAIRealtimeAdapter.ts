@@ -327,20 +327,8 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                             case 'getProjectSummary':
                                 result = await this._openaiGetProjectSummary(parameters);
                                 break;
-                            case 'openProject':
-                                result = await this._openaiOpenProject(parameters);
-                                break;
                             case 'processJobSpec':
                                 result = await this._openaiProcessJobSpec(parameters);
-                                break;
-                            case 'analyzeUserIntent':
-                                result = await this._openaiAnalyzeUserIntent(parameters);
-                                break;
-                            case 'generateNavigationSuggestions':
-                                result = await this._openaiGenerateNavigationSuggestions(parameters);
-                                break;
-                            case 'getNavigationHistory':
-                                result = await this._openaiGetNavigationHistory(parameters);
                                 break;
                             case 'submitContactForm':
                                 result = await this._openaiSubmitContactForm(parameters);
@@ -348,13 +336,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                             case 'processUploadedFile':
                                 result = await this._openaiProcessUploadedFile(parameters);
                                 break;
-                            // Client tools
-                            case 'navigateTo':
-                                result = await this._openaiNavigateTo(parameters);
-                                break;
-                            case 'showProjectDetails':
-                                result = await this._openaiShowProjectDetails(parameters);
-                                break;
+                            // Client tools (removed: navigateTo, showProjectDetails, reportUIState)
                             case 'scrollIntoView':
                                 result = await this._openaiScrollIntoView(parameters);
                                 break;
@@ -366,9 +348,6 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                                 break;
                             case 'focusElement':
                                 result = await this._openaiFocusElement(parameters);
-                                break;
-                            case 'reportUIState':
-                                result = await this._openaiReportUIState(parameters);
                                 break;
                             case 'fillFormField':
                                 result = await this._openaiFillFormField(parameters);
@@ -424,8 +403,7 @@ Key capabilities:
 
 Navigation Tools Usage:
 - Use ui_describe to understand current UI state and available options
-- Use ui_intent for complex navigation goals (opening projects, scrolling to sections)
-- Use traditional tools (navigateTo, showProjectDetails) for simple navigation
+- Use ui_intent for ALL navigation goals (opening projects, scrolling to sections, route changes)
 - Use highlighting and scrolling tools for visual emphasis
 
 Communication guidelines:
@@ -1019,9 +997,7 @@ Navigation Flow:
         return await this._executeToolCallUnified('getProjectSummary', parameters);
     }
 
-    private async _openaiOpenProject(parameters: any): Promise<string> {
-        return await this._executeToolCallUnified('openProject', parameters);
-    }
+    // _openaiOpenProject method removed - deprecated tool
 
     private async _openaiUIIntent(parameters: any): Promise<string> {
         console.log('🎯 _openaiUIIntent called with parameters:', JSON.stringify(parameters, null, 2));
@@ -1063,33 +1039,12 @@ Navigation Flow:
         return await this._executeToolCallUnified('processJobSpec', parameters);
     }
 
-    private async _openaiAnalyzeUserIntent(parameters: any): Promise<string> {
-        return await this._executeToolCallUnified('analyzeUserIntent', parameters);
-    }
-
-    private async _openaiGenerateNavigationSuggestions(parameters: any): Promise<string> {
-        return await this._executeToolCallUnified('generateNavigationSuggestions', parameters);
-    }
-
-    private async _openaiGetNavigationHistory(parameters: any): Promise<string> {
-        return await this._executeToolCallUnified('getNavigationHistory', parameters);
-    }
-
     private async _openaiSubmitContactForm(parameters: any): Promise<string> {
         return await this._executeToolCallUnified('submitContactForm', parameters);
     }
 
     private async _openaiProcessUploadedFile(parameters: any): Promise<string> {
         return await this._executeToolCallUnified('processUploadedFile', parameters);
-    }
-
-    // Client tool wrappers - these execute directly in the browser
-    private async _openaiNavigateTo(parameters: any): Promise<string> {
-        return await this._executeToolCallUnified('navigateTo', parameters);
-    }
-
-    private async _openaiShowProjectDetails(parameters: any): Promise<string> {
-        return await this._executeToolCallUnified('showProjectDetails', parameters);
     }
 
     private async _openaiScrollIntoView(parameters: any): Promise<string> {
@@ -1108,9 +1063,7 @@ Navigation Flow:
         return await this._executeToolCallUnified('focusElement', parameters);
     }
 
-    private async _openaiReportUIState(parameters: any): Promise<string> {
-        return await this._executeToolCallUnified('reportUIState', parameters);
-    }
+    // _openaiReportUIState method removed - deprecated tool
 
     private async _openaiFillFormField(parameters: any): Promise<string> {
         return await this._executeToolCallUnified('fillFormField', parameters);

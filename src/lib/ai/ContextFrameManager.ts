@@ -133,12 +133,12 @@ export interface ContextSwapConfig {
 
 export class ContextFrameManager {
   private static instance: ContextFrameManager;
-  
+
   private contentSearchService: ContentSearchService;
   private currentFrameContext: FrameContext | null = null;
   private currentIndexContext: IndexContext | null = null;
   private currentDetailsContext: DetailsContext | null = null;
-  
+
   // Context budget configuration
   private contextBudget: ContextBudget = {
     frameMaxTokens: 400,
@@ -192,10 +192,10 @@ export class ContextFrameManager {
       // Server-side processing
       // Load Frame context (always loaded, cached)
       const frame = await this.getFrameContext();
-      
+
       // Load Index context (route-aware, swappable)
       const index = await this.getIndexContext(config);
-      
+
       // Load Details context (on-demand, budget-controlled)
       const details = await this.getDetailsContext(config, {
         remainingBudget: this.contextBudget.totalMaxTokens - frame.tokenCount - index.tokenCount
@@ -226,7 +226,7 @@ export class ContextFrameManager {
 
     } catch (error) {
       const errorMsg = `F-I-D context loading failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      
+
       debugEventEmitter.emit('fid-context-error', {
         config,
         error: errorMsg,
@@ -256,7 +256,7 @@ export class ContextFrameManager {
 
     const cacheKey = 'frame-context';
     const cached = this.frameCache.get(cacheKey);
-    
+
     if (cached && this.isCacheValid(cached as any)) {
       return cached;
     }
@@ -310,7 +310,7 @@ export class ContextFrameManager {
 
     const cacheKey = `index-${config.route}-${config.projectId || 'none'}`;
     const cached = this.indexCache.get(cacheKey);
-    
+
     if (cached && this.isCacheValid(cached as any)) {
       return cached;
     }
@@ -318,10 +318,10 @@ export class ContextFrameManager {
     try {
       // Load route-specific metadata
       const routeMetadata = await this.loadRouteMetadata(config.route);
-      
+
       // Load relevant project summaries based on route and context
       const projectSummaries = await this.loadProjectSummaries(config);
-      
+
       // Get available transitions for current context
       const availableTransitions = await this.getAvailableTransitions(config);
 
@@ -331,8 +331,8 @@ export class ContextFrameManager {
         routeMetadata,
         availableTransitions,
         tokenCount: this.estimateTokenCount(
-          JSON.stringify(routeMetadata) + 
-          JSON.stringify(projectSummaries) + 
+          JSON.stringify(routeMetadata) +
+          JSON.stringify(projectSummaries) +
           JSON.stringify(availableTransitions)
         )
       };
@@ -370,18 +370,18 @@ export class ContextFrameManager {
    * Get Details context (≤1000 tokens) - On-demand content via content.search/content.get
    */
   async getDetailsContext(
-    config: ContextSwapConfig, 
+    config: ContextSwapConfig,
     options: { remainingBudget: number }
   ): Promise<DetailsContext> {
     const maxTokens = Math.min(this.contextBudget.detailsMaxTokens, options.remainingBudget);
-    
+
     if (maxTokens <= 0) {
       return { contentChunks: [], searchResults: [], tokenCount: 0, truncated: true };
     }
 
     const cacheKey = `details-${config.route}-${config.projectId || 'none'}-${config.userIntent || 'none'}`;
     const cached = this.detailsCache.get(cacheKey);
-    
+
     if (cached && this.isCacheValid(cached as any) && cached.tokenCount <= maxTokens) {
       return cached;
     }
@@ -495,10 +495,10 @@ export class ContextFrameManager {
         try {
           // Invalidate relevant caches
           this.invalidateContextCache(config);
-          
+
           // Pre-load new context
           await this.getCompleteContext(config);
-          
+
           debugEventEmitter.emit('fid-context-updated', {
             route: config.route,
             projectId: config.projectId,
@@ -536,10 +536,10 @@ export class ContextFrameManager {
    */
   configureContextBudget(budget: Partial<ContextBudget>): void {
     this.contextBudget = { ...this.contextBudget, ...budget };
-    
+
     // Clear caches when budget changes
     this.clearAllCaches();
-    
+
     debugEventEmitter.emit('fid-budget-configured', {
       budget: this.contextBudget,
       timestamp: Date.now()
@@ -604,12 +604,12 @@ export class ContextFrameManager {
       // Only attempt database access on server side
       if (isServer && prisma) {
         const settings = await prisma.aIGeneralSettings.findFirst();
-        
+
         const baseRules = `You are an AI assistant for a portfolio website. You help visitors learn about the portfolio owner's background, projects, and expertise. Always maintain a professional, helpful tone and provide accurate information based only on available content.`;
-        
+
         return settings?.systemPrompt || baseRules;
       }
-      
+
       // Browser fallback
       return `You are an AI assistant for a portfolio website. You help visitors learn about the portfolio owner's background, projects, and expertise. Always maintain a professional, helpful tone and provide accurate information based only on available content.`;
     } catch (error) {
@@ -792,7 +792,7 @@ export class ContextFrameManager {
    * Load contextual content for details context using raw SQL
    */
   private async loadContextualContent(
-    config: ContextSwapConfig, 
+    config: ContextSwapConfig,
     maxTokens: number
   ): Promise<{ chunks: ContentChunk[]; tokenCount: number; truncated: boolean }> {
     try {
@@ -840,7 +840,7 @@ export class ContextFrameManager {
 
       for (const row of results) {
         const tokenCount = row.tokenCount || this.estimateTokenCount(row.content);
-        
+
         if (totalTokens + tokenCount > maxTokens) {
           truncated = true;
           break;
@@ -872,7 +872,7 @@ export class ContextFrameManager {
    * Apply tier escalation to manage token budget
    */
   private async applyTierEscalation(
-    summaries: ProjectSummary[], 
+    summaries: ProjectSummary[],
     maxTokens: number
   ): Promise<ProjectSummary[]> {
     const result: ProjectSummary[] = [];
@@ -918,7 +918,7 @@ export class ContextFrameManager {
    */
   private extractFocusFromContext(): string[] {
     const focus: string[] = [];
-    
+
     if (this.currentIndexContext) {
       focus.push(this.currentIndexContext.route);
       if (this.currentIndexContext.projectSummaries.length > 0) {
@@ -934,7 +934,7 @@ export class ContextFrameManager {
    */
   private extractInterestFromContext(): string[] {
     const interests: string[] = [];
-    
+
     if (this.currentDetailsContext) {
       // Extract technologies and tags from content
       for (const chunk of this.currentDetailsContext.contentChunks) {
@@ -955,7 +955,7 @@ export class ContextFrameManager {
    */
   private extractDomainFromContext(context: NavigationContext): string[] {
     const domain: string[] = [context.currentRoute];
-    
+
     if (context.currentProject) {
       domain.push(context.currentProject);
     }
@@ -1032,7 +1032,7 @@ export class ContextFrameManager {
   private invalidateContextCache(config: ContextSwapConfig): void {
     const indexKey = `index-${config.route}-${config.projectId || 'none'}`;
     const detailsKey = `details-${config.route}-${config.projectId || 'none'}-${config.userIntent || 'none'}`;
-    
+
     this.indexCache.delete(indexKey);
     this.detailsCache.delete(detailsKey);
   }
@@ -1050,7 +1050,7 @@ export class ContextFrameManager {
    * Fetch F-I-D context from API (browser environment)
    */
   private async fetchContextFromAPI(
-    config: Partial<ContextSwapConfig>, 
+    config: Partial<ContextSwapConfig>,
     contextType: 'frame' | 'index' | 'details' | 'complete' = 'complete'
   ): Promise<any> {
     try {
@@ -1073,7 +1073,7 @@ export class ContextFrameManager {
       }
 
       const result = await response.json();
-      
+
       if (!result.success) {
         throw new Error(result.error || 'API request failed');
       }
@@ -1082,7 +1082,7 @@ export class ContextFrameManager {
 
     } catch (error) {
       console.error('Failed to fetch F-I-D context from API:', error);
-      
+
       // Return fallback data based on context type
       switch (contextType) {
         case 'frame':

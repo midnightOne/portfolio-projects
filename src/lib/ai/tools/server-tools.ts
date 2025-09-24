@@ -191,37 +191,7 @@ export const getProjectSummaryToolDefinition: UnifiedToolDefinition = {
   }
 };
 
-export const openProjectToolDefinition: UnifiedToolDefinition = {
-  name: 'openProject',
-  description: 'PREFERRED: Open a project by searching for it first, then providing the correct navigation URL. Use this when user asks to "open", "navigate to", or "show me" any project instead of searchProjects + navigateTo.',
-  parameters: {
-    type: 'object',
-    properties: {
-      projectName: {
-        type: 'string',
-        description: 'The project name or description to search for (e.g., "e-commerce website", "task management", "portfolio")'
-      },
-      newTab: {
-        type: 'boolean',
-        description: 'Whether to open in a new tab',
-        default: false
-      }
-    },
-    required: ['projectName']
-  },
-  executionContext: 'server',
-  outputSchema: {
-    type: 'object',
-    properties: {
-      success: { type: 'boolean' },
-      message: { type: 'string' },
-      projectFound: { type: 'boolean' },
-      projectSlug: { type: 'string' },
-      navigationUrl: { type: 'string' },
-      shouldNavigate: { type: 'boolean' }
-    }
-  }
-};
+// openProject tool removed - superseded by content_search + ui_intent workflow
 
 // Job Analysis Tools - Server-side AI processing
 export const processJobSpecToolDefinition: UnifiedToolDefinition = {
@@ -279,177 +249,6 @@ export const processJobSpecToolDefinition: UnifiedToolDefinition = {
 };
 
 // Intent Analysis Tools - Server-side AI processing
-export const analyzeUserIntentToolDefinition: UnifiedToolDefinition = {
-  name: 'analyzeUserIntent',
-  description: 'Analyze user intent from conversation context for better responses.',
-  parameters: {
-    type: 'object',
-    properties: {
-      userMessage: {
-        type: 'string',
-        description: 'The user message to analyze'
-      },
-      conversationHistory: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            role: {
-              type: 'string',
-              enum: ['user', 'assistant'],
-              description: 'Message role'
-            },
-            content: {
-              type: 'string',
-              description: 'Message content'
-            },
-            timestamp: {
-              type: 'number',
-              description: 'Message timestamp'
-            }
-          },
-          required: ['role', 'content', 'timestamp']
-        },
-        description: 'Previous conversation messages for context',
-        default: []
-      },
-      currentContext: {
-        type: 'object',
-        description: 'Current navigation and UI context',
-        properties: {
-          currentPage: { type: 'string' },
-          currentModal: { type: 'string' },
-          recentActions: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'List of recent user actions'
-          }
-        }
-      }
-    },
-    required: ['userMessage']
-  },
-  executionContext: 'server',
-  outputSchema: {
-    type: 'object',
-    properties: {
-      success: { type: 'boolean' },
-      data: {
-        type: 'object',
-        properties: {
-          intent: { type: 'string' },
-          confidence: { type: 'number' },
-          entities: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Extracted entities from user message'
-          },
-          suggestedActions: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Suggested actions based on intent'
-          }
-        }
-      },
-      message: { type: 'string' }
-    }
-  }
-};
-
-export const generateNavigationSuggestionsToolDefinition: UnifiedToolDefinition = {
-  name: 'generateNavigationSuggestions',
-  description: 'Generate navigation suggestions based on user intent and available content.',
-  parameters: {
-    type: 'object',
-    properties: {
-      userIntent: {
-        type: 'string',
-        description: 'Analyzed user intent or explicit request'
-      },
-      currentLocation: {
-        type: 'string',
-        description: 'Current page or section user is viewing'
-      },
-      availableProjects: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            id: { type: 'string' },
-            title: { type: 'string' },
-            tags: { type: 'array', items: { type: 'string' } },
-            category: { type: 'string' }
-          }
-        },
-        description: 'List of available projects for navigation'
-      },
-      maxSuggestions: {
-        type: 'number',
-        description: 'Maximum number of suggestions to generate',
-        default: 5
-      }
-    },
-    required: ['userIntent']
-  },
-  executionContext: 'server',
-  outputSchema: {
-    type: 'object',
-    properties: {
-      success: { type: 'boolean' },
-      data: {
-        type: 'object',
-        properties: {
-          suggestions: { type: 'array', items: { type: 'object' } },
-          reasoning: { type: 'string' },
-          priority: { type: 'array', items: { type: 'string' } }
-        }
-      },
-      message: { type: 'string' }
-    }
-  }
-};
-
-// Navigation History Tools - Server-side session management
-export const getNavigationHistoryToolDefinition: UnifiedToolDefinition = {
-  name: 'getNavigationHistory',
-  description: 'Get navigation history for the current session to avoid repetition.',
-  parameters: {
-    type: 'object',
-    properties: {
-      sessionId: {
-        type: 'string',
-        description: 'Optional session ID to get history for'
-      },
-      limit: {
-        type: 'number',
-        description: 'Maximum number of history entries to return',
-        default: 20
-      },
-      includeToolCalls: {
-        type: 'boolean',
-        description: 'Whether to include tool call history',
-        default: true
-      }
-    }
-  },
-  executionContext: 'server',
-  outputSchema: {
-    type: 'object',
-    properties: {
-      success: { type: 'boolean' },
-      data: {
-        type: 'object',
-        properties: {
-          history: { type: 'array', items: { type: 'object' } },
-          sessionId: { type: 'string' },
-          totalEntries: { type: 'number' }
-        }
-      },
-      message: { type: 'string' }
-    }
-  }
-};
-
 // Contact and Communication Tools - Server-side form processing
 export const submitContactFormToolDefinition: UnifiedToolDefinition = {
   name: 'submitContactForm',
@@ -800,11 +599,7 @@ export const serverToolDefinitions: UnifiedToolDefinition[] = [
   loadUserProfileToolDefinition,
   searchProjectsToolDefinition,
   getProjectSummaryToolDefinition,
-  openProjectToolDefinition,
   processJobSpecToolDefinition,
-  analyzeUserIntentToolDefinition,
-  generateNavigationSuggestionsToolDefinition,
-  getNavigationHistoryToolDefinition,
   submitContactFormToolDefinition,
   processUploadedFileToolDefinition,
   contentSearchToolDefinition,

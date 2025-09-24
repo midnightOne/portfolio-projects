@@ -760,32 +760,6 @@ export class UINavigationTools {
     }, sessionId);
   }
 
-  // LEGACY/RECOVERY NAVIGATION TOOLS - Use ui_intent instead for better reliability
-
-  // Utility methods
-
-  getNavigationHistory(): Array<{ action: string; params: any; timestamp: Date }> {
-    return [...this.navigationHistory];
-  }
-
-  clearNavigationHistory(): void {
-    this.navigationHistory = [];
-  }
-
-  getCurrentPageInfo(): { url: string; title: string; pathname: string } {
-    return {
-      url: window.location.href,
-      title: document.title,
-      pathname: window.location.pathname
-    };
-  }
-
-  getVisibleElements(selector: string): Element[] {
-    const elements = UIElementManager.findElements(selector);
-    if (!elements) return [];
-
-    return Array.from(elements).filter(el => UIElementManager.isElementVisible(el));
-  }
 }
 
 // Note: Tool definitions are now managed by UnifiedToolRegistry

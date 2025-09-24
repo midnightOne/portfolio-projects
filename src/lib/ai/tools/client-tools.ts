@@ -8,65 +8,9 @@
 import { UnifiedToolDefinition } from './types';
 
 // Navigation Tools - Direct browser execution
-export const navigateToToolDefinition: UnifiedToolDefinition = {
-  name: 'navigateTo',
-  description: 'INTERNAL/RECOVERY TOOL: Low-level page navigation. Use ui_intent instead for better reliability. Only use this for debugging or when ui_intent fails.',
-  parameters: {
-    type: 'object',
-    properties: {
-      path: {
-        type: 'string',
-        description: 'The exact URL path to navigate to. For projects, use "/projects?project=exact-slug" format. For other pages: "/about", "/contact", etc.'
-      },
-      newTab: {
-        type: 'boolean',
-        description: 'Whether to open in a new tab',
-        default: false
-      }
-    },
-    required: ['path']
-  },
-  executionContext: 'client',
-  outputSchema: {
-    type: 'object',
-    properties: {
-      success: { type: 'boolean' },
-      message: { type: 'string' },
-      currentUrl: { type: 'string' }
-    }
-  }
-};
+// navigateTo tool removed - superseded by ui_intent
 
-export const showProjectDetailsToolDefinition: UnifiedToolDefinition = {
-  name: 'showProjectDetails',
-  description: 'INTERNAL/RECOVERY TOOL: Low-level project modal display. Use ui_intent with project target instead for better reliability.',
-  parameters: {
-    type: 'object',
-    properties: {
-      projectId: {
-        type: 'string',
-        description: 'The exact project slug (e.g., "e-commerce-platform", "task-management-app"). Use searchProjects to find the correct slug if uncertain.'
-      },
-      highlightSections: {
-        type: 'array',
-        items: { type: 'string' },
-        description: 'Array of section IDs to highlight within the project',
-        default: []
-      }
-    },
-    required: ['projectId']
-  },
-  executionContext: 'client',
-  outputSchema: {
-    type: 'object',
-    properties: {
-      success: { type: 'boolean' },
-      message: { type: 'string' },
-      projectId: { type: 'string' },
-      highlightedSections: { type: 'array', items: { type: 'string' } }
-    }
-  }
-};
+// showProjectDetails tool removed - superseded by ui_intent
 
 
 
@@ -205,53 +149,7 @@ export const focusElementToolDefinition: UnifiedToolDefinition = {
   }
 };
 
-export const reportUIStateToolDefinition: UnifiedToolDefinition = {
-  name: 'reportUIState',
-  description: 'Report current UI state to the server for context awareness.',
-  parameters: {
-    type: 'object',
-    properties: {
-      state: {
-        type: 'object',
-        description: 'Current UI state information',
-        properties: {
-          currentModal: {
-            type: 'string',
-            description: 'Currently open modal identifier'
-          },
-          currentSection: {
-            type: 'string',
-            description: 'Current section being viewed'
-          },
-          activeHighlights: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'List of currently active highlight selectors'
-          },
-          scrollPosition: {
-            type: 'number',
-            description: 'Current scroll position in pixels'
-          },
-          timestamp: {
-            type: 'number',
-            description: 'Timestamp of the state capture'
-          }
-        },
-        required: ['timestamp']
-      }
-    },
-    required: ['state']
-  },
-  executionContext: 'client',
-  outputSchema: {
-    type: 'object',
-    properties: {
-      success: { type: 'boolean' },
-      message: { type: 'string' },
-      stateReported: { type: 'boolean' }
-    }
-  }
-};
+// reportUIState tool removed - redundant with ui_describe and UIManager background updates
 
 // Form Interaction Tools - Client-side form manipulation
 export const fillFormFieldToolDefinition: UnifiedToolDefinition = {
@@ -513,13 +411,11 @@ export const uiIntentToolDefinition: UnifiedToolDefinition = {
 
 // Export all client-side tool definitions
 export const clientToolDefinitions: UnifiedToolDefinition[] = [
-  navigateToToolDefinition,
-  showProjectDetailsToolDefinition,
+  // Removed: navigateToToolDefinition, showProjectDetailsToolDefinition, reportUIStateToolDefinition
   scrollIntoViewToolDefinition,
   highlightTextToolDefinition,
   clearHighlightsToolDefinition,
   focusElementToolDefinition,
-  reportUIStateToolDefinition,
   fillFormFieldToolDefinition,
   submitFormToolDefinition,
   animateElementToolDefinition,

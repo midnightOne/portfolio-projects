@@ -136,7 +136,6 @@ When users ask to "open", "show", or "navigate to" a project:
      target: { type: 'project', id: 'found-slug' }
      // No behavior needed - system is now URL-independent by default
    }
-4. AVOID showProjectDetails (opens new tab) - only use as absolute last resort
 
 MODAL CLOSING WORKFLOWS:
 When users ask to "close modal", "close project", "go back", or "go to homepage":
@@ -221,11 +220,6 @@ CONTENT SEARCH WORKFLOW:
 4. Use content_get for detailed information if needed
 5. Provide comprehensive answer with navigation guidance
 6. Offer to navigate to relevant sections using ui_intent
-
-DEPRECATED TOOLS:
-- openProject (server tool) - DO NOT USE
-- showProjectDetails - AVOID (opens new tab, breaks voice session)
-- navigateTo - USE ui_intent instead
 
 The UIManager handles all the complexity - just tell it your intent declaratively!
 
@@ -478,7 +472,6 @@ When users ask to "open", "show", or "navigate to" a project:
      target: { type: 'project', id: 'found-slug' }
      // No behavior needed - system is now URL-independent by default
    }
-4. AVOID showProjectDetails (opens new tab) - only use as absolute last resort
 
 MODAL CLOSING WORKFLOWS:
 When users ask to "close modal", "close project", "go back", or "go to homepage":
@@ -563,11 +556,6 @@ CONTENT SEARCH WORKFLOW:
 4. Use content_get for detailed information if needed
 5. Provide comprehensive answer with navigation guidance
 6. Offer to navigate to relevant sections using ui_intent
-
-DEPRECATED TOOLS:
-- openProject (server tool) - DO NOT USE
-- showProjectDetails - AVOID (opens new tab, breaks voice session)
-- navigateTo - USE ui_intent instead
 
 The UIManager handles all the complexity - just tell it your intent declaratively!
 

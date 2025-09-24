@@ -8,7 +8,6 @@
 
 import { UnifiedToolDefinition, UnifiedToolResult, ServerToolExecutionContext } from './types';
 import { serverToolDefinitions } from './server-tools';
-import { contextInjector } from '@/lib/services/ai/context-injector';
 import { projectIndexer } from '@/lib/services/project-indexer';
 import ContentSearchService from '@/lib/content/ContentSearchService';
 import { contextFrameManager, ContextSwapConfig } from '../ContextFrameManager';
@@ -170,24 +169,8 @@ export class BackendToolService {
           result = await this.handleGetProjectSummary(parameters, context);
           break;
 
-        case 'openProject':
-          result = await this.handleOpenProject(parameters, context);
-          break;
-
         case 'processJobSpec':
           result = await this.handleProcessJobSpec(parameters, context);
-          break;
-
-        case 'analyzeUserIntent':
-          result = await this.handleAnalyzeUserIntent(parameters, context);
-          break;
-
-        case 'generateNavigationSuggestions':
-          result = await this.handleGenerateNavigationSuggestions(parameters, context);
-          break;
-
-        case 'getNavigationHistory':
-          result = await this.handleGetNavigationHistory(parameters, context);
           break;
 
         case 'submitContactForm':
@@ -258,7 +241,7 @@ export class BackendToolService {
     try {
       // Import prisma here to avoid circular dependencies
       const { prisma } = await import('@/lib/database/connection');
-      
+
       // Try to load real project data from database
       let projectData = null;
       try {
@@ -345,7 +328,7 @@ export class BackendToolService {
         title: 'Full-Stack Developer',
         bio: 'Experienced developer with expertise in modern web technologies',
         skills: includeSkills ? [
-          'JavaScript', 'TypeScript', 'React', 'Next.js', 'Node.js', 
+          'JavaScript', 'TypeScript', 'React', 'Next.js', 'Node.js',
           'Python', 'PostgreSQL', 'Prisma', 'Tailwind CSS', 'Git'
         ] : [],
         experience: includeExperience ? '5+ years of professional development experience' : undefined,
@@ -529,118 +512,7 @@ export class BackendToolService {
     }
   }
 
-  /**
-   * Handle opening a project by searching first
-   */
-  private async handleOpenProject(parameters: any, context: any): Promise<any> {
-    try {
-      const { projectName, newTab = false } = parameters;
-
-      if (!projectName || typeof projectName !== 'string') {
-        return {
-          success: false,
-          error: 'Project name is required and must be a string',
-          data: null,
-          metadata: {
-            timestamp: Date.now(),
-            source: 'backend-tool-service',
-            toolName: 'openProject',
-            executionTime: 0,
-            accessLevel: context.accessLevel
-          }
-        };
-      }
-
-      // First, search for the project
-      let searchResult;
-      try {
-        searchResult = await this.handleSearchProjects({
-          query: projectName,
-          limit: 10  // Increased to ensure we get all projects
-        }, context);
-      } catch (searchError) {
-        console.error('Search error in openProject:', searchError);
-        return {
-          success: false,
-          error: `Search failed: ${searchError instanceof Error ? searchError.message : 'Unknown error'}`,
-          data: {
-            projectFound: false,
-            searchQuery: projectName,
-            suggestions: ['Try "e-commerce", "task management", or "portfolio"']
-          },
-          metadata: {
-            timestamp: Date.now(),
-            source: 'backend-tool-service',
-            toolName: 'openProject',
-            executionTime: Date.now() - Date.now(),
-            accessLevel: context.accessLevel
-          }
-        };
-      }
-
-      console.log('Search result in openProject:', {
-        hasResults: !!searchResult.results,
-        resultsLength: searchResult.results?.length,
-        firstResult: searchResult.results?.[0]?.title
-      });
-
-      if (!searchResult.results || searchResult.results.length === 0) {
-        return {
-          success: false,
-          error: `No project found matching "${projectName}". Try searching with different keywords.`,
-          data: {
-            projectFound: false,
-            searchQuery: projectName,
-            suggestions: ['Try "e-commerce", "task management", or "portfolio"']
-          },
-          metadata: {
-            timestamp: Date.now(),
-            source: 'backend-tool-service',
-            toolName: 'openProject',
-            executionTime: Date.now() - Date.now(),
-            accessLevel: context.accessLevel
-          }
-        };
-      }
-
-      const project = searchResult.results[0];
-      const navigationUrl = `/projects?project=${project.slug}`;
-
-      return {
-        success: true,
-        data: {
-          projectFound: true,
-          projectSlug: project.slug,
-          projectTitle: project.title,
-          navigationUrl,
-          shouldNavigate: true,
-          newTab,
-          message: `Found "${project.title}". Navigate to: ${navigationUrl}`
-        },
-        metadata: {
-          timestamp: Date.now(),
-          source: 'backend-tool-service',
-          toolName: 'openProject',
-          executionTime: Date.now() - Date.now(),
-          accessLevel: context.accessLevel
-        }
-      };
-
-    } catch (error) {
-      return {
-        success: false,
-        error: `Failed to open project: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        data: null,
-        metadata: {
-          timestamp: Date.now(),
-          source: 'backend-tool-service',
-          toolName: 'openProject',
-          executionTime: 0,
-          accessLevel: context.accessLevel
-        }
-      };
-    }
-  }
+  // handleOpenProject method removed - deprecated tool superseded by content_search + ui_intent
 
   private async handleGetProjectSummary(
     args: any,
@@ -848,156 +720,6 @@ export class BackendToolService {
 
     } catch (error) {
       throw new Error(`Failed to process job spec: ${error instanceof Error ? error.message : error}`);
-    }
-  }
-
-  private async handleAnalyzeUserIntent(
-    args: any,
-    context: ServerToolExecutionContext
-  ): Promise<any> {
-    const { userMessage, conversationHistory = [], currentContext = {} } = args;
-
-    try {
-      // Simple intent analysis using keyword matching and patterns
-      const intent = this.classifyUserIntent(userMessage);
-      const entities = this.extractEntities(userMessage);
-      const confidence = this.calculateIntentConfidence(userMessage, intent, entities);
-
-      // Analyze conversation context
-      const contextualInfo = this.analyzeConversationContext(conversationHistory, currentContext);
-
-      // Generate suggested actions based on intent
-      const suggestedActions = this.generateSuggestedActions(intent, entities, contextualInfo);
-
-      return {
-        userMessage,
-        intent: intent.type,
-        confidence,
-        entities,
-        contextualInfo,
-        suggestedActions,
-        reasoning: intent.reasoning,
-        conversationTurn: conversationHistory.length + 1,
-        accessLevel: context.accessLevel
-      };
-
-    } catch (error) {
-      throw new Error(`Failed to analyze user intent: ${error instanceof Error ? error.message : error}`);
-    }
-  }
-
-  private async handleGenerateNavigationSuggestions(
-    args: any,
-    context: ServerToolExecutionContext
-  ): Promise<any> {
-    const { userIntent, currentLocation, availableProjects = [], maxSuggestions = 5 } = args;
-
-    try {
-      // Get project summary for context
-      const projectSummary = await this.handleGetProjectSummary(
-        { includePrivate: false },
-        context
-      );
-
-      // Generate navigation suggestions based on intent
-      const suggestions = [];
-
-      // Intent-based navigation suggestions
-      if (userIntent.includes('project') || userIntent.includes('work') || userIntent.includes('portfolio')) {
-        const relevantProjects = this.findProjectsForIntent(
-          userIntent,
-          projectSummary.recentProjects || availableProjects
-        );
-
-        relevantProjects.forEach(project => {
-          suggestions.push({
-            action: 'openProjectModal',
-            target: project.id,
-            reason: `Relevant project for "${userIntent}" - matches ${project.matchReason}`,
-            confidence: project.confidence,
-            metadata: {
-              projectTitle: project.title,
-              tags: project.tags
-            }
-          });
-        });
-      }
-
-      // Add other navigation suggestions based on intent patterns
-      if (userIntent.includes('skill') || userIntent.includes('technology')) {
-        suggestions.push({
-          action: 'scrollToSection',
-          target: 'skills-section',
-          reason: 'User inquiring about technical skills and experience',
-          confidence: 0.8,
-          metadata: { sectionType: 'skills' }
-        });
-      }
-
-      if (userIntent.includes('about') || userIntent.includes('background')) {
-        suggestions.push({
-          action: 'scrollToSection',
-          target: 'about-section',
-          reason: 'User wants to learn about background and experience',
-          confidence: 0.85,
-          metadata: { sectionType: 'about' }
-        });
-      }
-
-      if (userIntent.includes('contact') || userIntent.includes('hire')) {
-        suggestions.push({
-          action: 'scrollToSection',
-          target: 'contact-section',
-          reason: 'User interested in making contact',
-          confidence: 0.9,
-          metadata: { sectionType: 'contact' }
-        });
-      }
-
-      // Sort by confidence and limit results
-      suggestions.sort((a, b) => b.confidence - a.confidence);
-
-      return {
-        userIntent,
-        currentLocation,
-        suggestions: suggestions.slice(0, maxSuggestions),
-        totalSuggestions: suggestions.length,
-        analysisMetadata: {
-          extractedTechnologies: this.extractTechnologies(userIntent),
-          intentKeywords: this.extractIntentKeywords(userIntent),
-          contextFactors: {
-            hasProjects: projectSummary.totalProjects > 0,
-            currentLocation,
-            accessLevel: context.accessLevel
-          }
-        }
-      };
-
-    } catch (error) {
-      throw new Error(`Failed to generate navigation suggestions: ${error instanceof Error ? error.message : error}`);
-    }
-  }
-
-  private async handleGetNavigationHistory(
-    args: any,
-    context: ServerToolExecutionContext
-  ): Promise<any> {
-    const { sessionId, limit = 20, includeToolCalls = true } = args;
-
-    try {
-      // For now, return empty history - this would integrate with session storage
-      const history = [];
-
-      return {
-        sessionId: sessionId || context.sessionId,
-        history,
-        totalEntries: history.length,
-        includeToolCalls,
-        accessLevel: context.accessLevel
-      };
-
-    } catch (error) {
-      throw new Error(`Failed to get navigation history: ${error instanceof Error ? error.message : error}`);
     }
   }
 
@@ -1246,163 +968,6 @@ Technology Analysis:
 This analysis was generated automatically and should be reviewed for accuracy.`;
   }
 
-  /**
-   * Helper methods for intent analysis
-   */
-  private classifyUserIntent(message: string): { type: string; reasoning: string } {
-    const text = message.toLowerCase();
-
-    if (text.match(/\b(project|work|portfolio|example|show|demo)\b/)) {
-      return {
-        type: 'project_inquiry',
-        reasoning: 'User asking about projects or portfolio work'
-      };
-    }
-
-    if (text.match(/\b(skill|technology|tech|experience|know|can you|able)\b/)) {
-      return {
-        type: 'skills_inquiry',
-        reasoning: 'User asking about technical skills or capabilities'
-      };
-    }
-
-    if (text.match(/\b(about|background|bio|who|tell me|yourself)\b/)) {
-      return {
-        type: 'about_inquiry',
-        reasoning: 'User wants to learn about background and experience'
-      };
-    }
-
-    if (text.match(/\b(contact|hire|available|reach|email|phone)\b/)) {
-      return {
-        type: 'contact_inquiry',
-        reasoning: 'User interested in making contact or hiring'
-      };
-    }
-
-    if (text.match(/\b(job|position|role|requirement|match|fit)\b/)) {
-      return {
-        type: 'job_analysis',
-        reasoning: 'User wants job specification analysis'
-      };
-    }
-
-    if (text.match(/\b(show|open|go to|navigate|find|where)\b/)) {
-      return {
-        type: 'navigation_request',
-        reasoning: 'User requesting navigation to specific content'
-      };
-    }
-
-    return {
-      type: 'general_inquiry',
-      reasoning: 'General conversation or unclear intent'
-    };
-  }
-
-  private extractEntities(message: string): Record<string, any> {
-    const entities: Record<string, any> = {};
-    const text = message.toLowerCase();
-
-    // Extract technologies
-    const technologies = this.extractTechnologies(text);
-    if (technologies.length > 0) {
-      entities.technologies = technologies;
-    }
-
-    // Extract project-related terms
-    const projectTerms = text.match(/\b(project|portfolio|work|example|demo)\b/g);
-    if (projectTerms) {
-      entities.projectTerms = [...new Set(projectTerms)];
-    }
-
-    return entities;
-  }
-
-  private extractTechnologies(text: string): string[] {
-    const techPattern = /\b(javascript|typescript|react|vue|angular|node|python|java|php|ruby|go|rust|swift|kotlin|html|css|sql|mongodb|postgresql|mysql|redis|docker|kubernetes|aws|azure|gcp)\b/g;
-    const matches = text.match(techPattern);
-    return matches ? [...new Set(matches)] : [];
-  }
-
-  private extractIntentKeywords(text: string): string[] {
-    const keywords = text.split(/\s+/)
-      .filter(word => word.length > 3)
-      .filter(word => !this.isStopWord(word))
-      .slice(0, 10);
-    return keywords;
-  }
-
-  private calculateIntentConfidence(message: string, intent: any, entities: any): number {
-    // Simple confidence calculation based on keyword matches
-    const text = message.toLowerCase();
-    let confidence = 0.5; // Base confidence
-
-    // Boost confidence for clear intent patterns
-    if (intent.type !== 'general_inquiry') {
-      confidence += 0.2;
-    }
-
-    // Boost confidence for entity matches
-    if (entities.technologies && entities.technologies.length > 0) {
-      confidence += 0.1;
-    }
-
-    if (entities.projectTerms && entities.projectTerms.length > 0) {
-      confidence += 0.1;
-    }
-
-    return Math.min(confidence, 1.0);
-  }
-
-  private analyzeConversationContext(conversationHistory: any[], currentContext: any): any {
-    return {
-      conversationLength: conversationHistory.length,
-      recentTopics: [],
-      currentPage: currentContext.currentPage || 'unknown',
-      currentModal: currentContext.currentModal || null,
-      recentActions: currentContext.recentActions || []
-    };
-  }
-
-  private generateSuggestedActions(intent: any, entities: any, contextualInfo: any): any[] {
-    const actions = [];
-
-    if (intent.type === 'project_inquiry') {
-      actions.push({
-        type: 'navigation',
-        action: 'showProjects',
-        reason: 'User interested in viewing projects'
-      });
-    }
-
-    if (intent.type === 'skills_inquiry') {
-      actions.push({
-        type: 'navigation',
-        action: 'showSkills',
-        reason: 'User asking about technical skills'
-      });
-    }
-
-    if (intent.type === 'contact_inquiry') {
-      actions.push({
-        type: 'navigation',
-        action: 'showContact',
-        reason: 'User wants to make contact'
-      });
-    }
-
-    return actions;
-  }
-
-  private findProjectsForIntent(intent: string, projects: any[]): any[] {
-    return projects.map(project => ({
-      ...project,
-      confidence: 0.7,
-      matchReason: 'keyword match'
-    })).slice(0, 3);
-  }
-
   private findProjectsByTechnology(technologies: string[], projects: any[]): any[] {
     return projects.filter(project =>
       project.tags && project.tags.some((tag: string) =>
@@ -1415,6 +980,8 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
     const stopWords = ['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them'];
     return stopWords.includes(word.toLowerCase());
   }
+
+  // Helper methods for intent analysis removed - no longer needed after removing meta-tools
 
   /**
    * Handle content search using ContentSearchService with UI state context awareness // Entry point for content_search tool
