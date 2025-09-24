@@ -1397,7 +1397,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
 
       // Enhance scope with UI state context and F-I-D insights
       const scopeEnhanceStart = Date.now();
-      const enhancedScope = this._enhanceScopeWithUIState(scope, uiState, fidContext);
+      const enhancedScope = this._enhanceScopeWithUIState(scope, uiState, fidContext, query);
       backendTimings.scopeEnhancement = Date.now() - scopeEnhanceStart;
       
       // Enhance filters with UI state context and F-I-D insights
@@ -1595,38 +1595,43 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
 
   /**
    * Enhance search scope with UI state context and F-I-D insights
+   * 
+   * IMPORTANT: This should enhance for RANKING, not FILTERING
+   * The search should always find relevant content if it exists
    */
-  private _enhanceScopeWithUIState(scope: any, uiState?: any, fidContext?: any): any {
+  private _enhanceScopeWithUIState(scope: any, uiState?: any, fidContext?: any, query?: string): any {
     if (!uiState) return scope;
 
     const enhancedScope = { ...scope };
 
-    // If no explicit scope provided, infer from UI state
-    if (!scope.route && uiState.currentRoute) {
-      enhancedScope.route = uiState.currentRoute;
+    // NEVER auto-apply filtering based on UI state
+    // Only apply explicit scope parameters passed by the agent
+    
+    // Only apply route filtering if explicitly provided in scope
+    if (scope.route) {
+      enhancedScope.route = scope.route;
     }
 
-    if (!scope.projectId && uiState.currentProject) {
-      enhancedScope.projectId = uiState.currentProject;
+    // Only apply project filtering if explicitly provided in scope
+    if (scope.projectId) {
+      enhancedScope.projectId = scope.projectId;
     }
 
-    // Extract project from breadcrumb path if available
-    if (!enhancedScope.projectId && uiState.breadcrumbPath) {
-      const pathParts = uiState.breadcrumbPath.split('.');
-      if (pathParts.length >= 3 && pathParts[1] === 'projects') {
-        enhancedScope.projectId = pathParts[2];
-      }
-    }
+    // Store UI context for ranking enhancement (not filtering)
+    enhancedScope._uiContext = {
+      currentRoute: uiState.currentRoute,
+      currentProject: uiState.currentProject,
+      breadcrumbPath: uiState.breadcrumbPath,
+      visibleAnchors: uiState.visibleAnchors
+    };
 
-    // Enhance with F-I-D context insights
+    // Store F-I-D context for relevance hints (not filtering)
     if (fidContext?.index?.projectSummaries?.length > 0) {
-      // If no specific project, consider the most relevant project from F-I-D context
-      if (!enhancedScope.projectId) {
-        const topProject = fidContext.index.projectSummaries[0];
-        if (topProject.importance > 0.7) { // High importance threshold
-          enhancedScope.projectId = topProject.slug;
-        }
-      }
+      enhancedScope._fidHints = {
+        relevantProjects: fidContext.index.projectSummaries.slice(0, 3),
+        contextRoute: uiState.currentRoute,
+        contextProject: uiState.currentProject
+      };
     }
 
     return enhancedScope;
@@ -1673,44 +1678,50 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
 
   /**
    * Apply UI state-aware ranking to search results
+   * 
+   * STRATEGY: Prioritize current project results, but always include cross-project results
+   * This allows the agent to say "this project doesn't have X, but here's relevant info from Y"
    */
   private _applyUIStateAwareRanking(results: any[], uiState?: any, targetCount: number = 5): any[] {
     if (!uiState || !results.length) {
       return results.slice(0, targetCount);
     }
 
-    // Create scoring function based on UI state
-    const scoredResults = results.map(result => {
-      let contextScore = result.score || 0;
+    // Separate results by project context
+    const currentProjectResults: any[] = [];
+    const otherProjectResults: any[] = [];
 
-      // Boost results from current project
+    results.forEach(result => {
       if (uiState.currentProject && result.project === uiState.currentProject) {
-        contextScore += 0.3;
+        currentProjectResults.push(result);
+      } else {
+        otherProjectResults.push(result);
       }
+    });
 
-      // Boost results matching current route context
-      if (uiState.currentRoute) {
-        if (uiState.currentRoute === 'projects' && result.project) {
-          contextScore += 0.2;
-        } else if (uiState.currentRoute === 'home' && !result.project) {
-          contextScore += 0.2;
+    // Apply context-aware scoring
+    const scoreResults = (resultList: any[], isCurrentProject: boolean = false) => {
+      return resultList.map(result => {
+        let contextScore = result.score || 0;
+
+        // Boost current project results significantly
+        if (isCurrentProject) {
+          contextScore += 0.5;
         }
-      }
 
-      // Boost results matching visible anchors
-      if (uiState.visibleAnchors && uiState.visibleAnchors.length > 0) {
-        const hasVisibleAnchor = uiState.visibleAnchors.some((anchor: string) =>
-          result.title?.toLowerCase().includes(anchor.toLowerCase()) ||
-          result.oneLiner?.toLowerCase().includes(anchor.toLowerCase())
-        );
-        if (hasVisibleAnchor) {
-          contextScore += 0.25;
+        // Boost results matching visible anchors
+        if (uiState.visibleAnchors && uiState.visibleAnchors.length > 0) {
+          const hasVisibleAnchor = uiState.visibleAnchors.some((anchor: string) =>
+            result.title?.toLowerCase().includes(anchor.toLowerCase()) ||
+            result.oneLiner?.toLowerCase().includes(anchor.toLowerCase())
+          );
+          if (hasVisibleAnchor) {
+            contextScore += 0.25;
+          }
         }
-      }
 
-      // Boost results matching active filters
-      if (uiState.activeFilters) {
-        if (uiState.activeFilters.tags && result.facets?.tech) {
+        // Boost results matching active filters
+        if (uiState.activeFilters?.tags && result.facets?.tech) {
           const tagMatch = uiState.activeFilters.tags.some((tag: string) =>
             result.facets.tech.includes(tag)
           );
@@ -1718,17 +1729,23 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
             contextScore += 0.15;
           }
         }
-      }
 
-      return {
-        ...result,
-        contextScore,
-        originalScore: result.score
-      };
-    });
+        return {
+          ...result,
+          contextScore,
+          originalScore: result.score
+        };
+      });
+    };
 
-    // Sort by context score and return top results
-    return scoredResults
+    // Score both groups
+    const scoredCurrentProject = scoreResults(currentProjectResults, true);
+    const scoredOtherProjects = scoreResults(otherProjectResults, false);
+
+    // Combine and sort by context score
+    const allScoredResults = [...scoredCurrentProject, ...scoredOtherProjects];
+    
+    return allScoredResults
       .sort((a, b) => b.contextScore - a.contextScore)
       .slice(0, targetCount)
       .map(({ contextScore, originalScore, ...result }) => ({
