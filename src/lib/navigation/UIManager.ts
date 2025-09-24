@@ -17,6 +17,7 @@
 import { debugEventEmitter } from '../debug/debugEventEmitter';
 import { v4 as uuidv4 } from 'uuid';
 import { getSemanticIDRegistry, SemanticIDRegistryProvider } from './SemanticIDRegistry';
+import { contextFrameManager, FIDNavigationContext } from '../ai/ContextFrameManager';
 
 // Comprehensive UI State interfaces for both navigation and AI
 export interface UIState {
@@ -280,6 +281,18 @@ export interface UIDescribeResponse {
     target?: string;                    // "projectModal:aurora-avatar"
     requires?: string[];                // transitions that must happen first
   }>;
+  fidContext?: {                        // F-I-D context for AI agents
+    focus: string[];                    // Currently focused content
+    interest: string[];                 // User's demonstrated interests  
+    domain: string[];                   // Current domain/project context
+    contextStats?: {                    // Context usage statistics
+      frameTokens: number;
+      indexTokens: number;
+      detailsTokens: number;
+      totalTokens: number;
+      budgetUtilization: number;
+    };
+  };
 }
 
 export interface NavigationStep {
@@ -732,6 +745,18 @@ export class UIManager {
     // Get available transitions based on current state
     const transitions = this._detectAvailableTransitions(route, this._getProjectParam());
 
+    // Get enhanced navigation context with F-I-D integration
+    const navigationContext: NavigationContext = {
+      currentRoute: route,
+      currentProject: this._getProjectParam(),
+      modalStack: [...this._modalStack],
+      visibleSections: this._currentUIState.visibleAnchors,
+      canNavigate: this.canAcceptNewRequest()
+    };
+
+    const enhancedContext = contextFrameManager.getEnhancedNavigationContext(navigationContext);
+    const contextStats = contextFrameManager.getContextStats();
+
     debugEventEmitter.emit(
       'navigation_event',
       {
@@ -741,7 +766,9 @@ export class UIManager {
         viewStack,
         sectionsCount: sections.length,
         transitionsCount: transitions.length,
-        providersCount: this._contentProviders.length
+        providersCount: this._contentProviders.length,
+        fidContextEnabled: !!enhancedContext.fidContext,
+        contextTokens: contextStats.totalTokens
       },
       'ui-manager'
     );
@@ -751,7 +778,19 @@ export class UIManager {
       route,
       viewStack,
       sections,
-      transitions
+      transitions,
+      fidContext: enhancedContext.fidContext ? {
+        focus: enhancedContext.fidContext.focus,
+        interest: enhancedContext.fidContext.interest,
+        domain: enhancedContext.fidContext.domain,
+        contextStats: {
+          frameTokens: contextStats.frameTokens,
+          indexTokens: contextStats.indexTokens,
+          detailsTokens: contextStats.detailsTokens,
+          totalTokens: contextStats.totalTokens,
+          budgetUtilization: contextStats.budgetUtilization
+        }
+      } : undefined
     };
   }
 
@@ -1891,6 +1930,27 @@ export class UIManager {
       const message = success
         ? `Navigation completed successfully (${executedSteps.length}/${plan.steps.length} steps)`
         : `Navigation failed: ${lastError || 'Unknown error'}`;
+
+      // Update F-I-D context after successful navigation (async, non-interrupting)
+      if (success) {
+        const currentRoute = this._getCurrentRoute();
+        const currentProject = this._getProjectParam();
+        
+        const navigationContext: NavigationContext = {
+          currentRoute,
+          currentProject,
+          modalStack: [...this._modalStack],
+          visibleSections: this._currentUIState.visibleAnchors,
+          canNavigate: true
+        };
+
+        // Async context update - don't block navigation completion
+        contextFrameManager.updateContextForNavigation(
+          contextFrameManager.getEnhancedNavigationContext(navigationContext)
+        ).catch(error => {
+          console.error('F-I-D context update failed after navigation:', error);
+        });
+      }
 
       return {
         success,

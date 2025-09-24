@@ -11,6 +11,7 @@ import { serverToolDefinitions } from './server-tools';
 import { contextInjector } from '@/lib/services/ai/context-injector';
 import { projectIndexer } from '@/lib/services/project-indexer';
 import ContentSearchService from '@/lib/content/ContentSearchService';
+import { contextFrameManager, ContextSwapConfig } from '../ContextFrameManager';
 
 export interface BackendToolExecutionRequest {
   toolName: string;
@@ -63,6 +64,39 @@ export class BackendToolService {
    */
   getToolDefinition(toolName: string): UnifiedToolDefinition | undefined {
     return this.toolDefinitions.get(toolName);
+  }
+
+  /**
+   * Get F-I-D context for server-side tool execution
+   */
+  async getFIDContext(uiState?: any, userIntent?: string): Promise<{
+    frame: any;
+    index: any;
+    details: any;
+    totalTokens: number;
+    budgetExceeded: boolean;
+  }> {
+    try {
+      const config: ContextSwapConfig = {
+        route: uiState?.currentRoute || 'home',
+        projectId: uiState?.currentProject || undefined,
+        userIntent,
+        lastActions: uiState?.visibleAnchors || []
+      };
+
+      return await contextFrameManager.getCompleteContext(config);
+    } catch (error) {
+      console.error('Failed to get F-I-D context for server tool:', error);
+      
+      // Return minimal context on error
+      return {
+        frame: { systemRules: '', voiceSettings: {}, routingPrimer: '', tokenCount: 0 },
+        index: { route: 'home', projectSummaries: [], routeMetadata: {}, availableTransitions: [], tokenCount: 0 },
+        details: { contentChunks: [], searchResults: [], tokenCount: 0, truncated: false },
+        totalTokens: 0,
+        budgetExceeded: false
+      };
+    }
   }
 
   /**
@@ -1356,14 +1390,19 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         return cachedResult;
       }
 
-      // Enhance scope with UI state context
+      // Get F-I-D context for enhanced search
+      const fidContextStart = Date.now();
+      const fidContext = await this.getFIDContext(uiState, query);
+      backendTimings.fidContextLoading = Date.now() - fidContextStart;
+
+      // Enhance scope with UI state context and F-I-D insights
       const scopeEnhanceStart = Date.now();
-      const enhancedScope = this._enhanceScopeWithUIState(scope, uiState);
+      const enhancedScope = this._enhanceScopeWithUIState(scope, uiState, fidContext);
       backendTimings.scopeEnhancement = Date.now() - scopeEnhanceStart;
       
-      // Enhance filters with UI state context
+      // Enhance filters with UI state context and F-I-D insights
       const filterEnhanceStart = Date.now();
-      const enhancedFilters = this._enhanceFiltersWithUIState(filters, uiState);
+      const enhancedFilters = this._enhanceFiltersWithUIState(filters, uiState, fidContext);
       backendTimings.filterEnhancement = Date.now() - filterEnhanceStart;
 
       // Perform content search using ContentSearchService
@@ -1499,6 +1538,9 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         return cachedResult;
       }
 
+      // Get F-I-D context for enhanced content retrieval
+      const fidContext = await this.getFIDContext(uiState);
+
       // Retrieve content using ContentSearchService
       const getResult = await this.contentSearchService.getContent({
         ids,
@@ -1552,9 +1594,9 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
    */
 
   /**
-   * Enhance search scope with UI state context
+   * Enhance search scope with UI state context and F-I-D insights
    */
-  private _enhanceScopeWithUIState(scope: any, uiState?: any): any {
+  private _enhanceScopeWithUIState(scope: any, uiState?: any, fidContext?: any): any {
     if (!uiState) return scope;
 
     const enhancedScope = { ...scope };
@@ -1576,30 +1618,54 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
       }
     }
 
+    // Enhance with F-I-D context insights
+    if (fidContext?.index?.projectSummaries?.length > 0) {
+      // If no specific project, consider the most relevant project from F-I-D context
+      if (!enhancedScope.projectId) {
+        const topProject = fidContext.index.projectSummaries[0];
+        if (topProject.importance > 0.7) { // High importance threshold
+          enhancedScope.projectId = topProject.slug;
+        }
+      }
+    }
+
     return enhancedScope;
   }
 
   /**
-   * Enhance search filters with UI state context
+   * Enhance search filters with UI state context and F-I-D insights
    */
-  private _enhanceFiltersWithUIState(filters: any, uiState?: any): any {
-    if (!uiState?.activeFilters) return filters;
-
+  private _enhanceFiltersWithUIState(filters: any, uiState?: any, fidContext?: any): any {
     const enhancedFilters = { ...filters };
 
     // Merge active UI filters with explicit filters
-    if (uiState.activeFilters.tags && uiState.activeFilters.tags.length > 0) {
-      enhancedFilters.tags = [
-        ...(enhancedFilters.tags || []),
-        ...uiState.activeFilters.tags
-      ];
+    if (uiState?.activeFilters) {
+      if (uiState.activeFilters.tags && uiState.activeFilters.tags.length > 0) {
+        enhancedFilters.tags = [
+          ...(enhancedFilters.tags || []),
+          ...uiState.activeFilters.tags
+        ];
+      }
+
+      if (uiState.activeFilters.techStack && uiState.activeFilters.techStack.length > 0) {
+        enhancedFilters.technologies = [
+          ...(enhancedFilters.technologies || []),
+          ...uiState.activeFilters.techStack
+        ];
+      }
     }
 
-    if (uiState.activeFilters.techStack && uiState.activeFilters.techStack.length > 0) {
-      enhancedFilters.technologies = [
-        ...(enhancedFilters.technologies || []),
-        ...uiState.activeFilters.techStack
-      ];
+    // Enhance with F-I-D context insights
+    if (fidContext?.index?.projectSummaries?.length > 0) {
+      // Extract technologies from relevant projects in F-I-D context
+      const contextTechnologies = fidContext.index.projectSummaries
+        .flatMap((project: any) => project.technologies || [])
+        .filter((tech: string, index: number, arr: string[]) => arr.indexOf(tech) === index); // Remove duplicates
+
+      if (contextTechnologies.length > 0 && !enhancedFilters.technologies) {
+        // Only add if no explicit technology filters are set
+        enhancedFilters.technologies = contextTechnologies.slice(0, 5); // Limit to top 5
+      }
     }
 
     return enhancedFilters;
