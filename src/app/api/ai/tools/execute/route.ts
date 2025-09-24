@@ -101,7 +101,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
         metadata: {
           timestamp: Date.now(),
           source: 'unified-tools-api',
-          executionTime: Date.now() - startTime
+          executionTime: Date.now() - apiRouteStartTime
         }
       }, { status: 400 });
     }
@@ -113,7 +113,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
         metadata: {
           timestamp: Date.now(),
           source: 'unified-tools-api',
-          executionTime: Date.now() - startTime
+          executionTime: Date.now() - apiRouteStartTime
         }
       }, { status: 400 });
     }
@@ -145,7 +145,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
         toolName,
         result: null,
         error,
-        executionTime: Date.now() - startTime,
+        executionTime: Date.now() - apiRouteStartTime,
         success: false,
         sessionId,
         toolCallId,
@@ -162,7 +162,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
           source: 'unified-tools-api',
           sessionId,
           toolCallId,
-          executionTime: Date.now() - startTime
+          executionTime: Date.now() - apiRouteStartTime
         }
       }, { status: 404 });
     }
@@ -175,7 +175,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
         toolName,
         result: null,
         error,
-        executionTime: Date.now() - startTime,
+        executionTime: Date.now() - apiRouteStartTime,
         success: false,
         sessionId,
         toolCallId,
@@ -192,7 +192,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
           source: 'unified-tools-api',
           sessionId,
           toolCallId,
-          executionTime: Date.now() - startTime
+          executionTime: Date.now() - apiRouteStartTime
         }
       }, { status: 400 });
     }
@@ -209,7 +209,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
         toolName,
         result: null,
         error,
-        executionTime: Date.now() - startTime,
+        executionTime: Date.now() - apiRouteStartTime,
         success: false,
         sessionId,
         toolCallId,
@@ -226,7 +226,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
           source: 'unified-tools-api',
           sessionId,
           toolCallId,
-          executionTime: Date.now() - startTime,
+          executionTime: Date.now() - apiRouteStartTime,
           accessLevel: validation.accessLevel
         }
       }, { status: 403 });
@@ -300,7 +300,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
     return NextResponse.json(response);
 
   } catch (error) {
-    const executionTime = Date.now() - startTime;
+    const executionTime = Date.now() - apiRouteStartTime;
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     // Emit debug event for server-side tool call error with correlation ID

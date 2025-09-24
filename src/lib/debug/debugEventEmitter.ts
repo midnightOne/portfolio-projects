@@ -49,7 +49,8 @@ type DebugEventType =
   | 'content-search-mmr-configured'
   | 'content-search-service-initialized'
   | 'content-search-service-registered'
-  | 'content-search-service-registration-error';
+  | 'content-search-service-registration-error'
+  | 'tool_performance_breakdown';
 
 interface DebugEvent {
   type: DebugEventType;
