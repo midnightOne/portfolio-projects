@@ -127,15 +127,15 @@ async function createIndexesOnly() {
     console.log('\n6. Dataset information...');
     
     const totalChunks = await prisma.contextChunk.count();
-    const chunksWithEmbeddings = await prisma.contextChunk.count({
-      where: {
-        embeddingVector: { not: null }
-      }
-    });
+    // Note: embeddingVector is Unsupported type, so we use raw SQL for this check
+    const chunksWithEmbeddings = await prisma.$queryRaw<[{count: bigint}]>`
+      SELECT COUNT(*) as count FROM context_chunks WHERE embedding_vector IS NOT NULL
+    `;
     
+    const embeddingCount = Number(chunksWithEmbeddings[0].count);
     console.log(`   Total chunks: ${totalChunks}`);
-    console.log(`   Chunks with embeddings: ${chunksWithEmbeddings}`);
-    console.log(`   Missing embeddings: ${totalChunks - chunksWithEmbeddings}`);
+    console.log(`   Chunks with embeddings: ${embeddingCount}`);
+    console.log(`   Missing embeddings: ${totalChunks - embeddingCount}`);
 
     console.log('\n🎉 Vector indexes created successfully!');
     console.log('\n📈 Expected Performance Improvement:');

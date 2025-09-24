@@ -345,7 +345,7 @@ export class IndexMaintenanceService {
       urgency = urgency === 'high' ? 'high' : 'medium';
     } else if (this.changeCounter >= this.config.autoAnalyzeThreshold) {
       recommendations.push('Moderate changes detected - run ANALYZE');
-      urgency = urgency === 'high' ? 'high' : urgency === 'medium' ? 'medium' : 'low';
+      urgency = urgency === 'high' ? 'high' : 'medium';
     }
 
     // Check last analyze time

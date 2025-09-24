@@ -32,11 +32,11 @@ async function debugPgVectorPerformance() {
     console.log('\n2. Dataset Analysis:');
     
     const totalChunks = await prisma.contextChunk.count();
-    const chunksWithEmbeddings = await prisma.contextChunk.count({
-      where: {
-        embeddingVector: { not: null }
-      }
-    });
+    // Note: embeddingVector is Unsupported type, so we use raw SQL for this check
+    const chunksWithEmbeddingsResult = await prisma.$queryRaw<[{count: bigint}]>`
+      SELECT COUNT(*) as count FROM context_chunks WHERE embedding_vector IS NOT NULL
+    `;
+    const chunksWithEmbeddings = Number(chunksWithEmbeddingsResult[0].count);
     
     console.log(`   Total context chunks: ${totalChunks}`);
     console.log(`   Chunks with embeddings: ${chunksWithEmbeddings}`);
@@ -102,13 +102,12 @@ async function debugPgVectorPerformance() {
     // 5. Test raw vector search performance
     console.log('\n5. Raw Vector Search Performance Test:');
     
-    // Get a sample embedding for testing
-    const sampleChunk = await prisma.contextChunk.findFirst({
-      where: { embeddingVector: { not: null } },
-      select: { embeddingVector: true }
-    });
+    // Get a sample embedding for testing using raw SQL
+    const sampleChunkResult = await prisma.$queryRaw<[{embedding_vector: number[]}]>`
+      SELECT embedding_vector FROM context_chunks WHERE embedding_vector IS NOT NULL LIMIT 1
+    `;
     
-    if (sampleChunk?.embeddingVector) {
+    if (sampleChunkResult.length > 0 && sampleChunkResult[0].embedding_vector) {
       console.log('   Testing with sample embedding...');
       
       // Test 1: Raw vector search without index hint
@@ -119,10 +118,10 @@ async function debugPgVectorPerformance() {
       }>>`
         SELECT 
           id,
-          (1 - (embedding_vector <=> ${sampleChunk.embeddingVector}::vector(1536))) as similarity
+          (1 - (embedding_vector <=> ${sampleChunkResult[0].embedding_vector}::vector(1536))) as similarity
         FROM context_chunks 
         WHERE embedding_vector IS NOT NULL
-        ORDER BY embedding_vector <=> ${sampleChunk.embeddingVector}::vector(1536)
+        ORDER BY embedding_vector <=> ${sampleChunkResult[0].embedding_vector}::vector(1536)
         LIMIT 5
       `;
       const rawDuration = Date.now() - rawStart;
@@ -135,10 +134,10 @@ async function debugPgVectorPerformance() {
         'QUERY PLAN': string;
       }>>`
         EXPLAIN (ANALYZE, BUFFERS) 
-        SELECT id, (1 - (embedding_vector <=> ${sampleChunk.embeddingVector}::vector(1536))) as similarity
+        SELECT id, (1 - (embedding_vector <=> ${sampleChunkResult[0].embedding_vector}::vector(1536))) as similarity
         FROM context_chunks 
         WHERE embedding_vector IS NOT NULL
-        ORDER BY embedding_vector <=> ${sampleChunk.embeddingVector}::vector(1536)
+        ORDER BY embedding_vector <=> ${sampleChunkResult[0].embedding_vector}::vector(1536)
         LIMIT 5
       `;
       
