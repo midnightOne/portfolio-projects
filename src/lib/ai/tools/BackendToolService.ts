@@ -1382,7 +1382,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
 
       // Check request-scoped cache
       const cacheCheckStart = Date.now();
-      const cachedResult = this._getCachedData(cacheKey, 30000); // 30 second cache
+      const cachedResult = this._getCachedData(cacheKey, 60); // 60 second cache
       backendTimings.cacheCheck = Date.now() - cacheCheckStart;
       
       if (cachedResult) {
@@ -1459,6 +1459,9 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
 
       // Log backend tool performance breakdown
       console.log(`[BackendTool] Content search performance breakdown:`, {
+        fidContextLoading:  `${backendTimings.fidContextLoading}ms`,
+        scopeEnhancement:  `${backendTimings.scopeEnhancement}ms`,
+        filterEnhancement:  `${backendTimings.filterEnhancement}ms`,
         cacheKeyGen: `${backendTimings.cacheKeyGeneration}ms`,
         cacheCheck: `${backendTimings.cacheCheck}ms`,
         scopeEnhance: `${backendTimings.scopeEnhancement}ms`,
