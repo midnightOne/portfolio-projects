@@ -21,7 +21,7 @@ async function testContentSearchTiming() {
       params: {
         query: 'e-commerce platform',
         k: 5,
-        maxTier: 3
+        maxTier: 3 as const
       }
     },
     {
@@ -33,7 +33,7 @@ async function testContentSearchTiming() {
           projectId: 'e-commerce-platform'
         },
         k: 5,
-        maxTier: 3,
+        maxTier: 3 as const,
         filters: {
           technologies: ['redis']
         }
@@ -44,7 +44,7 @@ async function testContentSearchTiming() {
       params: {
         query: 'machine learning artificial intelligence',
         k: 10,
-        maxTier: 2
+        maxTier: 2 as const
       }
     }
   ];

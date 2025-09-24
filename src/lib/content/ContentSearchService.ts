@@ -227,8 +227,8 @@ export class ContentSearchService implements ContentProvider {
       }
       
       timings.queryEmbeddingTime = Date.now() - embeddingStartTime;
-      timings.embeddingCacheHit = cacheHit;
-      timings.embeddingBreakdown = embeddingTimings;
+      // Store embedding timings separately - they'll be merged into timingBreakdown later
+      Object.assign(timings, embeddingTimings);
 
       // Step 2: Perform semantic search with metadata filtering
       const hybridSearchStartTime = Date.now();

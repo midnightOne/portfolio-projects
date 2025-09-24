@@ -21,7 +21,7 @@ async function testCachePerformance() {
       projectId: 'e-commerce-platform'
     },
     k: 5,
-    maxTier: 3
+    maxTier: 3 as const
   };
 
   console.log(`Query: "${testQuery.query}"`);

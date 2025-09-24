@@ -91,7 +91,7 @@ async function testVectorPerformance() {
     
     try {
       const { VectorOperations } = await import('../src/lib/content/VectorOperations');
-      const vectorOps = new VectorOperations();
+      const vectorOps = new VectorOperations(prisma);
       
       const vectorOpsStart = Date.now();
       const vectorOpsResults = await vectorOps.semanticSearch(queryEmbedding, 10, 3);
