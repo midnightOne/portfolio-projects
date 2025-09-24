@@ -554,7 +554,7 @@ export class ContextFrameManager {
   /**
    * Initialize frame context on startup
    */
-  private async initializeFrameContext(): void {
+  private async initializeFrameContext(): Promise<void> {
     try {
       this.currentFrameContext = await this.getFrameContext();
       console.log('ContextFrameManager initialized with frame context');

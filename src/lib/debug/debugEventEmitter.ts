@@ -49,7 +49,15 @@ type DebugEventType =
   | 'content-search-mmr-configured'
   | 'content-search-service-initialized'
   | 'content-search-service-registered'
-  | 'content-search-service-registration-error';
+  | 'content-search-service-registration-error'
+  // F-I-D Context Management events
+  | 'fid-context-loaded'
+  | 'fid-context-error'
+  | 'fid-context-updated'
+  | 'fid-budget-configured'
+  | 'frame-context-loaded'
+  | 'index-context-loaded'
+  | 'details-context-loaded';
 
 interface DebugEvent {
   type: DebugEventType;
