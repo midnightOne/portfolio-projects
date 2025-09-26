@@ -1040,19 +1040,14 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         return cachedResult;
       }
 
-      // Get F-I-D context for enhanced search
-      const fidContextStart = Date.now();
-      const fidContext = await this.getFIDContext(uiState, query);
-      backendTimings.fidContextLoading = Date.now() - fidContextStart;
-
-      // Enhance scope with UI state context and F-I-D insights
+      // Enhance scope with UI state context (for ranking only, not filtering)
       const scopeEnhanceStart = Date.now();
-      const enhancedScope = this._enhanceScopeWithUIState(scope, uiState, fidContext, query);
+      const enhancedScope = this._enhanceScopeWithUIState(scope, uiState);
       backendTimings.scopeEnhancement = Date.now() - scopeEnhanceStart;
 
-      // Enhance filters with UI state context and F-I-D insights
+      // Enhance filters with UI state context
       const filterEnhanceStart = Date.now();
-      const enhancedFilters = this._enhanceFiltersWithUIState(filters, uiState, fidContext);
+      const enhancedFilters = this._enhanceFiltersWithUIState(filters, uiState);
       backendTimings.filterEnhancement = Date.now() - filterEnhanceStart;
 
       // Perform content search using ContentSearchService
@@ -1252,7 +1247,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
    * IMPORTANT: This should enhance for RANKING, not FILTERING
    * The search should always find relevant content if it exists
    */
-  private _enhanceScopeWithUIState(scope: any, uiState?: any, fidContext?: any, query?: string): any {
+  private _enhanceScopeWithUIState(scope: any, uiState?: any): any {
     if (!uiState) return scope;
 
     const enhancedScope = { ...scope };
@@ -1278,22 +1273,13 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
       visibleAnchors: uiState.visibleAnchors
     };
 
-    // Store F-I-D context for relevance hints (not filtering)
-    if (fidContext?.index?.projectSummaries?.length > 0) {
-      enhancedScope._fidHints = {
-        relevantProjects: fidContext.index.projectSummaries.slice(0, 3),
-        contextRoute: uiState.currentRoute,
-        contextProject: uiState.currentProject
-      };
-    }
-
     return enhancedScope;
   }
 
   /**
-   * Enhance search filters with UI state context and F-I-D insights
+   * Enhance search filters with UI state context
    */
-  private _enhanceFiltersWithUIState(filters: any, uiState?: any, fidContext?: any): any {
+  private _enhanceFiltersWithUIState(filters: any, uiState?: any): any {
     const enhancedFilters = { ...filters };
 
     // Merge active UI filters with explicit filters
@@ -1313,18 +1299,8 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
       }
     }
 
-    // Enhance with F-I-D context insights
-    if (fidContext?.index?.projectSummaries?.length > 0) {
-      // Extract technologies from relevant projects in F-I-D context
-      const contextTechnologies = fidContext.index.projectSummaries
-        .flatMap((project: any) => project.technologies || [])
-        .filter((tech: string, index: number, arr: string[]) => arr.indexOf(tech) === index); // Remove duplicates
-
-      if (contextTechnologies.length > 0 && !enhancedFilters.technologies) {
-        // Only add if no explicit technology filters are set
-        enhancedFilters.technologies = contextTechnologies.slice(0, 5); // Limit to top 5
-      }
-    }
+    // F-I-D context is now handled passively via NAV_CONTEXT messages
+    // No active F-I-D integration in search tools
 
     return enhancedFilters;
   }
