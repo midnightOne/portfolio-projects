@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { passiveFIDManager, type FIDContext, type UIState } from '@/lib/ai/tools';
+import { passiveFIDManager, type FIDContext } from '@/lib/ai/tools';
+import { type UIState } from '@/lib/ai/tools/types';
 
 export default function TestPassiveFIDPage() {
   const [context, setContext] = useState<FIDContext | null>(null);
@@ -237,7 +238,7 @@ export default function TestPassiveFIDPage() {
                   <div className="mt-4">
                     <h4 className="font-medium mb-2">Projects:</h4>
                     <div className="space-y-2">
-                      {context.index.availableProjects.slice(0, 3).map((project, idx) => (
+                      {context.index.availableProjects.slice(0, 10).map((project, idx) => (
                         <div key={idx} className="bg-white rounded p-2 text-sm">
                           <div className="font-medium">{project.title}</div>
                           <div className="text-gray-600">{project.description}</div>
@@ -281,7 +282,7 @@ export default function TestPassiveFIDPage() {
                   <div className="mt-4">
                     <h4 className="font-medium mb-2">Intent-based Content:</h4>
                     <div className="space-y-2">
-                      {context.details.intentBasedContent.slice(0, 3).map((item, idx) => (
+                      {context.details.intentBasedContent.slice(0, 5).map((item, idx) => (
                         <div key={idx} className="bg-white rounded p-2 text-sm">
                           <div className="font-medium">{item.title}</div>
                           <div className="text-gray-600">{item.oneLiner}</div>

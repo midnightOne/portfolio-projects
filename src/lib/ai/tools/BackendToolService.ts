@@ -324,25 +324,25 @@ export class BackendToolService {
       // Return structured profile data directly without contextInjector to avoid hanging
       // TODO: In the future, this could load real profile data from database
       const profileData = {
-        name: 'Portfolio Owner',
-        title: 'Full-Stack Developer',
-        bio: 'Experienced developer with expertise in modern web technologies',
+        name: 'Kirill Prymachov',
+        title: 'XR/AI Developer',
+        bio: 'Experienced game developer with expertise in realtime 3D mutiplayer games, AR/VR and applied AI engineering',
         skills: includeSkills ? [
           'JavaScript', 'TypeScript', 'React', 'Next.js', 'Node.js',
-          'Python', 'PostgreSQL', 'Prisma', 'Tailwind CSS', 'Git'
+          'Python', 'PostgreSQL', 'Prisma', 'Tailwind CSS', 'Git', 'Unity', 'Unreal Engine', 'Technical art (shaders)'
         ] : [],
-        experience: includeExperience ? '5+ years of professional development experience' : undefined,
+        experience: includeExperience ? '7+ years of professional development experience' : undefined,
         contact: {
           email: includePrivate && context.accessLevel === 'premium' ? 'contact@example.com' : undefined,
           linkedin: 'https://linkedin.com/in/developer',
           github: 'https://github.com/developer',
           website: 'https://portfolio.example.com'
         },
-        location: 'Remote',
+        location: 'New York',
         availability: 'Available for new opportunities',
-        interests: ['Web Development', 'AI/ML', 'Open Source', 'Full-Stack Development'],
+        interests: ['XR', 'applied/agentic AI', 'game development', 'AR applications of the future'],
         education: 'Computer Science Degree',
-        certifications: ['AWS Certified', 'React Certified'],
+        certifications: [],
         accessLevel: context.accessLevel,
         filteredForReflink: !!context.reflinkId,
         profileLoadedDirectly: true // Flag to indicate this was loaded without contextInjector

@@ -90,6 +90,9 @@ export class PassiveFIDManager {
   // Optional user intent for proactive content search
   private userIntent: string | null = null;
 
+  // Session-based user profile cache
+  private userProfileCache: { profile: any; timestamp: number } | null = null;
+
   // Cache configuration
   private readonly DEFAULT_TTL = 20 * 60 * 1000; // 20 minutes
   protected readonly MAX_CACHE_SIZE = 50; // Memory management limit
@@ -175,7 +178,7 @@ export class PassiveFIDManager {
       });
 
       // Return minimal fallback context on error
-      return this.getMinimalFallbackContext(uiState);
+      return await this.getMinimalFallbackContext(uiState);
     }
   }
 
@@ -194,6 +197,58 @@ export class PassiveFIDManager {
     if (intent && intent.length > 10) {
       this.invalidateIntentBasedCache();
     }
+  }
+
+  /**
+   * Get user profile with session caching
+   */
+  private async getUserProfile(): Promise<string> {
+    // Check cache first
+    if (this.userProfileCache && 
+        (Date.now() - this.userProfileCache.timestamp) < this.DEFAULT_TTL) {
+      return (this.userProfileCache.profile?.name || this.userProfileCache.profile?.fullName || 'Kirill Prymachov') + (', ' + this.userProfileCache.profile?.bio);
+    }
+
+    try {
+      // Fetch user profile from server
+      const response = await fetch(`${this.getBaseUrl()}/api/ai/tools/execute`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          toolName: 'loadUserProfile',
+          parameters: {}
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.data) {
+          // Cache the profile
+          this.userProfileCache = {
+            profile: result.data,
+            timestamp: Date.now()
+          };
+          
+          return (result.data.name || result.data.fullName || 'Kirill Prymachov')+ (', ' + result.data.bio);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to load user profile:', error);
+    }
+
+    // Fallback to default
+    return 'Kirill Prymachov';
+  }
+
+  /**
+   * Get base URL for API calls
+   */
+  private getBaseUrl(): string {
+    return typeof window !== 'undefined'
+      ? '' // Browser environment - use relative URL
+      : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'; // Node.js environment
   }
 
   /**
@@ -219,9 +274,10 @@ export class PassiveFIDManager {
         timestamp: Date.now()
       });
     } else {
-      // Clear entire cache
+      // Clear entire cache including user profile
       const cacheSize = this.cache.size;
       this.cache.clear();
+      this.userProfileCache = null;
 
       debugEventEmitter.emit('fid-cache-cleared', {
         type: 'full',
@@ -273,6 +329,7 @@ export class PassiveFIDManager {
     }
 
     this.cache.clear();
+    this.userProfileCache = null;
 
     debugEventEmitter.emit('fid-manager-destroyed', {
       timestamp: Date.now()
@@ -343,13 +400,13 @@ export class PassiveFIDManager {
     }
 
     // Convert server response to FIDContext format
-    return this.convertServerResponseToFIDContext(apiResponse.data, uiState);
+    return await this.convertServerResponseToFIDContext(apiResponse.data, uiState);
   }
 
   /**
    * Convert server API response to FIDContext format
    */
-  private convertServerResponseToFIDContext(serverData: any, uiState: UIState): FIDContext {
+  private async convertServerResponseToFIDContext(serverData: any, uiState: UIState): Promise<FIDContext> {
     // Extract frame context
     const frame = serverData.frame || {};
 
@@ -359,9 +416,12 @@ export class PassiveFIDManager {
     // Extract details context
     const details = serverData.details || {};
 
+    // Get user profile with caching
+    const portfolioOwner = await this.getUserProfile();
+
     return {
       frame: {
-        portfolioOwner: frame.systemRules?.includes('portfolio') ? 'Portfolio Owner' : 'AI Assistant',
+        portfolioOwner,
         currentCapabilities: this.extractCapabilities(frame),
         uiContext: this.buildUIContext(uiState)
       },
@@ -456,10 +516,12 @@ export class PassiveFIDManager {
   /**
    * Get minimal fallback context for error cases
    */
-  private getMinimalFallbackContext(uiState: UIState): FIDContext {
+  private async getMinimalFallbackContext(uiState: UIState): Promise<FIDContext> {
+    const portfolioOwner = await this.getUserProfile();
+    
     return {
       frame: {
-        portfolioOwner: 'Portfolio Owner',
+        portfolioOwner,
         currentCapabilities: ['navigation', 'basic-information'],
         uiContext: this.buildUIContext(uiState)
       },
