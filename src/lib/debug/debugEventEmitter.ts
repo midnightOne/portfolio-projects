@@ -48,6 +48,15 @@ type DebugEventType =
   | 'content-navigation-error'
   | 'content-search-mmr-configured'
   | 'content-search-service-initialized'
+  // F-I-D Context Manager events
+  | 'fid-context-cache-hit'
+  | 'fid-context-cache-miss'
+  | 'fid-context-loaded'
+  | 'fid-context-error'
+  | 'fid-user-intent-set'
+  | 'fid-cache-cleared'
+  | 'fid-manager-destroyed'
+  | 'fid-cache-cleanup'
   | 'content-search-service-registered'
   | 'content-search-service-registration-error'
   // F-I-D Context Management events
