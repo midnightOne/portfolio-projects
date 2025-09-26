@@ -920,6 +920,27 @@ The platform has processed over $2M in transactions in its first year, with 99.9
   } catch (error) {
     console.log('ℹ️  Skipping auto-indexing (indexer not available during seed)');
   }
+
+  // Seed hierarchical content system
+  try {
+    console.log('📥 Seeding hierarchical content system...');
+    const { ContentIngestionPipeline } = await import('../src/lib/services/content-ingestion');
+    const pipeline = new ContentIngestionPipeline();
+    
+    const results = await pipeline.ingestAllContent();
+    const successful = results.filter(r => r.success);
+    const failed = results.filter(r => !r.success);
+
+    console.log(`✅ Hierarchical content: ${successful.length} entities ingested successfully`);
+    if (failed.length > 0) {
+      console.log(`⚠️  Hierarchical content: ${failed.length} entities failed to ingest`);
+      failed.forEach(result => {
+        console.log(`   - ${result.entityType}:${result.slug} - ${result.error}`);
+      });
+    }
+  } catch (error) {
+    console.log('⚠️  Skipping hierarchical content seeding:', error instanceof Error ? error.message : 'Unknown error');
+  }
 }
 
 main()

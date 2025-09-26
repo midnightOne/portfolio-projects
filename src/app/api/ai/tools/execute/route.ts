@@ -26,6 +26,22 @@ interface UnifiedToolExecuteRequest {
   sessionId?: string;
   toolCallId?: string;
   reflinkId?: string;
+  uiState?: {
+    breadcrumbPath?: string;
+    visibleAnchors?: string[];
+    activeFilters?: {
+      searchTerm?: string;
+      tags?: string[];
+      techStack?: string[];
+    };
+    currentRoute?: string;
+    currentProject?: string;
+    currentModal?: string;
+    lastUserAction?: {
+      type: 'navigate' | 'search' | 'filter' | 'scroll';
+      timestamp: number;
+    };
+  };
 }
 
 /**
@@ -64,7 +80,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
       parameters, 
       sessionId: requestSessionId, 
       toolCallId: requestToolCallId, 
-      reflinkId: requestReflinkId 
+      reflinkId: requestReflinkId,
+      uiState: requestUIState
     } = body;
     
     toolName = requestedToolName;
@@ -212,7 +229,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
       parameters, 
       sessionId, 
       validation.accessLevel as 'basic' | 'limited' | 'premium', 
-      reflinkId
+      reflinkId,
+      undefined, // userId
+      requestUIState // uiState
     );
 
     const executionTime = Date.now() - startTime;

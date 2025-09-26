@@ -70,7 +70,7 @@ async function testSemanticNavigationIntegration() {
     
     console.log('🔍 Semantic ID Resolution:', semanticResolution);
     
-    // Test 4: Test ui_navigate tool execution
+    // Test 4: Test ui_intent tool execution
     const navigationTest = await page.evaluate(async () => {
       if (!window.UIManager) return { success: false, error: 'UIManager not available' };
       
@@ -118,11 +118,11 @@ async function testSemanticNavigationIntegration() {
     
     // Test 6: Test tool registry integration
     const toolRegistryTest = await page.evaluate(() => {
-      // Check if ui_navigate and ui_describe tools are available
+      // Check if ui_intent and ui_describe tools are available
       const tools = window.UINavigationTools?.getInstance?.();
       if (!tools) return { success: false, error: 'UINavigationTools not available' };
       
-      const hasNavigate = typeof tools['ui_navigate'] === 'function';
+      const hasNavigate = typeof tools['ui_intent'] === 'function';
       const hasDescribe = typeof tools['ui_describe'] === 'function';
       
       return {

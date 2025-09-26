@@ -29,13 +29,10 @@ export { serverToolDefinitions } from './server-tools';
 // Export individual tool definitions for direct access if needed
 export {
   // Client tools
-  navigateToToolDefinition,
-  showProjectDetailsToolDefinition,
   scrollIntoViewToolDefinition,
   highlightTextToolDefinition,
   clearHighlightsToolDefinition,
   focusElementToolDefinition,
-  reportUIStateToolDefinition,
   fillFormFieldToolDefinition,
   submitFormToolDefinition,
   animateElementToolDefinition
@@ -48,9 +45,6 @@ export {
   searchProjectsToolDefinition,
   getProjectSummaryToolDefinition,
   processJobSpecToolDefinition,
-  analyzeUserIntentToolDefinition,
-  generateNavigationSuggestionsToolDefinition,
-  getNavigationHistoryToolDefinition,
   submitContactFormToolDefinition,
   processUploadedFileToolDefinition
 } from './server-tools';

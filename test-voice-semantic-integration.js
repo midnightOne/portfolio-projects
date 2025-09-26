@@ -49,7 +49,7 @@ async function testVoiceSemanticIntegration() {
         const tools = window.UINavigationTools?.getInstance?.();
         if (!tools) return { success: false, error: 'UINavigationTools not available' };
         
-        const hasUiNavigate = typeof tools['ui_navigate'] === 'function';
+        const hasUiIntent = typeof tools['ui_intent'] === 'function';
         const hasUiDescribe = typeof tools['ui_describe'] === 'function';
         
         return { 
@@ -87,13 +87,13 @@ async function testVoiceSemanticIntegration() {
     
     console.log('🔍 ui_describe Test:', describeTest);
     
-    // Test 3: Test ui_navigate tool execution (client-side)
+    // Test 3: Test ui_intent tool execution (client-side)
     const navigateTest = await page.evaluate(async () => {
       try {
         const tools = window.UINavigationTools?.getInstance?.();
         if (!tools) return { success: false, error: 'UINavigationTools not available' };
         
-        const result = await tools['ui_navigate']({
+        const result = await tools['ui_intent']({
           target: {
             type: 'semantic',
             semanticId: 'about',
@@ -115,7 +115,7 @@ async function testVoiceSemanticIntegration() {
       }
     });
     
-    console.log('🔍 ui_navigate Test:', navigateTest);
+    console.log('🔍 ui_intent Test:', navigateTest);
     
     // Test 4: Test semantic ID fallback behavior (client-side)
     const fallbackTest = await page.evaluate(async () => {
@@ -123,7 +123,7 @@ async function testVoiceSemanticIntegration() {
         const tools = window.UINavigationTools?.getInstance?.();
         if (!tools) return { success: false, error: 'UINavigationTools not available' };
         
-        const result = await tools['ui_navigate']({
+        const result = await tools['ui_intent']({
           target: {
             type: 'semantic',
             semanticId: 'non-existent-semantic-id',
@@ -153,7 +153,7 @@ async function testVoiceSemanticIntegration() {
         // Skip admin API test since it requires authentication
         // Just verify that the tools are properly registered in the client
         const tools = window.UINavigationTools?.getInstance?.();
-        const hasTools = tools && typeof tools['ui_navigate'] === 'function' && typeof tools['ui_describe'] === 'function';
+        const hasTools = tools && typeof tools['ui_intent'] === 'function' && typeof tools['ui_describe'] === 'function';
         
         return {
           success: hasTools,
@@ -174,7 +174,7 @@ async function testVoiceSemanticIntegration() {
         const clientTools = window.UINavigationTools?.getInstance?.();
         if (!clientTools) return { success: false, error: 'Client tools not available' };
         
-        const hasUiNavigate = typeof clientTools['ui_navigate'] === 'function';
+        const hasUiIntent = typeof clientTools['ui_intent'] === 'function';
         const hasUiDescribe = typeof clientTools['ui_describe'] === 'function';
         
         // Check if old tool names are gone
@@ -198,7 +198,7 @@ async function testVoiceSemanticIntegration() {
     const allTests = [
       { name: 'Tool Availability', passed: toolsAvailable.success },
       { name: 'ui_describe Execution', passed: describeTest.success },
-      { name: 'ui_navigate Execution', passed: navigateTest.success },
+      { name: 'ui_intent Execution', passed: navigateTest.success },
       { name: 'Semantic Fallback', passed: fallbackTest.success },
       { name: 'Voice Config Access', passed: voiceConfigTest.success },
       { name: 'Registry Consistency', passed: registryConsistencyTest.success }

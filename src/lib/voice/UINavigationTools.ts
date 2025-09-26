@@ -218,7 +218,7 @@ export class UINavigationTools {
     }
   }
 
-  // INTERNAL/RECOVERY NAVIGATION TOOLS - Use ui_navigate instead for better reliability
+  // INTERNAL/RECOVERY NAVIGATION TOOLS - Use ui_intent instead for better reliability
 
   async navigateTo(args: { path: string; newTab?: boolean }, sessionId?: string): Promise<NavigationResult> {
     return this.executeAndReport('navigateTo', args, async () => {
@@ -678,38 +678,63 @@ export class UINavigationTools {
     }, sessionId);
   }
 
-  // PRIMARY NAVIGATION INTERFACE - Use these methods for all navigation
+  // PRIMARY NAVIGATION INTERFACE - Use ui_intent for all navigation
 
-  async ['ui_navigate'](args: any, sessionId?: string): Promise<NavigationResult> {
-    return this.executeAndReport('ui_navigate', args, async () => {
+  async ['ui_intent'](args: any, sessionId?: string): Promise<NavigationResult> {
+    return this.executeAndReport('ui_intent', args, async () => {
       try {
-        console.log('🧭 ui_navigate called with args:', JSON.stringify(args, null, 2));
+        console.log('🎯 ui_intent called with args:', JSON.stringify(args, null, 2));
+        
+        // Parse args if they come as a string (from voice interface)
+        let params = args;
+        if (typeof args === 'string') {
+          try {
+            params = JSON.parse(args);
+          } catch (parseError) {
+            console.error('❌ Failed to parse ui_intent args:', parseError);
+            throw new Error('Invalid JSON parameters for ui_intent');
+          }
+        }
+        
+        // Ensure params has the correct structure for UIIntentParams
+        if (!params.target) {
+          console.error('❌ ui_intent missing target:', params);
+          throw new Error('ui_intent requires a target parameter');
+        }
         
         // Import UIManager dynamically to avoid circular dependencies
         const { UIManager } = await import('@/lib/navigation/UIManager');
         const uiManager = UIManager.getInstance();
         
-        console.log('🧭 UIManager imported, calling executeIntent...');
-        const result = await uiManager.executeIntent(args, sessionId);
+        console.log('🎯 UIManager imported, calling executeIntent with params:', JSON.stringify(params, null, 2));
+        const result = await uiManager.executeIntent(params, sessionId);
         
-        console.log('🧭 UIManager executeIntent result:', JSON.stringify(result, null, 2));
+        console.log('🎯 UIManager executeIntent result:', JSON.stringify(result, null, 2));
         
         return {
           success: result.success,
           message: result.message,
           data: result.executedSteps || result.data,
-          error: result.error
+          error: result.error,
+          executedSteps: result.executedSteps || [],
+          totalTime: result.totalTime || 0
         };
+        
       } catch (error) {
-        console.error('❌ ui_navigate error:', error);
+        console.error('❌ ui_intent error:', error);
         return {
           success: false,
-          message: `Failed to execute navigation intent`,
-          error: error instanceof Error ? error.message : String(error)
+          message: error instanceof Error ? error.message : 'Unknown error in ui_intent',
+          error: error instanceof Error ? error.message : 'Unknown error',
+          data: null,
+          executedSteps: [],
+          totalTime: 0
         };
       }
-    }, sessionId);
+    });
   }
+
+  // Removed ui_navigate - consolidated into ui_intent
 
   async ['ui_describe'](args: any = {}, sessionId?: string): Promise<NavigationResult> {
     return this.executeAndReport('ui_describe', args, async () => {
@@ -735,32 +760,6 @@ export class UINavigationTools {
     }, sessionId);
   }
 
-  // LEGACY/RECOVERY NAVIGATION TOOLS - Use ui_navigate instead for better reliability
-
-  // Utility methods
-
-  getNavigationHistory(): Array<{ action: string; params: any; timestamp: Date }> {
-    return [...this.navigationHistory];
-  }
-
-  clearNavigationHistory(): void {
-    this.navigationHistory = [];
-  }
-
-  getCurrentPageInfo(): { url: string; title: string; pathname: string } {
-    return {
-      url: window.location.href,
-      title: document.title,
-      pathname: window.location.pathname
-    };
-  }
-
-  getVisibleElements(selector: string): Element[] {
-    const elements = UIElementManager.findElements(selector);
-    if (!elements) return [];
-
-    return Array.from(elements).filter(el => UIElementManager.isElementVisible(el));
-  }
 }
 
 // Note: Tool definitions are now managed by UnifiedToolRegistry

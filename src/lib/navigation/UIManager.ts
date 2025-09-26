@@ -17,6 +17,7 @@
 import { debugEventEmitter } from '../debug/debugEventEmitter';
 import { v4 as uuidv4 } from 'uuid';
 import { getSemanticIDRegistry, SemanticIDRegistryProvider } from './SemanticIDRegistry';
+import { contextFrameManager, FIDNavigationContext } from '../ai/ContextFrameManager';
 
 // Comprehensive UI State interfaces for both navigation and AI
 export interface UIState {
@@ -280,6 +281,18 @@ export interface UIDescribeResponse {
     target?: string;                    // "projectModal:aurora-avatar"
     requires?: string[];                // transitions that must happen first
   }>;
+  fidContext?: {                        // F-I-D context for AI agents
+    focus: string[];                    // Currently focused content
+    interest: string[];                 // User's demonstrated interests  
+    domain: string[];                   // Current domain/project context
+    contextStats?: {                    // Context usage statistics
+      frameTokens: number;
+      indexTokens: number;
+      detailsTokens: number;
+      totalTokens: number;
+      budgetUtilization: number;
+    };
+  };
 }
 
 export interface NavigationStep {
@@ -732,6 +745,18 @@ export class UIManager {
     // Get available transitions based on current state
     const transitions = this._detectAvailableTransitions(route, this._getProjectParam());
 
+    // Get enhanced navigation context with F-I-D integration
+    const navigationContext: NavigationContext = {
+      currentRoute: route,
+      currentProject: this._getProjectParam(),
+      modalStack: [...this._modalStack],
+      visibleSections: this._currentUIState.visibleAnchors,
+      canNavigate: this.canAcceptNewRequest()
+    };
+
+    const enhancedContext = contextFrameManager.getEnhancedNavigationContext(navigationContext);
+    const contextStats = contextFrameManager.getContextStats();
+
     debugEventEmitter.emit(
       'navigation_event',
       {
@@ -741,7 +766,9 @@ export class UIManager {
         viewStack,
         sectionsCount: sections.length,
         transitionsCount: transitions.length,
-        providersCount: this._contentProviders.length
+        providersCount: this._contentProviders.length,
+        fidContextEnabled: !!enhancedContext.fidContext,
+        contextTokens: contextStats.totalTokens
       },
       'ui-manager'
     );
@@ -751,7 +778,19 @@ export class UIManager {
       route,
       viewStack,
       sections,
-      transitions
+      transitions,
+      fidContext: enhancedContext.fidContext ? {
+        focus: enhancedContext.fidContext.focus,
+        interest: enhancedContext.fidContext.interest,
+        domain: enhancedContext.fidContext.domain,
+        contextStats: {
+          frameTokens: contextStats.frameTokens,
+          indexTokens: contextStats.indexTokens,
+          detailsTokens: contextStats.detailsTokens,
+          totalTokens: contextStats.totalTokens,
+          budgetUtilization: contextStats.budgetUtilization
+        }
+      } : undefined
     };
   }
 
@@ -1891,6 +1930,27 @@ export class UIManager {
       const message = success
         ? `Navigation completed successfully (${executedSteps.length}/${plan.steps.length} steps)`
         : `Navigation failed: ${lastError || 'Unknown error'}`;
+
+      // Update F-I-D context after successful navigation (async, non-interrupting)
+      if (success) {
+        const currentRoute = this._getCurrentRoute();
+        const currentProject = this._getProjectParam();
+        
+        const navigationContext: NavigationContext = {
+          currentRoute,
+          currentProject,
+          modalStack: [...this._modalStack],
+          visibleSections: this._currentUIState.visibleAnchors,
+          canNavigate: true
+        };
+
+        // Async context update - don't block navigation completion
+        contextFrameManager.updateContextForNavigation(
+          contextFrameManager.getEnhancedNavigationContext(navigationContext)
+        ).catch(error => {
+          console.error('F-I-D context update failed after navigation:', error);
+        });
+      }
 
       return {
         success,
@@ -3178,7 +3238,7 @@ export class UIManager {
     return {
       id: `wait_${waitMs}ms`,
       type: 'wait',
-      timeout: waitMs + 1000, // Add buffer to timeout
+      timeout: waitMs, //+ 1000, // Add buffer to timeout
       execute: async () => {
         try {
           await new Promise(resolve => setTimeout(resolve, waitMs));
@@ -3559,26 +3619,7 @@ export class UIManager {
     };
   }
 
-  /**
-   * Navigate to content by search query (for AI system)
-   */
-  async navigateToContent(
-    query: string, 
-    options?: { projectId?: string; contentType?: string }
-  ): Promise<NavigationResult> {
-    return this.executeIntent({
-      target: { 
-        type: 'content', 
-        query, 
-        projectId: options?.projectId,
-        fallbackSection: 'hero' // Safe fallback
-      },
-      behavior: {
-        scrollBehavior: 'smooth',
-        allowInterruption: true
-      }
-    });
-  }
+
 
   /**
    * Navigate by semantic ID (for AI system)
@@ -3819,6 +3860,103 @@ export class UIManager {
   }
 
   /**
+   * Update navigation affordances (called by content ingestion)
+   */
+  _updateNavigationAffordances(): void {
+    try {
+      // Clear section cache to force refresh
+      this._sectionCache.clear();
+      
+      // Update current UI state
+      this._currentEpoch++;
+      this._updateBreadcrumbPath();
+      
+      // Emit debug event
+      debugEventEmitter.emit(
+        'navigation_event',
+        {
+          type: 'navigation_affordances_updated',
+          epoch: this._currentEpoch,
+          timestamp: Date.now()
+        },
+        'ui-manager'
+      );
+      
+      // Trigger background state update
+      this._debouncedStateUpdate();
+      
+    } catch (error) {
+      console.error('Failed to update navigation affordances:', error);
+      
+      debugEventEmitter.emit(
+        'navigation_event',
+        {
+          type: 'navigation_affordances_update_failed',
+          error: error instanceof Error ? error.message : 'Unknown error',
+          timestamp: Date.now()
+        },
+        'ui-manager'
+      );
+    }
+  }
+
+  /**
+   * Update section registry (called by content ingestion)
+   */
+  _updateSectionRegistry(entityType: string, slug: string, sections: Array<{ id: string; title: string }>): void {
+    try {
+      const cacheKey = `${entityType}:${slug}`;
+      
+      // Convert to SemanticSection format
+      const semanticSections: SemanticSection[] = sections.map(section => ({
+        id: section.id,
+        title: section.title,
+        type: entityType === 'PROJECT' ? 'project' : 'content',
+        metadata: {
+          entityType,
+          slug,
+          source: 'content-ingestion'
+        }
+      }));
+      
+      // Update cache
+      this._sectionCache.set(cacheKey, semanticSections);
+      
+      // Emit debug event
+      debugEventEmitter.emit(
+        'navigation_event',
+        {
+          type: 'section_registry_updated',
+          entityType,
+          slug,
+          sectionsCount: sections.length,
+          cacheKey,
+          timestamp: Date.now()
+        },
+        'ui-manager'
+      );
+      
+      // Update navigation affordances
+      this._updateNavigationAffordances();
+      
+    } catch (error) {
+      console.error('Failed to update section registry:', error);
+      
+      debugEventEmitter.emit(
+        'navigation_event',
+        {
+          type: 'section_registry_update_failed',
+          error: error instanceof Error ? error.message : 'Unknown error',
+          entityType,
+          slug,
+          timestamp: Date.now()
+        },
+        'ui-manager'
+      );
+    }
+  }
+
+  /**
    * Validate semantic ID using the registry
    */
   async validateSemanticID(semanticId: string): Promise<boolean> {
@@ -3835,6 +3973,192 @@ export class UIManager {
    */
   getContentProviders(): ContentProvider[] {
     return [...this._contentProviders];
+  }
+
+  /**
+   * Navigate to content based on search query using registered content providers
+   * Provides graceful fallback handling for robust navigation
+   */
+  async navigateToContent(query: string): Promise<NavigationResult> {
+    const startTime = Date.now();
+    
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'content_navigation_start',
+        query,
+        providersCount: this._contentProviders.length
+      },
+      'ui-manager'
+    );
+
+    try {
+      // Try to find content using registered providers
+      for (const provider of this._contentProviders) {
+        if (provider.searchContent) {
+          try {
+            const searchResults = await provider.searchContent(query, { k: 1 });
+            
+            if (searchResults && searchResults.length > 0) {
+              const bestMatch = searchResults[0];
+              
+              // If the provider has a navigateToContent method, use it
+              if ('navigateToContent' in provider && typeof provider.navigateToContent === 'function') {
+                const navResult = await provider.navigateToContent(query, this);
+                
+                if (navResult.success && navResult.target) {
+                  // Execute the navigation using UIManager
+                  const result = await this.executeIntent({ target: navResult.target });
+                  
+                  debugEventEmitter.emit(
+                    'navigation_event',
+                    {
+                      type: 'content_navigation_success',
+                      query,
+                      provider: provider.name,
+                      target: navResult.target,
+                      totalTime: Date.now() - startTime
+                    },
+                    'ui-manager'
+                  );
+                  
+                  return {
+                    success: result.success,
+                    message: result.message || `Navigated to content: "${query}"`,
+                    data: {
+                      query,
+                      provider: provider.name,
+                      target: navResult.target,
+                      searchResult: bestMatch
+                    },
+                    error: result.error,
+                    executedSteps: result.executedSteps || [],
+                    totalTime: Date.now() - startTime
+                  };
+                }
+              } else {
+                // Fallback: try to create navigation target from search result
+                const fallbackTarget = this._createNavigationTargetFromSearchResult(bestMatch);
+                
+                if (fallbackTarget) {
+                  const result = await this.executeIntent({ target: fallbackTarget });
+                  
+                  debugEventEmitter.emit(
+                    'navigation_event',
+                    {
+                      type: 'content_navigation_fallback_success',
+                      query,
+                      provider: provider.name,
+                      target: fallbackTarget,
+                      totalTime: Date.now() - startTime
+                    },
+                    'ui-manager'
+                  );
+                  
+                  return {
+                    success: result.success,
+                    message: result.message || `Found and navigated to content: "${query}"`,
+                    data: {
+                      query,
+                      provider: provider.name,
+                      target: fallbackTarget,
+                      searchResult: bestMatch,
+                      fallback: true
+                    },
+                    error: result.error,
+                    executedSteps: result.executedSteps || [],
+                    totalTime: Date.now() - startTime
+                  };
+                }
+              }
+            }
+          } catch (providerError) {
+            console.warn(`Content provider ${provider.name} failed for query "${query}":`, providerError);
+            // Continue to next provider
+          }
+        }
+      }
+
+      // No content found with any provider
+      debugEventEmitter.emit(
+        'navigation_event',
+        {
+          type: 'content_navigation_not_found',
+          query,
+          providersSearched: this._contentProviders.length,
+          totalTime: Date.now() - startTime
+        },
+        'ui-manager'
+      );
+
+      return {
+        success: false,
+        message: `No content found for query: "${query}"`,
+        data: {
+          query,
+          providersSearched: this._contentProviders.length
+        },
+        error: 'CONTENT_NOT_FOUND',
+        executedSteps: [],
+        totalTime: Date.now() - startTime
+      };
+
+    } catch (error) {
+      const errorMsg = `Content navigation failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+      
+      debugEventEmitter.emit(
+        'navigation_event',
+        {
+          type: 'content_navigation_error',
+          query,
+          error: errorMsg,
+          totalTime: Date.now() - startTime
+        },
+        'ui-manager'
+      );
+
+      return {
+        success: false,
+        message: errorMsg,
+        data: { query },
+        error: errorMsg,
+        executedSteps: [],
+        totalTime: Date.now() - startTime
+      };
+    }
+  }
+
+  /**
+   * Create navigation target from search result (fallback method)
+   */
+  private _createNavigationTargetFromSearchResult(searchResult: any): UIIntentParams['target'] | null {
+    try {
+      // If search result has navTarget, use it
+      if (searchResult.navTarget) {
+        return searchResult.navTarget;
+      }
+
+      // Try to infer navigation target from search result properties
+      if (searchResult.project) {
+        return {
+          type: 'project',
+          id: searchResult.project,
+          sectionId: searchResult.id
+        };
+      }
+
+      if (searchResult.id) {
+        return {
+          type: 'section',
+          id: searchResult.id
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Failed to create navigation target from search result:', error);
+      return null;
+    }
   }
 
   /**

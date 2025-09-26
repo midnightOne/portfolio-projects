@@ -20,7 +20,44 @@ type DebugEventType =
   | 'transcript_event'
   | 'audio_event'
   | 'tool_event'
-  | 'navigation_event';
+  | 'navigation_event'
+  // Content ingestion events
+  | 'content-ingestion-start'
+  | 'content-ingestion-complete'
+  | 'content-ingestion-error'
+  | 'content-ingestion-progress'
+  // UI Manager integration events
+  | 'ui-content-updated'
+  | 'ui-section-cache-cleared'
+  | 'ui-navigation-affordances-updated'
+  | 'ui-navigation-affordances-update-error'
+  | 'ui-sections-discovered'
+  | 'ui-section-registry-updated'
+  | 'ui-section-registry-update-error'
+  | 'ui-navigation-complete-refresh'
+  | 'ui-navigation-refresh-error'
+  | 'ui-manager-integration-connected'
+  // Content search events
+  | 'content-search-start'
+  | 'content-search-complete'
+  | 'content-search-error'
+  | 'content-get-start'
+  | 'content-get-complete'
+  | 'content-get-error'
+  | 'content-sections-discovered'
+  | 'content-navigation-error'
+  | 'content-search-mmr-configured'
+  | 'content-search-service-initialized'
+  | 'content-search-service-registered'
+  | 'content-search-service-registration-error'
+  // F-I-D Context Management events
+  | 'fid-context-loaded'
+  | 'fid-context-error'
+  | 'fid-context-updated'
+  | 'fid-budget-configured'
+  | 'frame-context-loaded'
+  | 'index-context-loaded'
+  | 'details-context-loaded';
 
 interface DebugEvent {
   type: DebugEventType;

@@ -8,19 +8,19 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import type { 
-  NavigationCommand, 
-  HighlightOptions, 
-  UIState, 
+import type {
+  NavigationCommand,
+  HighlightOptions,
+  UIState,
   UseUIControlReturn,
   ScrollOptions,
-  ModalOptions 
+  ModalOptions
 } from './types';
-import { 
-  executeNavigationCommand, 
-  executeHighlight, 
+import {
+  executeNavigationCommand,
+  executeHighlight,
   removeHighlight,
-  isAnimating 
+  isAnimating
 } from './animation';
 
 // UI State management
@@ -80,7 +80,7 @@ async function navigateToSection(target: string, options?: ScrollOptions): Promi
   globalUIState.navigation.currentSection = target;
   globalUIState.navigation.canGoBack = globalUIState.navigation.history.length > 0;
   globalUIState.layout.aiNavigation.isAnimating = true;
-  
+
   // Execute GSAP-powered smooth scroll with animation coordination
   const { executeNavigationCommand } = await import('./animation');
   const command = {
@@ -98,9 +98,9 @@ async function navigateToSection(target: string, options?: ScrollOptions): Promi
     },
     priority: 'normal' as const,
   };
-  
+
   executeNavigationCommand(command);
-  
+
   // Add to navigation history for AI system
   globalUIState.layout.aiNavigation.navigationHistory.push({
     action: 'navigate',
@@ -121,7 +121,7 @@ async function navigateToPage(page: string): Promise<void> {
     // Update navigation state before page transition
     globalUIState.navigation.history.push(window.location.pathname);
     globalUIState.navigation.canGoBack = true;
-    
+
     // Add to AI navigation history
     globalUIState.layout.aiNavigation.navigationHistory.push({
       action: 'navigate',
@@ -132,9 +132,9 @@ async function navigateToPage(page: string): Promise<void> {
         sessionId: 'ui-control-hooks'
       }
     });
-    
+
     notifyStateChange();
-    
+
     // Use Next.js router for smooth transitions
     try {
       // Try to use Next.js router for better transitions
@@ -178,7 +178,7 @@ async function openModal(modalId: string, data?: any, options?: ModalOptions): P
       opacity: 0;
       pointer-events: none;
     `;
-    
+
     // Add modal content container
     const modalContent = document.createElement('div');
     modalContent.className = 'bg-background border rounded-lg p-6 max-w-md w-full mx-4';
@@ -240,7 +240,7 @@ async function closeModal(modalId?: string): Promise<void> {
         modalElement.style.background = 'rgba(0, 0, 0, 0)';
         modalElement.style.backdropFilter = 'blur(0px)';
         modalElement.style.pointerEvents = 'none';
-        
+
         // Remove from DOM after animation
         setTimeout(() => {
           modalElement.remove();
@@ -301,7 +301,7 @@ async function setFocus(target: string): Promise<void> {
 
   // Store previous focus for accessibility
   const previousFocus = document.activeElement as HTMLElement;
-  
+
   // Ensure element is focusable
   if (!element.hasAttribute('tabindex') && !['INPUT', 'TEXTAREA', 'BUTTON', 'SELECT', 'A'].includes(element.tagName)) {
     element.setAttribute('tabindex', '-1');
@@ -309,7 +309,7 @@ async function setFocus(target: string): Promise<void> {
 
   // Set focus with proper timing
   element.focus({ preventScroll: true });
-  
+
   // Ensure element is visible with GSAP smooth scroll
   const { executeNavigationCommand } = await import('./animation');
   const command = {
@@ -327,7 +327,7 @@ async function setFocus(target: string): Promise<void> {
         announcement.style.cssText = 'position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden;';
         announcement.textContent = `Focused on ${element.getAttribute('aria-label') || element.textContent?.slice(0, 50) || 'element'}`;
         document.body.appendChild(announcement);
-        
+
         setTimeout(() => {
           document.body.removeChild(announcement);
         }, 1000);
@@ -335,9 +335,9 @@ async function setFocus(target: string): Promise<void> {
     },
     priority: 'high' as const,
   };
-  
+
   executeNavigationCommand(command);
-  
+
   // Store focus change in navigation history
   globalUIState.layout.aiNavigation.navigationHistory.push({
     action: 'focus',
@@ -348,7 +348,7 @@ async function setFocus(target: string): Promise<void> {
       sessionId: 'ui-control-hooks'
     }
   });
-  
+
   notifyStateChange();
 }
 
@@ -360,7 +360,7 @@ async function selectText(target: string, range?: { start: number; end: number }
 
   // Focus element first
   await setFocus(target);
-  
+
   // Handle different element types
   if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
     // Input/textarea elements
@@ -374,16 +374,16 @@ async function selectText(target: string, range?: { start: number; end: number }
     const selection = window.getSelection();
     if (selection) {
       selection.removeAllRanges();
-      
+
       try {
         const textContent = element.textContent || '';
         if (range && textContent.length > 0) {
           const textNode = element.firstChild || element;
           const rangeObj = document.createRange();
-          
+
           const startOffset = Math.min(range.start, textContent.length);
           const endOffset = Math.min(range.end, textContent.length);
-          
+
           rangeObj.setStart(textNode, startOffset);
           rangeObj.setEnd(textNode, endOffset);
           selection.addRange(rangeObj);
@@ -393,7 +393,7 @@ async function selectText(target: string, range?: { start: number; end: number }
           rangeObj.selectNodeContents(element);
           selection.addRange(rangeObj);
         }
-        
+
         // Highlight selected text with subtle animation
         const { executeHighlight } = await import('./animation');
         await executeHighlight(target, {
@@ -402,13 +402,13 @@ async function selectText(target: string, range?: { start: number; end: number }
           duration: 'timed',
           timing: 2
         });
-        
+
       } catch (error) {
         console.warn('Text selection failed:', error);
       }
     }
   }
-  
+
   // Add to navigation history
   globalUIState.layout.aiNavigation.navigationHistory.push({
     action: 'focus',
@@ -420,7 +420,7 @@ async function selectText(target: string, range?: { start: number; end: number }
       sessionId: 'ui-control-hooks'
     }
   });
-  
+
   notifyStateChange();
 }
 
@@ -431,7 +431,7 @@ async function scrollIntoView(target: string, options?: ScrollIntoViewOptions): 
   }
 
   globalUIState.layout.aiNavigation.isAnimating = true;
-  
+
   // Use GSAP-powered smooth scroll for better performance and control
   const { executeNavigationCommand } = await import('./animation');
   const command = {
@@ -449,9 +449,9 @@ async function scrollIntoView(target: string, options?: ScrollIntoViewOptions): 
     },
     priority: 'normal' as const,
   };
-  
+
   executeNavigationCommand(command);
-  
+
   // Add subtle highlight to indicate scroll target
   setTimeout(async () => {
     try {
@@ -466,12 +466,12 @@ async function scrollIntoView(target: string, options?: ScrollIntoViewOptions): 
       console.warn('Scroll highlight failed:', error);
     }
   }, 500);
-  
+
   // Add to navigation history
   globalUIState.layout.aiNavigation.navigationHistory.push({
     action: 'scroll',
     target,
-    options: { 
+    options: {
       scroll: {
         behavior: options?.behavior === 'auto' ? 'smooth' : options?.behavior || 'smooth',
         block: options?.block || 'start',
@@ -484,7 +484,7 @@ async function scrollIntoView(target: string, options?: ScrollIntoViewOptions): 
       sessionId: 'ui-control-hooks'
     }
   });
-  
+
   notifyStateChange();
 }
 
@@ -494,26 +494,26 @@ async function processNavigationCommand(command: NavigationCommand): Promise<voi
   if (!command || !command.action || !command.target) {
     throw new Error('Invalid navigation command provided');
   }
-  
+
   globalUIState.ai.lastCommand = command;
   globalUIState.ai.isProcessing = true;
-  
+
   // Add command to navigation history
   globalUIState.layout.aiNavigation.navigationHistory.push(command);
-  
+
   // Limit history size for performance
   if (globalUIState.layout.aiNavigation.navigationHistory.length > 50) {
-    globalUIState.layout.aiNavigation.navigationHistory = 
+    globalUIState.layout.aiNavigation.navigationHistory =
       globalUIState.layout.aiNavigation.navigationHistory.slice(-25);
   }
-  
+
   notifyStateChange();
 
   try {
     // Check if animations should be skipped for performance
-    const shouldSkipAnimations = globalUIState.performance.skipAnimations || 
+    const shouldSkipAnimations = globalUIState.performance.skipAnimations ||
       (globalUIState.performance.animationFPS < 30);
-    
+
     if (shouldSkipAnimations) {
       console.log('Skipping animations due to performance constraints');
     }
@@ -557,24 +557,24 @@ async function processNavigationCommand(command: NavigationCommand): Promise<voi
         console.warn(`Unknown navigation command: ${command.action}`);
         throw new Error(`Unsupported navigation command: ${command.action}`);
     }
-    
+
     // Announce successful command completion to screen readers
     if (command.metadata?.source === 'ai') {
       announceToScreenReader(`Navigation command completed: ${command.action} to ${command.target}`);
     }
-    
+
   } catch (error) {
     console.error('Navigation command failed:', error);
-    
+
     // Announce error to screen readers
     announceToScreenReader(`Navigation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    
+
     // Store error in state for debugging
     globalUIState.ai.lastCommand = {
       ...command,
       error: error instanceof Error ? error.message : 'Unknown error'
     } as any;
-    
+
     throw error;
   } finally {
     globalUIState.ai.isProcessing = false;
@@ -585,7 +585,7 @@ async function processNavigationCommand(command: NavigationCommand): Promise<voi
 // Screen reader announcement helper
 function announceToScreenReader(message: string): void {
   if (typeof window === 'undefined') return;
-  
+
   const announcement = document.createElement('div');
   announcement.setAttribute('aria-live', 'polite');
   announcement.setAttribute('aria-atomic', 'true');
@@ -600,7 +600,7 @@ function announceToScreenReader(message: string): void {
   `;
   announcement.textContent = message;
   document.body.appendChild(announcement);
-  
+
   setTimeout(() => {
     if (document.body.contains(announcement)) {
       document.body.removeChild(announcement);
@@ -619,7 +619,7 @@ async function setUIState(updates: Partial<UIState>): Promise<void> {
   if (!updates || typeof updates !== 'object') {
     throw new Error('Invalid state updates provided');
   }
-  
+
   // Deep merge state updates
   const mergeDeep = (target: any, source: any): any => {
     const result = { ...target };
@@ -632,10 +632,10 @@ async function setUIState(updates: Partial<UIState>): Promise<void> {
     }
     return result;
   };
-  
+
   const previousState = { ...globalUIState };
   globalUIState = mergeDeep(globalUIState, updates);
-  
+
   // Coordinate animations if theme changed
   if (updates.theme && updates.theme !== previousState.theme) {
     try {
@@ -651,10 +651,10 @@ async function setUIState(updates: Partial<UIState>): Promise<void> {
       console.warn('Theme transition animation coordination failed:', error);
     }
   }
-  
+
   // Update performance metrics
   globalUIState.performance.lastFrameTime = performance.now();
-  
+
   // Throttle state change notifications for performance
   if (typeof window !== 'undefined') {
     if (!(globalThis as any).__stateChangeThrottle) {
@@ -671,7 +671,7 @@ async function setUIState(updates: Partial<UIState>): Promise<void> {
 
 function subscribeToStateChanges(callback: (state: UIState) => void): () => void {
   stateChangeListeners.push(callback);
-  
+
   // Return unsubscribe function
   return () => {
     const index = stateChangeListeners.indexOf(callback);
@@ -770,12 +770,12 @@ export function useKeyboardNavigation() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       // Skip if user is typing in an input
-      if (event.target instanceof HTMLInputElement || 
-          event.target instanceof HTMLTextAreaElement ||
-          event.target instanceof HTMLSelectElement) {
+      if (event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement ||
+        event.target instanceof HTMLSelectElement) {
         return;
       }
-      
+
       // Handle keyboard shortcuts
       switch (event.key) {
         case 'Escape':
@@ -787,7 +787,7 @@ export function useKeyboardNavigation() {
           // Clear all highlights
           clearAllHighlights();
           break;
-          
+
         case 'Tab':
           // Enhanced tab navigation with visual feedback
           if (!event.shiftKey) {
@@ -797,7 +797,7 @@ export function useKeyboardNavigation() {
             );
             const currentIndex = Array.from(focusableElements).indexOf(document.activeElement as Element);
             const nextElement = focusableElements[currentIndex + 1];
-            
+
             if (nextElement) {
               setTimeout(() => {
                 highlightElement(`#${nextElement.id}` || nextElement.tagName.toLowerCase(), {
@@ -810,7 +810,7 @@ export function useKeyboardNavigation() {
             }
           }
           break;
-          
+
         case 'ArrowUp':
         case 'ArrowDown':
           // Vertical navigation between sections
@@ -821,19 +821,19 @@ export function useKeyboardNavigation() {
               const rect = section.getBoundingClientRect();
               return rect.top <= 100 && rect.bottom > 100;
             });
-            
+
             if (currentSection) {
               const currentIndex = Array.from(sections).indexOf(currentSection);
               const targetIndex = event.key === 'ArrowUp' ? currentIndex - 1 : currentIndex + 1;
               const targetSection = sections[targetIndex];
-              
+
               if (targetSection) {
                 scrollIntoView(`#${targetSection.id}` || targetSection.tagName.toLowerCase());
               }
             }
           }
           break;
-          
+
         case 'h':
           // Show/hide help overlay
           if (event.ctrlKey || event.metaKey) {
@@ -842,7 +842,7 @@ export function useKeyboardNavigation() {
             if (globalUIState.layout.modal.component === 'keyboard-help') {
               closeModal('keyboard-help');
             } else {
-              openModal('keyboard-help', { 
+              openModal('keyboard-help', {
                 title: 'Keyboard Navigation Help',
                 content: `
                   <div class="space-y-4">
@@ -857,7 +857,7 @@ export function useKeyboardNavigation() {
             }
           }
           break;
-          
+
         case '/':
           // Focus search input if available
           const searchInput = document.querySelector('input[type="search"], input[placeholder*="search" i]') as HTMLInputElement;
@@ -868,14 +868,14 @@ export function useKeyboardNavigation() {
           break;
       }
     };
-    
+
     document.addEventListener('keydown', handleKeyDown);
-    
+
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
-  
+
   return {
     // Expose keyboard navigation functions
     focusNext: () => {
@@ -906,34 +906,34 @@ export function useKeyboardNavigation() {
 // Performance monitoring and optimization
 function initializePerformanceMonitoring(): void {
   if (typeof window === 'undefined') return;
-  
+
   let frameCount = 0;
   let lastTime = performance.now();
-  
+
   const monitorPerformance = () => {
     frameCount++;
     const currentTime = performance.now();
-    
+
     if (currentTime - lastTime >= 1000) {
       const fps = Math.round((frameCount * 1000) / (currentTime - lastTime));
-      
+
       // Update performance state
       globalUIState.performance.animationFPS = fps;
       globalUIState.performance.lastFrameTime = currentTime;
       globalUIState.performance.skipAnimations = fps < 30;
-      
+
       // Log performance warnings
       if (fps < 30) {
         console.warn(`UI Control Hooks: Low FPS detected (${fps}fps), enabling performance mode`);
       }
-      
+
       frameCount = 0;
       lastTime = currentTime;
     }
-    
+
     requestAnimationFrame(monitorPerformance);
   };
-  
+
   requestAnimationFrame(monitorPerformance);
 }
 
@@ -959,10 +959,10 @@ export function goBack(): Promise<void> {
   if (!globalUIState.navigation.canGoBack || globalUIState.navigation.history.length === 0) {
     return Promise.reject(new Error('Cannot go back: no history available'));
   }
-  
+
   const previousSection = globalUIState.navigation.history.pop()!;
   globalUIState.navigation.canGoBack = globalUIState.navigation.history.length > 0;
-  
+
   return navigateToSection(previousSection);
 }
 
@@ -1018,13 +1018,13 @@ export function getDebugInfo(): {
 // Initialize performance monitoring on module load
 if (typeof window !== 'undefined') {
   initializePerformanceMonitoring();
-  
+
   // Respect user's motion preferences
   const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   if (prefersReducedMotion.matches) {
     enableReducedMotion();
   }
-  
+
   prefersReducedMotion.addEventListener('change', (e) => {
     if (e.matches) {
       enableReducedMotion();
@@ -1032,13 +1032,13 @@ if (typeof window !== 'undefined') {
       disableReducedMotion();
     }
   });
-  
+
   // Respect user's contrast preferences
   const prefersHighContrast = window.matchMedia('(prefers-contrast: high)');
   if (prefersHighContrast.matches) {
     enableHighContrast();
   }
-  
+
   prefersHighContrast.addEventListener('change', (e) => {
     if (e.matches) {
       enableHighContrast();
