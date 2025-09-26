@@ -18,6 +18,8 @@ import { debugEventEmitter } from '../debug/debugEventEmitter';
 import { v4 as uuidv4 } from 'uuid';
 import { getSemanticIDRegistry, SemanticIDRegistryProvider } from './SemanticIDRegistry';
 import { contextFrameManager, FIDNavigationContext } from '../ai/ContextFrameManager';
+import { PassiveFIDManager } from '../ai/PassiveFIDManager';
+import type { IConversationalAgentAdapter } from '../voice/IConversationalAgentAdapter';
 
 // Comprehensive UI State interfaces for both navigation and AI
 export interface UIState {
@@ -415,6 +417,7 @@ export class UIManager {
   private _debouncedScrollUpdate: (visibleAnchors: string[]) => void;
   private _debouncedFilterUpdate: (filters: UIState['activeFilters']) => void;
   private _debouncedStateUpdate: () => void;
+  private _debouncedPassiveContextUpdate: () => void;
 
   // Enhanced state management
   private _navigationState: NavigationState = {
@@ -442,6 +445,12 @@ export class UIManager {
   private _contentProviders: ContentProvider[] = [];
   private _sectionCache: Map<string, SemanticSection[]> = new Map();
   private _cacheTimeout: number = 30000; // 30 second cache
+
+  // Passive F-I-D Context Integration
+  private _passiveFIDManager: PassiveFIDManager;
+  private _lastUIStateHash: string = '';
+  private _connectedVoiceAdapter: IConversationalAgentAdapter | null = null;
+  private _passiveContextEnabled: boolean = false;
 
   // Configurable timing
   private _timingConfig: NavigationTimingConfig = {
@@ -517,6 +526,9 @@ export class UIManager {
           timestamp: Date.now()
         };
         this._sendBackgroundUpdate();
+        
+        // Trigger passive context update for significant scroll changes (5 second delay)
+        this._debouncedPassiveContextUpdate();
       }
     }, 10000); // 10 seconds for scroll updates
 
@@ -533,10 +545,22 @@ export class UIManager {
       this._sendBackgroundUpdate();
     }, 2000); // 2 seconds for general state updates
 
+    this._debouncedPassiveContextUpdate = debounce(() => {
+      if (this._passiveContextEnabled) {
+        const currentState = this.getCurrentUIState();
+        this._onSignificantNavigation(currentState).catch(error => {
+          console.warn('Debounced passive context update failed:', error);
+        });
+      }
+    }, 5000); // 5 seconds for passive context updates
+
     this._setupEpochTracking();
     
     // Initialize and register semantic ID registry
     this._initializeSemanticRegistry();
+
+    // Initialize passive F-I-D manager
+    this._passiveFIDManager = PassiveFIDManager.getInstance();
   }
 
   static getInstance(): UIManager {
@@ -811,6 +835,212 @@ export class UIManager {
   }
 
   // ============================================================================
+  // PASSIVE F-I-D CONTEXT INTEGRATION
+  // ============================================================================
+
+  /**
+   * Enable passive context integration with voice adapter
+   */
+  enablePassiveContext(voiceAdapter: IConversationalAgentAdapter): void {
+    this._connectedVoiceAdapter = voiceAdapter;
+    this._passiveContextEnabled = true;
+    this._lastUIStateHash = this._generateUIStateHash(this.getCurrentUIState());
+
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'passive_context_enabled',
+        provider: voiceAdapter.provider,
+        sessionId: voiceAdapter.getConfig()?.contextId
+      },
+      'ui-manager'
+    );
+
+    console.log('UIManager: Passive F-I-D context integration enabled for', voiceAdapter.provider);
+  }
+
+  /**
+   * Disable passive context integration
+   */
+  disablePassiveContext(): void {
+    this._connectedVoiceAdapter = null;
+    this._passiveContextEnabled = false;
+    this._lastUIStateHash = '';
+
+    debugEventEmitter.emit(
+      'navigation_event',
+      {
+        type: 'passive_context_disabled'
+      },
+      'ui-manager'
+    );
+
+    console.log('UIManager: Passive F-I-D context integration disabled');
+  }
+
+  /**
+   * Detect significant navigation changes that should trigger context updates
+   */
+  private _onSignificantNavigation(newState: UIState): Promise<void> {
+    if (!this._passiveContextEnabled || !this._connectedVoiceAdapter) {
+      return Promise.resolve();
+    }
+
+    const currentStateHash = this._generateUIStateHash(newState);
+    
+    // Check if this is a significant change
+    if (currentStateHash === this._lastUIStateHash) {
+      return Promise.resolve();
+    }
+
+    const oldState = this.getCurrentUIState();
+    const isSignificant = this._detectSignificantChange(oldState, newState);
+
+    if (!isSignificant) {
+      return Promise.resolve();
+    }
+
+    // Update hash to prevent duplicate updates
+    this._lastUIStateHash = currentStateHash;
+
+    // Trigger passive context update (non-blocking)
+    return Promise.resolve().then(async () => {
+      try {
+        debugEventEmitter.emit(
+          'navigation_event',
+          {
+            type: 'passive_context_update_triggered',
+            route: newState.currentRoute,
+            project: newState.currentProject,
+            modalCount: newState.modalStack?.length || 0,
+            visibleAnchors: newState.visibleAnchors?.length || 0
+          },
+          'ui-manager'
+        );
+
+        // Convert UIState to the format expected by PassiveFIDManager
+        const convertedState = this._convertUIStateForPassiveFID(newState);
+        
+        // Get F-I-D context from PassiveFIDManager
+        const fidContext = await this._passiveFIDManager.getOrFetchContext(convertedState);
+
+        // Push context to voice adapter if it supports passive context
+        if (this._connectedVoiceAdapter && typeof (this._connectedVoiceAdapter as any).pushPassiveContext === 'function') {
+          await (this._connectedVoiceAdapter as any).pushPassiveContext(fidContext);
+          
+          debugEventEmitter.emit(
+            'navigation_event',
+            {
+              type: 'passive_context_pushed',
+              provider: this._connectedVoiceAdapter.provider,
+              route: newState.currentRoute,
+              project: newState.currentProject
+            },
+            'ui-manager'
+          );
+        }
+      } catch (error) {
+        console.error('Failed to update passive F-I-D context:', error);
+        
+        debugEventEmitter.emit(
+          'navigation_event',
+          {
+            type: 'passive_context_error',
+            error: error instanceof Error ? error.message : String(error),
+            route: newState.currentRoute,
+            project: newState.currentProject
+          },
+          'ui-manager'
+        );
+      }
+    });
+  }
+
+  /**
+   * Detect if UI state change is significant enough to trigger context update
+   */
+  private _detectSignificantChange(oldState: UIState, newState: UIState): boolean {
+    // Route changes (home → projects)
+    if (oldState.currentRoute !== newState.currentRoute) {
+      return true;
+    }
+
+    // Project selection changes (different project modal)
+    if (oldState.currentProject !== newState.currentProject) {
+      return true;
+    }
+
+    // Modal opens/closes (project modal opening)
+    const oldModalCount = oldState.modalStack?.length || 0;
+    const newModalCount = newState.modalStack?.length || 0;
+    if (oldModalCount !== newModalCount) {
+      return true;
+    }
+
+    // Modal content changes (different modal IDs at same level)
+    if (oldState.modalStack && newState.modalStack && oldState.modalStack.length === newState.modalStack.length) {
+      for (let i = 0; i < oldState.modalStack.length; i++) {
+        if (oldState.modalStack[i].id !== newState.modalStack[i].id) {
+          return true;
+        }
+      }
+    }
+
+    // Significant visible anchor changes (more than 2 anchors changed)
+    const oldAnchors = new Set(oldState.visibleAnchors || []);
+    const newAnchors = new Set(newState.visibleAnchors || []);
+    const anchorChanges = Array.from(newAnchors).filter(anchor => !oldAnchors.has(anchor)).length +
+                         Array.from(oldAnchors).filter(anchor => !newAnchors.has(anchor)).length;
+    
+    if (anchorChanges > 2) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Generate hash for UI state to detect meaningful changes
+   */
+  private _generateUIStateHash(state: UIState): string {
+    const hashData = {
+      route: state.currentRoute || 'home',
+      project: state.currentProject || null,
+      modalStack: (state.modalStack || []).map(m => m.id).join(','),
+      anchors: (state.visibleAnchors || []).slice(0, 5).sort().join(',') // Only first 5 anchors, sorted
+    };
+
+    return JSON.stringify(hashData);
+  }
+
+  /**
+   * Convert UIManager's UIState to the format expected by PassiveFIDManager //TODO improve both
+   */
+  private _convertUIStateForPassiveFID(state: UIState): import('../ai/tools/types').UIState {
+    // Convert lastUserAction to match the expected type
+    let convertedLastUserAction: { type: 'navigate' | 'search' | 'filter' | 'scroll'; timestamp: number; } | undefined;
+    if (state.lastUserAction) {
+      const validTypes: ('navigate' | 'search' | 'filter' | 'scroll')[] = ['navigate', 'search', 'filter', 'scroll'];
+      if (validTypes.includes(state.lastUserAction.type as any)) {
+        convertedLastUserAction = {
+          type: state.lastUserAction.type as 'navigate' | 'search' | 'filter' | 'scroll',
+          timestamp: state.lastUserAction.timestamp
+        };
+      }
+    }
+
+    return {
+      breadcrumbPath: state.breadcrumbPath,
+      visibleAnchors: state.visibleAnchors,
+      activeFilters: state.activeFilters,
+      currentRoute: state.currentRoute,
+      currentProject: typeof state.currentProject === 'string' ? state.currentProject : state.currentProject?.id,
+      currentModal: state.modalStack && state.modalStack.length > 0 ? state.modalStack[state.modalStack.length - 1].id : undefined,
+      lastUserAction: convertedLastUserAction
+    };
+  }
+
+  // ============================================================================
   // STATE SYNCHRONIZATION SYSTEM
   // ============================================================================
 
@@ -872,7 +1102,7 @@ export class UIManager {
    * Sync state from all registered providers
    */
   private _syncStateFromProviders(): void {
-    for (const [componentId, provider] of this._componentStateProviders) {
+    for (const [componentId, provider] of Array.from(this._componentStateProviders.entries())) {
       try {
         const partialState = provider();
         if (partialState && Object.keys(partialState).length > 0) {
@@ -990,7 +1220,7 @@ export class UIManager {
   private _notifyStateSubscribers(): void {
     const currentState = { ...this._currentUIState };
     
-    for (const [subscriberId, callback] of this._stateSubscribers) {
+    for (const [subscriberId, callback] of Array.from(this._stateSubscribers.entries())) {
       try {
         callback(currentState);
       } catch (error) {
@@ -1395,7 +1625,7 @@ export class UIManager {
     console.log('🚪 _openModalElement called:', { modalId, modalType, handlersCount: this._modalHandlers.size });
     
     // Try registered handlers first (homepage, projects page, etc.)
-    for (const [context, handler] of this._modalHandlers) {
+    for (const [context, handler] of Array.from(this._modalHandlers.entries())) {
       try {
         console.log(`🚪 Trying modal handler: ${context} for ${modalId}`);
         const handled = await handler(modalId, modalType);
@@ -1442,7 +1672,7 @@ export class UIManager {
    */
   private async _closeModalElement(modalId: string): Promise<boolean> {
     // Try registered handlers first (homepage, projects page, etc.)
-    for (const [context, handler] of this._modalHandlers) {
+    for (const [context, handler] of Array.from(this._modalHandlers.entries())) {
       try {
         // Check if this handler can close the modal
         // We'll use a special modalType 'close' to indicate close operation
@@ -1660,6 +1890,19 @@ export class UIManager {
 
       // Handle any pending interruptions
       await this._processPendingInterruptions();
+
+      // Trigger passive F-I-D context update after successful navigation (non-blocking)
+      if (result.success) {
+        Promise.resolve().then(async () => {
+          try {
+            const newState = this.getCurrentUIState();
+            await this._onSignificantNavigation(newState);
+          } catch (error) {
+            // Log but don't fail the navigation
+            console.warn('Passive context update failed:', error);
+          }
+        });
+      }
 
       return {
         ...result,
