@@ -86,21 +86,21 @@ export class PassiveFIDManager {
 
   // Session-based caching with Map storage
   private cache: Map<string, CacheEntry> = new Map();
-  
+
   // Optional user intent for proactive content search
   private userIntent: string | null = null;
-  
+
   // Cache configuration
   private readonly DEFAULT_TTL = 20 * 60 * 1000; // 20 minutes
   protected readonly MAX_CACHE_SIZE = 50; // Memory management limit
   private readonly CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
-  
+
   // Cleanup timer
   private cleanupTimer: NodeJS.Timeout | null = null;
 
   private constructor() {
     this.startCleanupTimer();
-    
+
     // Cleanup on page unload
     if (typeof window !== 'undefined') {
       window.addEventListener('beforeunload', () => {
@@ -147,7 +147,7 @@ export class PassiveFIDManager {
       });
 
       const context = await this.fetchFromServer(uiState);
-      
+
       // Store in cache
       this.setCache(cacheKey, context);
 
@@ -184,7 +184,7 @@ export class PassiveFIDManager {
    */
   setUserIntent(intent: string): void {
     this.userIntent = intent;
-    
+
     debugEventEmitter.emit('fid-user-intent-set', {
       intent,
       timestamp: Date.now()
@@ -203,15 +203,15 @@ export class PassiveFIDManager {
     if (projectId) {
       // Clear cache entries for specific project
       const keysToDelete: string[] = [];
-      
+
       for (const [key] of Array.from(this.cache.entries())) {
         if (key.includes(`-${projectId}-`) || key.includes(`-${projectId}:`)) {
           keysToDelete.push(key);
         }
       }
-      
+
       keysToDelete.forEach(key => this.cache.delete(key));
-      
+
       debugEventEmitter.emit('fid-cache-cleared', {
         type: 'project-specific',
         projectId,
@@ -222,7 +222,7 @@ export class PassiveFIDManager {
       // Clear entire cache
       const cacheSize = this.cache.size;
       this.cache.clear();
-      
+
       debugEventEmitter.emit('fid-cache-cleared', {
         type: 'full',
         clearedCount: cacheSize,
@@ -271,9 +271,9 @@ export class PassiveFIDManager {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = null;
     }
-    
+
     this.cache.clear();
-    
+
     debugEventEmitter.emit('fid-manager-destroyed', {
       timestamp: Date.now()
     });
@@ -289,19 +289,19 @@ export class PassiveFIDManager {
   private generateCacheKey(uiState: UIState): string {
     const route = uiState.currentRoute || 'home';
     const projectId = uiState.currentProject || 'none';
-    
+
     // Generate intent hash for cache key
     let intentHash = 'none';
     if (this.userIntent) {
       // Simple hash function for intent
       intentHash = this.simpleHash(this.userIntent).toString(36);
     }
-    
+
     // Include visible anchors for more specific caching
-    const anchorsHash = uiState.visibleAnchors?.length > 0 
+    const anchorsHash = uiState.visibleAnchors?.length > 0
       ? this.simpleHash(uiState.visibleAnchors.join(','))
       : 0;
-    
+
     return `${route}-${projectId}-${intentHash}:${anchorsHash}`;
   }
 
@@ -317,7 +317,14 @@ export class PassiveFIDManager {
       contextType: 'complete'
     };
 
-    const response = await fetch('/api/ai/context/fid', {
+    // Determine the correct URL based on environment
+    const baseUrl = typeof window !== 'undefined'
+      ? '' // Browser environment - use relative URL
+      : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'; // Node.js environment - use configurable URL
+
+    const apiUrl = `${baseUrl}/api/ai/context/fid`;
+
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -345,10 +352,10 @@ export class PassiveFIDManager {
   private convertServerResponseToFIDContext(serverData: any, uiState: UIState): FIDContext {
     // Extract frame context
     const frame = serverData.frame || {};
-    
+
     // Extract index context
     const index = serverData.index || {};
-    
+
     // Extract details context
     const details = serverData.details || {};
 
@@ -377,11 +384,11 @@ export class PassiveFIDManager {
    */
   private extractCapabilities(frame: any): string[] {
     const capabilities = ['navigation', 'project-information', 'technical-discussion'];
-    
+
     if (frame.voiceSettings) {
       capabilities.push('voice-interaction');
     }
-    
+
     return capabilities;
   }
 
@@ -390,23 +397,23 @@ export class PassiveFIDManager {
    */
   private buildUIContext(uiState: UIState): string {
     const parts = [];
-    
+
     if (uiState.currentRoute) {
       parts.push(`Currently on ${uiState.currentRoute} page`);
     }
-    
+
     if (uiState.currentProject) {
       parts.push(`Viewing project: ${uiState.currentProject}`);
     }
-    
+
     if (uiState.currentModal) {
       parts.push(`Modal open: ${uiState.currentModal}`);
     }
-    
+
     if (uiState.visibleAnchors?.length > 0) {
       parts.push(`Visible sections: ${uiState.visibleAnchors.slice(0, 3).join(', ')}`);
     }
-    
+
     return parts.join('. ') || 'Portfolio homepage';
   }
 
@@ -417,12 +424,12 @@ export class PassiveFIDManager {
     if (!projectId || !details.contentChunks) {
       return undefined;
     }
-    
+
     // Find project summary from content chunks
-    const projectChunk = details.contentChunks.find((chunk: any) => 
+    const projectChunk = details.contentChunks.find((chunk: any) =>
       chunk.entityId === projectId || chunk.title?.toLowerCase().includes(projectId)
     );
-    
+
     return projectChunk?.content || undefined;
   }
 
@@ -499,7 +506,7 @@ export class PassiveFIDManager {
   private evictOldestEntries(count: number): void {
     const entries = Array.from(this.cache.entries())
       .sort(([, a], [, b]) => a.timestamp - b.timestamp);
-    
+
     for (let i = 0; i < count && i < entries.length; i++) {
       this.cache.delete(entries[i][0]);
     }
@@ -510,14 +517,14 @@ export class PassiveFIDManager {
    */
   private invalidateIntentBasedCache(): void {
     const keysToDelete: string[] = [];
-    
+
     for (const [key] of Array.from(this.cache.entries())) {
       // Invalidate entries that don't have 'none' as intent hash
       if (!key.includes('-none:')) {
         keysToDelete.push(key);
       }
     }
-    
+
     keysToDelete.forEach(key => this.cache.delete(key));
   }
 
@@ -536,15 +543,15 @@ export class PassiveFIDManager {
   private performCacheCleanup(): void {
     const now = Date.now();
     const keysToDelete: string[] = [];
-    
+
     for (const [key, entry] of Array.from(this.cache.entries())) {
       if (!this.isCacheValid(entry)) {
         keysToDelete.push(key);
       }
     }
-    
+
     keysToDelete.forEach(key => this.cache.delete(key));
-    
+
     if (keysToDelete.length > 0) {
       debugEventEmitter.emit('fid-cache-cleanup', {
         expiredCount: keysToDelete.length,

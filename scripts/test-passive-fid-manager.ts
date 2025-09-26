@@ -97,7 +97,7 @@ async function testPassiveFIDManager() {
     
     // Temporarily break fetch to test error handling
     const originalFetch = global.fetch;
-    global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));
+    global.fetch = () => Promise.reject(new Error('Network error'));
     
     const errorContext = await manager.getOrFetchContext(uiState1);
     console.log('✅ Error handled gracefully');

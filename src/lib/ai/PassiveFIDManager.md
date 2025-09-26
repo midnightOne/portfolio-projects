@@ -14,10 +14,28 @@ The PassiveFIDManager provides:
 
 ## Usage
 
+### ⚠️ Important: Client-Side Import
+
+**Always use the client-side import path to avoid Prisma bundling issues:**
+
+```typescript
+// ✅ Correct - Client-side safe
+import { passiveFIDManager } from '@/lib/ai/tools';
+
+// ❌ Avoid - Includes server-side dependencies
+import { passiveFIDManager } from '@/lib/services/ai';
+```
+
+The `/lib/services/ai` path includes server-side components that use Prisma and will cause browser errors.
+
 ### Basic Usage
 
 ```typescript
-import { passiveFIDManager } from '@/lib/services/ai';
+// For client-side usage (recommended)
+import { passiveFIDManager, type UIState } from '@/lib/ai/tools';
+
+// Alternative: Direct import (also client-safe)
+import { passiveFIDManager } from '@/lib/ai/PassiveFIDManager';
 import { UIState } from '@/lib/ai/tools/types';
 
 // Get F-I-D context for current UI state
@@ -125,7 +143,7 @@ The PassiveFIDManager is designed to work seamlessly with voice adapters for pro
 
 ```typescript
 // In OpenAIRealtimeAdapter or ElevenLabsAdapter
-import { passiveFIDManager } from '@/lib/services/ai';
+import { passiveFIDManager } from '@/lib/ai/tools';
 
 class VoiceAdapter {
   async updateContext(uiState: UIState) {
