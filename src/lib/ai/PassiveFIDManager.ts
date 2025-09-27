@@ -32,8 +32,8 @@ export interface FIDContext {
     projectSemanticItems?: SemanticItem[]; // Project modal: semantic one-liners for tiered retrieval
   };
   details: {
-    clientProjectSummary?: string; // Always present when viewing a project (from client data)
-    projectSummary?: string; // Server project summary (legacy)
+    briefSummary?: string; // Brief project summary from server
+    detailedSummary?: string; // Detailed project summary from server
     intentBasedContent?: ContentSearchResult[]; // Intent-based content when user intent is set
     selectedText?: string;
   };
@@ -106,7 +106,7 @@ export class PassiveFIDManager {
 
   // Session-level caches (valid for entire client session)
   private homepageProjectsCache: { projects: ProjectSummary[]; timestamp: number } | null = null;
-  private projectSemanticCache: Map<string, { items: SemanticItem[]; timestamp: number }> = new Map();
+  private projectContextCache: Map<string, { context: any; timestamp: number }> = new Map();
 
   // Intent-based content cache (specific to intent + UI state combination)
   private intentContentCache: Map<string, { content: ContentSearchResult[]; timestamp: number }> = new Map();
@@ -139,9 +139,9 @@ export class PassiveFIDManager {
 
   /**
    * Get or fetch F-I-D context with cache-first strategy
-   * Now supports client-side project data for efficient context generation
+   * Uses server-side project data for comprehensive context generation
    */
-  async getOrFetchContext(uiState: UIState, clientProjectData?: any): Promise<FIDContext> {
+  async getOrFetchContext(uiState: UIState): Promise<FIDContext> {
     const startTime = Date.now();
     const cacheKey = this.generateCacheKey(uiState);
 
@@ -159,17 +159,16 @@ export class PassiveFIDManager {
         return cached.context;
       }
 
-      // Cache miss or expired - try client-side data first, then server
+      // Cache miss or expired - generate from server data
       debugEventEmitter.emit('fid-context-cache-miss', {
         cacheKey,
         route: uiState.currentRoute,
         projectId: uiState.currentProject,
         expired: cached ? !this.isCacheValid(cached) : false,
-        hasClientData: !!clientProjectData,
         timestamp: Date.now()
       });
 
-      const context = await this.generateContextWithClientData(uiState, clientProjectData);
+      const context = await this.generateContextWithServerData(uiState);
 
       // Store in cache
       this.setCache(cacheKey, context);
@@ -287,8 +286,8 @@ export class PassiveFIDManager {
 
       keysToDelete.forEach(key => this.cache.delete(key));
 
-      // Clear project-specific semantic cache
-      this.projectSemanticCache.delete(projectId);
+      // Clear project-specific context cache
+      this.projectContextCache.delete(projectId);
 
       // Clear intent cache entries for this project
       const intentKeysToDelete: string[] = [];
@@ -311,7 +310,7 @@ export class PassiveFIDManager {
       this.cache.clear();
       this.userProfileCache = null;
       this.homepageProjectsCache = null;
-      this.projectSemanticCache.clear();
+      this.projectContextCache.clear();
       this.intentContentCache.clear();
 
       debugEventEmitter.emit('fid-cache-cleared', {
@@ -350,7 +349,7 @@ export class PassiveFIDManager {
     // Estimate memory usage (rough approximation)
     const baseMemory = this.cache.size * 2; // ~2KB per entry estimate
     const sessionMemory = (this.homepageProjectsCache ? 5 : 0) +
-      (this.projectSemanticCache.size * 3) +
+      (this.projectContextCache.size * 4) +
       (this.intentContentCache.size * 2);
     const totalMemory = baseMemory + sessionMemory;
 
@@ -362,7 +361,7 @@ export class PassiveFIDManager {
       memoryUsage: `~${totalMemory}KB`,
       sessionCaches: {
         homepageProjects: !!this.homepageProjectsCache,
-        projectSemanticItems: this.projectSemanticCache.size,
+        projectSemanticItems: this.projectContextCache.size,
         intentBasedContent: this.intentContentCache.size
       }
     };
@@ -422,17 +421,20 @@ export class PassiveFIDManager {
   }
 
   /**
-   * Get project semantic items for tiered retrieval (cached per project)
+   * Get project context (cached per project) - includes semantic items and summaries
    */
-  private async getProjectSemanticItems(projectId: string): Promise<SemanticItem[]> {
+  private async getProjectContext(projectId: string): Promise<{ context: any; semanticItems: SemanticItem[] }> {
     // Check project-specific cache
-    const cached = this.projectSemanticCache.get(projectId);
+    const cached = this.projectContextCache.get(projectId);
     if (cached && (Date.now() - cached.timestamp) < (30 * 60 * 1000)) { // 30 min cache
-      console.log('📦 Using cached semantic items for project:', projectId);
-      return cached.items;
+      console.log('📦 Using cached project context for:', projectId);
+      return {
+        context: cached.context,
+        semanticItems: this.extractSemanticItems(cached.context, projectId)
+      };
     }
 
-    console.log('🌐 Fetching semantic items for project:', projectId);
+    console.log('🌐 Fetching project context from server:', projectId);
     try {
       const response = await fetch(`${this.getBaseUrl()}/api/ai/tools/execute`, {
         method: 'POST',
@@ -445,30 +447,40 @@ export class PassiveFIDManager {
 
       if (response.ok) {
         const result = await response.json();
-        if (result.success && result.data?.semanticItems) {
-          const items: SemanticItem[] = result.data.semanticItems.map((item: any) => ({
-            id: item.id,
-            oneLiner: item.oneLiner || item.title || '',
-            type: item.type || 'content',
-            projectId,
-            tier: item.tier || 1
-          }));
-
-          // Cache for project
-          this.projectSemanticCache.set(projectId, {
-            items,
+        if (result.success && result.data) {
+          // Cache the full project context
+          this.projectContextCache.set(projectId, {
+            context: result.data,
             timestamp: Date.now()
           });
 
-          console.log('📦 Cached semantic items for project:', projectId, items.length);
-          return items;
+          console.log('📦 Cached project context for:', projectId);
+          return {
+            context: result.data,
+            semanticItems: this.extractSemanticItems(result.data, projectId)
+          };
         }
       }
     } catch (error) {
-      console.warn('Failed to fetch semantic items for project:', projectId, error);
+      console.warn('Failed to fetch project context:', projectId, error);
     }
 
-    return [];
+    return { context: null, semanticItems: [] };
+  }
+
+  /**
+   * Extract semantic items from project context data
+   */
+  private extractSemanticItems(contextData: any, projectId: string): SemanticItem[] {
+    if (!contextData?.semanticItems) return [];
+
+    return contextData.semanticItems.map((item: any) => ({
+      id: item.id,
+      oneLiner: item.oneLiner || item.title || '',
+      type: item.type || 'content',
+      projectId,
+      tier: item.tier || 1
+    }));
   }
 
   /**
@@ -504,44 +516,7 @@ export class PassiveFIDManager {
     }
   }
 
-  /**
-   * Extract client project summary (prefer longer content)
-   */
-  private extractClientProjectSummary(clientProjectData: any): string | undefined {
-    if (!clientProjectData) return undefined;
 
-    const briefOverview = clientProjectData.briefOverview || '';
-    const description = clientProjectData.description || '';
-
-    // Use whichever is longer, or fallback to title
-    if (briefOverview.length > description.length && briefOverview.length > 0) {
-      return briefOverview;
-    } else if (description.length > 0) {
-      return description;
-    } else if (clientProjectData.title) {
-      return `${clientProjectData.title} - A project in Kirill's portfolio`;
-    }
-
-    return undefined;
-  }
-
-  /**
-   * Get source of client summary for logging
-   */
-  private getClientSummarySource(clientProjectData: any): string {
-    if (!clientProjectData) return 'none';
-
-    const briefOverview = clientProjectData.briefOverview || '';
-    const description = clientProjectData.description || '';
-
-    if (briefOverview.length > description.length && briefOverview.length > 0) {
-      return 'briefOverview';
-    } else if (description.length > 0) {
-      return 'description';
-    } else {
-      return 'fallback';
-    }
-  }
 
   /**
    * Destroy manager and cleanup resources
@@ -555,7 +530,7 @@ export class PassiveFIDManager {
     this.cache.clear();
     this.userProfileCache = null;
     this.homepageProjectsCache = null;
-    this.projectSemanticCache.clear();
+    this.projectContextCache.clear();
     this.intentContentCache.clear();
 
     debugEventEmitter.emit('fid-manager-destroyed', {
@@ -590,10 +565,10 @@ export class PassiveFIDManager {
   }
 
   /**
-   * Generate comprehensive F-I-D context with intelligent caching and client data integration
+   * Generate comprehensive F-I-D context with intelligent caching and server data integration
    */
-  private async generateContextWithClientData(uiState: UIState, clientProjectData?: any): Promise<FIDContext> {
-    console.log('🧠 Generating comprehensive FID context with intelligent caching');
+  private async generateContextWithServerData(uiState: UIState): Promise<FIDContext> {
+    console.log('🧠 Generating comprehensive FID context with server data');
 
     const portfolioOwner = await this.getUserProfile();
 
@@ -607,8 +582,8 @@ export class PassiveFIDManager {
     // Build Index based on current route
     const index = await this.buildIntelligentIndex(uiState);
 
-    // Build Details with client data + intent-based content
-    const details = await this.buildIntelligentDetails(uiState, clientProjectData);
+    // Build Details with server project data + intent-based content
+    const details = await this.buildIntelligentDetails(uiState);
 
     return {
       frame,
@@ -639,11 +614,11 @@ export class PassiveFIDManager {
     } else if (uiState.currentProject) {
       // Project modal: Get semantic one-liners for tiered retrieval
       console.log('📋 Building project modal index with semantic items for:', uiState.currentProject);
-      const projectSemanticItems = await this.getProjectSemanticItems(uiState.currentProject);
+      const { semanticItems } = await this.getProjectContext(uiState.currentProject);
       return {
         ...baseIndex,
         availableProjects: [],
-        projectSemanticItems
+        projectSemanticItems: semanticItems
       };
     } else {
       // Other routes: Basic index
@@ -656,19 +631,20 @@ export class PassiveFIDManager {
   }
 
   /**
-   * Build intelligent Details with client data + intent-based content
+   * Build intelligent Details with server project data + intent-based content
    */
-  private async buildIntelligentDetails(uiState: UIState, clientProjectData?: any): Promise<FIDContext['details']> {
+  private async buildIntelligentDetails(uiState: UIState): Promise<FIDContext['details']> {
     const details: FIDContext['details'] = {};
 
-    // Always include client project summary when viewing a project
-    if (uiState.currentProject && clientProjectData) {
-      const clientProjectSummary = this.extractClientProjectSummary(clientProjectData);
-      if (clientProjectSummary) {
-        details.clientProjectSummary = clientProjectSummary;
-        console.log('📝 Added client project summary to details:', {
-          source: this.getClientSummarySource(clientProjectData),
-          length: clientProjectSummary.length
+    // Include server project summaries when viewing a project
+    if (uiState.currentProject) {
+      const { context } = await this.getProjectContext(uiState.currentProject);
+      if (context) {
+        details.briefSummary = context.briefSummary;
+        details.detailedSummary = context.detailedSummary;
+        console.log('📝 Added server project summaries to details:', {
+          briefLength: context.briefSummary?.length || 0,
+          detailedLength: context.detailedSummary?.length || 0
         });
       }
     }
@@ -755,7 +731,8 @@ export class PassiveFIDManager {
         visibleSections: uiState.visibleAnchors || []
       },
       details: {
-        projectSummary: this.extractProjectSummary(details, uiState.currentProject),
+        briefSummary: this.extractProjectSummary(details, uiState.currentProject),
+        detailedSummary: undefined, // Not available in legacy server response
         intentBasedContent: this.convertSearchResults(details.searchResults || []),
         selectedText: undefined // Not implemented in current server response
       }
@@ -855,7 +832,8 @@ export class PassiveFIDManager {
         visibleSections: uiState.visibleAnchors || []
       },
       details: {
-        projectSummary: undefined,
+        briefSummary: undefined,
+        detailedSummary: undefined,
         intentBasedContent: [],
         selectedText: undefined
       }

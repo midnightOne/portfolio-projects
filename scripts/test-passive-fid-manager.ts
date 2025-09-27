@@ -80,7 +80,8 @@ async function testPassiveFIDManager() {
     const context5 = await manager.getOrFetchContext(uiState4);
     console.log('✅ Project-specific context fetched');
     console.log(`   Current project: ${context5.index.currentProject || 'None'}`);
-    console.log(`   Project summary available: ${context5.details.projectSummary ? 'Yes' : 'No'}`);
+    console.log(`   Brief summary available: ${context5.details.briefSummary ? 'Yes' : 'No'}`);
+    console.log(`   Detailed summary available: ${context5.details.detailedSummary ? 'Yes' : 'No'}`);
 
     // Test 6: Cache management
     console.log('\n📋 Test 6: Cache management');

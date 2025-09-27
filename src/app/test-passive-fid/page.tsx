@@ -10,6 +10,7 @@ export default function TestPassiveFIDPage() {
   const [error, setError] = useState<string | null>(null);
   const [cacheStats, setCacheStats] = useState<any>(null);
   const [userIntent, setUserIntent] = useState('');
+  const [showRawContent, setShowRawContent] = useState(false);
 
   const testUIStates = [
     {
@@ -151,6 +152,16 @@ export default function TestPassiveFIDPage() {
             >
               Clear E-commerce Cache
             </button>
+            <button
+              onClick={() => setShowRawContent(!showRawContent)}
+              className={`px-4 py-2 rounded-md focus:outline-none focus:ring-2 ${
+                showRawContent 
+                  ? 'bg-purple-600 text-white hover:bg-purple-700 focus:ring-purple-500' 
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300 focus:ring-gray-500'
+              }`}
+            >
+              {showRawContent ? 'Hide Raw Content' : 'Show Raw Content'}
+            </button>
           </div>
           
           {cacheStats && (
@@ -259,7 +270,10 @@ export default function TestPassiveFIDPage() {
               <div className="bg-purple-50 rounded p-4">
                 <div className="grid gap-2">
                   <div>
-                    <span className="font-medium">Project Summary:</span> {context.details.projectSummary ? 'Available' : 'None'}
+                    <span className="font-medium">Brief Summary:</span> {context.details.briefSummary ? 'Available' : 'None'}
+                  </div>
+                  <div>
+                    <span className="font-medium">Detailed Summary:</span> {context.details.detailedSummary ? 'Available' : 'None'}
                   </div>
                   <div>
                     <span className="font-medium">Intent-based Content:</span> {context.details.intentBasedContent?.length || 0} items
@@ -269,11 +283,20 @@ export default function TestPassiveFIDPage() {
                   </div>
                 </div>
 
-                {context.details.projectSummary && (
+                {context.details.briefSummary && (
                   <div className="mt-4">
-                    <h4 className="font-medium mb-2">Project Summary:</h4>
+                    <h4 className="font-medium mb-2">Brief Summary:</h4>
                     <div className="bg-white rounded p-2 text-sm">
-                      {context.details.projectSummary.substring(0, 200)}...
+                      {context.details.briefSummary}
+                    </div>
+                  </div>
+                )}
+
+                {context.details.detailedSummary && (
+                  <div className="mt-4">
+                    <h4 className="font-medium mb-2">Detailed Summary:</h4>
+                    <div className="bg-white rounded p-2 text-sm">
+                      {context.details.detailedSummary}
                     </div>
                   </div>
                 )}
@@ -296,6 +319,18 @@ export default function TestPassiveFIDPage() {
                 )}
               </div>
             </div>
+
+            {/* Raw Content Debug */}
+            {showRawContent && (
+              <div className="mt-6">
+                <h3 className="text-lg font-medium text-gray-600 mb-2">Raw Context (Debug)</h3>
+                <div className="bg-gray-50 rounded p-4">
+                  <pre className="text-xs text-gray-700 whitespace-pre-wrap overflow-auto max-h-96">
+                    {JSON.stringify(context, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
