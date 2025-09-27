@@ -107,7 +107,7 @@ export class PassiveFIDManager {
   // Session-level caches (valid for entire client session)
   private homepageProjectsCache: { projects: ProjectSummary[]; timestamp: number } | null = null;
   private projectSemanticCache: Map<string, { items: SemanticItem[]; timestamp: number }> = new Map();
-  
+
   // Intent-based content cache (specific to intent + UI state combination)
   private intentContentCache: Map<string, { content: ContentSearchResult[]; timestamp: number }> = new Map();
 
@@ -224,8 +224,8 @@ export class PassiveFIDManager {
    */
   private async getUserProfile(): Promise<string> {
     // Check cache first
-    if (this.userProfileCache && 
-        (Date.now() - this.userProfileCache.timestamp) < this.DEFAULT_TTL) {
+    if (this.userProfileCache &&
+      (Date.now() - this.userProfileCache.timestamp) < this.DEFAULT_TTL) {
       return (this.userProfileCache.profile?.name || this.userProfileCache.profile?.fullName || 'Kirill Prymachov') + (', ' + this.userProfileCache.profile?.bio);
     }
 
@@ -250,8 +250,8 @@ export class PassiveFIDManager {
             profile: result.data,
             timestamp: Date.now()
           };
-          
-          return (result.data.name || result.data.fullName || 'Kirill Prymachov')+ (', ' + result.data.bio);
+
+          return (result.data.name || result.data.fullName || 'Kirill Prymachov') + (', ' + result.data.bio);
         }
       }
     } catch (error) {
@@ -349,9 +349,9 @@ export class PassiveFIDManager {
 
     // Estimate memory usage (rough approximation)
     const baseMemory = this.cache.size * 2; // ~2KB per entry estimate
-    const sessionMemory = (this.homepageProjectsCache ? 5 : 0) + 
-                         (this.projectSemanticCache.size * 3) + 
-                         (this.intentContentCache.size * 2);
+    const sessionMemory = (this.homepageProjectsCache ? 5 : 0) +
+      (this.projectSemanticCache.size * 3) +
+      (this.intentContentCache.size * 2);
     const totalMemory = baseMemory + sessionMemory;
 
     return {
@@ -373,8 +373,8 @@ export class PassiveFIDManager {
    */
   private async getHomepageProjects(): Promise<ProjectSummary[]> {
     // Check session cache first
-    if (this.homepageProjectsCache && 
-        (Date.now() - this.homepageProjectsCache.timestamp) < (60 * 60 * 1000)) { // 1 hour cache
+    if (this.homepageProjectsCache &&
+      (Date.now() - this.homepageProjectsCache.timestamp) < (60 * 60 * 1000)) { // 1 hour cache
       console.log('📦 Using cached homepage projects');
       return this.homepageProjectsCache.projects;
     }
@@ -392,8 +392,8 @@ export class PassiveFIDManager {
 
       if (response.ok) {
         const result = await response.json();
-        if (result.success && result.data?.projects) {
-          const projects = result.data.projects.map((p: any) => ({
+        if (result.success && result.data?.results) {
+          const projects = result.data.results.map((p: any) => ({
             id: p.id,
             slug: p.slug,
             title: p.title,
@@ -476,7 +476,7 @@ export class PassiveFIDManager {
    */
   private async getIntentBasedContent(uiState: UIState, userIntent: string): Promise<ContentSearchResult[]> {
     const cacheKey = `${userIntent}-${uiState.currentRoute}-${uiState.currentProject || 'none'}`;
-    
+
     // Check intent-specific cache
     const cached = this.intentContentCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp) < (10 * 60 * 1000)) { // 10 min cache
@@ -512,7 +512,7 @@ export class PassiveFIDManager {
 
     const briefOverview = clientProjectData.briefOverview || '';
     const description = clientProjectData.description || '';
-    
+
     // Use whichever is longer, or fallback to title
     if (briefOverview.length > description.length && briefOverview.length > 0) {
       return briefOverview;
@@ -521,7 +521,7 @@ export class PassiveFIDManager {
     } else if (clientProjectData.title) {
       return `${clientProjectData.title} - A project in Kirill's portfolio`;
     }
-    
+
     return undefined;
   }
 
@@ -530,10 +530,10 @@ export class PassiveFIDManager {
    */
   private getClientSummarySource(clientProjectData: any): string {
     if (!clientProjectData) return 'none';
-    
+
     const briefOverview = clientProjectData.briefOverview || '';
     const description = clientProjectData.description || '';
-    
+
     if (briefOverview.length > description.length && briefOverview.length > 0) {
       return 'briefOverview';
     } else if (description.length > 0) {
@@ -594,9 +594,9 @@ export class PassiveFIDManager {
    */
   private async generateContextWithClientData(uiState: UIState, clientProjectData?: any): Promise<FIDContext> {
     console.log('🧠 Generating comprehensive FID context with intelligent caching');
-    
+
     const portfolioOwner = await this.getUserProfile();
-    
+
     // Build Frame (always generated fresh)
     const frame = {
       portfolioOwner,
@@ -841,7 +841,7 @@ export class PassiveFIDManager {
    */
   private async getMinimalFallbackContext(uiState: UIState): Promise<FIDContext> {
     const portfolioOwner = await this.getUserProfile();
-    
+
     return {
       frame: {
         portfolioOwner,
