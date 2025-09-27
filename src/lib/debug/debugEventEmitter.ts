@@ -66,7 +66,9 @@ type DebugEventType =
   | 'fid-budget-configured'
   | 'frame-context-loaded'
   | 'index-context-loaded'
-  | 'details-context-loaded';
+  | 'details-context-loaded'
+  // Navigation context events
+  | 'nav-context';
 
 interface DebugEvent {
   type: DebugEventType;

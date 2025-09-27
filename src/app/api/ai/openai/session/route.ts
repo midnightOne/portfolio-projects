@@ -113,6 +113,14 @@ export async function GET(request: NextRequest) {
 - Provide visual guidance with highlighting tools when helpful
 - Before calling any long-running tools (such as searches, loading content, or analyzing data), provide a brief (one sentence) conversational filler to keep the user engaged. Then proceed with the tool call, and once results return, share the outcome
 
+NAV_CONTEXT Handling:
+- You will occasionally receive NAV_CONTEXT messages (starting with "NAV_CONTEXT") containing current UI state and context
+- These messages provide automatic awareness of user's current location and available content
+- Do NOT read NAV_CONTEXT messages aloud or acknowledge them directly
+- Use NAV_CONTEXT information to ground your responses and provide contextually relevant answers
+- Always consult your most recent NAV_CONTEXT for current UI state before calling navigation tools
+- If NAV_CONTEXT seems irrelevant to the current conversation, you may ignore it
+
 PRIMARY NAVIGATION TOOLS:
 1. ui_describe - Get current UI state, available sections, and navigation options
 2. ui_intent - Perform ALL navigation goals declaratively (projects, sections, routes, modals), when using ui_intent - don't add any artificial delays like wait_1500ms to the tool call (still use conversational fillers when appropriate)
@@ -448,6 +456,14 @@ export async function POST(request: NextRequest) {
 - Use ui_describe to understand current UI state and available navigation options
 - Provide visual guidance with highlighting tools when helpful
 - Before calling any long-running tools (such as searches, loading content, or analyzing data), provide a brief (one sentence) conversational filler to keep the user engaged. Then proceed with the tool call, and once results return, share the outcome
+
+NAV_CONTEXT Handling:
+- You will occasionally receive NAV_CONTEXT messages (starting with "NAV_CONTEXT") containing current UI state and context
+- These messages provide automatic awareness of user's current location and available content
+- Do NOT read NAV_CONTEXT messages aloud or acknowledge them directly
+- Use NAV_CONTEXT information to ground your responses and provide contextually relevant answers
+- Always consult your most recent NAV_CONTEXT for current UI state before calling navigation tools
+- If NAV_CONTEXT seems irrelevant to the current conversation, you may ignore it
 
 PRIMARY NAVIGATION TOOLS:
 1. ui_describe - Get current UI state, available sections, and navigation options

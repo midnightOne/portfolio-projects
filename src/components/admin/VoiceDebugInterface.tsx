@@ -279,6 +279,113 @@ function VoiceDebugContent() {
     }
   }, [exportTranscript, toast]);
 
+  // NAV_CONTEXT testing handlers
+  const handlePushNavContext = useCallback(async () => {
+    const adapter = (globalThis as any).getGlobalOpenAIAdapter?.();
+    if (!adapter) {
+      toast({
+        title: 'No adapter available',
+        description: 'OpenAI adapter not found',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      const randomContext = adapter.generateRandomNavContext();
+      const result = await adapter.pushPassiveContext(randomContext);
+
+      toast({
+        title: 'NAV_CONTEXT pushed',
+        description: `Created item ${result.id} with token ${result.token.substring(0, 8)}...`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Push failed',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    }
+  }, [toast]);
+
+  const handlePushFIDContext = useCallback(async () => {
+    const adapter = (globalThis as any).getGlobalOpenAIAdapter?.();
+    if (!adapter) {
+      toast({
+        title: 'No adapter available',
+        description: 'OpenAI adapter not found',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      // Generate realistic F-I-D context
+      const fidContext = {
+        frame: {
+          portfolioOwner: 'Kirill Prymachov',
+          currentCapabilities: ['navigation', 'project-information', 'voice-interaction'],
+          uiContext: 'Currently on projects page viewing portfolio items'
+        },
+        index: {
+          route: '/projects',
+          availableProjects: [
+            { id: 'task-manager', title: 'Task Manager', description: 'React task management app' },
+            { id: 'portfolio', title: 'Portfolio Site', description: 'Next.js portfolio website' }
+          ],
+          currentProject: 'task-manager',
+          visibleSections: ['hero', 'projects', 'technologies']
+        },
+        details: {
+          projectSummary: 'Task Manager is a React-based application for managing tasks and projects',
+          intentBasedContent: [],
+          selectedText: undefined
+        }
+      };
+
+      const result = await adapter.pushPassiveContext(fidContext);
+
+      toast({
+        title: 'F-I-D Context pushed',
+        description: `Created realistic F-I-D context ${result.id}`,
+      });
+    } catch (error) {
+      toast({
+        title: 'F-I-D push failed',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    }
+  }, [toast]);
+
+  const handleDeleteAllNavContexts = useCallback(async () => {
+    const adapter = (globalThis as any).getGlobalOpenAIAdapter?.();
+    if (!adapter) {
+      toast({
+        title: 'No adapter available',
+        description: 'OpenAI adapter not found',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      const count = adapter.getTrackedNavItemCount();
+      await adapter.deleteAllNavContexts();
+
+      toast({
+        title: 'All NAV_CONTEXT deleted',
+        description: `Deleted ${count} items`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Delete all failed',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
+    }
+  }, [toast]);
+
   const getConnectionStatusColor = useCallback(() => {
     switch (connectionStatus) {
       case 'connected': return 'text-green-600 bg-green-50 border-green-200';
@@ -313,7 +420,7 @@ function VoiceDebugContent() {
               </div>
               {getLastError()?.includes('session.type') && (
                 <div className="text-xs text-red-600 mt-2">
-                  <strong>Note:</strong> This is a known issue with the OpenAI Realtime SDK v0.1.0. 
+                  <strong>Note:</strong> This is a known issue with the OpenAI Realtime SDK v0.1.0.
                   Voice functionality may still work despite this error.
                 </div>
               )}
@@ -587,8 +694,7 @@ function VoiceDebugContent() {
                   <div className="space-y-3">
                     {state.transcript.map((item, index) => (
                       <div key={`${item.id}-${index}`} className="space-y-1">
-                        <div className={`p-3 rounded text-sm ${
-                          item.type === 'user_speech'
+                        <div className={`p-3 rounded text-sm ${item.type === 'user_speech'
                             ? 'bg-blue-50 border-l-4 border-blue-400'
                             : item.type === 'ai_response'
                               ? 'bg-green-50 border-l-4 border-green-400'
@@ -624,7 +730,7 @@ function VoiceDebugContent() {
                               {item.timestamp.toLocaleTimeString()}
                             </span>
                           </div>
-                          
+
                           {item.type === 'tool_call' ? (
                             <div className="space-y-2">
                               <p className="text-sm font-medium text-orange-700">
@@ -651,8 +757,8 @@ function VoiceDebugContent() {
                                 <div className="bg-purple-100 rounded p-2">
                                   <p className="text-xs font-medium text-purple-800 mb-1">Result:</p>
                                   <pre className="text-xs text-purple-700 whitespace-pre-wrap">
-                                    {typeof item.metadata.toolResult === 'string' 
-                                      ? item.metadata.toolResult 
+                                    {typeof item.metadata.toolResult === 'string'
+                                      ? item.metadata.toolResult
                                       : JSON.stringify(item.metadata.toolResult, null, 2)}
                                   </pre>
                                 </div>
@@ -699,7 +805,7 @@ function VoiceDebugContent() {
       <div className="space-y-4">
         {/* Debug Actions Panel */}
         <Card>
-          <CardHeader 
+          <CardHeader
             className="pb-3 cursor-pointer"
             onClick={() => togglePanel('debug')}
           >
@@ -732,7 +838,7 @@ function VoiceDebugContent() {
                           useCache: false
                         }),
                       });
-                      
+
                       if (response.ok) {
                         const result = await response.json();
                         toast({
@@ -762,7 +868,7 @@ function VoiceDebugContent() {
                         { selector: '#projects', behavior: 'smooth' },
                         `debug-session-${selectedProvider}`
                       );
-                      
+
                       toast({
                         title: 'Unified tool executed',
                         description: `Navigation tool ${result.success ? 'succeeded' : 'failed'}`,
@@ -794,9 +900,9 @@ function VoiceDebugContent() {
                           toolCallId: `debug-${Date.now()}`
                         })
                       });
-                      
+
                       const result = await response.json();
-                      
+
                       toast({
                         title: 'Server tool executed',
                         description: `Context loading ${result.success ? 'succeeded' : 'failed'}`,
@@ -823,7 +929,7 @@ function VoiceDebugContent() {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ testType: 'all' })
                       });
-                      
+
                       if (response.ok) {
                         const result = await response.json();
                         toast({
@@ -844,7 +950,47 @@ function VoiceDebugContent() {
                   🔥 Trigger All Events
                 </Button>
               </div>
-              
+
+              {/* NAV_CONTEXT Testing Section */}
+              <div className="border-t pt-3">
+                <div className="text-sm font-medium mb-2 text-muted-foreground">
+                  NAV_CONTEXT Testing (OpenAI Only)
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handlePushNavContext}
+                    disabled={!isConnected() || selectedProvider !== 'openai'}
+                    className="text-xs"
+                  >
+                    📤 Push Random Context
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handlePushFIDContext}
+                    disabled={!isConnected() || selectedProvider !== 'openai'}
+                    className="text-xs"
+                  >
+                    📋 Push F-I-D Context
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDeleteAllNavContexts}
+                    disabled={!isConnected() || selectedProvider !== 'openai'}
+                    className="text-xs"
+                  >
+                    🗑️ Delete All NAV_CONTEXT
+                  </Button>
+                </div>
+                <div className="text-xs text-muted-foreground mt-2 bg-blue-50 p-2 rounded border border-blue-200">
+                  <strong>💡 NAV_CONTEXT Testing:</strong> Connect to OpenAI Realtime first, then use these buttons to test passive context injection.
+                  Watch console logs for detailed tracking info.
+                </div>
+              </div>
+
               <div className="flex gap-2">
                 <Button
                   onClick={() => {
@@ -871,7 +1017,7 @@ function VoiceDebugContent() {
 
         {/* Connection Debug Panel */}
         <Card>
-          <CardHeader 
+          <CardHeader
             className="pb-3 cursor-pointer"
             onClick={() => togglePanel('connection')}
           >
@@ -920,7 +1066,7 @@ function VoiceDebugContent() {
 
         {/* Context Monitor Panel */}
         <Card>
-          <CardHeader 
+          <CardHeader
             className="pb-3 cursor-pointer"
             onClick={() => togglePanel('context')}
           >
@@ -949,7 +1095,7 @@ function VoiceDebugContent() {
 
         {/* Tool Call Monitor Panel */}
         <Card>
-          <CardHeader 
+          <CardHeader
             className="pb-3 cursor-pointer"
             onClick={() => togglePanel('tools')}
           >
@@ -978,7 +1124,7 @@ function VoiceDebugContent() {
 
         {/* State Inspector Panel */}
         <Card>
-          <CardHeader 
+          <CardHeader
             className="pb-3 cursor-pointer"
             onClick={() => togglePanel('state')}
           >
@@ -1006,7 +1152,7 @@ function VoiceDebugContent() {
 
         {/* Integration Validator Panel */}
         <Card>
-          <CardHeader 
+          <CardHeader
             className="pb-3 cursor-pointer"
             onClick={() => togglePanel('integration')}
           >
