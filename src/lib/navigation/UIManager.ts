@@ -54,11 +54,23 @@ export interface ProjectState {
   id: string;
   slug: string;
   title: string;
+  description?: string;
+  briefOverview?: string;
   currentSection: string; // 'overview', 'technical-details', 'gallery'
   sectionsVisited: string[];
   scrollPositions: Record<string, number>; // section -> scroll position
   mediaInteractions: MediaInteraction[];
   timeSpent: number; // milliseconds
+  // Full project data when available (loaded from client)
+  projectData?: {
+    description?: string;
+    briefOverview?: string;
+    tags?: string[];
+    technologies?: string[];
+    workDate?: Date;
+    status?: string;
+    // Add other relevant fields as needed
+  };
 }
 
 // Scroll state tracking across all contexts
@@ -451,6 +463,7 @@ export class UIManager {
   private _lastUIStateHash: string = '';
   private _connectedVoiceAdapter: IConversationalAgentAdapter | null = null;
   private _passiveContextEnabled: boolean = false;
+  private _pendingProjectDataUpdates: Map<string, NodeJS.Timeout> = new Map(); // Track pending project data updates
 
   // Configurable timing
   private _timingConfig: NavigationTimingConfig = {
@@ -904,6 +917,80 @@ export class UIManager {
   }
 
   /**
+   * Register client-side project data for efficient FID context generation
+   * This should be called when project modals load with their data
+   */
+  registerProjectData(projectId: string, projectData: {
+    title: string;
+    description?: string;
+    briefOverview?: string;
+    tags?: string[];
+    technologies?: string[];
+    workDate?: Date;
+    status?: string;
+  }): void {
+    // Update current project state if this is the active project
+    const currentProjectId = typeof this._currentUIState.currentProject === 'string' 
+      ? this._currentUIState.currentProject 
+      : this._currentUIState.currentProject?.id;
+      
+    if (currentProjectId === projectId) {
+      const existingProject = typeof this._currentUIState.currentProject === 'object' 
+        ? this._currentUIState.currentProject 
+        : null;
+        
+      this._currentUIState.currentProject = {
+        id: projectId,
+        slug: projectData.title.toLowerCase().replace(/\s+/g, '-'), // Generate slug if needed
+        title: projectData.title,
+        description: projectData.description,
+        briefOverview: projectData.briefOverview,
+        currentSection: existingProject?.currentSection || 'overview',
+        sectionsVisited: existingProject?.sectionsVisited || [],
+        scrollPositions: existingProject?.scrollPositions || {},
+        mediaInteractions: existingProject?.mediaInteractions || [],
+        timeSpent: existingProject?.timeSpent || 0,
+        projectData: {
+          description: projectData.description,
+          briefOverview: projectData.briefOverview,
+          tags: projectData.tags,
+          technologies: projectData.technologies,
+          workDate: projectData.workDate,
+          status: projectData.status
+        }
+      };
+
+      console.log('📊 Registered client-side project data for:', projectId, projectData.title);
+
+      // Cancel any pending delayed update since we now have the data
+      const pendingTimeout = this._pendingProjectDataUpdates.get(projectId);
+      if (pendingTimeout) {
+        clearTimeout(pendingTimeout);
+        this._pendingProjectDataUpdates.delete(projectId);
+        console.log('⏰ Cancelled pending delayed update, project data now available');
+      }
+
+      // Trigger immediate passive context update with new project data (for Details fallback)
+      if (this._passiveContextEnabled) {
+        console.log('🔄 Triggering immediate passive context update with newly registered project data (Details fallback)');
+        console.log('📊 Project data registered for Details fallback:', {
+          projectId,
+          title: projectData.title,
+          hasDescription: !!projectData.description,
+          hasBriefOverview: !!projectData.briefOverview,
+          briefOverview: projectData.briefOverview,
+          description: projectData.description?.substring(0, 100) + (projectData.description?.length > 100 ? '...' : '')
+        });
+        
+        const currentState = this.getCurrentUIState();
+        this._triggerImmediatePassiveContextUpdate(currentState).catch(error => {
+          console.warn('Project data passive context update failed:', error);
+        });
+      }
+    }
+  }
+
+  /**
    * Trigger immediate passive context update for critical UI changes (modals, navigation)
    */
   private async _triggerImmediatePassiveContextUpdate(newState: UIState): Promise<void> {
@@ -917,8 +1004,21 @@ export class UIManager {
       // Convert UIState to the format expected by PassiveFIDManager
       const convertedState = this._convertUIStateForPassiveFID(newState);
       
-      // Get F-I-D context from PassiveFIDManager (cached, so fast)
-      const fidContext = await this._passiveFIDManager.getOrFetchContext(convertedState);
+      // Extract client-side project data if available
+      const clientProjectData = newState.currentProject?.projectData;
+      
+      console.log('🔍 Context update state check:', {
+        hasCurrentProject: !!newState.currentProject,
+        currentProjectType: typeof newState.currentProject,
+        currentProjectId: typeof newState.currentProject === 'string' ? newState.currentProject : newState.currentProject?.id,
+        currentProjectObject: typeof newState.currentProject === 'object' ? newState.currentProject : null,
+        hasClientProjectData: !!clientProjectData,
+        clientProjectData: clientProjectData,
+        clientDataKeys: clientProjectData ? Object.keys(clientProjectData) : []
+      });
+      
+      // Get F-I-D context from PassiveFIDManager (with client data for efficiency)
+      const fidContext = await this._passiveFIDManager.getOrFetchContext(convertedState, clientProjectData);
 
       // Push context to voice adapter immediately
       if (typeof (this._connectedVoiceAdapter as any).pushPassiveContext === 'function') {
@@ -961,6 +1061,39 @@ export class UIManager {
       console.error('❌ Manual passive context update failed:', error);
       throw error;
     }
+  }
+
+  /**
+   * Schedule a delayed context update for when project data becomes available
+   */
+  private _scheduleDelayedProjectContextUpdate(projectId: string): void {
+    // Clear any existing timeout for this project
+    const existingTimeout = this._pendingProjectDataUpdates.get(projectId);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+    }
+
+    // Schedule a delayed update (give project data 1 second to load)
+    const timeout = setTimeout(() => {
+      console.log('⏰ Delayed project context update executing for:', projectId);
+      const currentState = this.getCurrentUIState();
+      
+      // Check if project data is now available
+      const currentProjectId = typeof currentState.currentProject === 'string' 
+        ? currentState.currentProject 
+        : currentState.currentProject?.id;
+        
+      if (currentProjectId === projectId) {
+        this._triggerImmediatePassiveContextUpdate(currentState).catch(error => {
+          console.warn('Delayed project context update failed:', error);
+        });
+      }
+      
+      // Clean up
+      this._pendingProjectDataUpdates.delete(projectId);
+    }, 1000); // 1 second delay to allow project data to load
+
+    this._pendingProjectDataUpdates.set(projectId, timeout);
   }
 
   /**
@@ -1536,10 +1669,21 @@ export class UIManager {
     if (this._passiveContextEnabled) {
       console.log('🔄 Triggering IMMEDIATE passive context update for modal state change');
       const currentState = this.getCurrentUIState();
-      // Use immediate update for critical modal changes, not debounced
-      this._triggerImmediatePassiveContextUpdate(currentState).catch(error => {
-        console.warn('Immediate passive context update failed:', error);
-      });
+      
+      // Check if we're opening a project modal and should wait for project data
+      const currentProjectId = typeof currentState.currentProject === 'string' 
+        ? currentState.currentProject 
+        : currentState.currentProject?.id;
+        
+      if (currentProjectId && !currentState.currentProject?.projectData) {
+        console.log('⏳ Project modal opened but no project data yet, scheduling delayed update for:', currentProjectId);
+        this._scheduleDelayedProjectContextUpdate(currentProjectId);
+      } else {
+        // Use immediate update for critical modal changes
+        this._triggerImmediatePassiveContextUpdate(currentState).catch(error => {
+          console.warn('Immediate passive context update failed:', error);
+        });
+      }
     }
   }
 

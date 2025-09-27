@@ -17,7 +17,7 @@
 import { debugEventEmitter } from '../debug/debugEventEmitter';
 import { UIState } from './tools/types';
 
-// F-I-D Context Interfaces (matching design document)
+// F-I-D Context Interfaces (enhanced for comprehensive passive system)
 export interface FIDContext {
   frame: {
     portfolioOwner: string;
@@ -26,15 +26,26 @@ export interface FIDContext {
   };
   index: {
     route: string;
-    availableProjects: ProjectSummary[];
+    availableProjects: ProjectSummary[]; // Homepage: top 10 projects
     currentProject?: string;
     visibleSections: string[];
+    projectSemanticItems?: SemanticItem[]; // Project modal: semantic one-liners for tiered retrieval
   };
   details: {
-    projectSummary?: string;
-    intentBasedContent?: ContentSearchResult[];
+    clientProjectSummary?: string; // Always present when viewing a project (from client data)
+    projectSummary?: string; // Server project summary (legacy)
+    intentBasedContent?: ContentSearchResult[]; // Intent-based content when user intent is set
     selectedText?: string;
   };
+}
+
+// Semantic items for project modal index (tiered retrieval support)
+export interface SemanticItem {
+  id: string;
+  oneLiner: string;
+  type: 'content' | 'technical' | 'media' | 'example';
+  projectId: string;
+  tier: number; // For tiered retrieval with content_get
 }
 
 export interface ProjectSummary {
@@ -93,6 +104,13 @@ export class PassiveFIDManager {
   // Session-based user profile cache
   private userProfileCache: { profile: any; timestamp: number } | null = null;
 
+  // Session-level caches (valid for entire client session)
+  private homepageProjectsCache: { projects: ProjectSummary[]; timestamp: number } | null = null;
+  private projectSemanticCache: Map<string, { items: SemanticItem[]; timestamp: number }> = new Map();
+  
+  // Intent-based content cache (specific to intent + UI state combination)
+  private intentContentCache: Map<string, { content: ContentSearchResult[]; timestamp: number }> = new Map();
+
   // Cache configuration
   private readonly DEFAULT_TTL = 20 * 60 * 1000; // 20 minutes
   protected readonly MAX_CACHE_SIZE = 50; // Memory management limit
@@ -121,8 +139,9 @@ export class PassiveFIDManager {
 
   /**
    * Get or fetch F-I-D context with cache-first strategy
+   * Now supports client-side project data for efficient context generation
    */
-  async getOrFetchContext(uiState: UIState): Promise<FIDContext> {
+  async getOrFetchContext(uiState: UIState, clientProjectData?: any): Promise<FIDContext> {
     const startTime = Date.now();
     const cacheKey = this.generateCacheKey(uiState);
 
@@ -140,16 +159,17 @@ export class PassiveFIDManager {
         return cached.context;
       }
 
-      // Cache miss or expired - fetch from server
+      // Cache miss or expired - try client-side data first, then server
       debugEventEmitter.emit('fid-context-cache-miss', {
         cacheKey,
         route: uiState.currentRoute,
         projectId: uiState.currentProject,
         expired: cached ? !this.isCacheValid(cached) : false,
+        hasClientData: !!clientProjectData,
         timestamp: Date.now()
       });
 
-      const context = await this.fetchFromServer(uiState);
+      const context = await this.generateContextWithClientData(uiState, clientProjectData);
 
       // Store in cache
       this.setCache(cacheKey, context);
@@ -267,17 +287,32 @@ export class PassiveFIDManager {
 
       keysToDelete.forEach(key => this.cache.delete(key));
 
+      // Clear project-specific semantic cache
+      this.projectSemanticCache.delete(projectId);
+
+      // Clear intent cache entries for this project
+      const intentKeysToDelete: string[] = [];
+      for (const [key] of Array.from(this.intentContentCache.keys())) {
+        if (key.includes(`-${projectId}`)) {
+          intentKeysToDelete.push(key);
+        }
+      }
+      intentKeysToDelete.forEach(key => this.intentContentCache.delete(key));
+
       debugEventEmitter.emit('fid-cache-cleared', {
         type: 'project-specific',
         projectId,
-        clearedCount: keysToDelete.length,
+        clearedCount: keysToDelete.length + 1 + intentKeysToDelete.length,
         timestamp: Date.now()
       });
     } else {
-      // Clear entire cache including user profile
+      // Clear entire cache including all session caches
       const cacheSize = this.cache.size;
       this.cache.clear();
       this.userProfileCache = null;
+      this.homepageProjectsCache = null;
+      this.projectSemanticCache.clear();
+      this.intentContentCache.clear();
 
       debugEventEmitter.emit('fid-cache-cleared', {
         type: 'full',
@@ -288,7 +323,7 @@ export class PassiveFIDManager {
   }
 
   /**
-   * Get cache statistics for monitoring
+   * Get comprehensive cache statistics for monitoring
    */
   getCacheStats(): {
     size: number;
@@ -296,6 +331,11 @@ export class PassiveFIDManager {
     hitRate: number;
     oldestEntry: number;
     memoryUsage: string;
+    sessionCaches: {
+      homepageProjects: boolean;
+      projectSemanticItems: number;
+      intentBasedContent: number;
+    };
   } {
     let oldestTimestamp = Date.now();
     let totalHits = 0;
@@ -308,15 +348,199 @@ export class PassiveFIDManager {
     }
 
     // Estimate memory usage (rough approximation)
-    const estimatedMemory = this.cache.size * 2; // ~2KB per entry estimate
+    const baseMemory = this.cache.size * 2; // ~2KB per entry estimate
+    const sessionMemory = (this.homepageProjectsCache ? 5 : 0) + 
+                         (this.projectSemanticCache.size * 3) + 
+                         (this.intentContentCache.size * 2);
+    const totalMemory = baseMemory + sessionMemory;
 
     return {
       size: this.cache.size,
       maxSize: this.MAX_CACHE_SIZE,
       hitRate: totalRequests > 0 ? totalHits / totalRequests : 0,
       oldestEntry: oldestTimestamp,
-      memoryUsage: `~${estimatedMemory}KB`
+      memoryUsage: `~${totalMemory}KB`,
+      sessionCaches: {
+        homepageProjects: !!this.homepageProjectsCache,
+        projectSemanticItems: this.projectSemanticCache.size,
+        intentBasedContent: this.intentContentCache.size
+      }
     };
+  }
+
+  /**
+   * Get homepage projects (cached for session)
+   */
+  private async getHomepageProjects(): Promise<ProjectSummary[]> {
+    // Check session cache first
+    if (this.homepageProjectsCache && 
+        (Date.now() - this.homepageProjectsCache.timestamp) < (60 * 60 * 1000)) { // 1 hour cache
+      console.log('📦 Using cached homepage projects');
+      return this.homepageProjectsCache.projects;
+    }
+
+    console.log('🌐 Fetching homepage projects from server');
+    try {
+      const response = await fetch(`${this.getBaseUrl()}/api/ai/tools/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toolName: 'searchProjects',
+          parameters: { limit: 10, sortBy: 'importance' }
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.data?.projects) {
+          const projects = result.data.projects.map((p: any) => ({
+            id: p.id,
+            slug: p.slug,
+            title: p.title,
+            description: p.description || p.briefOverview || '',
+            tags: p.tags || [],
+            technologies: p.technologies || [],
+            tier1Summary: p.tier1Summary || p.briefOverview || p.description || '',
+            importance: p.importance || 0
+          }));
+
+          // Cache for session
+          this.homepageProjectsCache = {
+            projects,
+            timestamp: Date.now()
+          };
+
+          console.log('📦 Cached homepage projects for session:', projects.length);
+          return projects;
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to fetch homepage projects:', error);
+    }
+
+    return [];
+  }
+
+  /**
+   * Get project semantic items for tiered retrieval (cached per project)
+   */
+  private async getProjectSemanticItems(projectId: string): Promise<SemanticItem[]> {
+    // Check project-specific cache
+    const cached = this.projectSemanticCache.get(projectId);
+    if (cached && (Date.now() - cached.timestamp) < (30 * 60 * 1000)) { // 30 min cache
+      console.log('📦 Using cached semantic items for project:', projectId);
+      return cached.items;
+    }
+
+    console.log('🌐 Fetching semantic items for project:', projectId);
+    try {
+      const response = await fetch(`${this.getBaseUrl()}/api/ai/tools/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          toolName: 'loadProjectContext',
+          parameters: { projectId, includeSemanticItems: true }
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.data?.semanticItems) {
+          const items: SemanticItem[] = result.data.semanticItems.map((item: any) => ({
+            id: item.id,
+            oneLiner: item.oneLiner || item.title || '',
+            type: item.type || 'content',
+            projectId,
+            tier: item.tier || 1
+          }));
+
+          // Cache for project
+          this.projectSemanticCache.set(projectId, {
+            items,
+            timestamp: Date.now()
+          });
+
+          console.log('📦 Cached semantic items for project:', projectId, items.length);
+          return items;
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to fetch semantic items for project:', projectId, error);
+    }
+
+    return [];
+  }
+
+  /**
+   * Get intent-based content (cached by intent + UI state)
+   */
+  private async getIntentBasedContent(uiState: UIState, userIntent: string): Promise<ContentSearchResult[]> {
+    const cacheKey = `${userIntent}-${uiState.currentRoute}-${uiState.currentProject || 'none'}`;
+    
+    // Check intent-specific cache
+    const cached = this.intentContentCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < (10 * 60 * 1000)) { // 10 min cache
+      console.log('📦 Using cached intent-based content for:', userIntent);
+      return cached.content;
+    }
+
+    console.log('🌐 Fetching intent-based content for:', userIntent);
+    try {
+      // Use the existing server FID endpoint for intent-based content
+      const serverContext = await this.fetchFromServer(uiState);
+      const content = serverContext.details.intentBasedContent || [];
+
+      // Cache the intent-based content
+      this.intentContentCache.set(cacheKey, {
+        content,
+        timestamp: Date.now()
+      });
+
+      console.log('📦 Cached intent-based content:', userIntent, content.length);
+      return content;
+    } catch (error) {
+      console.warn('Failed to fetch intent-based content:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Extract client project summary (prefer longer content)
+   */
+  private extractClientProjectSummary(clientProjectData: any): string | undefined {
+    if (!clientProjectData) return undefined;
+
+    const briefOverview = clientProjectData.briefOverview || '';
+    const description = clientProjectData.description || '';
+    
+    // Use whichever is longer, or fallback to title
+    if (briefOverview.length > description.length && briefOverview.length > 0) {
+      return briefOverview;
+    } else if (description.length > 0) {
+      return description;
+    } else if (clientProjectData.title) {
+      return `${clientProjectData.title} - A project in Kirill's portfolio`;
+    }
+    
+    return undefined;
+  }
+
+  /**
+   * Get source of client summary for logging
+   */
+  private getClientSummarySource(clientProjectData: any): string {
+    if (!clientProjectData) return 'none';
+    
+    const briefOverview = clientProjectData.briefOverview || '';
+    const description = clientProjectData.description || '';
+    
+    if (briefOverview.length > description.length && briefOverview.length > 0) {
+      return 'briefOverview';
+    } else if (description.length > 0) {
+      return 'description';
+    } else {
+      return 'fallback';
+    }
   }
 
   /**
@@ -330,6 +554,9 @@ export class PassiveFIDManager {
 
     this.cache.clear();
     this.userProfileCache = null;
+    this.homepageProjectsCache = null;
+    this.projectSemanticCache.clear();
+    this.intentContentCache.clear();
 
     debugEventEmitter.emit('fid-manager-destroyed', {
       timestamp: Date.now()
@@ -361,6 +588,102 @@ export class PassiveFIDManager {
 
     return `${route}-${projectId}-${intentHash}:${anchorsHash}`;
   }
+
+  /**
+   * Generate comprehensive F-I-D context with intelligent caching and client data integration
+   */
+  private async generateContextWithClientData(uiState: UIState, clientProjectData?: any): Promise<FIDContext> {
+    console.log('🧠 Generating comprehensive FID context with intelligent caching');
+    
+    const portfolioOwner = await this.getUserProfile();
+    
+    // Build Frame (always generated fresh)
+    const frame = {
+      portfolioOwner,
+      currentCapabilities: ['navigation', 'project-information', 'technical-discussion', 'content-retrieval'],
+      uiContext: this.buildUIContext(uiState)
+    };
+
+    // Build Index based on current route
+    const index = await this.buildIntelligentIndex(uiState);
+
+    // Build Details with client data + intent-based content
+    const details = await this.buildIntelligentDetails(uiState, clientProjectData);
+
+    return {
+      frame,
+      index,
+      details
+    };
+  }
+
+  /**
+   * Build intelligent Index based on current UI state
+   */
+  private async buildIntelligentIndex(uiState: UIState): Promise<FIDContext['index']> {
+    const baseIndex = {
+      route: uiState.currentRoute || 'home',
+      currentProject: uiState.currentProject,
+      visibleSections: uiState.visibleAnchors || []
+    };
+
+    if (uiState.currentRoute === 'home') {
+      // Homepage: Get top 10 project summaries (cached for session)
+      console.log('🏠 Building homepage index with top 10 projects');
+      const availableProjects = await this.getHomepageProjects();
+      return {
+        ...baseIndex,
+        availableProjects,
+        projectSemanticItems: undefined
+      };
+    } else if (uiState.currentProject) {
+      // Project modal: Get semantic one-liners for tiered retrieval
+      console.log('📋 Building project modal index with semantic items for:', uiState.currentProject);
+      const projectSemanticItems = await this.getProjectSemanticItems(uiState.currentProject);
+      return {
+        ...baseIndex,
+        availableProjects: [],
+        projectSemanticItems
+      };
+    } else {
+      // Other routes: Basic index
+      return {
+        ...baseIndex,
+        availableProjects: [],
+        projectSemanticItems: undefined
+      };
+    }
+  }
+
+  /**
+   * Build intelligent Details with client data + intent-based content
+   */
+  private async buildIntelligentDetails(uiState: UIState, clientProjectData?: any): Promise<FIDContext['details']> {
+    const details: FIDContext['details'] = {};
+
+    // Always include client project summary when viewing a project
+    if (uiState.currentProject && clientProjectData) {
+      const clientProjectSummary = this.extractClientProjectSummary(clientProjectData);
+      if (clientProjectSummary) {
+        details.clientProjectSummary = clientProjectSummary;
+        console.log('📝 Added client project summary to details:', {
+          source: this.getClientSummarySource(clientProjectData),
+          length: clientProjectSummary.length
+        });
+      }
+    }
+
+    // Add intent-based content if user intent is set
+    if (this.userIntent) {
+      console.log('🎯 User intent detected, fetching intent-based content:', this.userIntent);
+      const intentBasedContent = await this.getIntentBasedContent(uiState, this.userIntent);
+      details.intentBasedContent = intentBasedContent;
+    }
+
+    return details;
+  }
+
+
 
   /**
    * Fetch F-I-D context from server API

@@ -2117,6 +2117,21 @@ Navigation Flow:
         const text = `NAV_CONTEXT ${token} ${JSON.stringify(fidContext)}`;
         
         console.log('📤 Sending NAV_CONTEXT with token:', token);
+        console.log('📋 NAV_CONTEXT Content:', {
+            frame: fidContext.frame,
+            index: {
+                route: fidContext.index.route,
+                currentProject: fidContext.index.currentProject,
+                projectCount: fidContext.index.availableProjects?.length || 0,
+                visibleSections: fidContext.index.visibleSections
+            },
+            details: {
+                hasProjectSummary: !!fidContext.details.projectSummary,
+                projectSummary: fidContext.details.projectSummary?.substring(0, 100) + (fidContext.details.projectSummary?.length > 100 ? '...' : ''),
+                intentContentCount: fidContext.details.intentBasedContent?.length || 0,
+                hasSelectedText: !!fidContext.details.selectedText
+            }
+        });
         
         await this.sendEvent({
             type: "conversation.item.create",
