@@ -1473,7 +1473,10 @@ Navigation Flow:
                 this._sendBackgroundResult(update);
             });
 
-            console.log('OpenAI Realtime: UI state tracking initialized');
+            // Enable passive context integration for automatic NAV_CONTEXT updates
+            uiManager.enablePassiveContext(this);
+
+            console.log('OpenAI Realtime: UI state tracking and passive context integration initialized');
         } catch (error) {
             console.error('Failed to initialize UI state tracking:', error);
         }
@@ -1534,6 +1537,7 @@ Navigation Flow:
                 if (typeof window !== 'undefined') {
                     const uiManager = UIManager.getInstance();
                     uiManager.setBackgroundUpdateCallback(null);
+                    uiManager.disablePassiveContext();
                 }
 
                 // Clean up NAV_CONTEXT message tracking
