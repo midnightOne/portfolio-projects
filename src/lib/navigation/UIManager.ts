@@ -548,11 +548,12 @@ export class UIManager {
     this._debouncedPassiveContextUpdate = debounce(() => {
       if (this._passiveContextEnabled) {
         const currentState = this.getCurrentUIState();
+        console.log('⏰ Debounced passive context update executing after delay');
         this._onSignificantNavigation(currentState).catch(error => {
           console.warn('Debounced passive context update failed:', error);
         });
       }
-    }, 5000); // 5 seconds for passive context updates
+    }, 1000); // 1 second for passive context updates (reduced from 5s)
 
     this._setupEpochTracking();
     
@@ -903,6 +904,45 @@ export class UIManager {
   }
 
   /**
+   * Trigger immediate passive context update for critical UI changes (modals, navigation)
+   */
+  private async _triggerImmediatePassiveContextUpdate(newState: UIState): Promise<void> {
+    if (!this._passiveContextEnabled || !this._connectedVoiceAdapter) {
+      return;
+    }
+
+    console.log('⚡ Immediate passive context update triggered');
+    
+    try {
+      // Convert UIState to the format expected by PassiveFIDManager
+      const convertedState = this._convertUIStateForPassiveFID(newState);
+      
+      // Get F-I-D context from PassiveFIDManager (cached, so fast)
+      const fidContext = await this._passiveFIDManager.getOrFetchContext(convertedState);
+
+      // Push context to voice adapter immediately
+      if (typeof (this._connectedVoiceAdapter as any).pushPassiveContext === 'function') {
+        const result = await (this._connectedVoiceAdapter as any).pushPassiveContext(fidContext);
+        
+        console.log('✅ Immediate passive context update successful:', result);
+        
+        debugEventEmitter.emit(
+          'navigation_event',
+          {
+            type: 'immediate_passive_context_pushed',
+            provider: this._connectedVoiceAdapter.provider,
+            route: newState.currentRoute,
+            project: newState.currentProject
+          },
+          'ui-manager'
+        );
+      }
+    } catch (error) {
+      console.error('❌ Immediate passive context update failed:', error);
+    }
+  }
+
+  /**
    * Manually trigger passive context update for testing (bypasses debounce and change detection)
    */
   async triggerPassiveContextUpdate(): Promise<void> {
@@ -915,31 +955,8 @@ export class UIManager {
     console.log('🔧 Manually triggering passive context update...');
     
     try {
-      // Convert UIState to the format expected by PassiveFIDManager
-      const convertedState = this._convertUIStateForPassiveFID(currentState);
-      
-      // Get F-I-D context from PassiveFIDManager
-      const fidContext = await this._passiveFIDManager.getOrFetchContext(convertedState);
-
-      // Push context to voice adapter
-      if (typeof (this._connectedVoiceAdapter as any).pushPassiveContext === 'function') {
-        const result = await (this._connectedVoiceAdapter as any).pushPassiveContext(fidContext);
-        
-        console.log('✅ Manual passive context update successful:', result);
-        
-        debugEventEmitter.emit(
-          'navigation_event',
-          {
-            type: 'manual_passive_context_pushed',
-            provider: this._connectedVoiceAdapter.provider,
-            route: currentState.currentRoute,
-            project: currentState.currentProject
-          },
-          'ui-manager'
-        );
-      } else {
-        throw new Error('Voice adapter does not support pushPassiveContext method');
-      }
+      // Use the immediate update method
+      await this._triggerImmediatePassiveContextUpdate(currentState);
     } catch (error) {
       console.error('❌ Manual passive context update failed:', error);
       throw error;
@@ -950,7 +967,11 @@ export class UIManager {
    * Detect significant navigation changes that should trigger context updates
    */
   private _onSignificantNavigation(newState: UIState): Promise<void> {
+    const startTime = Date.now();
+    console.log('🔍 _onSignificantNavigation called at', new Date().toISOString());
+    
     if (!this._passiveContextEnabled || !this._connectedVoiceAdapter) {
+      console.log('❌ Passive context not enabled or no voice adapter');
       return Promise.resolve();
     }
 
@@ -958,6 +979,7 @@ export class UIManager {
     
     // Check if this is a significant change
     if (currentStateHash === this._lastUIStateHash) {
+      console.log('⏭️ No state change detected (same hash)');
       return Promise.resolve();
     }
 
@@ -965,63 +987,37 @@ export class UIManager {
     const isSignificant = this._detectSignificantChange(oldState, newState);
 
     if (!isSignificant) {
+      console.log('⏭️ Change not significant enough for context update');
       return Promise.resolve();
     }
+
+    console.log('✅ Significant change detected, proceeding with passive context update');
+    console.log('📊 State change:', {
+      route: `${oldState.currentRoute} → ${newState.currentRoute}`,
+      project: `${oldState.currentProject} → ${newState.currentProject}`,
+      modalCount: `${oldState.modalStack?.length || 0} → ${newState.modalStack?.length || 0}`
+    });
 
     // Update hash to prevent duplicate updates
     this._lastUIStateHash = currentStateHash;
 
-    // Trigger passive context update (non-blocking)
-    return Promise.resolve().then(async () => {
-      try {
-        debugEventEmitter.emit(
-          'navigation_event',
-          {
-            type: 'passive_context_update_triggered',
-            route: newState.currentRoute,
-            project: newState.currentProject,
-            modalCount: newState.modalStack?.length || 0,
-            visibleAnchors: newState.visibleAnchors?.length || 0
-          },
-          'ui-manager'
-        );
-
-        // Convert UIState to the format expected by PassiveFIDManager
-        const convertedState = this._convertUIStateForPassiveFID(newState);
-        
-        // Get F-I-D context from PassiveFIDManager
-        const fidContext = await this._passiveFIDManager.getOrFetchContext(convertedState);
-
-        // Push context to voice adapter if it supports passive context
-        if (this._connectedVoiceAdapter && typeof (this._connectedVoiceAdapter as any).pushPassiveContext === 'function') {
-          await (this._connectedVoiceAdapter as any).pushPassiveContext(fidContext);
-          
-          debugEventEmitter.emit(
-            'navigation_event',
-            {
-              type: 'passive_context_pushed',
-              provider: this._connectedVoiceAdapter.provider,
-              route: newState.currentRoute,
-              project: newState.currentProject
-            },
-            'ui-manager'
-          );
-        }
-      } catch (error) {
-        console.error('Failed to update passive F-I-D context:', error);
-        
-        debugEventEmitter.emit(
-          'navigation_event',
-          {
-            type: 'passive_context_error',
-            error: error instanceof Error ? error.message : String(error),
-            route: newState.currentRoute,
-            project: newState.currentProject
-          },
-          'ui-manager'
-        );
-      }
+    // Use immediate passive context update (non-blocking)
+    this._triggerImmediatePassiveContextUpdate(newState).catch(error => {
+      console.error('Failed to update passive F-I-D context:', error);
+      
+      debugEventEmitter.emit(
+        'navigation_event',
+        {
+          type: 'passive_context_error',
+          error: error instanceof Error ? error.message : String(error),
+          route: newState.currentRoute,
+          project: newState.currentProject
+        },
+        'ui-manager'
+      );
     });
+
+    return Promise.resolve();
   }
 
   /**
@@ -1447,22 +1443,29 @@ export class UIManager {
    * Pop modal from stack
    */
   private _popModal(modalId?: string): ModalStackEntry | null {
+    console.log('🔄 _popModal called with modalId:', modalId);
     let poppedModal: ModalStackEntry | null = null;
 
     if (modalId) {
       // Remove specific modal and all modals above it
       const index = this._modalStack.findIndex(m => m.id === modalId);
+      console.log('🔍 Modal index in stack:', index, 'Stack size:', this._modalStack.length);
       if (index !== -1) {
         const removed = this._modalStack.splice(index);
         poppedModal = removed[0];
+        console.log('✅ Popped modal:', poppedModal.id, 'Remaining stack size:', this._modalStack.length);
+      } else {
+        console.log('❌ Modal not found in stack');
       }
     } else {
       // Remove top modal
       poppedModal = this._modalStack.pop() || null;
+      console.log('✅ Popped top modal:', poppedModal?.id, 'Remaining stack size:', this._modalStack.length);
     }
 
     if (poppedModal) {
       // Update internal state (no URL changes)
+      console.log('🔄 Calling _updateStateForModalStack after popping modal');
       this._updateStateForModalStack();
 
       // Notify listeners
@@ -1478,6 +1481,8 @@ export class UIManager {
         },
         'navigation-orchestrator'
       );
+    } else {
+      console.log('❌ No modal was popped');
     }
 
     return poppedModal;
@@ -1527,10 +1532,14 @@ export class UIManager {
       console.log('📚 Current modal stack:', this._modalStack.map(m => `${m.type}:${m.id}`));
     }
 
-    // Trigger passive context update for significant modal state changes
+    // Trigger immediate passive context update for modal state changes (critical UI change)
     if (this._passiveContextEnabled) {
-      console.log('🔄 Triggering passive context update for modal state change');
-      this._debouncedPassiveContextUpdate();
+      console.log('🔄 Triggering IMMEDIATE passive context update for modal state change');
+      const currentState = this.getCurrentUIState();
+      // Use immediate update for critical modal changes, not debounced
+      this._triggerImmediatePassiveContextUpdate(currentState).catch(error => {
+        console.warn('Immediate passive context update failed:', error);
+      });
     }
   }
 
@@ -1672,11 +1681,14 @@ export class UIManager {
    * Unregister that a modal was closed externally
    */
   unregisterExternalModal(modalId: string, modalType: 'project' | 'example' | 'gallery' | 'generic'): void {
+    console.log('🔄 unregisterExternalModal called:', { modalId, modalType });
     const modalIndex = this._modalStack.findIndex(m => m.id === modalId && m.type === modalType);
     if (modalIndex === -1) {
+      console.log('❌ Modal not found in stack for unregistration');
       return; // Not found
     }
 
+    console.log('✅ Modal found in stack, calling _popModal');
     // Use _popModal to ensure proper state updates and passive context triggering
     this._popModal(modalId);
 
@@ -2268,10 +2280,13 @@ export class UIManager {
           console.error('F-I-D context update failed after navigation:', error);
         });
 
-        // Trigger passive context update for successful navigation
+        // Trigger immediate passive context update for successful navigation (critical change)
         if (this._passiveContextEnabled) {
-          console.log('🔄 Triggering passive context update for successful navigation completion');
-          this._debouncedPassiveContextUpdate();
+          console.log('🔄 Triggering IMMEDIATE passive context update for successful navigation completion');
+          const currentState = this.getCurrentUIState();
+          this._triggerImmediatePassiveContextUpdate(currentState).catch(error => {
+            console.warn('Navigation completion passive context update failed:', error);
+          });
         }
       }
 
@@ -3784,19 +3799,25 @@ export class UIManager {
     // Listen for navigation events that should bump epoch
     window.addEventListener('popstate', () => {
       this._currentEpoch++;
-      // Trigger passive context update for browser navigation
+      // Trigger immediate passive context update for browser navigation (critical change)
       if (this._passiveContextEnabled) {
-        console.log('🔄 Triggering passive context update for browser back/forward navigation');
-        this._debouncedPassiveContextUpdate();
+        console.log('🔄 Triggering IMMEDIATE passive context update for browser back/forward navigation');
+        const currentState = this.getCurrentUIState();
+        this._triggerImmediatePassiveContextUpdate(currentState).catch(error => {
+          console.warn('Browser navigation passive context update failed:', error);
+        });
       }
     });
 
     window.addEventListener('hashchange', () => {
       this._currentEpoch++;
-      // Trigger passive context update for hash changes
+      // Trigger immediate passive context update for hash changes (critical change)
       if (this._passiveContextEnabled) {
-        console.log('🔄 Triggering passive context update for hash change navigation');
-        this._debouncedPassiveContextUpdate();
+        console.log('🔄 Triggering IMMEDIATE passive context update for hash change navigation');
+        const currentState = this.getCurrentUIState();
+        this._triggerImmediatePassiveContextUpdate(currentState).catch(error => {
+          console.warn('Hash change passive context update failed:', error);
+        });
       }
     });
 
