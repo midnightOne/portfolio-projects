@@ -601,12 +601,22 @@ model ContextChunk {
   tokenCount      Int            @default(0) @map("token_count") // Estimated token count
   embeddingVector Unsupported("vector(1536)")?        @map("embedding_vector") // Vector embedding for semantic search
   metadata        Json           @default("{}") // Additional metadata (importance score, keywords, etc.)
+  
+  // NEW: Hierarchical relationship fields
+  parentChunkId   String?        @map("parent_chunk_id")    // Points to parent chunk
+  rootChunkId     String?        @map("root_chunk_id")      // Points to T0/T1 root
+  sectionGroup    String?        @map("section_group")      // Groups related chunks
+  derivationPath  String?        @map("derivation_path")    // e.g., "T1→T2.1→T3.5"
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @updatedAt @map("updated_at")
   
   // Relations
   entity          ContentEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
   projectIndex    ProjectAIIndex? @relation(fields: [projectIndexId], references: [projectId], onDelete: SetNull)
+  
+  // NEW: Hierarchical relations
+  parentChunk     ContextChunk?  @relation("ChunkHierarchy", fields: [parentChunkId], references: [id])
+  childChunks     ContextChunk[] @relation("ChunkHierarchy")
 
   @@unique([entityId, tier, chunkId])
   @@index([entityId])
@@ -614,6 +624,9 @@ model ContextChunk {
   @@index([chunkId])
   @@index([tokenCount])
   @@index([projectIndexId])
+  @@index([parentChunkId])
+  @@index([rootChunkId])
+  @@index([sectionGroup])
   @@map("context_chunks")
 }
 

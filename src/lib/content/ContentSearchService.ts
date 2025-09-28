@@ -582,6 +582,78 @@ export class ContentSearchService implements ContentProvider {
   }
 
   /**
+   * Get content hierarchy for a specific chunk
+   */
+  async getContentHierarchy(chunkId: string): Promise<{
+    ancestors: any[];
+    descendants: any[];
+    siblings: any[];
+  }> {
+    return await this.vectorOps.getContentHierarchy(chunkId);
+  }
+
+  /**
+   * Search within a content section group
+   */
+  async searchWithinSection(
+    sectionGroup: string, 
+    query: string, 
+    maxTier: number = 4
+  ): Promise<InternalSearchResult[]> {
+    // Generate query embedding
+    let queryEmbedding: number[] = [];
+    if (this.openai && query.trim()) {
+      try {
+        const response = await this.openai.embeddings.create({
+          model: this.embeddingModel,
+          input: query,
+          dimensions: this.embeddingDimensions
+        });
+        queryEmbedding = response.data[0].embedding;
+      } catch (error) {
+        console.error('Failed to generate query embedding:', error);
+      }
+    }
+
+    if (queryEmbedding.length > 0) {
+      const results = await this.vectorOps.searchWithinSection(sectionGroup, queryEmbedding, 10, maxTier);
+      return results.map(result => ({
+        id: result.id,
+        entityId: result.entity_id || '',
+        entityType: result.entity_type,
+        entitySlug: result.entity_slug,
+        entityTitle: result.entity_title,
+        tier: result.tier,
+        chunkId: result.chunk_id,
+        title: result.title,
+        content: result.content,
+        tokenCount: 0, // Would need to be fetched separately
+        similarity: result.similarity_score,
+        metadata: {},
+        tags: [],
+        technologies: [],
+        createdAt: new Date()
+      }));
+    }
+
+    return [];
+  }
+
+  /**
+   * Get related content across tiers for a topic
+   */
+  async getRelatedContentAcrossTiers(
+    rootChunkId: string,
+    includeTiers: number[] = [1, 2, 3]
+  ): Promise<{
+    summary: any | null;
+    keyPoints: any[];
+    details: any[];
+    fullContent: any[];
+  }> {
+    return await this.vectorOps.getRelatedContentAcrossTiers(rootChunkId, includeTiers);
+  }
+  /**
    * Get search statistics for monitoring
    */
   async getSearchStats(): Promise<{

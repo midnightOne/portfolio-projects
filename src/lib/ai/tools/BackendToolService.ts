@@ -189,6 +189,18 @@ export class BackendToolService {
           result = await this.handleContentGet(parameters, context);
           break;
 
+        // NEW: Hierarchical content tools
+        case 'content_getHierarchy':
+          result = await this.handleContentHierarchy(parameters, context);
+          break;
+
+        case 'content_searchSection':
+          result = await this.handleSectionSearch(parameters, context);
+          break;
+
+        case 'content_getRelated':
+          result = await this.handleRelatedContent(parameters, context);
+          break;
         default:
           return {
             success: false,
@@ -1640,6 +1652,138 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
     });
     
     return wordCount;
+  }
+
+  // ============================================================================
+  // NEW: HIERARCHICAL CONTENT TOOL HANDLERS
+  // ============================================================================
+
+  /**
+   * Handle content hierarchy retrieval
+   */
+  private async handleContentHierarchy(
+    parameters: any,
+    context: ServerToolExecutionContext
+  ): Promise<any> {
+    try {
+      const { chunkId } = parameters;
+
+      console.log('Content hierarchy request:', {
+        chunkId,
+        sessionId: context.sessionId
+      });
+
+      if (!chunkId) {
+        throw new Error('Chunk ID is required');
+      }
+
+      // Get hierarchy using ContentSearchService
+      const hierarchy = await this.contentSearchService.getContentHierarchy(chunkId);
+
+      console.log('Content hierarchy completed:', {
+        chunkId,
+        ancestors: hierarchy.ancestors.length,
+        descendants: hierarchy.descendants.length,
+        siblings: hierarchy.siblings.length,
+        sessionId: context.sessionId
+      });
+
+      return {
+        success: true,
+        data: hierarchy
+      };
+
+    } catch (error) {
+      console.error('Content hierarchy failed:', error);
+      throw new Error(`Content hierarchy retrieval failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle section search within content groups
+   */
+  private async handleSectionSearch(
+    parameters: any,
+    context: ServerToolExecutionContext
+  ): Promise<any> {
+    try {
+      const { sectionGroup, query, maxTier = 4 } = parameters;
+
+      console.log('Section search request:', {
+        sectionGroup,
+        query,
+        maxTier,
+        sessionId: context.sessionId
+      });
+
+      if (!sectionGroup || !query) {
+        throw new Error('Section group and query are required');
+      }
+
+      // Search within section using ContentSearchService
+      const results = await this.contentSearchService.searchWithinSection(sectionGroup, query, maxTier);
+
+      console.log('Section search completed:', {
+        sectionGroup,
+        query,
+        results: results.length,
+        sessionId: context.sessionId
+      });
+
+      return {
+        success: true,
+        data: {
+          items: results
+        }
+      };
+
+    } catch (error) {
+      console.error('Section search failed:', error);
+      throw new Error(`Section search failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle related content retrieval across tiers
+   */
+  private async handleRelatedContent(
+    parameters: any,
+    context: ServerToolExecutionContext
+  ): Promise<any> {
+    try {
+      const { rootChunkId, includeTiers = [1, 2, 3] } = parameters;
+
+      console.log('Related content request:', {
+        rootChunkId,
+        includeTiers,
+        sessionId: context.sessionId
+      });
+
+      if (!rootChunkId) {
+        throw new Error('Root chunk ID is required');
+      }
+
+      // Get related content using ContentSearchService
+      const relatedContent = await this.contentSearchService.getRelatedContentAcrossTiers(rootChunkId, includeTiers);
+
+      console.log('Related content completed:', {
+        rootChunkId,
+        summary: relatedContent.summary ? 'found' : 'none',
+        keyPoints: relatedContent.keyPoints.length,
+        details: relatedContent.details.length,
+        fullContent: relatedContent.fullContent.length,
+        sessionId: context.sessionId
+      });
+
+      return {
+        success: true,
+        data: relatedContent
+      };
+
+    } catch (error) {
+      console.error('Related content failed:', error);
+      throw new Error(`Related content retrieval failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 }
 
