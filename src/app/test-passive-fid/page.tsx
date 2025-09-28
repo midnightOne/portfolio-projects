@@ -243,6 +243,11 @@ export default function TestPassiveFIDPage() {
                   <div>
                     <span className="font-medium">Visible Sections:</span> {context.index.visibleSections.join(', ') || 'None'}
                   </div>
+                  {context.index.contentStructure && (
+                    <div>
+                      <span className="font-medium">Content Structure:</span> {context.index.contentStructure.totalSections} sections, {context.index.contentStructure.headingHierarchy.length} headings, ~{context.index.contentStructure.estimatedReadTime}min read
+                    </div>
+                  )}
                 </div>
                 
                 {context.index.availableProjects.length > 0 && (
@@ -258,6 +263,35 @@ export default function TestPassiveFIDPage() {
                           </div>
                         </div>
                       ))}
+                    </div>
+                  </div>
+                )}
+
+                {context.index.contentStructure && (
+                  <div className="mt-4">
+                    <h4 className="font-medium mb-2">Content Structure:</h4>
+                    <div className="bg-white rounded p-2 text-sm">
+                      <div className="grid grid-cols-2 gap-4 mb-2">
+                        <div><span className="font-medium">Total Sections:</span> {context.index.contentStructure.totalSections}</div>
+                        <div><span className="font-medium">Reading Time:</span> ~{context.index.contentStructure.estimatedReadTime} min</div>
+                        <div><span className="font-medium">Content Types:</span> {context.index.contentStructure.contentTypes.join(', ')}</div>
+                        <div><span className="font-medium">Headings:</span> {context.index.contentStructure.headingHierarchy.length}</div>
+                      </div>
+                      {context.index.contentStructure.headingHierarchy.length > 0 && (
+                        <div>
+                          <div className="font-medium mb-1">Heading Hierarchy:</div>
+                          <div className="space-y-1">
+                            {context.index.contentStructure.headingHierarchy.slice(0, 5).map((heading, idx) => (
+                              <div key={idx} className="text-xs" style={{ paddingLeft: `${(heading.level - 1) * 12}px` }}>
+                                H{heading.level}: {heading.title}
+                              </div>
+                            ))}
+                            {context.index.contentStructure.headingHierarchy.length > 5 && (
+                              <div className="text-xs text-gray-500">... and {context.index.contentStructure.headingHierarchy.length - 5} more</div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

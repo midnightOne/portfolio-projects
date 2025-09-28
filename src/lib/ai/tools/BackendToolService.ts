@@ -290,12 +290,7 @@ export class BackendToolService {
         detailedSummary: projectData?.briefOverview || 'Detailed project analysis available',
         keyTechnologies: projectData?.tags?.map(t => t.name) || ['javascript', 'typescript', 'react'],
         mainTopics: ['web development', 'frontend'],
-        contentStructure: {
-          totalSections: 0,
-          headingHierarchy: [],
-          contentTypes: [],
-          estimatedReadTime: 0
-        },
+        contentStructure: await this.buildContentStructure(projectId, projectData),
         sections: includeContent ? [] : undefined,
         mediaContext: includeMedia ? (projectData?.mediaItems || []) : undefined,
         keywords: [],
@@ -1469,6 +1464,182 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
       const oldestKey = this._requestCache.keys().next().value;
       this._requestCache.delete(oldestKey);
     }
+  }
+
+  /**
+   * Build content structure from semantic data
+   */
+  private async buildContentStructure(projectId: string, projectData: any): Promise<{
+    totalSections: number;
+    headingHierarchy: Array<{ level: number; title: string; id?: string }>;
+    contentTypes: string[];
+    estimatedReadTime: number;
+    semanticItems?: Array<{ id: string; oneLiner: string; type: string; tier: number }>;
+  }> {
+    try {
+      const { prisma } = await import('@/lib/database/connection');
+
+      // First, get the actual project to find the real project ID
+      const project = await prisma.project.findFirst({
+        where: {
+          OR: [
+            { slug: projectId },
+            { id: projectId }
+          ]
+        },
+        select: {
+          id: true,
+          slug: true
+        }
+      });
+
+      if (!project) {
+        console.warn('Project not found for content structure:', projectId);
+        return {
+          totalSections: 0,
+          headingHierarchy: [],
+          contentTypes: [],
+          estimatedReadTime: 0,
+          semanticItems: []
+        };
+      }
+
+      const actualProjectId = project.id;
+
+      // Get AI Index data for semantic information
+      const aiIndex = await prisma.projectAIIndex.findUnique({
+        where: { projectId: actualProjectId },
+        select: {
+          sectionsCount: true,
+          mediaCount: true,
+          keywords: true,
+          topics: true,
+          technologies: true,
+          summary: true
+        }
+      });
+
+      // Get article content for structure analysis
+      const articleContent = await prisma.articleContent.findFirst({
+        where: { projectId: actualProjectId },
+        select: {
+          jsonContent: true,
+          contentType: true
+        }
+      });
+
+      let headingHierarchy: Array<{ level: number; title: string; id?: string }> = [];
+      let contentTypes: string[] = [];
+      let estimatedReadTime = 0;
+      let semanticItems: Array<{ id: string; oneLiner: string; type: string; tier: number }> = [];
+
+      // Extract structure from JSON content
+      if (articleContent?.jsonContent && articleContent.contentType === 'json') {
+        const jsonContent = articleContent.jsonContent as any;
+
+        console.log("jsonContent: " + jsonContent.content);  
+        
+        if (jsonContent.content && Array.isArray(jsonContent.content)) {
+          // Extract headings for hierarchy
+          const headings = jsonContent.content.filter((block: any) => 
+            block.type === 'heading'
+          );
+          
+          headingHierarchy = headings.map((heading: any, index: number) => ({
+            level: heading.attrs?.level || 1,
+            title: this.extractTextFromContent(heading.content) || `Section ${index + 1}`,
+            id: `section-${index + 1}`
+          }));
+
+          // Extract content types
+          const types = new Set(jsonContent.content.map((block: any) => block.type));
+          contentTypes = Array.from(types);
+
+          // Estimate reading time (rough calculation: 200 words per minute)
+          const wordCount = this.estimateWordCount(jsonContent.content);
+          estimatedReadTime = Math.ceil(wordCount / 200);
+
+          // Generate semantic items from headings and key content
+          semanticItems = headings.slice(0, 10).map((heading: any, index: number) => ({
+            id: `semantic-${index + 1}`,
+            oneLiner: this.extractTextFromContent(heading.content) || `Section ${index + 1}`,
+            type: 'content',
+            tier: index < 3 ? 1 : index < 7 ? 2 : 3
+          }));
+
+          // Add technology-based semantic items
+          if (aiIndex?.technologies) {
+            const techArray = Array.isArray(aiIndex.technologies) ? aiIndex.technologies : [];
+            techArray.slice(0, 5).forEach((tech: string, index: number) => {
+              semanticItems.push({
+                id: `tech-${index + 1}`,
+                oneLiner: `${tech} implementation and usage`,
+                type: 'technical',
+                tier: 1
+              });
+            });
+          }
+        }
+      }
+
+      return {
+        totalSections: aiIndex?.sectionsCount || headingHierarchy.length || 0,
+        headingHierarchy,
+        contentTypes,
+        estimatedReadTime,
+        semanticItems
+      };
+
+    } catch (error) {
+      console.warn('Failed to build content structure:', error);
+      
+      // Return basic structure on error
+      return {
+        totalSections: 0,
+        headingHierarchy: [],
+        contentTypes: [],
+        estimatedReadTime: 0,
+        semanticItems: []
+      };
+    }
+  }
+
+  /**
+   * Extract text content from TipTap content structure
+   */
+  private extractTextFromContent(content: any[]): string {
+    if (!Array.isArray(content)) return '';
+    
+    return content.map(item => {
+      if (item.type === 'text') {
+        return item.text || '';
+      } else if (item.content) {
+        return this.extractTextFromContent(item.content);
+      }
+      return '';
+    }).join('').trim();
+  }
+
+  /**
+   * Estimate word count from content blocks
+   */
+  private estimateWordCount(content: any[]): number {
+    if (!Array.isArray(content)) return 0;
+    
+    let wordCount = 0;
+    
+    content.forEach(block => {
+      if (block.type === 'paragraph' || block.type === 'heading') {
+        const text = this.extractTextFromContent(block.content || []);
+        wordCount += text.split(/\s+/).filter(word => word.length > 0).length;
+      } else if (block.type === 'codeBlock') {
+        // Code blocks count as fewer "reading" words
+        const text = this.extractTextFromContent(block.content || []);
+        wordCount += Math.ceil(text.split(/\s+/).length * 0.3);
+      }
+    });
+    
+    return wordCount;
   }
 }
 

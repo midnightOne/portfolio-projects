@@ -30,6 +30,12 @@ export interface FIDContext {
     currentProject?: string;
     visibleSections: string[];
     projectSemanticItems?: SemanticItem[]; // Project modal: semantic one-liners for tiered retrieval
+    contentStructure?: {
+      totalSections: number;
+      headingHierarchy: Array<{ level: number; title: string; id?: string }>;
+      contentTypes: string[];
+      estimatedReadTime: number;
+    };
   };
   details: {
     briefSummary?: string; // Brief project summary from server
@@ -472,15 +478,29 @@ export class PassiveFIDManager {
    * Extract semantic items from project context data
    */
   private extractSemanticItems(contextData: any, projectId: string): SemanticItem[] {
-    if (!contextData?.semanticItems) return [];
+    // First try to get semantic items from contentStructure
+    if (contextData?.contentStructure?.semanticItems) {
+      return contextData.contentStructure.semanticItems.map((item: any) => ({
+        id: item.id,
+        oneLiner: item.oneLiner,
+        type: item.type,
+        projectId,
+        tier: item.tier
+      }));
+    }
 
-    return contextData.semanticItems.map((item: any) => ({
-      id: item.id,
-      oneLiner: item.oneLiner || item.title || '',
-      type: item.type || 'content',
-      projectId,
-      tier: item.tier || 1
-    }));
+    // Fallback to legacy semanticItems field
+    if (contextData?.semanticItems) {
+      return contextData.semanticItems.map((item: any) => ({
+        id: item.id,
+        oneLiner: item.oneLiner || item.title || '',
+        type: item.type || 'content',
+        projectId,
+        tier: item.tier || 1
+      }));
+    }
+
+    return [];
   }
 
   /**
@@ -612,13 +632,14 @@ export class PassiveFIDManager {
         projectSemanticItems: undefined
       };
     } else if (uiState.currentProject) {
-      // Project modal: Get semantic one-liners for tiered retrieval
+      // Project modal: Get semantic one-liners for tiered retrieval + content structure
       console.log('📋 Building project modal index with semantic items for:', uiState.currentProject);
-      const { semanticItems } = await this.getProjectContext(uiState.currentProject);
+      const { context, semanticItems } = await this.getProjectContext(uiState.currentProject);
       return {
         ...baseIndex,
         availableProjects: [],
-        projectSemanticItems: semanticItems
+        projectSemanticItems: semanticItems,
+        contentStructure: context?.contentStructure
       };
     } else {
       // Other routes: Basic index
