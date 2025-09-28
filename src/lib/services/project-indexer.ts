@@ -20,6 +20,28 @@ export interface ProjectIndex {
   contentHash: string; // For change detection
 }
 
+export interface EnhancedProjectIndex extends ProjectIndex {
+  hierarchicalSections: HierarchicalSection[];
+  contentChangeMap: ContentChangeMap;
+  tierMappings: TierMapping[];
+}
+
+export interface ContentChangeMap {
+  unchanged: string[];                // Section IDs that haven't changed
+  modified: string[];                 // Section IDs that need regeneration
+  added: string[];                    // New sections
+  removed: string[];                  // Deleted sections
+  articleHashChanged: boolean;        // Whether overall article changed
+}
+
+export interface TierMapping {
+  sectionId: string;
+  tier: number;                       // 2 or 3
+  chunkId: string;                    // Generated chunk ID
+  parentChunkId?: string;             // Parent chunk relationship
+  sectionGroup: string;               // Grouping identifier
+}
+
 export interface IndexedSection {
   id: string;
   title: string;
@@ -33,6 +55,20 @@ export interface IndexedSection {
   nodeType: string; // Tiptap node type
   depth: number; // Heading depth for hierarchy
   projectId?: string; // Track which project this section belongs to
+}
+
+export interface HierarchicalSection extends IndexedSection {
+  // Enhanced fields for tier mapping
+  headingLevel: number;               // 1-6 for H1-H6, 0 for non-headings
+  parentSectionId?: string;           // Parent heading ID
+  childSectionIds: string[];          // Child heading/content IDs
+  tierAssignment: number;             // Auto-assigned tier (2 or 3)
+  anchorId: string;                   // Semantic anchor for navigation
+  tiptapPosition: {
+    start: number;                    // Tiptap document position
+    end: number;                      // Tiptap document position
+  };
+  contentHash: string;                // Hash for change detection
 }
 
 export interface MediaContext {
@@ -93,6 +129,283 @@ export class ProjectIndexer {
       ProjectIndexer.instance = new ProjectIndexer();
     }
     return ProjectIndexer.instance;
+  }
+
+  /**
+   * Generate enhanced hierarchical index for a specific project
+   */
+  async indexProjectHierarchical(projectId: string): Promise<EnhancedProjectIndex> {
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: {
+        articleContent: true,
+        tags: true,
+        aiIndex: true
+      }
+    });
+
+    if (!project) {
+      throw new Error(`Project not found: ${projectId}`);
+    }
+
+    // Get basic project index first
+    const basicIndex = await this.indexProject(projectId);
+    
+    // Generate hierarchical sections
+    const hierarchicalSections = await this.generateHierarchicalSections(project, basicIndex.sections);
+    
+    // Detect content changes
+    const contentChangeMap = await this.detectContentChanges(projectId, hierarchicalSections);
+    
+    // Generate tier mappings
+    const tierMappings = this.generateTierMappings(hierarchicalSections);
+
+    return {
+      ...basicIndex,
+      hierarchicalSections,
+      contentChangeMap,
+      tierMappings
+    };
+  }
+
+  /**
+   * Generate hierarchical sections with parent-child relationships
+   */
+  private async generateHierarchicalSections(
+    project: any, 
+    basicSections: IndexedSection[]
+  ): Promise<HierarchicalSection[]> {
+    const hierarchicalSections: HierarchicalSection[] = [];
+    const sectionMap = new Map<string, HierarchicalSection>();
+
+    // Convert basic sections to hierarchical sections
+    for (const section of basicSections) {
+      const hierarchicalSection: HierarchicalSection = {
+        ...section,
+        headingLevel: this.extractHeadingLevel(section.nodeType, section.title),
+        parentSectionId: undefined,
+        childSectionIds: [],
+        tierAssignment: this.assignTier(section),
+        anchorId: this.generateAnchorId(section.title || section.id),
+        tiptapPosition: {
+          start: section.startOffset,
+          end: section.endOffset
+        },
+        contentHash: this.generateContentHash(section.content)
+      };
+
+      hierarchicalSections.push(hierarchicalSection);
+      sectionMap.set(section.id, hierarchicalSection);
+    }
+
+    // Build parent-child relationships
+    this.buildHierarchicalRelationships(hierarchicalSections);
+
+    return hierarchicalSections;
+  }
+
+  /**
+   * Extract heading level from nodeType and title
+   */
+  private extractHeadingLevel(nodeType: string, title?: string): number {
+    if (nodeType === 'heading') {
+      // Try to extract level from title or default to 1
+      const match = title?.match(/^(#{1,6})\s/);
+      return match ? match[1].length : 1;
+    }
+    return 0; // Non-heading content
+  }
+
+  /**
+   * Assign tier based on heading level and content type
+   */
+  private assignTier(section: IndexedSection): number {
+    if (section.nodeType === 'heading') {
+      return section.depth === 1 ? 2 : 3; // H1 = T2, H2+ = T3
+    }
+    return 3; // Content blocks = T3
+  }
+
+  /**
+   * Generate semantic anchor ID from title
+   */
+  private generateAnchorId(title: string): string {
+    return title
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+  }
+
+  /**
+   * Generate content hash for change detection
+   */
+  private generateContentHash(content: string): string {
+    // Simple hash function (in production, use crypto.createHash)
+    let hash = 0;
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return hash.toString(36);
+  }
+
+  /**
+   * Build parent-child relationships between sections
+   */
+  private buildHierarchicalRelationships(sections: HierarchicalSection[]): void {
+    const headingStack: HierarchicalSection[] = [];
+
+    for (const section of sections) {
+      if (section.nodeType === 'heading') {
+        // Pop headings of same or lower level
+        while (headingStack.length > 0 && 
+               headingStack[headingStack.length - 1].headingLevel >= section.headingLevel) {
+          headingStack.pop();
+        }
+
+        // Set parent relationship
+        if (headingStack.length > 0) {
+          const parent = headingStack[headingStack.length - 1];
+          section.parentSectionId = parent.id;
+          parent.childSectionIds.push(section.id);
+        }
+
+        headingStack.push(section);
+      } else {
+        // Content blocks belong to the current heading
+        if (headingStack.length > 0) {
+          const parent = headingStack[headingStack.length - 1];
+          section.parentSectionId = parent.id;
+          parent.childSectionIds.push(section.id);
+        }
+      }
+    }
+  }
+
+  /**
+   * Detect content changes compared to existing chunks
+   */
+  private async detectContentChanges(
+    projectId: string, 
+    hierarchicalSections: HierarchicalSection[]
+  ): Promise<ContentChangeMap> {
+    // Get project slug first
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: { slug: true }
+    });
+    
+    if (!project) {
+      return {
+        unchanged: [],
+        modified: [],
+        added: hierarchicalSections.map(s => s.id),
+        removed: [],
+        articleHashChanged: true
+      };
+    }
+
+    // Get existing chunks for this project
+    const existingChunks = await prisma.contextChunk.findMany({
+      where: {
+        entity: {
+          entityType: 'PROJECT',
+          slug: project.slug
+        }
+      }
+    });
+
+    const existingHashes = new Map<string, string>();
+    existingChunks.forEach(chunk => {
+      const hash = chunk.metadata && typeof chunk.metadata === 'object' 
+        ? (chunk.metadata as any).contentHash 
+        : null;
+      if (hash) {
+        existingHashes.set(chunk.chunkId, hash);
+      }
+    });
+
+    const changeMap: ContentChangeMap = {
+      unchanged: [],
+      modified: [],
+      added: [],
+      removed: [],
+      articleHashChanged: false
+    };
+
+    // Check each section for changes
+    for (const section of hierarchicalSections) {
+      // Generate chunk ID consistent with SmartContentGenerator
+      let chunkId: string;
+      if (section.nodeType === 'heading' && section.headingLevel === 1) {
+        chunkId = `h1-${section.anchorId}`;
+      } else {
+        chunkId = `${section.nodeType}-${section.anchorId}`;
+      }
+      
+      const existingHash = existingHashes.get(chunkId);
+
+      if (!existingHash) {
+        changeMap.added.push(section.id);
+      } else if (existingHash !== section.contentHash) {
+        changeMap.modified.push(section.id);
+      } else {
+        changeMap.unchanged.push(section.id);
+      }
+    }
+
+    // Check for removed sections
+    for (const [chunkId] of existingHashes) {
+      const stillExists = hierarchicalSections.some(s => {
+        let expectedChunkId: string;
+        if (s.nodeType === 'heading' && s.headingLevel === 1) {
+          expectedChunkId = `h1-${s.anchorId}`;
+        } else {
+          expectedChunkId = `${s.nodeType}-${s.anchorId}`;
+        }
+        return expectedChunkId === chunkId;
+      });
+      if (!stillExists) {
+        changeMap.removed.push(chunkId);
+      }
+    }
+
+    // Check if article hash changed (for T1 regeneration)
+    const currentArticleHash = this.generateContentHash(
+      hierarchicalSections.map(s => s.content).join('\n')
+    );
+    const existingArticleHash = existingChunks.find(c => c.chunkId === 'summary')?.metadata;
+    changeMap.articleHashChanged = !existingArticleHash || 
+      (existingArticleHash as any)?.articleHash !== currentArticleHash;
+
+    return changeMap;
+  }
+
+  /**
+   * Generate tier mappings for hierarchical sections
+   */
+  private generateTierMappings(hierarchicalSections: HierarchicalSection[]): TierMapping[] {
+    const mappings: TierMapping[] = [];
+
+    for (const section of hierarchicalSections) {
+      const chunkId = `${section.nodeType}-${section.anchorId}`;
+      const parentChunkId = section.parentSectionId 
+        ? hierarchicalSections.find(s => s.id === section.parentSectionId)?.anchorId
+        : section.tierAssignment === 2 ? 'summary' : undefined;
+
+      mappings.push({
+        sectionId: section.id,
+        tier: section.tierAssignment,
+        chunkId,
+        parentChunkId: parentChunkId ? `${section.nodeType}-${parentChunkId}` : parentChunkId,
+        sectionGroup: section.anchorId
+      });
+    }
+
+    return mappings;
   }
 
   /**

@@ -719,3 +719,33 @@ export const serverToolDefinitions: UnifiedToolDefinition[] = [
 
 // Note: getServerToolDefinitions function has been removed
 // Use UnifiedToolRegistry.getServerToolDefinitions() instead
+export const navigateToContentToolDefinition: UnifiedToolDefinition = {
+  name: 'content_navigateTo',
+  description: 'Navigate to specific content using Tiptap positions or semantic anchors for precise scrolling',
+  parameters: {
+    type: 'object',
+    properties: {
+      chunkId: {
+        type: 'string',
+        description: 'The content chunk ID to navigate to'
+      },
+      anchorId: {
+        type: 'string',
+        description: 'Optional semantic anchor ID for navigation (e.g., "technical-implementation")'
+      },
+      highlightSection: {
+        type: 'boolean',
+        description: 'Whether to highlight the target section after navigation',
+        default: true
+      },
+      scrollBehavior: {
+        type: 'string',
+        enum: ['smooth', 'instant', 'auto'],
+        description: 'Scroll animation behavior',
+        default: 'smooth'
+      }
+    },
+    required: ['chunkId']
+  },
+  executionContext: 'server'
+};

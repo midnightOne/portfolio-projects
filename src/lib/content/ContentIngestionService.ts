@@ -21,6 +21,7 @@ import { ContextManager } from '../services/ai/context-manager';
 import { debugEventEmitter } from '../debug/debugEventEmitter';
 import VectorOperations from './VectorOperations';
 import { IndexMaintenanceService } from '../database/IndexMaintenanceService';
+import { SmartContentGenerator, SmartGenerationResult } from './SmartContentGenerator';
 import OpenAI from 'openai';
 import { EventEmitter } from 'events';
 
@@ -97,6 +98,7 @@ export class ContentIngestionService extends EventEmitter {
   private contextManager: ContextManager;
   private vectorOps: VectorOperations;
   private indexMaintenance: IndexMaintenanceService;
+  private smartGenerator: SmartContentGenerator;
   private openai: OpenAI;
   private embeddingModel = 'text-embedding-3-small';
   private embeddingDimensions = 1536;
@@ -114,6 +116,7 @@ export class ContentIngestionService extends EventEmitter {
     this.projectIndexer = ProjectIndexer.getInstance();
     this.contextManager = new ContextManager();
     this.vectorOps = new VectorOperations(prisma);
+    this.smartGenerator = new SmartContentGenerator();
     this.indexMaintenance = IndexMaintenanceService.getInstance(prisma, {
       autoAnalyzeThreshold: 50,    // Analyze after 50 changes (more frequent for better performance)
       reindexThreshold: 5000,      // Reindex after 5k changes
@@ -252,11 +255,18 @@ export class ContentIngestionService extends EventEmitter {
         }
       });
 
-      // Parse user-defined tier markers from content
-      const userMarkers = this.parseUserDefinedTierMarkers(project.articleContent?.content || '');
+      // Generate hierarchical content with smart incremental processing
+      const generationResult = await this.smartGenerator.generateHierarchicalContent(project);
+      const tierContents = generationResult.tiers;
 
-      // Generate tier content with hybrid approach
-      const tierContents = await this.generateProjectTiersHybrid(project, userMarkers);
+      // Log cost savings and performance stats
+      console.log(`🎯 Smart Generation Results for ${project.slug}:`, {
+        sectionsSkipped: generationResult.costSavings.sectionsSkipped,
+        tokensSkipped: generationResult.costSavings.tokensSkipped,
+        costSaved: `$${generationResult.costSavings.estimatedCostSaved.toFixed(4)}`,
+        processingTime: `${generationResult.processingStats.processingTime}ms`,
+        efficiency: `${Math.round((generationResult.processingStats.reusedSections / generationResult.processingStats.totalSections) * 100)}% reused`
+      });
 
       // Generate embeddings for all tiers
       for (const tierContent of tierContents) {
