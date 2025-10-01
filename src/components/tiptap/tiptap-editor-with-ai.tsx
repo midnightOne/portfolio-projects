@@ -653,7 +653,7 @@ export function TiptapEditorWithAI({
     // Simple editor without AI panel
     return (
       <div className={className}>
-        <div className="border rounded-lg overflow-hidden">
+        <div className="border-gray-200 rounded-b-lg overflow-hidden">
           <Toolbar editor={editor} />
           <EditorContent 
             editor={editor} 

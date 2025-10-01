@@ -681,7 +681,7 @@ export function EnhancedProjectEditor({ projectId, mode, onSaveControlsChange }:
         <div className={`flex ${SPACING.gap.sm} min-h-[calc(100vh-4rem)]`}>
           {/* Project Editor - 65% */}
           <div className="flex-1" style={{ flexBasis: '65%' }}>
-            <Card className="h-full overflow-hidden">
+            <Card className="h-full overflow-hidden p-0">
               <div className="flex h-full">
                 {/* Left Sidebar - Metadata */}
                 <div className="w-1/3 border-r bg-muted/30 flex flex-col">
@@ -855,8 +855,9 @@ export function EnhancedProjectEditor({ projectId, mode, onSaveControlsChange }:
                 </div>
 
                 {/* Right Content Area - Article Content */}
-                <div className="flex-1 flex flex-col">
-                  <div className="flex-1 overflow-hidden p-4">
+                <div className="flex-1 flex flex-col bg-white overflow-hidden">
+                  {/* Tiptap Editor */}
+                  <div className="flex-1 overflow-hidden">
                     {getTiptapAdapter() ? (
                       <TextSelectionManager
                         adapter={getTiptapAdapter()!}
