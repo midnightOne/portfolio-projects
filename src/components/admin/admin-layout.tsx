@@ -35,6 +35,10 @@ interface AdminLayoutProps {
 
 export function AdminLayout({ children, saveControls }: AdminLayoutProps) {
   const pathname = usePathname();
+  
+  // Remove padding for editor pages to allow full-width content
+  const isEditorPage = pathname?.includes('/editor');
+  const mainClasses = isEditorPage ? "flex-1" : "flex-1 p-6";
 
   return (
     <SidebarProvider defaultOpen={true}>
@@ -42,7 +46,7 @@ export function AdminLayout({ children, saveControls }: AdminLayoutProps) {
         <AdminSidebar />
         <SidebarInset className="flex flex-1 flex-col">
           <AdminPageHeader saveControls={saveControls} />
-          <main className="flex-1 p-6">
+          <main className={mainClasses}>
             {children}
           </main>
         </SidebarInset>
