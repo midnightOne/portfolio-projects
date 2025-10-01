@@ -429,7 +429,7 @@ export function TiptapEditorWithAI({
         codeBlock: false,
         // Disable default link and dropcursor to use custom ones
         link: false,
-        dropCursor: false,
+        dropcursor: false,
       }),
       Placeholder.configure({
         placeholder,
