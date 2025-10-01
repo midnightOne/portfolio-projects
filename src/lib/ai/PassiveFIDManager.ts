@@ -30,12 +30,6 @@ export interface FIDContext {
     currentProject?: string;
     visibleSections: string[];
     projectSemanticItems?: SemanticItem[]; // Project modal: semantic one-liners for tiered retrieval
-    contentStructure?: {
-      totalSections: number;
-      headingHierarchy: Array<{ level: number; title: string; id?: string }>;
-      contentTypes: string[];
-      estimatedReadTime: number;
-    };
   };
   details: {
     briefSummary?: string; // Brief project summary from server
@@ -47,10 +41,9 @@ export interface FIDContext {
 
 // Semantic items for project modal index (tiered retrieval support)
 export interface SemanticItem {
-  id: string;
-  oneLiner: string;
-  type: 'content' | 'technical' | 'media' | 'example';
-  projectId: string;
+  id: string; // Database hash ID for content_get tool
+  oneLiner: string; // Human-readable description
+  chunkId: string; // For Tiptap navigation
   tier: number; // For tiered retrieval with content_get
 }
 
@@ -478,25 +471,23 @@ export class PassiveFIDManager {
    * Extract semantic items from project context data
    */
   private extractSemanticItems(contextData: any, projectId: string): SemanticItem[] {
-    // First try to get semantic items from contentStructure
-    if (contextData?.contentStructure?.semanticItems) {
-      return contextData.contentStructure.semanticItems.map((item: any) => ({
+    // Get semantic items directly from the optimized field
+    if (contextData?.semanticItems) {
+      return contextData.semanticItems.map((item: any) => ({
         id: item.id,
         oneLiner: item.oneLiner,
-        type: item.type,
-        projectId,
+        chunkId: item.chunkId,
         tier: item.tier
       }));
     }
 
-    // Fallback to legacy semanticItems field
-    if (contextData?.semanticItems) {
-      return contextData.semanticItems.map((item: any) => ({
+    // Legacy fallback for contentStructure.semanticItems
+    if (contextData?.contentStructure?.semanticItems) {
+      return contextData.contentStructure.semanticItems.map((item: any) => ({
         id: item.id,
-        oneLiner: item.oneLiner || item.title || '',
-        type: item.type || 'content',
-        projectId,
-        tier: item.tier || 1
+        oneLiner: item.oneLiner,
+        chunkId: item.chunkId || `chunk-${item.id}`,
+        tier: item.tier
       }));
     }
 
@@ -632,14 +623,13 @@ export class PassiveFIDManager {
         projectSemanticItems: undefined
       };
     } else if (uiState.currentProject) {
-      // Project modal: Get semantic one-liners for tiered retrieval + content structure
+      // Project modal: Get semantic one-liners for tiered retrieval
       console.log('📋 Building project modal index with semantic items for:', uiState.currentProject);
       const { context, semanticItems } = await this.getProjectContext(uiState.currentProject);
       return {
         ...baseIndex,
         availableProjects: [],
-        projectSemanticItems: semanticItems,
-        contentStructure: context?.contentStructure
+        projectSemanticItems: semanticItems
       };
     } else {
       // Other routes: Basic index
