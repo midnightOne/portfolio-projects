@@ -1076,7 +1076,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
 
       // Enhance navigation targets with UI state compatibility
       const enhancementStart = Date.now();
-      const enhancedResults = this._enhanceNavigationTargets(rankedResults, uiState);
+      const enhancedResults = await this._enhanceNavigationTargets(rankedResults, uiState);
       backendTimings.navigationEnhancement = Date.now() - enhancementStart;
 
       const resultBuildStart = Date.now();
@@ -1204,10 +1204,11 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
       });
 
       // Enhance results with navigation targets compatible with current UI state
-      const enhancedItems = getResult.items.map(item => ({
+      // Only override if navTarget doesn't exist or needs UI state enhancement
+      const enhancedItems = await Promise.all(getResult.items.map(async item => ({
         ...item,
-        navTarget: this._createNavigationTargetForContent(item, uiState)
-      }));
+        navTarget: item.navTarget ? this._enhanceExistingNavTarget(item.navTarget, uiState) : await this._createNavigationTargetForContent(item, uiState)
+      })));
 
       const finalResult = {
         ...getResult,
@@ -1393,36 +1394,58 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
   /**
    * Enhance navigation targets with UI state compatibility
    */
-  private _enhanceNavigationTargets(results: any[], uiState?: any): any[] {
-    return results.map(result => ({
+  private async _enhanceNavigationTargets(results: any[], uiState?: any): Promise<any[]> {
+    return await Promise.all(results.map(async result => ({
       ...result,
-      navTarget: this._createNavigationTargetForContent(result, uiState)
-    }));
+      navTarget: result.navTarget ? this._enhanceExistingNavTarget(result.navTarget, uiState) : await this._createNavigationTargetForContent(result, uiState)
+    })));
   }
 
   /**
    * Create navigation target compatible with current UI state
    */
-  private _createNavigationTargetForContent(content: any, uiState?: any): any {
+  private async _createNavigationTargetForContent(content: any, uiState?: any): Promise<any> {
+    // Extract semantic identifiers from content
+    let sectionId = content.chunkId || content.id;
+    let projectId = content.project;
+    
+    // If we don't have chunkId or project, query the database to get them
+    if (!content.chunkId || !content.project) {
+      try {
+        const { prisma } = await import('@/lib/database/connection');
+        const chunk = await prisma.contextChunk.findUnique({
+          where: { id: content.id },
+          include: { entity: true }
+        });
+        
+        if (chunk) {
+          // Use anchorId from metadata if available (matches TiptapDisplayRenderer IDs)
+          // Otherwise fall back to chunkId
+          const metadata = chunk.metadata as any;
+          sectionId = metadata?.anchorId || chunk.chunkId;
+          projectId = chunk.entity?.entityType === 'PROJECT' ? chunk.entity.slug : undefined;
+        }
+      } catch (error) {
+        console.warn('Failed to fetch chunk details for navigation target:', error);
+        // Fall back to metadata extraction
+        if (content.metadata) {
+          sectionId = content.metadata.anchorId || content.metadata.sectionGroup || content.id;
+        }
+      }
+    }
+    
     // Base navigation target
     const navTarget: any = {
       type: 'section',
-      id: content.id
+      id: sectionId
     };
 
     // If content is project-related, create project navigation
-    if (content.project) {
+    if (projectId) {
+      // Always use project navigation with sectionId for project content
       navTarget.type = 'project';
-      navTarget.id = content.project;
-
-      // If we're already in the project, navigate to specific section
-      if (uiState?.currentProject === content.project) {
-        navTarget.type = 'section';
-        navTarget.id = content.id;
-        navTarget.scope = {
-          projectId: content.project
-        };
-      }
+      navTarget.id = projectId;
+      navTarget.sectionId = sectionId; // This will scroll to the section within the project
     }
 
     // Add behavior based on current UI state
@@ -1443,6 +1466,35 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
     }
 
     return navTarget;
+  }
+
+  /**
+   * Enhance existing navigation target with UI state context
+   */
+  private _enhanceExistingNavTarget(existingNavTarget: any, uiState?: any): any {
+    // Keep the existing navigation target structure (which should be correct from ContentSearchService)
+    // but enhance it with UI state-aware behavior and scope
+    const enhanced = { ...existingNavTarget };
+
+    // Add or enhance behavior based on current UI state
+    enhanced.behavior = {
+      openIfNeeded: true,
+      closeBlocking: false,
+      scrollBehavior: 'smooth',
+      ...enhanced.behavior // Keep any existing behavior settings
+    };
+
+    // Add scope context if UI state is available
+    if (uiState) {
+      enhanced.scope = {
+        route: uiState.currentRoute,
+        modalId: uiState.currentModal,
+        projectId: uiState.currentProject,
+        ...enhanced.scope // Keep any existing scope settings
+      };
+    }
+
+    return enhanced;
   }
 
   /**
