@@ -1571,25 +1571,53 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
           const wordCount = this.estimateWordCount(jsonContent.content);
           estimatedReadTime = Math.ceil(wordCount / 200);
 
-          // Generate semantic items from headings and key content
-          semanticItems = headings.slice(0, 10).map((heading: any, index: number) => ({
-            id: `semantic-${index + 1}`,
-            oneLiner: this.extractTextFromContent(heading.content) || `Section ${index + 1}`,
-            type: 'content',
-            tier: index < 3 ? 1 : index < 7 ? 2 : 3
-          }));
-
-          // Add technology-based semantic items
-          if (aiIndex?.technologies) {
-            const techArray = Array.isArray(aiIndex.technologies) ? aiIndex.technologies : [];
-            techArray.slice(0, 5).forEach((tech: string, index: number) => {
-              semanticItems.push({
-                id: `tech-${index + 1}`,
-                oneLiner: `${tech} implementation and usage`,
-                type: 'technical',
-                tier: 1
-              });
+          // Generate semantic items from new hierarchical chunks
+          try {
+            const hierarchicalChunks = await prisma.contextChunk.findMany({
+              where: {
+                entity: {
+                  entityType: 'PROJECT',
+                  slug: project.slug
+                },
+                tier: { in: [1, 2] } // T1 and T2 tiers for semantic items
+              },
+              select: {
+                id: true,
+                chunkId: true,
+                title: true,
+                tier: true,
+                content: true
+              },
+              orderBy: [
+                { tier: 'asc' },
+                { chunkId: 'asc' }
+              ],
+              take: 10
             });
+
+            semanticItems = hierarchicalChunks.map((chunk, index) => ({
+              contentId: chunk.id, // Unique database ID for content_get tool
+              semanticId: `${project.slug}:${chunk.chunkId}`, // Project-scoped semantic ID
+              chunkId: chunk.chunkId, // Original chunk identifier
+              oneLiner: chunk.title || chunk.content.substring(0, 100) + '...',
+              type: chunk.tier === 1 ? 'summary' : 'content',
+              tier: chunk.tier,
+              projectId: actualProjectId,
+              projectSlug: project.slug
+            }));
+
+            console.log(`Generated ${semanticItems.length} semantic items from hierarchical chunks`);
+
+          } catch (chunkError) {
+            console.warn('Failed to load hierarchical chunks, falling back to old method:', chunkError);
+            
+            // Fallback to old method if hierarchical chunks not available
+            semanticItems = headings.slice(0, 10).map((heading: any, index: number) => ({
+              id: `semantic-${index + 1}`,
+              oneLiner: this.extractTextFromContent(heading.content) || `Section ${index + 1}`,
+              type: 'content',
+              tier: index < 3 ? 1 : index < 7 ? 2 : 3
+            }));
           }
         }
       }
