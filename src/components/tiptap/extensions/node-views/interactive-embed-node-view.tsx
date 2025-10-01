@@ -261,7 +261,7 @@ export function InteractiveEmbedNodeView({
 
             {type === 'canvas' && (
               <div 
-                className="bg-gray-900 flex items-center justify-center border"
+                className="bg-neutral-900 flex items-center justify-center border"
                 style={{ height: `${height}px` }}
               >
                 <div className="text-center">

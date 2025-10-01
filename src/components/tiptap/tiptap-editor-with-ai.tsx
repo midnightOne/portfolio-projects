@@ -20,10 +20,10 @@ import { TaskList } from '@tiptap/extension-task-list';
 import { TaskItem } from '@tiptap/extension-task-item';
 import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight';
 import { createLowlight } from 'lowlight';
-import { 
-  ImageCarousel, 
-  InteractiveEmbed, 
-  DownloadButton, 
+import {
+  ImageCarousel,
+  InteractiveEmbed,
+  DownloadButton,
   ProjectReference,
   SlashCommands,
   SlashCommand
@@ -31,12 +31,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { 
-  Bot, 
-  Wand2, 
-  FileText, 
-  Bold, 
-  Italic, 
+import {
+  Bot,
+  Wand2,
+  FileText,
+  Bold,
+  Italic,
   List,
   ListOrdered,
   Quote,
@@ -54,15 +54,15 @@ import {
   Monitor,
   Download
 } from 'lucide-react';
-import { 
-  AIQuickActions, 
-  TextSelection, 
-  ProjectContext, 
-  AIQuickActionResult 
+import {
+  AIQuickActions,
+  TextSelection,
+  ProjectContext,
+  AIQuickActionResult
 } from '../admin/ai-quick-actions';
-import { 
+import {
   AIPromptInterface,
-  AIPromptResult 
+  AIPromptResult
 } from '../admin/ai-prompt-interface';
 
 export interface TiptapContentData {
@@ -95,7 +95,7 @@ function Toolbar({ editor }: ToolbarProps) {
   };
 
   return (
-    <div className="flex items-center gap-1 p-2 border-b bg-gray-50/50 flex-wrap">
+    <div className="flex items-center gap-1 p-2 border-b bg-gray-50/50 dark:bg-neutral-800/50 flex-wrap">
       {/* Text formatting */}
       <Button
         variant={editor.isActive('bold') ? 'default' : 'ghost'}
@@ -108,7 +108,7 @@ function Toolbar({ editor }: ToolbarProps) {
       >
         <Bold className="h-4 w-4" />
       </Button>
-      
+
       <Button
         variant={editor.isActive('italic') ? 'default' : 'ghost'}
         size="sm"
@@ -264,20 +264,20 @@ interface TiptapEditorWithAIProps {
   // Content
   content?: TiptapContentData | string;
   onChange: (content: TiptapContentData) => void;
-  
+
   // AI integration
   projectContext: ProjectContext;
   onSelectionChange?: (selection: TextSelection | null) => void;
   onApplyAIChanges?: (result: AIQuickActionResult | AIPromptResult) => void;
-  
+
   // Editor instance
   onEditorReady?: (editor: any) => void;
-  
+
   // Display
   placeholder?: string;
   className?: string;
   editable?: boolean;
-  
+
   // AI Panel
   showAIPanel?: boolean;
   aiPanelHeight?: number;
@@ -304,14 +304,14 @@ export function TiptapEditorWithAI({
     if (!content) {
       return { type: 'doc', content: [] };
     }
-    
+
     if (typeof content === 'string') {
       // Convert plain text to Tiptap JSON
       const paragraphs = content.split('\n').filter(p => p.trim()).map(paragraph => ({
         type: 'paragraph',
         content: [{ type: 'text', text: paragraph }]
       }));
-      
+
       return {
         type: 'doc',
         content: paragraphs.length > 0 ? paragraphs : [
@@ -319,7 +319,7 @@ export function TiptapEditorWithAI({
         ]
       };
     }
-    
+
     return content;
   }, [content]);
 
@@ -465,7 +465,7 @@ export function TiptapEditorWithAI({
       CodeBlockLowlight.configure({
         lowlight: createLowlight(),
         HTMLAttributes: {
-          class: 'bg-gray-100 dark:bg-gray-800 rounded-lg p-4 font-mono text-sm overflow-x-auto',
+          class: 'bg-gray-100 dark:bg-neutral-800 rounded-lg p-4 font-mono text-sm overflow-x-auto',
         },
       }),
       Table.configure({
@@ -523,7 +523,7 @@ export function TiptapEditorWithAI({
             return commands.filter(command =>
               command.title.toLowerCase().includes(query.toLowerCase()) ||
               command.description.toLowerCase().includes(query.toLowerCase()) ||
-              command.searchTerms.some(term => 
+              command.searchTerms.some(term =>
                 term.toLowerCase().includes(query.toLowerCase())
               )
             );
@@ -562,7 +562,7 @@ export function TiptapEditorWithAI({
       }
 
       const selectedContent = state.doc.textBetween(from, to);
-      
+
       if (selectedContent.trim()) {
         const selection: TextSelection = {
           text: selectedContent,
@@ -602,21 +602,21 @@ export function TiptapEditorWithAI({
           type: 'paragraph',
           content: [{ type: 'text', text: paragraph }]
         }));
-        
+
         const newContent = {
           type: 'doc',
           content: paragraphs.length > 0 ? paragraphs : [
             { type: 'paragraph', content: [] }
           ]
         };
-        
+
         editor.commands.setContent(newContent);
       }
-      
+
       // Handle partial content updates
       if (changes.partialUpdate && selectedText) {
         const { start, end, newText } = changes.partialUpdate;
-        
+
         editor.chain()
           .focus()
           .setTextSelection({ from: start, to: end })
@@ -635,7 +635,7 @@ export function TiptapEditorWithAI({
     if (editor) {
       const newContent = getInitialContent();
       const currentContent = editor.getJSON();
-      
+
       // Only update if content actually changed
       if (JSON.stringify(currentContent) !== JSON.stringify(newContent)) {
         try {
@@ -653,11 +653,11 @@ export function TiptapEditorWithAI({
     // Simple editor without AI panel
     return (
       <div className={className}>
-        <div className="border-gray-200 rounded-b-lg overflow-hidden">
+        <div className="border-gray-200/50 border rounded-b-lg overflow-hidden bg-white dark:bg-neutral-800">
           <Toolbar editor={editor} />
-          <EditorContent 
-            editor={editor} 
-            className="min-h-[400px] w-full max-w-full p-4 [&_.ProseMirror]:outline-none [&_.ProseMirror]:border-none [&_.ProseMirror]:focus:outline-none [&_.ProseMirror]:focus:ring-0 [&_.ProseMirror_h1]:text-3xl [&_.ProseMirror_h1]:font-bold [&_.ProseMirror_h1]:mb-4 [&_.ProseMirror_h2]:text-2xl [&_.ProseMirror_h2]:font-bold [&_.ProseMirror_h2]:mb-3 [&_.ProseMirror_h3]:text-xl [&_.ProseMirror_h3]:font-bold [&_.ProseMirror_h3]:mb-2 [&_.ProseMirror_p]:mb-3 [&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ul]:ml-6 [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ol]:ml-6 [&_.ProseMirror_blockquote]:border-l-4 [&_.ProseMirror_blockquote]:border-gray-300 [&_.ProseMirror_blockquote]:pl-4 [&_.ProseMirror_blockquote]:italic [&_.ProseMirror_code]:bg-gray-100 [&_.ProseMirror_code]:px-1 [&_.ProseMirror_code]:rounded [&_.ProseMirror_code]:font-mono [&_.ProseMirror_code]:text-sm"
+          <EditorContent
+            editor={editor}
+            className="min-h-[400px] w-full max-w-full p-4 [&_.ProseMirror]:outline-none [&_.ProseMirror]:border-none [&_.ProseMirror]:focus:outline-none [&_.ProseMirror]:focus:ring-0 [&_.ProseMirror_h1]:text-3xl [&_.ProseMirror_h1]:font-bold [&_.ProseMirror_h1]:mb-4 [&_.ProseMirror_h2]:text-2xl [&_.ProseMirror_h2]:font-bold [&_.ProseMirror_h2]:mb-3 [&_.ProseMirror_h3]:text-xl [&_.ProseMirror_h3]:font-bold [&_.ProseMirror_h3]:mb-2 [&_.ProseMirror_p]:mb-3 [&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ul]:ml-6 [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ol]:ml-6 [&_.ProseMirror_blockquote]:border-l-4 [&_.ProseMirror_blockquote]:border-gray-300 [&_.ProseMirror_blockquote]:dark:border-gray-600 [&_.ProseMirror_blockquote]:pl-4 [&_.ProseMirror_blockquote]:italic [&_.ProseMirror_code]:bg-gray-100 [&_.ProseMirror_code]:dark:bg-neutral-700 [&_.ProseMirror_code]:px-1 [&_.ProseMirror_code]:rounded [&_.ProseMirror_code]:font-mono [&_.ProseMirror_code]:text-sm"
           />
         </div>
       </div>
@@ -683,9 +683,9 @@ export function TiptapEditorWithAI({
             <div className="h-full flex flex-col">
               <Toolbar editor={editor} />
               <div className="flex-1 min-h-[500px] overflow-y-auto">
-                <EditorContent 
-                  editor={editor} 
-                  className="h-full w-full max-w-full p-4 [&_.ProseMirror]:outline-none [&_.ProseMirror]:border-none [&_.ProseMirror]:focus:outline-none [&_.ProseMirror]:focus:ring-0 [&_.ProseMirror_h1]:text-3xl [&_.ProseMirror_h1]:font-bold [&_.ProseMirror_h1]:mb-4 [&_.ProseMirror_h2]:text-2xl [&_.ProseMirror_h2]:font-bold [&_.ProseMirror_h2]:mb-3 [&_.ProseMirror_h3]:text-xl [&_.ProseMirror_h3]:font-bold [&_.ProseMirror_h3]:mb-2 [&_.ProseMirror_p]:mb-3 [&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ul]:ml-6 [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ol]:ml-6 [&_.ProseMirror_blockquote]:border-l-4 [&_.ProseMirror_blockquote]:border-gray-300 [&_.ProseMirror_blockquote]:pl-4 [&_.ProseMirror_blockquote]:italic [&_.ProseMirror_code]:bg-gray-100 [&_.ProseMirror_code]:px-1 [&_.ProseMirror_code]:rounded [&_.ProseMirror_code]:font-mono [&_.ProseMirror_code]:text-sm"
+                <EditorContent
+                  editor={editor}
+                  className="h-full w-full max-w-full p-4 [&_.ProseMirror]:outline-none [&_.ProseMirror]:border-none [&_.ProseMirror]:focus:outline-none [&_.ProseMirror]:focus:ring-0 [&_.ProseMirror_h1]:text-3xl [&_.ProseMirror_h1]:font-bold [&_.ProseMirror_h1]:mb-4 [&_.ProseMirror_h2]:text-2xl [&_.ProseMirror_h2]:font-bold [&_.ProseMirror_h2]:mb-3 [&_.ProseMirror_h3]:text-xl [&_.ProseMirror_h3]:font-bold [&_.ProseMirror_h3]:mb-2 [&_.ProseMirror_p]:mb-3 [&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ul]:ml-6 [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ol]:ml-6 [&_.ProseMirror_blockquote]:border-l-4 [&_.ProseMirror_blockquote]:border-gray-300 [&_.ProseMirror_blockquote]:dark:border-gray-600 [&_.ProseMirror_blockquote]:pl-4 [&_.ProseMirror_blockquote]:italic [&_.ProseMirror_code]:bg-gray-100 [&_.ProseMirror_code]:dark:bg-neutral-700 [&_.ProseMirror_code]:px-1 [&_.ProseMirror_code]:rounded [&_.ProseMirror_code]:font-mono [&_.ProseMirror_code]:text-sm"
                 />
               </div>
             </div>
@@ -753,14 +753,14 @@ export function TiptapEditorWithAI({
                         type: 'paragraph',
                         content: [{ type: 'text', text: paragraph }]
                       }));
-                      
+
                       const newContent = {
                         type: 'doc',
                         content: paragraphs.length > 0 ? paragraphs : [
                           { type: 'paragraph', content: [] }
                         ]
                       };
-                      
+
                       editor.commands.setContent(newContent);
                     }
                   }}

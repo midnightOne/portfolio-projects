@@ -56,6 +56,7 @@ import {
   Mic,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { useAdminProjects } from "@/hooks/use-admin-projects";
 
 interface AdminSectionItem {
@@ -491,8 +492,11 @@ export function AdminSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border">
-        <div className="p-2 text-xs text-sidebar-foreground/70">
-          Portfolio Admin v1.0
+        <div className="flex items-center justify-between p-2">
+          <div className="text-xs text-sidebar-foreground/70">
+            Portfolio Admin v1.0
+          </div>
+          <ThemeToggle variant="button" size="sm" />
         </div>
       </SidebarFooter>
     </Sidebar>
