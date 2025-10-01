@@ -455,7 +455,7 @@ export class ProjectIndexer {
       }
 
       // Generate content hash for change detection
-      const contentHash = this.generateContentHash(project);
+      const contentHash = this.generateProjectContentHash(project);
 
       // Check if we have a cached version with same content hash
       if (cached && cached.contentHash === contentHash) {
@@ -874,7 +874,7 @@ export class ProjectIndexer {
   /**
    * Generate content hash for change detection
    */
-  private generateContentHash(project: any): string {
+  private generateProjectContentHash(project: any): string {
     const hashContent = JSON.stringify({
       title: project.title,
       description: project.description,

@@ -1702,7 +1702,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
           }));
 
           // Extract content types
-          const types = new Set(jsonContent.content.map((block: any) => block.type));
+          const types = new Set<string>(jsonContent.content.map((block: any) => block.type as string));
           contentTypes = Array.from(types);
 
           // Estimate reading time (rough calculation: 200 words per minute)

@@ -97,6 +97,7 @@ export interface ContentGetResult {
     metadata: Record<string, any>;
     chunkId?: string;                   // Semantic chunk ID for navigation
     project?: string;                   // Project slug if content belongs to a project
+    navTarget?: any;
   }>;
   totalTokens: number;
   truncated: boolean;                   // Whether content was truncated due to budget
