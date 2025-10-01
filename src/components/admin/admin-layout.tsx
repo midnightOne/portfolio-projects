@@ -15,11 +15,25 @@ import {
 import { AdminSidebar } from "./admin-sidebar";
 import { AdminPageHeader } from "./admin-page-header";
 
-interface AdminLayoutProps {
-  children: React.ReactNode;
+interface SaveControlsProps {
+  saving: boolean;
+  hasUnsavedChanges: boolean;
+  lastSaveTime: Date | null;
+  onSave: () => void;
+  onBack: () => void;
+  status: 'DRAFT' | 'PUBLISHED';
+  onStatusChange: (status: 'DRAFT' | 'PUBLISHED') => void;
+  visibility: 'PUBLIC' | 'PRIVATE';
+  onVisibilityChange: (visibility: 'PUBLIC' | 'PRIVATE') => void;
+  error?: string | null;
 }
 
-export function AdminLayout({ children }: AdminLayoutProps) {
+interface AdminLayoutProps {
+  children: React.ReactNode;
+  saveControls?: SaveControlsProps;
+}
+
+export function AdminLayout({ children, saveControls }: AdminLayoutProps) {
   const pathname = usePathname();
 
   return (
@@ -27,7 +41,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       <div className="flex min-h-screen w-full">
         <AdminSidebar />
         <SidebarInset className="flex flex-1 flex-col">
-          <AdminPageHeader />
+          <AdminPageHeader saveControls={saveControls} />
           <main className="flex-1 p-6">
             {children}
           </main>

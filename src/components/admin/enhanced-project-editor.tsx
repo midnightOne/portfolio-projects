@@ -30,7 +30,6 @@ import {
 import { tiptapToMarkdown, markdownToTiptap } from '@/lib/tiptap-markdown-converter';
 import { SmartTagInput, Tag } from './smart-tag-input';
 import { ClickableMediaUpload } from './clickable-media-upload';
-import { FloatingSaveBar } from './floating-save-bar';
 import { TiptapEditorWithAI, TiptapContentData } from '../tiptap/tiptap-editor-with-ai';
 
 interface ProjectFormData {
@@ -46,12 +45,26 @@ interface ProjectFormData {
   contentType: 'text' | 'json';
 }
 
+interface SaveControlsProps {
+  saving: boolean;
+  hasUnsavedChanges: boolean;
+  lastSaveTime: Date | null;
+  onSave: () => void;
+  onBack: () => void;
+  status: 'DRAFT' | 'PUBLISHED';
+  onStatusChange: (status: 'DRAFT' | 'PUBLISHED') => void;
+  visibility: 'PUBLIC' | 'PRIVATE';
+  onVisibilityChange: (visibility: 'PUBLIC' | 'PRIVATE') => void;
+  error?: string | null;
+}
+
 interface EnhancedProjectEditorProps {
   projectId?: string;
   mode: 'create' | 'edit';
+  onSaveControlsChange?: (saveControls: SaveControlsProps) => void;
 }
 
-export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditorProps) {
+export function EnhancedProjectEditor({ projectId, mode, onSaveControlsChange }: EnhancedProjectEditorProps) {
   const router = useRouter();
   const [project, setProject] = useState<ProjectWithRelations | null>(null);
   const [loading, setLoading] = useState(mode === 'edit');
@@ -191,6 +204,24 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
       setHasUnsavedChanges(hasContent);
     }
   }, [formData, project, isEditing]);
+
+  // Notify parent component about save controls changes
+  useEffect(() => {
+    if (onSaveControlsChange) {
+      onSaveControlsChange({
+        saving,
+        hasUnsavedChanges,
+        lastSaveTime,
+        onSave: handleSave,
+        onBack: () => router.push('/admin/projects'),
+        status: formData.status,
+        onStatusChange: (status) => handleFormDataChange({ status }),
+        visibility: formData.visibility,
+        onVisibilityChange: (visibility) => handleFormDataChange({ visibility }),
+        error
+      });
+    }
+  }, [saving, hasUnsavedChanges, lastSaveTime, formData.status, formData.visibility, error, onSaveControlsChange, router]);
 
   const fetchProject = async () => {
     if (!projectId) return;
@@ -646,27 +677,8 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
   return (
     <div className="min-h-screen bg-gray-50">
       <div className={`${CONTAINERS.wide} ${SPACING.section.sm}`} style={{ maxWidth: MAX_WIDTHS.editor }}>
-        {/* Save Bar */}
-        <div className={`mb-3 ${FLEX.center}`}>
-          <div className="w-full">
-            <FloatingSaveBar
-              visible={true}
-              onToggleVisibility={() => {}}
-              saving={saving}
-              hasUnsavedChanges={hasUnsavedChanges}
-              lastSaveTime={lastSaveTime}
-              onSave={handleSave}
-              onBack={() => router.push('/admin/projects')}
-              status={formData.status}
-              onStatusChange={(status) => handleFormDataChange({ status })}
-              visibility={formData.visibility}
-              onVisibilityChange={(visibility) => handleFormDataChange({ visibility })}
-              error={error}
-            />
-          </div>
-        </div>
 
-        <div className={`flex ${SPACING.gap.sm} min-h-[calc(100vh-7rem)]`}>
+        <div className={`flex ${SPACING.gap.sm} min-h-[calc(100vh-4rem)]`}>
           {/* Project Editor - 65% */}
           <div className="flex-1" style={{ flexBasis: '65%' }}>
             <Card className="h-full overflow-hidden">
