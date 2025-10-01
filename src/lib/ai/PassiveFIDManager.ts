@@ -34,6 +34,7 @@ export interface FIDContext {
   details: {
     briefSummary?: string; // Brief project summary from server
     detailedSummary?: string; // Detailed project summary from server
+    projectSummary?: string; // Primary project summary for voice adapter compatibility
     intentBasedContent?: ContentSearchResult[]; // Intent-based content when user intent is set
     selectedText?: string;
   };
@@ -613,16 +614,8 @@ export class PassiveFIDManager {
       visibleSections: uiState.visibleAnchors || []
     };
 
-    if (uiState.currentRoute === 'home') {
-      // Homepage: Get top 10 project summaries (cached for session)
-      console.log('🏠 Building homepage index with top 10 projects');
-      const availableProjects = await this.getHomepageProjects();
-      return {
-        ...baseIndex,
-        availableProjects,
-        projectSemanticItems: undefined
-      };
-    } else if (uiState.currentProject) {
+    // PRIORITY 1: Check if a project modal is open (regardless of route)
+    if (uiState.currentProject) {
       // Project modal: Get semantic one-liners for tiered retrieval
       console.log('📋 Building project modal index with semantic items for:', uiState.currentProject);
       const { context, semanticItems } = await this.getProjectContext(uiState.currentProject);
@@ -631,8 +624,22 @@ export class PassiveFIDManager {
         availableProjects: [],
         projectSemanticItems: semanticItems
       };
-    } else {
+    } 
+    // PRIORITY 2: Homepage or routes without project modals
+    else if (uiState.currentRoute === 'home' || uiState.currentRoute === 'projects') {
+      // Homepage/Projects page: Get top 10 project summaries (cached for session)
+      console.log('🏠 Building homepage/projects index with top 10 projects');
+      const availableProjects = await this.getHomepageProjects();
+      return {
+        ...baseIndex,
+        availableProjects,
+        projectSemanticItems: undefined
+      };
+    } 
+    // PRIORITY 3: Other routes without projects
+    else {
       // Other routes: Basic index
+      console.log('📄 Building basic index for route:', uiState.currentRoute);
       return {
         ...baseIndex,
         availableProjects: [],
@@ -651,11 +658,18 @@ export class PassiveFIDManager {
     if (uiState.currentProject) {
       const { context } = await this.getProjectContext(uiState.currentProject);
       if (context) {
+        // Set both the old format (for backward compatibility) and the expected format
         details.briefSummary = context.briefSummary;
         details.detailedSummary = context.detailedSummary;
+        
+        // Set projectSummary for OpenAIRealtimeAdapter compatibility
+        details.projectSummary = context.briefSummary || context.detailedSummary || `Project ${uiState.currentProject} context loaded`;
+        
         console.log('📝 Added server project summaries to details:', {
           briefLength: context.briefSummary?.length || 0,
-          detailedLength: context.detailedSummary?.length || 0
+          detailedLength: context.detailedSummary?.length || 0,
+          projectSummaryLength: details.projectSummary?.length || 0,
+          projectId: uiState.currentProject
         });
       }
     }
@@ -769,18 +783,25 @@ export class PassiveFIDManager {
   private buildUIContext(uiState: UIState): string {
     const parts = [];
 
+    // Base route context
     if (uiState.currentRoute) {
       parts.push(`Currently on ${uiState.currentRoute} page`);
     }
 
+    // Project context (prioritize project modal over route)
     if (uiState.currentProject) {
       parts.push(`Viewing project: ${uiState.currentProject}`);
-    }
-
-    if (uiState.currentModal) {
+      
+      // Add modal context for project modals
+      if (uiState.currentModal && uiState.currentModal === uiState.currentProject) {
+        parts.push(`Modal open: ${uiState.currentModal}`);
+      }
+    } else if (uiState.currentModal) {
+      // Non-project modals
       parts.push(`Modal open: ${uiState.currentModal}`);
     }
 
+    // Visible sections context
     if (uiState.visibleAnchors?.length > 0) {
       parts.push(`Visible sections: ${uiState.visibleAnchors.slice(0, 3).join(', ')}`);
     }

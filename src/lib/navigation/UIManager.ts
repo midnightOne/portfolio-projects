@@ -832,6 +832,24 @@ export class UIManager {
     this._currentUIState.epoch = this._currentEpoch;
     this._currentUIState.currentRoute = this._getCurrentRoute();
     
+    // Update current project from modal stack
+    const currentProjectModal = this._modalStack.find(m => m.type === 'project');
+    if (currentProjectModal) {
+      // Create or update ProjectState from modal
+      this._currentUIState.currentProject = {
+        id: currentProjectModal.id,
+        slug: currentProjectModal.id, // Assuming slug matches id for now
+        title: currentProjectModal.id, // Will be enhanced by providers
+        currentSection: 'overview', // Default section
+        sectionsVisited: [],
+        scrollPositions: {},
+        mediaInteractions: [],
+        timeSpent: 0
+      };
+    } else {
+      this._currentUIState.currentProject = undefined;
+    }
+    
     // Sync state from all providers before returning
     this._syncStateFromProviders();
     
@@ -1107,12 +1125,24 @@ export class UIManager {
       }
     }
 
+    // Extract current project from modal stack (project modals)
+    const currentProjectModal = state.modalStack?.find(m => m.type === 'project');
+    const currentProject = currentProjectModal?.id || null;
+
+    console.log('🔄 Converting UI state for passive F-I-D:', {
+      modalStackLength: state.modalStack?.length || 0,
+      modalStack: state.modalStack?.map(m => `${m.type}:${m.id}`) || [],
+      currentProjectModal: currentProjectModal?.id || 'none',
+      currentProject: currentProject || 'none',
+      currentRoute: state.currentRoute
+    });
+
     return {
       breadcrumbPath: state.breadcrumbPath,
       visibleAnchors: state.visibleAnchors,
       activeFilters: state.activeFilters,
       currentRoute: state.currentRoute,
-      currentProject: typeof state.currentProject === 'string' ? state.currentProject : state.currentProject?.id,
+      currentProject: currentProject,
       currentModal: state.modalStack && state.modalStack.length > 0 ? state.modalStack[state.modalStack.length - 1].id : undefined,
       lastUserAction: convertedLastUserAction
     };
