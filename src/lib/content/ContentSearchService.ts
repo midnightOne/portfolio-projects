@@ -1263,9 +1263,8 @@ export class ContentSearchService implements ContentProvider {
    * Create navigation target for UIManager
    */
   private _createNavigationTarget(result: InternalSearchResult): any {
-    // Use anchorId from metadata if available (matches TiptapDisplayRenderer IDs)
-    // Otherwise fall back to chunkId
-    const sectionId = result.metadata?.anchorId || result.chunkId;
+    // Use chunkId directly (now stores proper anchor IDs)
+    const sectionId = result.chunkId;
 
     if (result.entityType === 'PROJECT') {
       return {

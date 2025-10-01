@@ -595,7 +595,7 @@ model ContextChunk {
   entityId        String         @map("entity_id")
   projectIndexId  String?        @map("project_index_id") // Optional link to ProjectAIIndex
   tier            Int            // 0-4 representing T0-T4 tiers
-  chunkId         String         @map("chunk_id") // Unique identifier within entity (e.g., "section-1", "summary")
+  chunkId         String         @map("chunk_id") // Navigation anchor ID for UI (e.g., "ai-powered-recommendation-engine")
   title           String?        @db.VarChar(255)
   content         String         // The actual text content for this tier
   tokenCount      Int            @default(0) @map("token_count") // Estimated token count

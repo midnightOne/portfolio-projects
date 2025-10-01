@@ -1419,16 +1419,16 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         });
         
         if (chunk) {
-          // Use anchorId from metadata if available (matches TiptapDisplayRenderer IDs)
-          // Otherwise fall back to chunkId
-          const metadata = chunk.metadata as any;
-          sectionId = metadata?.anchorId || chunk.chunkId;
+          // Use chunkId directly (now stores proper anchor IDs)
+          sectionId = chunk.chunkId;
           projectId = chunk.entity?.entityType === 'PROJECT' ? chunk.entity.slug : undefined;
         }
       } catch (error) {
         console.warn('Failed to fetch chunk details for navigation target:', error);
-        // Fall back to metadata extraction
-        if (content.metadata) {
+        // Fall back to chunkId or metadata extraction
+        if (content.chunkId) {
+          sectionId = content.chunkId;
+        } else if (content.metadata) {
           sectionId = content.metadata.anchorId || content.metadata.sectionGroup || content.id;
         }
       }

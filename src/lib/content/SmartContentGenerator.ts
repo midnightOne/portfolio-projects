@@ -99,7 +99,7 @@ export class SmartContentGenerator {
       if (this.needsRegeneration(section, enhancedIndex.contentChangeMap)) {
         tiers.push(await this.generateT2FromH1(section, project));
       } else {
-        const existing = await this.loadExistingTier(project, `h1-${section.anchorId}`);
+        const existing = await this.loadExistingTier(project, section.anchorId);
         if (existing) {
           tiers.push(existing);
           tokensSkipped += existing.tokenCount;
@@ -238,7 +238,7 @@ export class SmartContentGenerator {
 
     return {
       tier: 2,
-      chunkId: `h1-${section.anchorId}`,
+      chunkId: section.anchorId, // Use anchorId directly for navigation compatibility
       title: section.title,
       content,
       tokenCount: this.estimateTokenCount(content),
@@ -277,7 +277,7 @@ export class SmartContentGenerator {
     }
 
     const parentH1 = this.findParentH1Section(section, enhancedIndex.hierarchicalSections);
-    const parentChunkId = parentH1 ? `h1-${parentH1.anchorId}` : 'summary';
+    const parentChunkId = parentH1 ? parentH1.anchorId : 'summary';
 
     return {
       tier: 3,
