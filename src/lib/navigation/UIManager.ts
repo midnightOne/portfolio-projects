@@ -2573,7 +2573,7 @@ export class UIManager {
     const defaultBehavior = {
       openIfNeeded: true,
       closeBlocking: true,
-      waitForReadyMs: 1500,
+      waitForReadyMs: 500,
       scrollBehavior: 'smooth' as const,
       allowInterruption: true,
       urlStrategy: 'none' as const,

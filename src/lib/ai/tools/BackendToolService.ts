@@ -1155,7 +1155,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         ids,
         uiState,
         maxTokens = 900,
-        includeTiers = [0, 1, 2, 3]
+        includeTiers = [0, 1, 2, 3, 4]
       } = parameters;
 
       console.log('Content get request:', {

@@ -556,7 +556,7 @@ export const contentGetToolDefinition: UnifiedToolDefinition = {
           enum: [0, 1, 2, 3, 4]
         },
         description: 'Which content tiers to include (0=metadata, 1=summary, 2=bullets, 3=detailed, 4=full)',
-        default: [0, 1, 2, 3]
+        default: [0, 1, 2, 3, 4]
       }
     },
     required: ['ids']

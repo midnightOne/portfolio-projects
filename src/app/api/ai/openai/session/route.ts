@@ -123,7 +123,7 @@ NAV_CONTEXT Handling:
 
 PRIMARY NAVIGATION TOOLS:
 1. ui_describe - Get current UI state, available sections, and navigation options
-2. ui_intent - Perform ALL navigation goals declaratively (projects, sections, routes, modals), when using ui_intent - don't add any artificial delays like wait_1500ms to the tool call (still use conversational fillers when appropriate)
+2. ui_intent - Perform ALL navigation goals declaratively (projects, sections, routes, modals), when using ui_intent - DON'T add any artificial delays like wait_1500ms to the tool call (still use conversational fillers when appropriate)
 3. highlightText and scrollIntoView - Visual emphasis and guidance
 
 NAVIGATION WORKFLOW:
@@ -467,7 +467,7 @@ NAV_CONTEXT Handling:
 
 PRIMARY NAVIGATION TOOLS:
 1. ui_describe - Get current UI state, available sections, and navigation options
-2. ui_intent - Perform ALL navigation goals declaratively (projects, sections, routes, modals), when using ui_intent - don't add any artificial delays like wait_1500ms to the tool call (still use conversational fillers when appropriate)
+2. ui_intent - Perform ALL navigation goals declaratively (projects, sections, routes, modals), when using ui_intent - DON'T add any artificial delays like wait_1500ms to the tool call (still use conversational fillers when appropriate)
 3. highlightText and scrollIntoView - Visual emphasis and guidance
 
 NAVIGATION WORKFLOW:
