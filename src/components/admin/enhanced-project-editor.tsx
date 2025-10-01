@@ -206,6 +206,8 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
       const projectData = await response.json();
       setProject(projectData);
       
+
+
       setFormData({
         title: projectData.title || '',
         description: projectData.description || '',
@@ -850,8 +852,8 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
                       >
                         <TiptapEditorWithAI
                           content={
-                            formData.contentType === 'json' 
-                              ? (formData.articleContentJson || formData.articleContent)
+                            formData.contentType === 'json' && formData.articleContentJson
+                              ? formData.articleContentJson
                               : formData.articleContent
                           }
                           onChange={(content) => {
@@ -873,8 +875,8 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
                     ) : (
                       <TiptapEditorWithAI
                         content={
-                          formData.contentType === 'json' 
-                            ? (formData.articleContentJson || formData.articleContent)
+                          formData.contentType === 'json' && formData.articleContentJson
+                            ? formData.articleContentJson
                             : formData.articleContent
                         }
                         onChange={(content) => {

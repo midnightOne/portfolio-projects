@@ -427,6 +427,9 @@ export function TiptapEditorWithAI({
         },
         // Disable default code block to use CodeBlockLowlight
         codeBlock: false,
+        // Disable default link and dropcursor to use custom ones
+        link: false,
+        dropCursor: false,
       }),
       Placeholder.configure({
         placeholder,
@@ -440,6 +443,10 @@ export function TiptapEditorWithAI({
       Focus.configure({
         className: 'has-focus',
         mode: 'all',
+      }),
+      Dropcursor.configure({
+        color: '#3b82f6',
+        width: 2,
       }),
       Dropcursor,
       Link.configure({
@@ -625,13 +632,19 @@ export function TiptapEditorWithAI({
 
   // Update content when prop changes
   useEffect(() => {
-    if (editor && content) {
+    if (editor) {
       const newContent = getInitialContent();
       const currentContent = editor.getJSON();
       
       // Only update if content actually changed
       if (JSON.stringify(currentContent) !== JSON.stringify(newContent)) {
-        editor.commands.setContent(newContent);
+        try {
+          editor.commands.setContent(newContent);
+        } catch (error) {
+          console.error('Failed to set Tiptap content:', error);
+          // Try to set empty content as fallback
+          editor.commands.setContent({ type: 'doc', content: [{ type: 'paragraph', content: [] }] });
+        }
       }
     }
   }, [editor, content, getInitialContent]);
