@@ -56,15 +56,33 @@ const WaveConfigurationSchema = z.object({
 
 export async function GET() {
   try {
-    // Fetch the homepage configuration from database
-    const homepageConfig = await prisma.homepageConfig.findFirst();
+    // Add CORS headers for mobile compatibility
+    const headers = new Headers();
+    headers.set('Content-Type', 'application/json');
+    headers.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    headers.set('Pragma', 'no-cache');
+    headers.set('Expires', '0');
+    headers.set('Access-Control-Allow-Origin', '*');
+    headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    headers.set('Access-Control-Allow-Headers', 'Content-Type');
+
+    // Fetch the homepage configuration from database with timeout
+    const homepageConfig = await Promise.race([
+      prisma.homepageConfig.findFirst(),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Database timeout')), 3000)
+      )
+    ]) as any;
     
     if (!homepageConfig) {
       console.log('No homepage config found, returning default wave config');
       // Return default configuration if none exists
-      return NextResponse.json({
+      return new NextResponse(JSON.stringify({
         success: true,
         data: { config: defaultWaveConfig }
+      }), { 
+        status: 200, 
+        headers 
       });
     }
 
@@ -84,19 +102,50 @@ export async function GET() {
     }
 
     // Return the wave configuration
-    return NextResponse.json({
+    return new NextResponse(JSON.stringify({
       success: true,
       data: { config: waveConfig }
+    }), { 
+      status: 200, 
+      headers 
     });
 
   } catch (error) {
     console.error('Error fetching wave configuration:', error);
+    
+    // Add CORS headers even for error responses
+    const headers = new Headers();
+    headers.set('Content-Type', 'application/json');
+    headers.set('Access-Control-Allow-Origin', '*');
+    headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    headers.set('Access-Control-Allow-Headers', 'Content-Type');
+    
     // Return default config even on error to prevent homepage from breaking
-    return NextResponse.json({
+    return new NextResponse(JSON.stringify({
       success: true,
       data: { config: defaultWaveConfig }
+    }), { 
+      status: 200, 
+      headers 
     });
   }
+}
+
+// ============================================================================
+// CORS PREFLIGHT HANDLER
+// ============================================================================
+
+export async function OPTIONS() {
+  const headers = new Headers();
+  headers.set('Access-Control-Allow-Origin', '*');
+  headers.set('Access-Control-Allow-Methods', 'GET, PUT, POST, OPTIONS');
+  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  headers.set('Access-Control-Max-Age', '86400');
+  
+  return new NextResponse(null, { 
+    status: 200, 
+    headers 
+  });
 }
 
 // ============================================================================

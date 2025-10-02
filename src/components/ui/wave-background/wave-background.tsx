@@ -49,6 +49,23 @@ function checkWebGLSupport(): boolean {
 }
 
 function getDevicePerformanceLevel(): 'high' | 'medium' | 'low' {
+  // Check for mobile devices first
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  
+  // Check for slow network connection
+  const isSlowConnection = (navigator as any).connection && 
+    ((navigator as any).connection.effectiveType === 'slow-2g' || 
+     (navigator as any).connection.effectiveType === '2g' ||
+     (navigator as any).connection.saveData);
+  
+  // Check for reduced motion preference
+  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  
+  // If mobile, slow connection, or reduced motion, use low performance
+  if (isMobile || isSlowConnection || prefersReducedMotion) {
+    return 'low';
+  }
+
   // Simple heuristic based on device capabilities
   const canvas = document.createElement('canvas');
   const gl = canvas.getContext('webgl');
@@ -130,7 +147,41 @@ export function WaveBackground({
     try {
       setState(prev => ({ ...prev, isLoading: true, error: null }));
 
-      const response = await fetch('/api/admin/homepage/wave-config');
+      // Try to load from localStorage first (offline fallback)
+      const cachedConfig = localStorage.getItem('wave-config-cache');
+      const cacheTimestamp = localStorage.getItem('wave-config-timestamp');
+      const isCacheValid = cacheTimestamp && (Date.now() - parseInt(cacheTimestamp)) < 300000; // 5 minutes
+
+      if (cachedConfig && isCacheValid) {
+        try {
+          const parsedConfig = JSON.parse(cachedConfig);
+          console.log('Using cached wave configuration');
+          setState(prev => ({
+            ...prev,
+            config: parsedConfig,
+            isLoading: false,
+            isReady: true
+          }));
+          return;
+        } catch (parseError) {
+          console.warn('Invalid cached wave config, fetching fresh config');
+        }
+      }
+
+      // Add timeout and better error handling for mobile devices
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+      const response = await fetch('/api/admin/homepage/wave-config', {
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        cache: 'no-cache', // Prevent caching issues on mobile
+      });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         console.warn(`Wave config API returned ${response.status}, using default config`);
@@ -140,6 +191,19 @@ export function WaveBackground({
           config: defaultWaveConfig,
           isLoading: false,
           isReady: true // Mark as ready when using default config
+        }));
+        return;
+      }
+
+      // Check if response is actually JSON
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        console.warn('Wave config API returned non-JSON response, using default config');
+        setState(prev => ({
+          ...prev,
+          config: defaultWaveConfig,
+          isLoading: false,
+          isReady: true
         }));
         return;
       }
@@ -158,6 +222,14 @@ export function WaveBackground({
         return;
       }
 
+      // Cache the successful response
+      try {
+        localStorage.setItem('wave-config-cache', JSON.stringify(data.data.config));
+        localStorage.setItem('wave-config-timestamp', Date.now().toString());
+      } catch (storageError) {
+        console.warn('Failed to cache wave config:', storageError);
+      }
+
       setState(prev => ({
         ...prev,
         config: data.data.config,
@@ -166,7 +238,19 @@ export function WaveBackground({
       }));
 
     } catch (error) {
-      console.warn('Error loading wave configuration, using default:', error);
+      // Handle different types of errors
+      if (error instanceof Error) {
+        if (error.name === 'AbortError') {
+          console.warn('Wave config request timed out, using default config');
+        } else if (error.message.includes('<!DOCTYPE')) {
+          console.warn('Wave config API returned HTML instead of JSON, using default config');
+        } else {
+          console.warn('Error loading wave configuration, using default:', error.message);
+        }
+      } else {
+        console.warn('Unknown error loading wave configuration, using default:', error);
+      }
+      
       // Always fallback to default config to prevent homepage from breaking
       setState(prev => ({
         ...prev,
