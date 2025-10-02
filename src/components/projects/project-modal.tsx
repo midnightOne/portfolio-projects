@@ -246,7 +246,7 @@ export function ProjectModal({ project, isOpen, onClose, loading = false }: Proj
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent
-        className="!w-[95vw] !max-w-5xl !max-h-[85vh] !p-0 !gap-0 !flex !flex-col overflow-hidden"
+        className="!w-[95vw] !max-w-5xl !max-h-[85vh] !p-0 !gap-0 !flex !flex-col !border-0 !rounded-lg overflow-hidden"
         style={{ display: 'flex !important', flexDirection: 'column', height: '85vh' }}
         showCloseButton={false}
       >
