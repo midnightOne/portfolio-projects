@@ -114,6 +114,15 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
       }, { status: 400 });
     }
 
+    // Enhanced logging for debugging
+    console.log(`🔧 Tool execution: ${toolName}`, {
+      sessionId,
+      toolCallId,
+      reflinkId,
+      parameters: JSON.stringify(parameters, null, 2),
+      uiState: requestUIState ? JSON.stringify(requestUIState, null, 2) : 'none'
+    });
+
     // Emit debug event for server-side tool call start with correlation ID
     const toolCorrelationId = `server_tool_${toolCallId}`;
     debugEventEmitter.emit('tool_call_start', {

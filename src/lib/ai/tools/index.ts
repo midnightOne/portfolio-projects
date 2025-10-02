@@ -52,6 +52,15 @@ export {
 // Export error classes
 export { ToolExecutionError } from './types';
 
+// Export PassiveFIDManager for client-side F-I-D context management
+export {
+  PassiveFIDManager,
+  passiveFIDManager,
+  type FIDContext,
+  type ProjectSummary,
+  type ContentSearchResult
+} from '../PassiveFIDManager';
+
 // Convenience functions for common operations
 export const getToolRegistry = () => unifiedToolRegistry;
 export const getAllTools = () => unifiedToolRegistry.getAllToolDefinitions();

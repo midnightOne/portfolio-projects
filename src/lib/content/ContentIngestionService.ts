@@ -21,6 +21,7 @@ import { ContextManager } from '../services/ai/context-manager';
 import { debugEventEmitter } from '../debug/debugEventEmitter';
 import VectorOperations from './VectorOperations';
 import { IndexMaintenanceService } from '../database/IndexMaintenanceService';
+import { SmartContentGenerator, SmartGenerationResult } from './SmartContentGenerator';
 import OpenAI from 'openai';
 import { EventEmitter } from 'events';
 
@@ -97,6 +98,7 @@ export class ContentIngestionService extends EventEmitter {
   private contextManager: ContextManager;
   private vectorOps: VectorOperations;
   private indexMaintenance: IndexMaintenanceService;
+  private smartGenerator: SmartContentGenerator;
   private openai: OpenAI;
   private embeddingModel = 'text-embedding-3-small';
   private embeddingDimensions = 1536;
@@ -114,6 +116,7 @@ export class ContentIngestionService extends EventEmitter {
     this.projectIndexer = ProjectIndexer.getInstance();
     this.contextManager = new ContextManager();
     this.vectorOps = new VectorOperations(prisma);
+    this.smartGenerator = new SmartContentGenerator();
     this.indexMaintenance = IndexMaintenanceService.getInstance(prisma, {
       autoAnalyzeThreshold: 50,    // Analyze after 50 changes (more frequent for better performance)
       reindexThreshold: 5000,      // Reindex after 5k changes
@@ -252,11 +255,18 @@ export class ContentIngestionService extends EventEmitter {
         }
       });
 
-      // Parse user-defined tier markers from content
-      const userMarkers = this.parseUserDefinedTierMarkers(project.articleContent?.content || '');
+      // Generate hierarchical content with smart incremental processing
+      const generationResult = await this.smartGenerator.generateHierarchicalContent(project);
+      const tierContents = generationResult.tiers;
 
-      // Generate tier content with hybrid approach
-      const tierContents = await this.generateProjectTiersHybrid(project, userMarkers);
+      // Log cost savings and performance stats
+      console.log(`🎯 Smart Generation Results for ${project.slug}:`, {
+        sectionsSkipped: generationResult.costSavings.sectionsSkipped,
+        tokensSkipped: generationResult.costSavings.tokensSkipped,
+        costSaved: `$${generationResult.costSavings.estimatedCostSaved.toFixed(4)}`,
+        processingTime: `${generationResult.processingStats.processingTime}ms`,
+        efficiency: `${Math.round((generationResult.processingStats.reusedSections / generationResult.processingStats.totalSections) * 100)}% reused`
+      });
 
       // Generate embeddings for all tiers
       for (const tierContent of tierContents) {
@@ -280,7 +290,12 @@ export class ContentIngestionService extends EventEmitter {
           content: tierContent.content,
           tokenCount: tierContent.tokenCount,
           embedding: tierContent.embedding,
-          metadata: tierContent.metadata
+          metadata: tierContent.metadata,
+          // NEW: Include hierarchical relationship data
+          parentChunkId: tierContent.metadata.parentChunkId,
+          rootChunkId: tierContent.metadata.rootChunkId,
+          sectionGroup: tierContent.metadata.sectionGroup,
+          derivationPath: tierContent.metadata.derivationPath
         });
         
         // Get the full chunk data for return
@@ -400,7 +415,7 @@ export class ContentIngestionService extends EventEmitter {
   }
 
   /**
-   * Generate T0-T4 tier content with hybrid approach
+   * Generate T0-T4 tier content with hybrid approach and hierarchical relationships
    */
   private async generateProjectTiersHybrid(project: any, userMarkers: UserDefinedTierMarkers): Promise<TierContent[]> {
     const tiers: TierContent[] = [];
@@ -408,11 +423,16 @@ export class ContentIngestionService extends EventEmitter {
 
     // Get project index for structured content
     const projectIndex = await this.projectIndexer.indexProject(project.id);
+    
+    // Track relationships for hierarchical structure
+    const relationshipMap = new Map<string, string>(); // chunkId -> parentChunkId
+    const sectionGroups = new Map<string, string[]>(); // groupId -> chunkIds
 
-    // T0: Metadata only (always auto-generated)
+    // T0: Metadata only (always auto-generated, root of hierarchy)
+    const t0ChunkId = 'metadata';
     tiers.push({
       tier: 0,
-      chunkId: 'metadata',
+      chunkId: t0ChunkId,
       title: 'Project Metadata',
       content: JSON.stringify({
         title: project.title,
@@ -424,57 +444,71 @@ export class ContentIngestionService extends EventEmitter {
       metadata: {
         type: 'metadata',
         importance: 1.0,
-        source: 'auto-generated'
+        source: 'auto-generated',
+        // NEW: Hierarchical relationship metadata
+        parentChunkId: null,
+        rootChunkId: t0ChunkId,
+        sectionGroup: 'root',
+        derivationPath: 'T0'
       }
     });
 
-    // T1: One-liner summary (user marker or auto-generated)
+    // T1: One-liner summary (user marker or auto-generated, child of T0)
+    const t1ChunkId = 'summary';
+    let t1Content: string;
+    
     if (userMarkers.T1) {
-      tiers.push({
-        tier: 1,
-        chunkId: 'summary',
-        title: 'Project Summary',
-        content: userMarkers.T1,
-        tokenCount: this.estimateTokenCount(userMarkers.T1),
-        metadata: {
-          type: 'summary',
-          importance: 0.9,
-          source: 'user-defined'
-        }
-      });
+      t1Content = userMarkers.T1;
     } else {
       // Auto-generate T1 using OpenAI
-      const t1Content = await this.generateT1Summary(project);
-      if (t1Content) {
-        tiers.push({
-          tier: 1,
-          chunkId: 'summary',
-          title: 'Project Summary',
-          content: t1Content,
-          tokenCount: this.estimateTokenCount(t1Content),
-          metadata: {
-            type: 'summary',
-            importance: 0.9,
-            source: 'auto-generated'
-          }
-        });
+      t1Content = await this.generateT1Summary(project) || 
+                  [project.description, project.briefOverview].filter(Boolean).join('\n\n');
+      if (t1Content !== [project.description, project.briefOverview].filter(Boolean).join('\n\n')) {
         autoGenerationCost += this.GPT4_MINI_COST_PER_1K_TOKENS * 2; // Estimate 2k tokens for generation
       }
     }
 
-    // T2: Key bullet points (user markers or auto-generated)
+    if (t1Content) {
+      tiers.push({
+        tier: 1,
+        chunkId: t1ChunkId,
+        title: 'Project Summary',
+        content: t1Content,
+        tokenCount: this.estimateTokenCount(t1Content),
+        metadata: {
+          type: 'summary',
+          importance: 0.9,
+          source: userMarkers.T1 ? 'user-defined' : 'auto-generated',
+          // NEW: Hierarchical relationship metadata
+          parentChunkId: t0ChunkId,
+          rootChunkId: t0ChunkId,
+          sectionGroup: 'root',
+          derivationPath: 'T0→T1'
+        }
+      });
+    }
+
+    // T2: Key bullet points (user markers or auto-generated, children of T1)
     if (userMarkers.T2 && userMarkers.T2.length > 0) {
       userMarkers.T2.forEach((bullet, index) => {
+        const chunkId = `key-bullet-${index}`;
+        const sectionGroup = `key-points`;
+        
         tiers.push({
           tier: 2,
-          chunkId: `key-bullet-${index}`,
+          chunkId,
           title: `Key Point ${index + 1}`,
           content: bullet,
           tokenCount: this.estimateTokenCount(bullet),
           metadata: {
             type: 'key-bullet',
             importance: 0.8,
-            source: 'user-defined'
+            source: 'user-defined',
+            // NEW: Hierarchical relationship metadata
+            parentChunkId: t1ChunkId,
+            rootChunkId: t0ChunkId,
+            sectionGroup,
+            derivationPath: `T0→T1→T2.${index + 1}`
           }
         });
       });
@@ -489,25 +523,36 @@ export class ContentIngestionService extends EventEmitter {
           // Generate T2 bullets using OpenAI
           const t2Bullets = await this.generateT2Bullets(project);
           t2Bullets.forEach((bullet, index) => {
+            const chunkId = `key-bullet-${index}`;
+            const sectionGroup = `key-points`;
+            
             tiers.push({
               tier: 2,
-              chunkId: `key-bullet-${index}`,
+              chunkId,
               title: `Key Point ${index + 1}`,
               content: bullet,
               tokenCount: this.estimateTokenCount(bullet),
               metadata: {
                 type: 'key-bullet',
                 importance: 0.8,
-                source: 'auto-generated'
+                source: 'auto-generated',
+                // NEW: Hierarchical relationship metadata
+                parentChunkId: t1ChunkId,
+                rootChunkId: t0ChunkId,
+                sectionGroup,
+                derivationPath: `T0→T1→T2.${index + 1}`
               }
             });
           });
           autoGenerationCost += this.GPT4_MINI_COST_PER_1K_TOKENS * 2;
         } else {
           keySections.forEach((section, index) => {
+            const chunkId = `key-section-${index}`;
+            const sectionGroup = `section-${this.slugify(section.title)}`;
+            
             tiers.push({
               tier: 2,
-              chunkId: `key-section-${index}`,
+              chunkId,
               title: section.title,
               content: section.summary || section.content,
               tokenCount: this.estimateTokenCount(section.summary || section.content),
@@ -515,15 +560,26 @@ export class ContentIngestionService extends EventEmitter {
                 type: 'key-section',
                 importance: section.importance,
                 keywords: section.keywords,
-                source: 'project-indexer'
+                source: 'project-indexer',
+                // NEW: Hierarchical relationship metadata
+                parentChunkId: t1ChunkId,
+                rootChunkId: t0ChunkId,
+                sectionGroup,
+                derivationPath: `T0→T1→T2.${index + 1}`
               }
             });
+
+            // Track section group for T3 chunks
+            if (!sectionGroups.has(sectionGroup)) {
+              sectionGroups.set(sectionGroup, []);
+            }
+            sectionGroups.get(sectionGroup)!.push(chunkId);
           });
         }
       }
     }
 
-    // T3: Detailed summary (user marker or auto-generated)
+    // T3: Detailed sections (user marker or auto-generated, children of T2 sections)
     if (userMarkers.T3) {
       tiers.push({
         tier: 3,
@@ -534,16 +590,30 @@ export class ContentIngestionService extends EventEmitter {
         metadata: {
           type: 'detailed-summary',
           importance: 0.7,
-          source: 'user-defined'
+          source: 'user-defined',
+          // NEW: Hierarchical relationship metadata
+          parentChunkId: t1ChunkId, // Direct child of T1 if user-defined
+          rootChunkId: t0ChunkId,
+          sectionGroup: 'detailed-summary',
+          derivationPath: 'T0→T1→T3'
         }
       });
     } else {
       // Use all sections from ProjectIndexer or auto-generate
       if (projectIndex?.sections && projectIndex.sections.length > 0) {
         projectIndex.sections.forEach((section, index) => {
+          const chunkId = `section-${index}`;
+          const sectionGroup = `section-${this.slugify(section.title)}`;
+          
+          // Find parent T2 chunk for this section
+          const parentT2ChunkId = tiers.find(t => 
+            t.tier === 2 && 
+            t.metadata.sectionGroup === sectionGroup
+          )?.chunkId || t1ChunkId; // Fallback to T1 if no T2 parent
+
           tiers.push({
             tier: 3,
-            chunkId: `section-${index}`,
+            chunkId,
             title: section.title,
             content: section.content,
             tokenCount: this.estimateTokenCount(section.content),
@@ -552,7 +622,12 @@ export class ContentIngestionService extends EventEmitter {
               importance: section.importance,
               keywords: section.keywords,
               nodeType: section.nodeType,
-              source: 'project-indexer'
+              source: 'project-indexer',
+              // NEW: Hierarchical relationship metadata
+              parentChunkId: parentT2ChunkId,
+              rootChunkId: t0ChunkId,
+              sectionGroup,
+              derivationPath: `T0→T1→T2.x→T3.${index + 1}`
             }
           });
         });
@@ -569,7 +644,12 @@ export class ContentIngestionService extends EventEmitter {
             metadata: {
               type: 'detailed-summary',
               importance: 0.7,
-              source: 'auto-generated'
+              source: 'auto-generated',
+              // NEW: Hierarchical relationship metadata
+              parentChunkId: t1ChunkId,
+              rootChunkId: t0ChunkId,
+              sectionGroup: 'detailed-summary',
+              derivationPath: 'T0→T1→T3'
             }
           });
           autoGenerationCost += this.GPT4_MINI_COST_PER_1K_TOKENS * 3;
@@ -577,14 +657,19 @@ export class ContentIngestionService extends EventEmitter {
       }
     }
 
-    // T4: Full content with chunking (always from article content)
+    // T4: Full content with chunking (always from article content, children of T3 sections)
     if (project.articleContent?.content) {
       const chunks = this.chunkContent(project.articleContent.content, this.T4_CHUNK_SIZE, this.T4_CHUNK_OVERLAP);
       
       chunks.forEach((chunk, index) => {
+        const chunkId = `full-content-${index}`;
+        
+        // Try to find the most relevant T3 parent based on content similarity
+        const parentT3ChunkId = this.findBestParentChunk(chunk, tiers.filter(t => t.tier === 3));
+        
         tiers.push({
           tier: 4,
-          chunkId: `full-content-${index}`,
+          chunkId,
           title: `Content Chunk ${index + 1}`,
           content: chunk,
           tokenCount: this.estimateTokenCount(chunk),
@@ -593,7 +678,14 @@ export class ContentIngestionService extends EventEmitter {
             chunkIndex: index,
             totalChunks: chunks.length,
             contentType: project.articleContent.contentType,
-            source: 'article-content'
+            source: 'article-content',
+            // NEW: Hierarchical relationship metadata
+            parentChunkId: parentT3ChunkId || t1ChunkId,
+            rootChunkId: t0ChunkId,
+            sectionGroup: parentT3ChunkId ? 
+              tiers.find(t => t.chunkId === parentT3ChunkId)?.metadata.sectionGroup : 
+              'full-content',
+            derivationPath: `T0→T1→...→T4.${index + 1}`
           }
         });
       });
@@ -1017,6 +1109,38 @@ Include: technical architecture, key features, implementation details, technolog
   private estimateTokenCount(content: string): number {
     // Rough approximation: 1 token ≈ 4 characters for English text
     return Math.ceil(content.length / 4);
+  }
+
+  /**
+   * Helper method to find best parent chunk based on content similarity
+   */
+  private findBestParentChunk(content: string, candidateParents: TierContent[]): string | null {
+    if (candidateParents.length === 0) return null;
+    
+    // Simple keyword-based matching (could be enhanced with embeddings)
+    const contentWords = new Set(content.toLowerCase().split(/\s+/));
+    let bestMatch = candidateParents[0];
+    let bestScore = 0;
+    
+    for (const candidate of candidateParents) {
+      const candidateWords = new Set(candidate.content.toLowerCase().split(/\s+/));
+      const intersection = new Set([...contentWords].filter(x => candidateWords.has(x)));
+      const score = intersection.size / Math.max(contentWords.size, candidateWords.size);
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = candidate;
+      }
+    }
+    
+    return bestScore > 0.1 ? bestMatch.chunkId : null; // Minimum similarity threshold
+  }
+
+  /**
+   * Helper method to create URL-friendly slugs
+   */
+  private slugify(text: string): string {
+    return text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
 
   /**

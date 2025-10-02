@@ -12,10 +12,31 @@ import {
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb";
 import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ArrowLeft, Save, Loader2, Eye, EyeOff, AlertCircle, FileText, Globe } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 
 interface BreadcrumbItem {
   title: string;
   href?: string;
+}
+
+interface SaveControlsProps {
+  saving: boolean;
+  hasUnsavedChanges: boolean;
+  lastSaveTime: Date | null;
+  onSave: () => void;
+  onBack: () => void;
+  status: 'DRAFT' | 'PUBLISHED';
+  onStatusChange: (status: 'DRAFT' | 'PUBLISHED') => void;
+  visibility: 'PUBLIC' | 'PRIVATE';
+  onVisibilityChange: (visibility: 'PUBLIC' | 'PRIVATE') => void;
+  error?: string | null;
+}
+
+interface AdminPageHeaderProps {
+  saveControls?: SaveControlsProps;
 }
 
 function generateBreadcrumbs(pathname: string): BreadcrumbItem[] {
@@ -60,7 +81,138 @@ function generateBreadcrumbs(pathname: string): BreadcrumbItem[] {
   return breadcrumbs;
 }
 
-export function AdminPageHeader() {
+function SaveControls({
+  saving,
+  hasUnsavedChanges,
+  lastSaveTime,
+  onSave,
+  onBack,
+  status,
+  onStatusChange,
+  visibility,
+  onVisibilityChange,
+  error
+}: SaveControlsProps) {
+  const getSaveStatusText = () => {
+    if (saving) return 'Saving...';
+    if (!hasUnsavedChanges && lastSaveTime) {
+      return `Saved ${formatDistanceToNow(lastSaveTime, { addSuffix: true })}`;
+    }
+    if (hasUnsavedChanges && lastSaveTime) {
+      return `Last saved ${formatDistanceToNow(lastSaveTime, { addSuffix: true })}`;
+    }
+    if (hasUnsavedChanges) {
+      return 'Unsaved changes';
+    }
+    return 'No changes';
+  };
+
+  const getSaveStatusColor = () => {
+    if (saving) return 'text-blue-600';
+    if (!hasUnsavedChanges) return 'text-green-600';
+    return 'text-amber-600';
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      {/* Back button */}
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onBack}
+        className="flex items-center gap-2 h-8"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back
+      </Button>
+
+      {/* Save status */}
+      <div className="text-center">
+        <div className={`text-sm font-medium ${getSaveStatusColor()}`}>
+          {getSaveStatusText()}
+        </div>
+        {error && (
+          <div className="flex items-center gap-1 text-xs text-red-600">
+            <AlertCircle className="h-3 w-3" />
+            {error}
+          </div>
+        )}
+      </div>
+
+      {/* Status control */}
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 text-sm text-gray-600">
+          {status === 'PUBLISHED' ? (
+            <Globe className="h-4 w-4" />
+          ) : (
+            <FileText className="h-4 w-4" />
+          )}
+          <span className="hidden sm:inline">Status:</span>
+        </div>
+        <Select
+          value={status}
+          onValueChange={onStatusChange}
+          disabled={saving}
+        >
+          <SelectTrigger className="w-24 h-8">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="DRAFT">Draft</SelectItem>
+            <SelectItem value="PUBLISHED">Published</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Visibility control */}
+      <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 text-sm text-gray-600">
+          {visibility === 'PUBLIC' ? (
+            <Eye className="h-4 w-4" />
+          ) : (
+            <EyeOff className="h-4 w-4" />
+          )}
+          <span className="hidden sm:inline">Visibility:</span>
+        </div>
+        <Select
+          value={visibility}
+          onValueChange={onVisibilityChange}
+          disabled={saving}
+        >
+          <SelectTrigger className="w-24 h-8">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="PRIVATE">Private</SelectItem>
+            <SelectItem value="PUBLIC">Public</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Save button */}
+      <Button
+        onClick={onSave}
+        disabled={saving || (!hasUnsavedChanges && lastSaveTime !== null)}
+        size="sm"
+        className="flex items-center gap-2 h-8"
+      >
+        {saving ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Saving...
+          </>
+        ) : (
+          <>
+            <Save className="h-4 w-4" />
+            Save
+          </>
+        )}
+      </Button>
+    </div>
+  );
+}
+
+export function AdminPageHeader({ saveControls }: AdminPageHeaderProps) {
   const pathname = usePathname();
   const breadcrumbs = generateBreadcrumbs(pathname || '/admin');
 
@@ -86,6 +238,14 @@ export function AdminPageHeader() {
           ))}
         </BreadcrumbList>
       </Breadcrumb>
+      
+      {/* Save controls on the right side */}
+      {saveControls && (
+        <>
+          <div className="flex-1" /> {/* Spacer to push save controls to the right */}
+          <SaveControls {...saveControls} />
+        </>
+      )}
     </header>
   );
 }

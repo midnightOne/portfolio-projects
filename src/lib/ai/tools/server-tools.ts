@@ -556,7 +556,7 @@ export const contentGetToolDefinition: UnifiedToolDefinition = {
           enum: [0, 1, 2, 3, 4]
         },
         description: 'Which content tiers to include (0=metadata, 1=summary, 2=bullets, 3=detailed, 4=full)',
-        default: [1, 2, 3]
+        default: [0, 1, 2, 3, 4]
       }
     },
     required: ['ids']
@@ -593,6 +593,113 @@ export const contentGetToolDefinition: UnifiedToolDefinition = {
   }
 };
 
+// NEW: Hierarchical content tools
+export const contentHierarchyToolDefinition: UnifiedToolDefinition = {
+  name: 'content_getHierarchy',
+  description: 'Get the hierarchical relationship of a content chunk (ancestors, descendants, siblings)',
+  parameters: {
+    type: 'object',
+    properties: {
+      chunkId: {
+        type: 'string',
+        description: 'The ID of the content chunk to explore'
+      }
+    },
+    required: ['chunkId']
+  },
+  executionContext: 'server',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean' },
+      data: {
+        type: 'object',
+        properties: {
+          ancestors: { type: 'array', items: { type: 'object' } },
+          descendants: { type: 'array', items: { type: 'object' } },
+          siblings: { type: 'array', items: { type: 'object' } }
+        }
+      },
+      error: { type: 'string' }
+    }
+  }
+};
+
+export const sectionSearchToolDefinition: UnifiedToolDefinition = {
+  name: 'content_searchSection',
+  description: 'Search within a specific content section or topic group',
+  parameters: {
+    type: 'object',
+    properties: {
+      sectionGroup: {
+        type: 'string',
+        description: 'The section group to search within'
+      },
+      query: {
+        type: 'string',
+        description: 'The search query'
+      },
+      maxTier: {
+        type: 'number',
+        description: 'Maximum content tier to include (1-4)',
+        default: 4
+      }
+    },
+    required: ['sectionGroup', 'query']
+  },
+  executionContext: 'server',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean' },
+      data: {
+        type: 'object',
+        properties: {
+          items: { type: 'array', items: { type: 'object' } }
+        }
+      },
+      error: { type: 'string' }
+    }
+  }
+};
+
+export const relatedContentToolDefinition: UnifiedToolDefinition = {
+  name: 'content_getRelated',
+  description: 'Get related content across all tiers for a specific topic or project section',
+  parameters: {
+    type: 'object',
+    properties: {
+      rootChunkId: {
+        type: 'string',
+        description: 'The root chunk ID to get related content for'
+      },
+      includeTiers: {
+        type: 'array',
+        items: { type: 'number' },
+        description: 'Which tiers to include (default: [1,2,3])',
+        default: [1, 2, 3]
+      }
+    },
+    required: ['rootChunkId']
+  },
+  executionContext: 'server',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean' },
+      data: {
+        type: 'object',
+        properties: {
+          summary: { type: 'object' },
+          keyPoints: { type: 'array', items: { type: 'object' } },
+          details: { type: 'array', items: { type: 'object' } },
+          fullContent: { type: 'array', items: { type: 'object' } }
+        }
+      },
+      error: { type: 'string' }
+    }
+  }
+};
 // Export all server-side tool definitions
 export const serverToolDefinitions: UnifiedToolDefinition[] = [
   loadProjectContextToolDefinition,
@@ -603,8 +710,42 @@ export const serverToolDefinitions: UnifiedToolDefinition[] = [
   submitContactFormToolDefinition,
   processUploadedFileToolDefinition,
   contentSearchToolDefinition,
-  contentGetToolDefinition
+  contentGetToolDefinition,
+  // NEW: Hierarchical content tools
+  contentHierarchyToolDefinition,
+  sectionSearchToolDefinition,
+  relatedContentToolDefinition,
 ];
 
 // Note: getServerToolDefinitions function has been removed
 // Use UnifiedToolRegistry.getServerToolDefinitions() instead
+export const navigateToContentToolDefinition: UnifiedToolDefinition = {
+  name: 'content_navigateTo',
+  description: 'Navigate to specific content using Tiptap positions or semantic anchors for precise scrolling',
+  parameters: {
+    type: 'object',
+    properties: {
+      chunkId: {
+        type: 'string',
+        description: 'The content chunk ID to navigate to'
+      },
+      anchorId: {
+        type: 'string',
+        description: 'Optional semantic anchor ID for navigation (e.g., "technical-implementation")'
+      },
+      highlightSection: {
+        type: 'boolean',
+        description: 'Whether to highlight the target section after navigation',
+        default: true
+      },
+      scrollBehavior: {
+        type: 'string',
+        enum: ['smooth', 'instant', 'auto'],
+        description: 'Scroll animation behavior',
+        default: 'smooth'
+      }
+    },
+    required: ['chunkId']
+  },
+  executionContext: 'server'
+};

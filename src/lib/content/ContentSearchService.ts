@@ -54,9 +54,9 @@ export interface ContentSearchResult {
     why: string;                        // 1 sentence justification for relevance
     navTarget: any;                     // UIIntentParams for navigation
     score: number;
-    facets: { 
-      tech: string[]; 
-      year?: number; 
+    facets: {
+      tech: string[];
+      year?: number;
       type: string;
       tier: number;
     };
@@ -95,6 +95,9 @@ export interface ContentGetResult {
     tier: number;
     title?: string;
     metadata: Record<string, any>;
+    chunkId?: string;                   // Semantic chunk ID for navigation
+    project?: string;                   // Project slug if content belongs to a project
+    navTarget?: any;
   }>;
   totalTokens: number;
   truncated: boolean;                   // Whether content was truncated due to budget
@@ -128,12 +131,12 @@ interface InternalSearchResult {
 
 export class ContentSearchService implements ContentProvider {
   public readonly name = 'ContentSearchService';
-  
+
   private vectorOps: VectorOperations;
   private openai: OpenAI | null;
   private embeddingModel = 'text-embedding-3-small';
   private embeddingDimensions = 1536;
-  
+
   // MMR configuration
   private mmrConfig: MMRConfig = {
     lambda: 0.7,                        // 70% relevance, 30% diversity
@@ -146,7 +149,7 @@ export class ContentSearchService implements ContentProvider {
 
   constructor() {
     this.vectorOps = new VectorOperations(prisma);
-    
+
     // Initialize OpenAI client for embedding generation
     const apiKey = process.env.OPENAI_API_KEY;
     if (apiKey) {
@@ -163,7 +166,7 @@ export class ContentSearchService implements ContentProvider {
   async searchContentInternal(params: ContentSearchParams): Promise<ContentSearchResult> {
     const startTime = Date.now();
     const timings: Record<string, number> = {};
-    
+
     const {
       query,
       scope = {},
@@ -189,14 +192,14 @@ export class ContentSearchService implements ContentProvider {
       let queryEmbedding: number[] = [];
       let cacheHit = false;
       const embeddingTimings: Record<string, number> = {};
-      
+
       if (this.openai && query.trim()) {
         try {
           // Check cache first
           const cacheCheckStart = Date.now();
           const cachedEmbedding = embeddingCache.get(query, this.embeddingModel);
           embeddingTimings.cacheCheck = Date.now() - cacheCheckStart;
-          
+
           if (cachedEmbedding) {
             queryEmbedding = cachedEmbedding;
             cacheHit = true;
@@ -210,11 +213,11 @@ export class ContentSearchService implements ContentProvider {
               dimensions: this.embeddingDimensions
             });
             embeddingTimings.openaiApiCall = Date.now() - apiCallStart;
-            
+
             const extractionStart = Date.now();
             queryEmbedding = response.data[0].embedding;
             embeddingTimings.dataExtraction = Date.now() - extractionStart;
-            
+
             // Cache the result
             const cacheStoreStart = Date.now();
             embeddingCache.set(query, queryEmbedding, this.embeddingModel);
@@ -225,7 +228,7 @@ export class ContentSearchService implements ContentProvider {
           // Continue with metadata-only search
         }
       }
-      
+
       timings.queryEmbeddingTime = Date.now() - embeddingStartTime;
       // Store embedding timings separately - they'll be merged into timingBreakdown later
       Object.assign(timings, embeddingTimings);
@@ -282,8 +285,8 @@ export class ContentSearchService implements ContentProvider {
       return {
         items: formattedResults,
         more: searchResults.length > diversifiedResults.length,
-        cursor: diversifiedResults.length > 0 ? 
-          `${diversifiedResults[diversifiedResults.length - 1].id}_${diversifiedResults.length}` : 
+        cursor: diversifiedResults.length > 0 ?
+          `${diversifiedResults[diversifiedResults.length - 1].id}_${diversifiedResults.length}` :
           undefined,
         totalResults: searchResults.length,
         searchMetadata: {
@@ -299,7 +302,7 @@ export class ContentSearchService implements ContentProvider {
 
     } catch (error) {
       const errorMsg = `Content search failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      
+
       debugEventEmitter.emit('content-search-error', {
         query,
         error: errorMsg,
@@ -324,6 +327,35 @@ export class ContentSearchService implements ContentProvider {
   }
 
   /**
+   * Test method to verify changes are working
+   */
+  async getContentWithChunkId(params: ContentGetParams): Promise<ContentGetResult> {
+    console.log('TEST METHOD CALLED!');
+    const result = await this.getContent(params);
+
+    // Add chunkId and project to existing results
+    const enhancedItems = [];
+    for (const item of result.items) {
+      // Get the chunk data again to add missing fields
+      const chunk = await prisma.contextChunk.findUnique({
+        where: { id: item.id },
+        include: { entity: true }
+      });
+
+      enhancedItems.push({
+        ...item,
+        chunkId: chunk?.chunkId,
+        project: chunk?.entity?.entityType === 'PROJECT' ? chunk.entity.slug : undefined
+      });
+    }
+
+    return {
+      ...result,
+      items: enhancedItems
+    };
+  }
+
+  /**
    * Retrieve specific content by IDs with token budget management
    */
   async getContent(params: ContentGetParams): Promise<ContentGetResult> {
@@ -333,6 +365,8 @@ export class ContentSearchService implements ContentProvider {
       includeTiers = [1, 2, 3]
     } = params;
 
+    console.log(`[ContentSearchService] getContent called with:`, { ids, maxTokens, includeTiers });
+
     debugEventEmitter.emit('content-get-start', {
       ids,
       maxTokens,
@@ -341,10 +375,23 @@ export class ContentSearchService implements ContentProvider {
     });
 
     try {
-      // Fetch content chunks by IDs
+      // Fetch content chunks by IDs (support both database IDs and semantic IDs)
       const chunks = await prisma.contextChunk.findMany({
         where: {
-          id: { in: ids },
+          OR: [
+            { id: { in: ids } }, // Database IDs
+            { chunkId: { in: ids } }, // Semantic chunk IDs
+            // Handle project-scoped semantic IDs (format: "project-slug:chunk-id")
+            ...ids.filter(id => id.includes(':')).map(id => {
+              const [projectSlug, chunkId] = id.split(':');
+              return {
+                AND: [
+                  { chunkId },
+                  { entity: { slug: projectSlug } }
+                ]
+              };
+            })
+          ],
           tier: { in: includeTiers }
         },
         include: {
@@ -363,11 +410,16 @@ export class ContentSearchService implements ContentProvider {
 
       for (const chunk of chunks) {
         const estimatedTokens = chunk.tokenCount || this._estimateTokenCount(chunk.content);
-        
+
         if (totalTokens + estimatedTokens > maxTokens) {
           truncated = true;
           break;
         }
+
+        const chunkId = chunk.chunkId;
+        const project = chunk.entity?.entityType === 'PROJECT' ? chunk.entity.slug : undefined;
+
+        console.log(`[ContentSearchService] Adding chunk: ${chunk.id}, chunkId: ${chunkId}, project: ${project}`);
 
         results.push({
           id: chunk.id,
@@ -375,7 +427,9 @@ export class ContentSearchService implements ContentProvider {
           tokenEstimate: estimatedTokens,
           tier: chunk.tier,
           title: chunk.title || undefined,
-          metadata: chunk.metadata as Record<string, any>
+          metadata: chunk.metadata as Record<string, any>,
+          chunkId: chunkId, // Add chunkId for navigation
+          project: project // Add project info
         });
 
         totalTokens += estimatedTokens;
@@ -397,7 +451,7 @@ export class ContentSearchService implements ContentProvider {
 
     } catch (error) {
       const errorMsg = `Content retrieval failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      
+
       debugEventEmitter.emit('content-get-error', {
         ids,
         error: errorMsg,
@@ -429,7 +483,7 @@ export class ContentSearchService implements ContentProvider {
       };
 
       const searchResult = await this.searchContentInternal(searchParams);
-      
+
       // Convert search results to semantic sections
       const sections: SemanticSection[] = searchResult.items.map(item => ({
         id: item.id,
@@ -474,7 +528,7 @@ export class ContentSearchService implements ContentProvider {
    * Implementation for both overloads
    */
   async searchContent(
-    paramsOrQuery: ContentSearchParams | string, 
+    paramsOrQuery: ContentSearchParams | string,
     options?: any
   ): Promise<ContentSearchResult | any[]> {
     if (typeof paramsOrQuery === 'string') {
@@ -526,7 +580,7 @@ export class ContentSearchService implements ContentProvider {
       }
 
       const bestMatch = searchResult.items[0];
-      
+
       // If UIManager is provided, execute navigation
       if (uiManager && typeof uiManager.executeIntent === 'function') {
         try {
@@ -555,7 +609,7 @@ export class ContentSearchService implements ContentProvider {
 
     } catch (error) {
       const errorMsg = `Content navigation failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
-      
+
       debugEventEmitter.emit('content-navigation-error', {
         query,
         error: errorMsg,
@@ -574,13 +628,85 @@ export class ContentSearchService implements ContentProvider {
    */
   configureMMR(config: Partial<MMRConfig>): void {
     this.mmrConfig = { ...this.mmrConfig, ...config };
-    
+
     debugEventEmitter.emit('content-search-mmr-configured', {
       config: this.mmrConfig,
       timestamp: Date.now()
     });
   }
 
+  /**
+   * Get content hierarchy for a specific chunk
+   */
+  async getContentHierarchy(chunkId: string): Promise<{
+    ancestors: any[];
+    descendants: any[];
+    siblings: any[];
+  }> {
+    return await this.vectorOps.getContentHierarchy(chunkId);
+  }
+
+  /**
+   * Search within a content section group
+   */
+  async searchWithinSection(
+    sectionGroup: string,
+    query: string,
+    maxTier: number = 4
+  ): Promise<InternalSearchResult[]> {
+    // Generate query embedding
+    let queryEmbedding: number[] = [];
+    if (this.openai && query.trim()) {
+      try {
+        const response = await this.openai.embeddings.create({
+          model: this.embeddingModel,
+          input: query,
+          dimensions: this.embeddingDimensions
+        });
+        queryEmbedding = response.data[0].embedding;
+      } catch (error) {
+        console.error('Failed to generate query embedding:', error);
+      }
+    }
+
+    if (queryEmbedding.length > 0) {
+      const results = await this.vectorOps.searchWithinSection(sectionGroup, queryEmbedding, 10, maxTier);
+      return results.map(result => ({
+        id: result.id,
+        entityId: result.entity_id || '',
+        entityType: result.entity_type,
+        entitySlug: result.entity_slug,
+        entityTitle: result.entity_title,
+        tier: result.tier,
+        chunkId: result.chunk_id,
+        title: result.title,
+        content: result.content,
+        tokenCount: 0, // Would need to be fetched separately
+        similarity: result.similarity_score,
+        metadata: {},
+        tags: [],
+        technologies: [],
+        createdAt: new Date()
+      }));
+    }
+
+    return [];
+  }
+
+  /**
+   * Get related content across tiers for a topic
+   */
+  async getRelatedContentAcrossTiers(
+    rootChunkId: string,
+    includeTiers: number[] = [1, 2, 3]
+  ): Promise<{
+    summary: any | null;
+    keyPoints: any[];
+    details: any[];
+    fullContent: any[];
+  }> {
+    return await this.vectorOps.getRelatedContentAcrossTiers(rootChunkId, includeTiers);
+  }
   /**
    * Get search statistics for monitoring
    */
@@ -650,7 +776,7 @@ export class ContentSearchService implements ContentProvider {
     filters: ContentSearchParams['filters'] = {},
     limit: number
   ): Promise<InternalSearchResult[]> {
-    
+
     const hybridTimings: Record<string, number> = {};
     let results: InternalSearchResult[] = [];
 
@@ -669,7 +795,7 @@ export class ContentSearchService implements ContentProvider {
         // Time the batch chunk fetch
         const chunkFetchStart = Date.now();
         const chunkIds = semanticResults.map(result => result.id);
-        
+
         const chunks = await prisma.contextChunk.findMany({
           where: {
             id: { in: chunkIds }
@@ -679,11 +805,11 @@ export class ContentSearchService implements ContentProvider {
           }
         });
         hybridTimings.chunkFetchTime = Date.now() - chunkFetchStart;
-        
+
         // Time the result processing
         const processingStart = Date.now();
         const chunkMap = new Map(chunks.map(chunk => [chunk.id, chunk]));
-        
+
         // Convert to internal format and apply additional filtering
         for (const result of semanticResults) {
           const chunk = chunkMap.get(result.id);
@@ -712,7 +838,7 @@ export class ContentSearchService implements ContentProvider {
           });
         }
         hybridTimings.processingTime = Date.now() - processingStart;
-        
+
       } catch (error) {
         console.error('Semantic search failed, falling back to metadata search:', error);
       }
@@ -734,7 +860,7 @@ export class ContentSearchService implements ContentProvider {
         // Time the result merging
         const mergingStart = Date.now();
         const existingIds = new Set(results.map(r => r.id));
-        
+
         for (const result of metadataResults) {
           if (existingIds.has(result.id)) continue;
 
@@ -757,7 +883,7 @@ export class ContentSearchService implements ContentProvider {
           });
         }
         hybridTimings.mergingTime = Date.now() - mergingStart;
-        
+
       } catch (error) {
         console.error('Metadata search failed:', error);
       }
@@ -786,7 +912,7 @@ export class ContentSearchService implements ContentProvider {
     filters: ContentSearchParams['filters'] = {},
     limit: number
   ): Promise<InternalSearchResult[]> {
-    
+
     // Build the base SQL query
     let sql = `
       SELECT 
@@ -826,7 +952,7 @@ export class ContentSearchService implements ContentProvider {
 
     // Add tag filtering using JSON operations
     if (filters.tags && filters.tags.length > 0) {
-      const tagConditions = filters.tags.map((_, index) => 
+      const tagConditions = filters.tags.map((_, index) =>
         `e.tags::jsonb ? $${paramIndex + index}`
       ).join(' OR ');
       sql += ` AND (${tagConditions})`;
@@ -836,7 +962,7 @@ export class ContentSearchService implements ContentProvider {
 
     // Add technology filtering using JSON operations
     if (filters.technologies && filters.technologies.length > 0) {
-      const techConditions = filters.technologies.map((_, index) => 
+      const techConditions = filters.technologies.map((_, index) =>
         `e.technologies::jsonb ? $${paramIndex + index}`
       ).join(' OR ');
       sql += ` AND (${techConditions})`;
@@ -929,22 +1055,22 @@ export class ContentSearchService implements ContentProvider {
 
       for (let i = 0; i < remaining.length; i++) {
         const candidate = remaining[i];
-        
+
         // Calculate relevance score (similarity)
         const relevance = candidate.similarity;
-        
+
         // Calculate diversity score
         const diversity = this._calculateDiversity(candidate, selected, diversifyBy);
-        
+
         // Check if we already have too many results from same project/type
         const similarCount = this._countSimilarResults(candidate, selected, diversifyBy);
         if (similarCount >= maxSimilarResults) {
           continue; // Skip this candidate
         }
-        
+
         // MMR score: λ * relevance + (1-λ) * diversity
         const mmrScore = lambda * relevance + (1 - lambda) * diversity;
-        
+
         if (mmrScore > bestScore) {
           bestScore = mmrScore;
           bestIndex = i;
@@ -1052,7 +1178,7 @@ export class ContentSearchService implements ContentProvider {
 
     for (const result of results) {
       // Generate one-liner (use T1 content or create from title)
-      const oneLiner = result.tier === 1 ? 
+      const oneLiner = result.tier === 1 ?
         result.content.substring(0, 100) + (result.content.length > 100 ? '...' : '') :
         result.title || result.entityTitle || 'Content';
 
@@ -1104,7 +1230,7 @@ export class ContentSearchService implements ContentProvider {
     }
 
     // Check for technology matches
-    const matchingTech = result.technologies.filter(tech => 
+    const matchingTech = result.technologies.filter(tech =>
       tech.toLowerCase().includes(queryLower) || queryLower.includes(tech.toLowerCase())
     );
     if (matchingTech.length > 0) {
@@ -1112,7 +1238,7 @@ export class ContentSearchService implements ContentProvider {
     }
 
     // Check for tag matches
-    const matchingTags = result.tags.filter(tag => 
+    const matchingTags = result.tags.filter(tag =>
       tag.toLowerCase().includes(queryLower) || queryLower.includes(tag.toLowerCase())
     );
     if (matchingTags.length > 0) {
@@ -1138,16 +1264,19 @@ export class ContentSearchService implements ContentProvider {
    * Create navigation target for UIManager
    */
   private _createNavigationTarget(result: InternalSearchResult): any {
+    // Use chunkId directly (now stores proper anchor IDs)
+    const sectionId = result.chunkId;
+
     if (result.entityType === 'PROJECT') {
       return {
         type: 'project',
         id: result.entitySlug,
-        sectionId: result.chunkId !== 'metadata' ? result.chunkId : undefined
+        sectionId: sectionId !== 'metadata' ? sectionId : undefined
       };
     } else {
       return {
         type: 'section',
-        id: result.chunkId,
+        id: sectionId,
         projectId: result.entitySlug
       };
     }
@@ -1160,8 +1289,8 @@ export class ContentSearchService implements ContentProvider {
     // Tag filtering
     if (filters.tags && filters.tags.length > 0) {
       const chunkTags = chunk.entity.tags as string[];
-      const hasMatchingTag = filters.tags.some(tag => 
-        chunkTags.some(chunkTag => 
+      const hasMatchingTag = filters.tags.some(tag =>
+        chunkTags.some(chunkTag =>
           chunkTag.toLowerCase().includes(tag.toLowerCase())
         )
       );
@@ -1171,8 +1300,8 @@ export class ContentSearchService implements ContentProvider {
     // Technology filtering
     if (filters.technologies && filters.technologies.length > 0) {
       const chunkTech = chunk.entity.technologies as string[];
-      const hasMatchingTech = filters.technologies.some(tech => 
-        chunkTech.some(chunkTech => 
+      const hasMatchingTech = filters.technologies.some(tech =>
+        chunkTech.some(chunkTech =>
           chunkTech.toLowerCase().includes(tech.toLowerCase())
         )
       );

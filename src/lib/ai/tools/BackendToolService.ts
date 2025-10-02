@@ -189,6 +189,18 @@ export class BackendToolService {
           result = await this.handleContentGet(parameters, context);
           break;
 
+        // NEW: Hierarchical content tools
+        case 'content_getHierarchy':
+          result = await this.handleContentHierarchy(parameters, context);
+          break;
+
+        case 'content_searchSection':
+          result = await this.handleSectionSearch(parameters, context);
+          break;
+
+        case 'content_getRelated':
+          result = await this.handleRelatedContent(parameters, context);
+          break;
         default:
           return {
             success: false,
@@ -290,12 +302,7 @@ export class BackendToolService {
         detailedSummary: projectData?.briefOverview || 'Detailed project analysis available',
         keyTechnologies: projectData?.tags?.map(t => t.name) || ['javascript', 'typescript', 'react'],
         mainTopics: ['web development', 'frontend'],
-        contentStructure: {
-          totalSections: 0,
-          headingHierarchy: [],
-          contentTypes: [],
-          estimatedReadTime: 0
-        },
+        semanticItems: await this.getProjectSemanticItems(projectId, projectData),
         sections: includeContent ? [] : undefined,
         mediaContext: includeMedia ? (projectData?.mediaItems || []) : undefined,
         keywords: [],
@@ -324,25 +331,25 @@ export class BackendToolService {
       // Return structured profile data directly without contextInjector to avoid hanging
       // TODO: In the future, this could load real profile data from database
       const profileData = {
-        name: 'Portfolio Owner',
-        title: 'Full-Stack Developer',
-        bio: 'Experienced developer with expertise in modern web technologies',
+        name: 'Kirill Prymachov',
+        title: 'XR/AI Developer',
+        bio: 'Experienced game developer with expertise in realtime 3D mutiplayer games, AR/VR and applied AI engineering',
         skills: includeSkills ? [
           'JavaScript', 'TypeScript', 'React', 'Next.js', 'Node.js',
-          'Python', 'PostgreSQL', 'Prisma', 'Tailwind CSS', 'Git'
+          'Python', 'PostgreSQL', 'Prisma', 'Tailwind CSS', 'Git', 'Unity', 'Unreal Engine', 'Technical art (shaders)'
         ] : [],
-        experience: includeExperience ? '5+ years of professional development experience' : undefined,
+        experience: includeExperience ? '7+ years of professional development experience' : undefined,
         contact: {
           email: includePrivate && context.accessLevel === 'premium' ? 'contact@example.com' : undefined,
           linkedin: 'https://linkedin.com/in/developer',
           github: 'https://github.com/developer',
           website: 'https://portfolio.example.com'
         },
-        location: 'Remote',
+        location: 'New York',
         availability: 'Available for new opportunities',
-        interests: ['Web Development', 'AI/ML', 'Open Source', 'Full-Stack Development'],
+        interests: ['XR', 'applied/agentic AI', 'game development', 'AR applications of the future'],
         education: 'Computer Science Degree',
-        certifications: ['AWS Certified', 'React Certified'],
+        certifications: [],
         accessLevel: context.accessLevel,
         filteredForReflink: !!context.reflinkId,
         profileLoadedDirectly: true // Flag to indicate this was loaded without contextInjector
@@ -1069,7 +1076,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
 
       // Enhance navigation targets with UI state compatibility
       const enhancementStart = Date.now();
-      const enhancedResults = this._enhanceNavigationTargets(rankedResults, uiState);
+      const enhancedResults = await this._enhanceNavigationTargets(rankedResults, uiState);
       backendTimings.navigationEnhancement = Date.now() - enhancementStart;
 
       const resultBuildStart = Date.now();
@@ -1148,7 +1155,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         ids,
         uiState,
         maxTokens = 900,
-        includeTiers = [1, 2, 3]
+        includeTiers = [0, 1, 2, 3, 4]
       } = parameters;
 
       console.log('Content get request:', {
@@ -1197,10 +1204,11 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
       });
 
       // Enhance results with navigation targets compatible with current UI state
-      const enhancedItems = getResult.items.map(item => ({
+      // Only override if navTarget doesn't exist or needs UI state enhancement
+      const enhancedItems = await Promise.all(getResult.items.map(async item => ({
         ...item,
-        navTarget: this._createNavigationTargetForContent(item, uiState)
-      }));
+        navTarget: item.navTarget ? this._enhanceExistingNavTarget(item.navTarget, uiState) : await this._createNavigationTargetForContent(item, uiState)
+      })));
 
       const finalResult = {
         ...getResult,
@@ -1386,36 +1394,58 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
   /**
    * Enhance navigation targets with UI state compatibility
    */
-  private _enhanceNavigationTargets(results: any[], uiState?: any): any[] {
-    return results.map(result => ({
+  private async _enhanceNavigationTargets(results: any[], uiState?: any): Promise<any[]> {
+    return await Promise.all(results.map(async result => ({
       ...result,
-      navTarget: this._createNavigationTargetForContent(result, uiState)
-    }));
+      navTarget: result.navTarget ? this._enhanceExistingNavTarget(result.navTarget, uiState) : await this._createNavigationTargetForContent(result, uiState)
+    })));
   }
 
   /**
    * Create navigation target compatible with current UI state
    */
-  private _createNavigationTargetForContent(content: any, uiState?: any): any {
+  private async _createNavigationTargetForContent(content: any, uiState?: any): Promise<any> {
+    // Extract semantic identifiers from content
+    let sectionId = content.chunkId || content.id;
+    let projectId = content.project;
+    
+    // If we don't have chunkId or project, query the database to get them
+    if (!content.chunkId || !content.project) {
+      try {
+        const { prisma } = await import('@/lib/database/connection');
+        const chunk = await prisma.contextChunk.findUnique({
+          where: { id: content.id },
+          include: { entity: true }
+        });
+        
+        if (chunk) {
+          // Use chunkId directly (now stores proper anchor IDs)
+          sectionId = chunk.chunkId;
+          projectId = chunk.entity?.entityType === 'PROJECT' ? chunk.entity.slug : undefined;
+        }
+      } catch (error) {
+        console.warn('Failed to fetch chunk details for navigation target:', error);
+        // Fall back to chunkId or metadata extraction
+        if (content.chunkId) {
+          sectionId = content.chunkId;
+        } else if (content.metadata) {
+          sectionId = content.metadata.anchorId || content.metadata.sectionGroup || content.id;
+        }
+      }
+    }
+    
     // Base navigation target
     const navTarget: any = {
       type: 'section',
-      id: content.id
+      id: sectionId
     };
 
     // If content is project-related, create project navigation
-    if (content.project) {
+    if (projectId) {
+      // Always use project navigation with sectionId for project content
       navTarget.type = 'project';
-      navTarget.id = content.project;
-
-      // If we're already in the project, navigate to specific section
-      if (uiState?.currentProject === content.project) {
-        navTarget.type = 'section';
-        navTarget.id = content.id;
-        navTarget.scope = {
-          projectId: content.project
-        };
-      }
+      navTarget.id = projectId;
+      navTarget.sectionId = sectionId; // This will scroll to the section within the project
     }
 
     // Add behavior based on current UI state
@@ -1436,6 +1466,35 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
     }
 
     return navTarget;
+  }
+
+  /**
+   * Enhance existing navigation target with UI state context
+   */
+  private _enhanceExistingNavTarget(existingNavTarget: any, uiState?: any): any {
+    // Keep the existing navigation target structure (which should be correct from ContentSearchService)
+    // but enhance it with UI state-aware behavior and scope
+    const enhanced = { ...existingNavTarget };
+
+    // Add or enhance behavior based on current UI state
+    enhanced.behavior = {
+      openIfNeeded: true,
+      closeBlocking: false,
+      scrollBehavior: 'smooth',
+      ...enhanced.behavior // Keep any existing behavior settings
+    };
+
+    // Add scope context if UI state is available
+    if (uiState) {
+      enhanced.scope = {
+        route: uiState.currentRoute,
+        modalId: uiState.currentModal,
+        projectId: uiState.currentProject,
+        ...enhanced.scope // Keep any existing scope settings
+      };
+    }
+
+    return enhanced;
   }
 
   /**
@@ -1468,6 +1527,424 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
     if (this._requestCache.size > 100) {
       const oldestKey = this._requestCache.keys().next().value;
       this._requestCache.delete(oldestKey);
+    }
+  }
+
+  /**
+   * Get project semantic items (optimized for token efficiency)
+   */
+  private async getProjectSemanticItems(projectId: string, projectData: any): Promise<Array<{
+    id: string;
+    oneLiner: string;
+    chunkId: string;
+    tier: number;
+  }>> {
+    try {
+      const { prisma } = await import('@/lib/database/connection');
+
+      // First, get the actual project to find the real project ID
+      const project = await prisma.project.findFirst({
+        where: {
+          OR: [
+            { slug: projectId },
+            { id: projectId }
+          ]
+        },
+        select: {
+          id: true,
+          slug: true,
+          title: true
+        }
+      });
+
+      if (!project) {
+        console.warn(`Project not found: ${projectId}`);
+        return [];
+      }
+
+      const actualProjectId = project.id;
+
+      // Generate semantic items from hierarchical chunks
+      try {
+        const hierarchicalChunks = await prisma.contextChunk.findMany({
+          where: {
+            entity: {
+              entityType: 'PROJECT',
+              slug: project.slug
+            },
+            tier: { in: [1, 2] } // T1 and T2 tiers for semantic items
+          },
+          select: {
+            id: true,
+            chunkId: true,
+            title: true,
+            tier: true,
+            content: true
+          },
+          orderBy: [
+            { tier: 'asc' },
+            { chunkId: 'asc' }
+          ],
+          take: 10
+        });
+
+        return hierarchicalChunks.map((chunk) => ({
+          id: chunk.id, // Database hash ID - for content_get tool
+          oneLiner: chunk.title || chunk.content.substring(0, 100) + '...',
+          chunkId: chunk.chunkId, // For Tiptap navigation
+          tier: chunk.tier
+        }));
+
+      } catch (chunkError) {
+        console.warn('Failed to load hierarchical chunks:', chunkError);
+        return [];
+      }
+
+    } catch (error) {
+      console.warn('Failed to get project semantic items:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Build content structure from semantic data
+   */
+  private async buildContentStructure(projectId: string, projectData: any): Promise<{
+    totalSections: number;
+    headingHierarchy: Array<{ level: number; title: string; id?: string }>;
+    contentTypes: string[];
+    estimatedReadTime: number;
+    semanticItems?: Array<{
+      id: string;
+      oneLiner: string;
+      chunkId: string;
+      tier: number;
+    }>;
+  }> {
+    try {
+      const { prisma } = await import('@/lib/database/connection');
+
+      // First, get the actual project to find the real project ID
+      const project = await prisma.project.findFirst({
+        where: {
+          OR: [
+            { slug: projectId },
+            { id: projectId }
+          ]
+        },
+        select: {
+          id: true,
+          slug: true
+        }
+      });
+
+      if (!project) {
+        console.warn('Project not found for content structure:', projectId);
+        return {
+          totalSections: 0,
+          headingHierarchy: [],
+          contentTypes: [],
+          estimatedReadTime: 0,
+          semanticItems: []
+        };
+      }
+
+      const actualProjectId = project.id;
+
+      // Get AI Index data for semantic information
+      const aiIndex = await prisma.projectAIIndex.findUnique({
+        where: { projectId: actualProjectId },
+        select: {
+          sectionsCount: true,
+          mediaCount: true,
+          keywords: true,
+          topics: true,
+          technologies: true,
+          summary: true
+        }
+      });
+
+      // Get article content for structure analysis
+      const articleContent = await prisma.articleContent.findFirst({
+        where: { projectId: actualProjectId },
+        select: {
+          jsonContent: true,
+          contentType: true
+        }
+      });
+
+      let headingHierarchy: Array<{ level: number; title: string; id?: string }> = [];
+      let contentTypes: string[] = [];
+      let estimatedReadTime = 0;
+      let semanticItems: Array<{
+        id: string;
+        oneLiner: string;
+        chunkId: string;
+        tier: number;
+      }> = [];
+
+      // Extract structure from JSON content
+      if (articleContent?.jsonContent && articleContent.contentType === 'json') {
+        const jsonContent = articleContent.jsonContent as any;
+
+        console.log("jsonContent: " + jsonContent.content);
+
+        if (jsonContent.content && Array.isArray(jsonContent.content)) {
+          // Extract headings for hierarchy
+          const headings = jsonContent.content.filter((block: any) =>
+            block.type === 'heading'
+          );
+
+          headingHierarchy = headings.map((heading: any, index: number) => ({
+            level: heading.attrs?.level || 1,
+            title: this.extractTextFromContent(heading.content) || `Section ${index + 1}`,
+            id: `section-${index + 1}`
+          }));
+
+          // Extract content types
+          const types = new Set<string>(jsonContent.content.map((block: any) => block.type as string));
+          contentTypes = Array.from(types);
+
+          // Estimate reading time (rough calculation: 200 words per minute)
+          const wordCount = this.estimateWordCount(jsonContent.content);
+          estimatedReadTime = Math.ceil(wordCount / 200);
+
+          // Generate semantic items from new hierarchical chunks
+          try {
+            const hierarchicalChunks = await prisma.contextChunk.findMany({
+              where: {
+                entity: {
+                  entityType: 'PROJECT',
+                  slug: project.slug
+                },
+                tier: { in: [1, 2] } // T1 and T2 tiers for semantic items
+              },
+              select: {
+                id: true,
+                chunkId: true,
+                title: true,
+                tier: true,
+                content: true
+              },
+              orderBy: [
+                { tier: 'asc' },
+                { chunkId: 'asc' }
+              ],
+              take: 10
+            });
+
+            semanticItems = hierarchicalChunks.map((chunk, index) => ({
+              id: chunk.id, // Database hash ID - for content_get tool
+              oneLiner: chunk.title || chunk.content.substring(0, 100) + '...',
+              chunkId: chunk.chunkId, // For Tiptap navigation
+              tier: chunk.tier
+            }));
+
+            console.log(`Generated ${semanticItems.length} semantic items from hierarchical chunks`);
+
+          } catch (chunkError) {
+            console.warn('Failed to load hierarchical chunks, falling back to old method:', chunkError);
+
+            // Fallback to old method if hierarchical chunks not available
+            semanticItems = headings.slice(0, 10).map((heading: any, index: number) => ({
+              id: `semantic-${index + 1}`,
+              oneLiner: this.extractTextFromContent(heading.content) || `Section ${index + 1}`,
+              chunkId: `h${heading.attrs?.level || 1}-${index + 1}`,
+              tier: index < 3 ? 1 : index < 7 ? 2 : 3
+            }));
+          }
+        }
+      }
+
+      return {
+        totalSections: aiIndex?.sectionsCount || headingHierarchy.length || 0,
+        headingHierarchy,
+        contentTypes,
+        estimatedReadTime,
+        semanticItems
+      };
+
+    } catch (error) {
+      console.warn('Failed to build content structure:', error);
+
+      // Return basic structure on error
+      return {
+        totalSections: 0,
+        headingHierarchy: [],
+        contentTypes: [],
+        estimatedReadTime: 0,
+        semanticItems: []
+      };
+    }
+  }
+
+  /**
+   * Extract text content from TipTap content structure
+   */
+  private extractTextFromContent(content: any[]): string {
+    if (!Array.isArray(content)) return '';
+
+    return content.map(item => {
+      if (item.type === 'text') {
+        return item.text || '';
+      } else if (item.content) {
+        return this.extractTextFromContent(item.content);
+      }
+      return '';
+    }).join('').trim();
+  }
+
+  /**
+   * Estimate word count from content blocks
+   */
+  private estimateWordCount(content: any[]): number {
+    if (!Array.isArray(content)) return 0;
+
+    let wordCount = 0;
+
+    content.forEach(block => {
+      if (block.type === 'paragraph' || block.type === 'heading') {
+        const text = this.extractTextFromContent(block.content || []);
+        wordCount += text.split(/\s+/).filter(word => word.length > 0).length;
+      } else if (block.type === 'codeBlock') {
+        // Code blocks count as fewer "reading" words
+        const text = this.extractTextFromContent(block.content || []);
+        wordCount += Math.ceil(text.split(/\s+/).length * 0.3);
+      }
+    });
+
+    return wordCount;
+  }
+
+  // ============================================================================
+  // NEW: HIERARCHICAL CONTENT TOOL HANDLERS
+  // ============================================================================
+
+  /**
+   * Handle content hierarchy retrieval
+   */
+  private async handleContentHierarchy(
+    parameters: any,
+    context: ServerToolExecutionContext
+  ): Promise<any> {
+    try {
+      const { chunkId } = parameters;
+
+      console.log('Content hierarchy request:', {
+        chunkId,
+        sessionId: context.sessionId
+      });
+
+      if (!chunkId) {
+        throw new Error('Chunk ID is required');
+      }
+
+      // Get hierarchy using ContentSearchService
+      const hierarchy = await this.contentSearchService.getContentHierarchy(chunkId);
+
+      console.log('Content hierarchy completed:', {
+        chunkId,
+        ancestors: hierarchy.ancestors.length,
+        descendants: hierarchy.descendants.length,
+        siblings: hierarchy.siblings.length,
+        sessionId: context.sessionId
+      });
+
+      return {
+        success: true,
+        data: hierarchy
+      };
+
+    } catch (error) {
+      console.error('Content hierarchy failed:', error);
+      throw new Error(`Content hierarchy retrieval failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle section search within content groups
+   */
+  private async handleSectionSearch(
+    parameters: any,
+    context: ServerToolExecutionContext
+  ): Promise<any> {
+    try {
+      const { sectionGroup, query, maxTier = 4 } = parameters;
+
+      console.log('Section search request:', {
+        sectionGroup,
+        query,
+        maxTier,
+        sessionId: context.sessionId
+      });
+
+      if (!sectionGroup || !query) {
+        throw new Error('Section group and query are required');
+      }
+
+      // Search within section using ContentSearchService
+      const results = await this.contentSearchService.searchWithinSection(sectionGroup, query, maxTier);
+
+      console.log('Section search completed:', {
+        sectionGroup,
+        query,
+        results: results.length,
+        sessionId: context.sessionId
+      });
+
+      return {
+        success: true,
+        data: {
+          items: results
+        }
+      };
+
+    } catch (error) {
+      console.error('Section search failed:', error);
+      throw new Error(`Section search failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle related content retrieval across tiers
+   */
+  private async handleRelatedContent(
+    parameters: any,
+    context: ServerToolExecutionContext
+  ): Promise<any> {
+    try {
+      const { rootChunkId, includeTiers = [1, 2, 3] } = parameters;
+
+      console.log('Related content request:', {
+        rootChunkId,
+        includeTiers,
+        sessionId: context.sessionId
+      });
+
+      if (!rootChunkId) {
+        throw new Error('Root chunk ID is required');
+      }
+
+      // Get related content using ContentSearchService
+      const relatedContent = await this.contentSearchService.getRelatedContentAcrossTiers(rootChunkId, includeTiers);
+
+      console.log('Related content completed:', {
+        rootChunkId,
+        summary: relatedContent.summary ? 'found' : 'none',
+        keyPoints: relatedContent.keyPoints.length,
+        details: relatedContent.details.length,
+        fullContent: relatedContent.fullContent.length,
+        sessionId: context.sessionId
+      });
+
+      return {
+        success: true,
+        data: relatedContent
+      };
+
+    } catch (error) {
+      console.error('Related content failed:', error);
+      throw new Error(`Related content retrieval failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 }

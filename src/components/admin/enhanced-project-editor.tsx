@@ -11,26 +11,25 @@ import { Separator } from '@/components/ui/separator';
 import { ArrowLeft, Loader2, Calendar, Tag as TagIcon, Save, Bot } from 'lucide-react';
 import { ProjectWithRelations } from '@/lib/types/project';
 import { CONTAINERS, SPACING, COMPONENTS, FLEX, MAX_WIDTHS } from '@/lib/constants';
-import { 
-  AIQuickActions, 
-  TextSelection, 
-  ProjectContext, 
-  AIQuickActionResult 
+import {
+  AIQuickActions,
+  TextSelection,
+  ProjectContext,
+  AIQuickActionResult
 } from './ai-quick-actions';
-import { 
+import {
   AIPromptInterface,
-  AIPromptResult 
+  AIPromptResult
 } from './ai-prompt-interface';
-import { 
-  TextSelectionManager, 
-  TextareaAdapter, 
+import {
+  TextSelectionManager,
+  TextareaAdapter,
   TiptapAdapter,
-  TextChange 
+  TextChange
 } from './text-selection-manager';
 import { tiptapToMarkdown, markdownToTiptap } from '@/lib/tiptap-markdown-converter';
 import { SmartTagInput, Tag } from './smart-tag-input';
 import { ClickableMediaUpload } from './clickable-media-upload';
-import { FloatingSaveBar } from './floating-save-bar';
 import { TiptapEditorWithAI, TiptapContentData } from '../tiptap/tiptap-editor-with-ai';
 
 interface ProjectFormData {
@@ -46,12 +45,26 @@ interface ProjectFormData {
   contentType: 'text' | 'json';
 }
 
+interface SaveControlsProps {
+  saving: boolean;
+  hasUnsavedChanges: boolean;
+  lastSaveTime: Date | null;
+  onSave: () => void;
+  onBack: () => void;
+  status: 'DRAFT' | 'PUBLISHED';
+  onStatusChange: (status: 'DRAFT' | 'PUBLISHED') => void;
+  visibility: 'PUBLIC' | 'PRIVATE';
+  onVisibilityChange: (visibility: 'PUBLIC' | 'PRIVATE') => void;
+  error?: string | null;
+}
+
 interface EnhancedProjectEditorProps {
   projectId?: string;
   mode: 'create' | 'edit';
+  onSaveControlsChange?: (saveControls: SaveControlsProps) => void;
 }
 
-export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditorProps) {
+export function EnhancedProjectEditor({ projectId, mode, onSaveControlsChange }: EnhancedProjectEditorProps) {
   const router = useRouter();
   const [project, setProject] = useState<ProjectWithRelations | null>(null);
   const [loading, setLoading] = useState(mode === 'edit');
@@ -118,8 +131,8 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
     if (tiptapEditorRef.current) {
       return new TiptapAdapter(tiptapEditorRef.current, (content) => {
         // Update both plain text and JSON content to keep them in sync
-        setFormData(prev => ({ 
-          ...prev, 
+        setFormData(prev => ({
+          ...prev,
           articleContent: content,
           // The JSON content will be updated by the TiptapEditorWithAI component's onChange
         }));
@@ -142,8 +155,8 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
   // Check if refs are ready and trigger re-render
   useEffect(() => {
     const checkRefs = () => {
-      const allRefsReady = titleRef.current && briefOverviewRef.current && 
-                          descriptionRef.current;
+      const allRefsReady = titleRef.current && briefOverviewRef.current &&
+        descriptionRef.current;
       if (allRefsReady && !refsReady) {
         setRefsReady(true);
       }
@@ -167,7 +180,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
   // Track unsaved changes
   useEffect(() => {
     if (project && isEditing) {
-      const hasChanges = 
+      const hasChanges =
         formData.title !== project.title ||
         formData.description !== project.description ||
         formData.briefOverview !== project.briefOverview ||
@@ -177,7 +190,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
         JSON.stringify(formData.tags.sort()) !== JSON.stringify(project.tags.map(t => t.name).sort()) ||
         formData.status !== (project.status as string) ||
         formData.visibility !== (project.visibility as string);
-      
+
       setHasUnsavedChanges(hasChanges);
     } else if (!isEditing) {
       const hasContent = !!(
@@ -187,10 +200,28 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
         formData.articleContent.trim() ||
         formData.tags.length > 0
       );
-      
+
       setHasUnsavedChanges(hasContent);
     }
   }, [formData, project, isEditing]);
+
+  // Notify parent component about save controls changes
+  useEffect(() => {
+    if (onSaveControlsChange) {
+      onSaveControlsChange({
+        saving,
+        hasUnsavedChanges,
+        lastSaveTime,
+        onSave: handleSave,
+        onBack: () => router.push('/admin/projects'),
+        status: formData.status,
+        onStatusChange: (status) => handleFormDataChange({ status }),
+        visibility: formData.visibility,
+        onVisibilityChange: (visibility) => handleFormDataChange({ visibility }),
+        error
+      });
+    }
+  }, [saving, hasUnsavedChanges, lastSaveTime, formData.status, formData.visibility, error, onSaveControlsChange, router]);
 
   const fetchProject = async () => {
     if (!projectId) return;
@@ -198,14 +229,16 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
     try {
       setLoading(true);
       const response = await fetch(`/api/admin/projects/${projectId}`);
-      
+
       if (!response.ok) {
         throw new Error(`Failed to fetch project: ${response.status} ${response.statusText}`);
       }
 
       const projectData = await response.json();
       setProject(projectData);
-      
+
+
+
       setFormData({
         title: projectData.title || '',
         description: projectData.description || '',
@@ -261,7 +294,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
       const result = await response.json();
       setLastSaveTime(new Date());
       setHasUnsavedChanges(false);
-      
+
       if (!isEditing && result.project?.id) {
         router.push(`/admin/projects/editor/${result.project.id}`);
       } else if (isEditing) {
@@ -285,17 +318,17 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
         // Get the selected content as JSON from Tiptap
         const { from, to } = tiptapEditorRef.current.state.selection;
         const selectedDoc = tiptapEditorRef.current.state.doc.slice(from, to);
-        
+
         // Convert the selected JSON to Markdown
         const selectedJson = selectedDoc.toJSON();
         const markdownText = tiptapToMarkdown({ type: 'doc', content: selectedJson.content || [] });
-        
+
         // Update the selection with Markdown text for AI processing
         const enhancedSelection: TextSelection = {
           ...selection,
           text: markdownText || selection.text, // Fallback to original text if conversion fails
         };
-        
+
         setSelectedText(enhancedSelection);
       } catch (error) {
         console.warn('Failed to convert selected Tiptap content to Markdown:', error);
@@ -304,14 +337,14 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
     } else {
       setSelectedText(selection || undefined);
     }
-    
+
     setActiveField(fieldName);
   };
 
   const handleApplyAIChanges = (result: AIQuickActionResult) => {
     console.log('handleApplyAIChanges called with:', result);
     console.log('Current activeField:', activeField);
-    
+
     if (!result.changes) {
       console.log('Early return: no changes');
       return;
@@ -320,7 +353,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
     // Handle content changes based on active field
     if (activeField === 'articleContent' && tiptapEditorRef.current) {
       console.log('Applying AI changes to Tiptap editor');
-      
+
       // Apply full content replacement
       if (result.changes.fullContent) {
         console.log('Applying full content to Tiptap:', result.changes.fullContent);
@@ -335,14 +368,14 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
             type: 'paragraph',
             content: [{ type: 'text', text: paragraph }]
           }));
-          
+
           const newContent = {
             type: 'doc',
             content: paragraphs.length > 0 ? paragraphs : [
               { type: 'paragraph', content: [] }
             ]
           };
-          
+
           tiptapEditorRef.current.commands.setContent(newContent);
         }
       }
@@ -351,12 +384,12 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
       if (result.changes.partialUpdate) {
         const { start, end, newText } = result.changes.partialUpdate;
         console.log('Applying partial update to Tiptap:', { start, end, newText });
-        
+
         try {
           // For partial updates, we can try to parse the new text as Markdown
           // and insert it as formatted content
           const tiptapContent = markdownToTiptap(newText);
-          
+
           // If the markdown conversion resulted in multiple nodes, insert them
           if (tiptapContent.content.length > 1) {
             // Replace the selection with the new content
@@ -365,7 +398,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
               .setTextSelection({ from: start, to: end })
               .deleteSelection()
               .run();
-            
+
             // Insert each node
             tiptapContent.content.forEach(node => {
               tiptapEditorRef.current.commands.insertContent(node);
@@ -400,7 +433,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
       // Handle other fields using the adapter approach
       const adapter = getCurrentAdapter();
       console.log('Current adapter:', adapter);
-      
+
       if (adapter) {
         // Apply full content replacement
         if (result.changes.fullContent) {
@@ -421,17 +454,17 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
     if (result.changes.suggestedTags) {
       const { add, remove } = result.changes.suggestedTags;
       let newTags = [...formData.tags];
-      
+
       // Remove suggested tags
       newTags = newTags.filter(tag => !remove.includes(tag));
-      
+
       // Add new tags (avoid duplicates)
       add.forEach(tag => {
         if (!newTags.includes(tag)) {
           newTags.push(tag);
         }
       });
-      
+
       handleFormDataChange({ tags: newTags });
     }
 
@@ -447,7 +480,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
   const handleApplyPromptChanges = (result: AIPromptResult) => {
     console.log('handleApplyPromptChanges called with:', result);
     console.log('Current activeField:', activeField);
-    
+
     if (!result.changes) {
       console.log('Early return: no changes');
       return;
@@ -456,7 +489,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
     // Handle content changes based on active field
     if (activeField === 'articleContent' && tiptapEditorRef.current) {
       console.log('Applying AI prompt changes to Tiptap editor');
-      
+
       // Apply full content replacement
       if (result.changes.fullContent) {
         console.log('Applying full content to Tiptap:', result.changes.fullContent);
@@ -471,14 +504,14 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
             type: 'paragraph',
             content: [{ type: 'text', text: paragraph }]
           }));
-          
+
           const newContent = {
             type: 'doc',
             content: paragraphs.length > 0 ? paragraphs : [
               { type: 'paragraph', content: [] }
             ]
           };
-          
+
           tiptapEditorRef.current.commands.setContent(newContent);
         }
       }
@@ -487,12 +520,12 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
       if (result.changes.partialUpdate) {
         const { start, end, newText } = result.changes.partialUpdate;
         console.log('Applying partial update to Tiptap:', { start, end, newText });
-        
+
         try {
           // For partial updates, we can try to parse the new text as Markdown
           // and insert it as formatted content
           const tiptapContent = markdownToTiptap(newText);
-          
+
           // If the markdown conversion resulted in multiple nodes, insert them
           if (tiptapContent.content.length > 1) {
             // Replace the selection with the new content
@@ -501,7 +534,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
               .setTextSelection({ from: start, to: end })
               .deleteSelection()
               .run();
-            
+
             // Insert each node
             tiptapContent.content.forEach(node => {
               tiptapEditorRef.current.commands.insertContent(node);
@@ -536,7 +569,7 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
       // Handle other fields using the adapter approach
       const adapter = getCurrentAdapter();
       console.log('Current adapter:', adapter);
-      
+
       if (adapter) {
         // Apply full content replacement
         if (result.changes.fullContent) {
@@ -557,17 +590,17 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
     if (result.changes.suggestedTags) {
       const { add, remove } = result.changes.suggestedTags;
       let newTags = [...formData.tags];
-      
+
       // Remove suggested tags
       newTags = newTags.filter(tag => !remove.includes(tag));
-      
+
       // Add new tags (avoid duplicates)
       add.forEach(tag => {
         if (!newTags.includes(tag)) {
           newTags.push(tag);
         }
       });
-      
+
       handleFormDataChange({ tags: newTags });
     }
 
@@ -642,32 +675,13 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-neutral-900">
       <div className={`${CONTAINERS.wide} ${SPACING.section.sm}`} style={{ maxWidth: MAX_WIDTHS.editor }}>
-        {/* Save Bar */}
-        <div className={`mb-3 ${FLEX.center}`}>
-          <div className="w-full">
-            <FloatingSaveBar
-              visible={true}
-              onToggleVisibility={() => {}}
-              saving={saving}
-              hasUnsavedChanges={hasUnsavedChanges}
-              lastSaveTime={lastSaveTime}
-              onSave={handleSave}
-              onBack={() => router.push('/admin/projects')}
-              status={formData.status}
-              onStatusChange={(status) => handleFormDataChange({ status })}
-              visibility={formData.visibility}
-              onVisibilityChange={(visibility) => handleFormDataChange({ visibility })}
-              error={error}
-            />
-          </div>
-        </div>
 
-        <div className={`flex ${SPACING.gap.sm} min-h-[calc(100vh-7rem)]`}>
+        <div className={`flex ${SPACING.gap.sm} min-h-[calc(100vh-4rem)]`}>
           {/* Project Editor - 65% */}
           <div className="flex-1" style={{ flexBasis: '65%' }}>
-            <Card className="h-full overflow-hidden">
+            <Card className="h-full overflow-hidden p-0">
               <div className="flex h-full">
                 {/* Left Sidebar - Metadata */}
                 <div className="w-1/3 border-r bg-muted/30 flex flex-col">
@@ -841,8 +855,9 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
                 </div>
 
                 {/* Right Content Area - Article Content */}
-                <div className="flex-1 flex flex-col">
-                  <div className="flex-1 overflow-hidden p-4">
+                <div className="flex-1 flex flex-col bg-white overflow-hidden">
+                  {/* Tiptap Editor */}
+                  <div className="flex-1 overflow-hidden">
                     {getTiptapAdapter() ? (
                       <TextSelectionManager
                         adapter={getTiptapAdapter()!}
@@ -850,12 +865,12 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
                       >
                         <TiptapEditorWithAI
                           content={
-                            formData.contentType === 'json' 
-                              ? (formData.articleContentJson || formData.articleContent)
+                            formData.contentType === 'json' && formData.articleContentJson
+                              ? formData.articleContentJson
                               : formData.articleContent
                           }
                           onChange={(content) => {
-                            handleFormDataChange({ 
+                            handleFormDataChange({
                               articleContentJson: content,
                               contentType: 'json'
                             });
@@ -873,12 +888,12 @@ export function EnhancedProjectEditor({ projectId, mode }: EnhancedProjectEditor
                     ) : (
                       <TiptapEditorWithAI
                         content={
-                          formData.contentType === 'json' 
-                            ? (formData.articleContentJson || formData.articleContent)
+                          formData.contentType === 'json' && formData.articleContentJson
+                            ? formData.articleContentJson
                             : formData.articleContent
                         }
                         onChange={(content) => {
-                          handleFormDataChange({ 
+                          handleFormDataChange({
                             articleContentJson: content,
                             contentType: 'json'
                           });

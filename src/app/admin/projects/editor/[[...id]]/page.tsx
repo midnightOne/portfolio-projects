@@ -7,6 +7,19 @@ import { EnhancedProjectEditor } from '@/components/admin/enhanced-project-edito
 import { AdminLayout } from '@/components/admin/admin-layout';
 import { Loader2 } from 'lucide-react';
 
+interface SaveControlsProps {
+  saving: boolean;
+  hasUnsavedChanges: boolean;
+  lastSaveTime: Date | null;
+  onSave: () => void;
+  onBack: () => void;
+  status: 'DRAFT' | 'PUBLISHED';
+  onStatusChange: (status: 'DRAFT' | 'PUBLISHED') => void;
+  visibility: 'PUBLIC' | 'PRIVATE';
+  onVisibilityChange: (visibility: 'PUBLIC' | 'PRIVATE') => void;
+  error?: string | null;
+}
+
 interface UnifiedProjectEditorPageProps {
   params: Promise<{ id?: string[] }>;
 }
@@ -16,6 +29,7 @@ export default function UnifiedProjectEditorPage({ params: paramsPromise }: Unif
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [params, setParams] = useState<{ id?: string[] }>({ id: undefined });
+  const [saveControls, setSaveControls] = useState<SaveControlsProps | undefined>(undefined);
 
   // Extract project ID from params - it's either undefined (new) or the first element
   const projectId = params.id?.[0];
@@ -51,10 +65,11 @@ export default function UnifiedProjectEditorPage({ params: paramsPromise }: Unif
   }
 
   return (
-    <AdminLayout>
+    <AdminLayout saveControls={saveControls}>
       <EnhancedProjectEditor 
         projectId={projectId}
         mode={isEditing ? 'edit' : 'create'}
+        onSaveControlsChange={setSaveControls}
       />
     </AdminLayout>
   );

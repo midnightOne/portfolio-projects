@@ -68,3 +68,12 @@ export {
   type TokenGenerationResult,
   type SystemPromptInjection
 } from './context-injector';
+
+// Client-Side F-I-D Context Management
+export {
+  PassiveFIDManager,
+  passiveFIDManager,
+  type FIDContext,
+  type ProjectSummary,
+  type ContentSearchResult
+} from '../../ai/PassiveFIDManager';

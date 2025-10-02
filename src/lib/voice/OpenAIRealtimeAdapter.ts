@@ -31,6 +31,13 @@ import {
 } from '@openai/agents/realtime';
 import { z } from 'zod';
 
+// Global reference for debugging (temporary for testing)
+let globalOpenAIAdapter: OpenAIRealtimeAdapter | null = null;
+
+export function getGlobalOpenAIAdapter(): OpenAIRealtimeAdapter | null {
+    return globalOpenAIAdapter;
+}
+
 
 
 export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
@@ -63,6 +70,12 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     private _conversationStartTime: Date | null = null;
     private _sessionId: string | null = null;
 
+    // NAV_CONTEXT message tracking functionality
+    private trackedNavItemIds: Set<string> = new Set();
+    private _lastNavItemId: string | null = null; // Track most recent NAV_CONTEXT item ID
+    private pendingTokens: Map<string, { resolve: (id: string) => void; reject: (error: Error) => void; timeout: NodeJS.Timeout }> = new Map();
+    private tokenListenerSetup: boolean = false;
+
     constructor() {
         // Initialize with default metadata - will be updated when config is loaded
         const metadata: ProviderMetadata = {
@@ -73,6 +86,16 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         };
         super('openai', metadata);
         // Don't load configuration in constructor - defer to init() method
+
+        // Set global reference for debugging
+        globalOpenAIAdapter = this;
+        
+        // Expose globally for debugging
+        if (typeof window !== 'undefined') {
+            (window as any).getGlobalOpenAIAdapter = () => globalOpenAIAdapter;
+        } else if (typeof globalThis !== 'undefined') {
+            (globalThis as any).getGlobalOpenAIAdapter = () => globalOpenAIAdapter;
+        }
     }
 
     /**
@@ -405,6 +428,14 @@ Navigation Tools Usage:
 - Use ui_describe to understand current UI state and available options
 - Use ui_intent for ALL navigation goals (opening projects, scrolling to sections, route changes)
 - Use highlighting and scrolling tools for visual emphasis
+
+NAV_CONTEXT Handling:
+- You will occasionally receive NAV_CONTEXT messages (starting with "NAV_CONTEXT") containing current UI state and context
+- These messages provide automatic awareness of user's current location and available content
+- Do NOT read NAV_CONTEXT messages aloud or acknowledge them directly
+- Use NAV_CONTEXT information to ground your responses and provide contextually relevant answers
+- Always consult your most recent NAV_CONTEXT for current UI state before calling navigation tools
+- If NAV_CONTEXT seems irrelevant to the current conversation, you may ignore it
 
 Communication guidelines:
 - Speak English until asked to use a different language
@@ -1442,7 +1473,10 @@ Navigation Flow:
                 this._sendBackgroundResult(update);
             });
 
-            console.log('OpenAI Realtime: UI state tracking initialized');
+            // Enable passive context integration for automatic NAV_CONTEXT updates
+            uiManager.enablePassiveContext(this);
+
+            console.log('OpenAI Realtime: UI state tracking and passive context integration initialized');
         } catch (error) {
             console.error('Failed to initialize UI state tracking:', error);
         }
@@ -1503,7 +1537,14 @@ Navigation Flow:
                 if (typeof window !== 'undefined') {
                     const uiManager = UIManager.getInstance();
                     uiManager.setBackgroundUpdateCallback(null);
+                    uiManager.disablePassiveContext();
                 }
+
+                // Clean up NAV_CONTEXT message tracking
+                this.tokenListenerSetup = false;
+                this.pendingTokens.clear();
+                this.trackedNavItemIds.clear();
+                this._lastNavItemId = null;
 
                 console.log('Disconnected from OpenAI Realtime');
                 this._emitConnectionEvent('disconnected');
@@ -1963,5 +2004,257 @@ Navigation Flow:
             item: transcriptItem,
             timestamp: new Date()
         });
+    }
+
+    // ============================================================================
+    // NAV_CONTEXT MESSAGE TRACKING METHODS
+    // ============================================================================
+
+    /**
+     * Send event to OpenAI Realtime session
+     */
+    private async sendEvent(event: any): Promise<void> {
+        if (!this._session) {
+            throw new Error("No active session for sending events");
+        }
+
+        return this._session.transport.sendEvent(event);
+    }
+
+    /**
+     * Generate UUID for token correlation
+     */
+    private uuid(): string {
+        return globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2);
+    }
+
+    /**
+     * Setup token listener for message tracking (single event listener per session)
+     */
+    private setupTokenListener(): void {
+        if (this.tokenListenerSetup || !this._session) {
+            return;
+        }
+
+        this.tokenListenerSetup = true;
+
+        const onEvent = (e: any) => {
+            if (e.type === "conversation.item.added") {
+                const parts = e.item?.content ?? [];
+                const text = parts.find((p: any) => p.type === "input_text")?.text || "";
+
+                // Check if this is a NAV_CONTEXT message and track it
+                if (text.startsWith('NAV_CONTEXT ')) {
+                    this.trackedNavItemIds.add(e.item.id);
+                    this._lastNavItemId = e.item.id; // Update last nav item ID
+                    console.log('📍 Tracking NAV_CONTEXT message:', e.item.id, `(total: ${this.trackedNavItemIds.size})`);
+                }
+
+                // Check all pending tokens
+                for (const [token, pending] of Array.from(this.pendingTokens.entries())) {
+                    if (text.includes(token)) {
+                        console.log('✅ Found matching token, item ID:', e.item.id);
+                        clearTimeout(pending.timeout);
+                        this.pendingTokens.delete(token);
+                        pending.resolve(e.item.id);
+                        break;
+                    }
+                }
+            } else if (e.type === "error") {
+                // Reject all pending tokens on error
+                const errorMessage = e.error?.message || "server error";
+                console.log('❌ Received error event:', errorMessage);
+
+                for (const [token, pending] of Array.from(this.pendingTokens.entries())) {
+                    clearTimeout(pending.timeout);
+                    pending.reject(new Error(errorMessage));
+                }
+                this.pendingTokens.clear();
+            }
+        };
+
+        this._session.on('transport_event', onEvent);
+        console.log('🎧 Token listener setup complete');
+    }
+
+    /**
+     * Wait for conversation.item.added event with specific token
+     */
+    private waitForCreatedWithToken(token: string): Promise<string> {
+        return new Promise<string>((resolve, reject) => {
+            console.log('⏳ Waiting for item.added with token:', token);
+            
+            if (!this._session) {
+                reject(new Error("No session available"));
+                return;
+            }
+            
+            // Setup the listener if not already done
+            this.setupTokenListener();
+            
+            // Set up timeout
+            const timeout = setTimeout(() => {
+                this.pendingTokens.delete(token);
+                console.log('⏰ Timeout waiting for token:', token);
+                reject(new Error("Ack timeout"));
+            }, 10000);
+            
+            // Add to pending tokens
+            this.pendingTokens.set(token, { resolve, reject, timeout });
+        });
+    }
+
+    /**
+     * Push passive context to OpenAI session using NAV_CONTEXT pattern
+     * This method provides seamless passive context injection for OpenAI Realtime conversations
+     */
+    async pushPassiveContext(fidContext: any): Promise<{ id: string; token: string }> {
+        if (!this._session) {
+            throw new Error("No active session for context injection");
+        }
+
+        const token = this.uuid();
+        const text = `NAV_CONTEXT ${token} ${JSON.stringify(fidContext)}`;
+        
+        console.log('📤 Sending NAV_CONTEXT with token:', token);
+        console.log('📋 NAV_CONTEXT Content:', {
+            frame: fidContext.frame,
+            index: {
+                route: fidContext.index.route,
+                currentProject: fidContext.index.currentProject,
+                projectCount: fidContext.index.availableProjects?.length || 0,
+                visibleSections: fidContext.index.visibleSections
+            },
+            details: {
+                hasProjectSummary: !!fidContext.details.projectSummary,
+                projectSummary: fidContext.details.projectSummary?.substring(0, 100) + (fidContext.details.projectSummary?.length > 100 ? '...' : ''),
+                intentContentCount: fidContext.details.intentBasedContent?.length || 0,
+                hasSelectedText: !!fidContext.details.selectedText
+            }
+        });
+        
+        await this.sendEvent({
+            type: "conversation.item.create",
+            item: {
+                type: "message",
+                role: "user",
+                content: [{ type: "input_text", text }]
+            }
+        });
+        
+        const id = await this.waitForCreatedWithToken(token);
+        return { id, token };
+    }
+
+    /**
+     * Delete a specific NAV_CONTEXT message
+     */
+    async deleteNavContext(itemId: string): Promise<void> {
+        if (!this._session) {
+            throw new Error("No active session for context deletion");
+        }
+
+        console.log('🗑️ Deleting NAV_CONTEXT item:', itemId);
+        await this.sendEvent({
+            type: "conversation.item.delete",
+            item_id: itemId
+        });
+        this.trackedNavItemIds.delete(itemId);
+        
+        // Update _lastNavItemId if we deleted the last item
+        if (this._lastNavItemId === itemId) {
+            const remainingIds = Array.from(this.trackedNavItemIds);
+            this._lastNavItemId = remainingIds.length > 0 ? remainingIds[remainingIds.length - 1] : null;
+        }
+        
+        console.log(`📍 Removed from tracking (remaining: ${this.trackedNavItemIds.size})`);
+    }
+
+    /**
+     * Delete all tracked NAV_CONTEXT messages
+     */
+    async deleteAllNavContexts(): Promise<void> {
+        if (!this._session) {
+            throw new Error("No active session for context deletion");
+        }
+
+        const itemIds = Array.from(this.trackedNavItemIds);
+        console.log(`🗑️ Deleting all ${itemIds.length} NAV_CONTEXT items:`, itemIds);
+        
+        for (const itemId of itemIds) {
+            try {
+                await this.sendEvent({
+                    type: "conversation.item.delete",
+                    item_id: itemId
+                });
+                this.trackedNavItemIds.delete(itemId);
+            } catch (error) {
+                console.warn(`Failed to delete NAV_CONTEXT item ${itemId}:`, error);
+            }
+        }
+        
+        this._lastNavItemId = null; // Clear last nav item ID
+        console.log(`📍 Cleared all NAV_CONTEXT tracking (remaining: ${this.trackedNavItemIds.size})`);
+    }
+
+    /**
+     * Replace NAV_CONTEXT messages (clean slate approach)
+     * Deletes all existing NAV_CONTEXT messages and creates a new one
+     */
+    async replaceNavContext(oldItemId: string | null, newCtx: any): Promise<{ id: string; token: string }> {
+        if (!this._session) {
+            throw new Error("No active session for context replacement");
+        }
+
+        // Delete all existing NAV_CONTEXT messages to ensure clean state
+        if (this.trackedNavItemIds.size > 0) {
+            try {
+                await this.deleteAllNavContexts();
+                console.log('✅ All old NAV_CONTEXT items deleted');
+            } catch (error) {
+                console.log('⚠️ Bulk delete failed (continuing anyway):', error);
+            }
+        }
+
+        console.log('📤 Pushing new context...');
+        return await this.pushPassiveContext(newCtx);
+    }
+
+    /**
+     * Get all tracked NAV_CONTEXT item IDs
+     */
+    getTrackedNavItemIds(): string[] {
+        return Array.from(this.trackedNavItemIds);
+    }
+
+    /**
+     * Get most recent NAV_CONTEXT item ID (backward compatibility)
+     */
+    getTrackedNavItemId(): string | null {
+        return this._lastNavItemId;
+    }
+
+    /**
+     * Get count of tracked NAV_CONTEXT messages
+     */
+    getTrackedNavItemCount(): number {
+        return this.trackedNavItemIds.size;
+    }
+
+    /**
+     * Generate test NAV_CONTEXT data for debugging
+     */
+    generateRandomNavContext(): any {
+        const routes = ['/home', '/projects', '/about', '/contact', '/projects/task-manager', '/projects/portfolio'];
+        const projects = [null, 'task-manager', 'portfolio-site', 'ai-assistant', 'e-commerce'];
+        const modals = [null, 'gallery', 'details', 'contact'];
+        
+        return {
+            route: routes[Math.floor(Math.random() * routes.length)],
+            project: projects[Math.floor(Math.random() * projects.length)],
+            modal: modals[Math.floor(Math.random() * modals.length)],
+            timestamp: Date.now(),
+            testId: this.uuid().substring(0, 8)
+        };
     }
 }

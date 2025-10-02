@@ -513,7 +513,7 @@ export function WaveConfigPanel({ className }: WaveConfigPanelProps) {
                 <div 
                   className={cn(
                     "border rounded-lg overflow-hidden transition-colors duration-200",
-                    state.previewTheme === 'dark' ? 'bg-gray-900' : 'bg-white'
+                    state.previewTheme === 'dark' ? 'bg-neutral-900' : 'bg-white'
                   )}
                 >
                   <WaveEngine

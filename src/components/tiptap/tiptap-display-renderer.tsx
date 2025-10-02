@@ -78,9 +78,22 @@ export function TiptapDisplayRenderer({
           6: 'text-sm font-medium mb-2 mt-3 first:mt-0',
         };
         
+        // Generate ID from heading text for navigation
+        const headingText = node.content?.map(child => child.text || '').join('') || '';
+        const headingId = headingText
+          .toLowerCase()
+          .replace(/[^a-z0-9\s-]/g, '') // Remove special characters
+          .replace(/\s+/g, '-') // Replace spaces with hyphens
+          .replace(/-+/g, '-') // Replace multiple hyphens with single
+          .replace(/^-|-$/g, ''); // Remove leading/trailing hyphens
+        
         return React.createElement(
           HeadingTag,
-          { key: index, className: headingClasses[level as keyof typeof headingClasses] },
+          { 
+            key: index, 
+            id: headingId, // Add ID for navigation
+            className: headingClasses[level as keyof typeof headingClasses] 
+          },
           node.content?.map((child, childIndex) => renderNode(child, childIndex))
         );
 
