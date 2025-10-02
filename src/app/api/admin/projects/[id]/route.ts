@@ -156,3 +156,85 @@ export async function PUT(
     );
   }
 }
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user || (session.user as any).role !== 'admin') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { id } = await params;
+
+    // Check if project exists
+    const project = await prisma.project.findUnique({
+      where: { id },
+      select: { id: true, title: true, slug: true }
+    });
+
+    if (!project) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
+
+    // Clean up semantic and vector indexes before deleting the project
+    console.log(`Cleaning up indexes for project: ${project.title} (${id})`);
+    
+    // 1. Delete context chunks (semantic search data)
+    const deletedChunks = await prisma.$executeRaw`
+      DELETE FROM context_chunks 
+      WHERE entity_id = ${id} OR project_index_id = ${id}
+    `;
+    
+    // 2. Delete from content_entities if it exists
+    const deletedEntities = await prisma.$executeRaw`
+      DELETE FROM content_entities 
+      WHERE id = ${id} OR slug = ${project.slug}
+    `;
+    
+    // 3. Delete project AI index (this should cascade automatically, but let's be explicit)
+    const deletedAIIndex = await prisma.$executeRaw`
+      DELETE FROM project_ai_index 
+      WHERE "projectId" = ${id}
+    `;
+
+    console.log(`Cleanup results - Chunks: ${deletedChunks}, Entities: ${deletedEntities}, AI Index: ${deletedAIIndex}`);
+
+    // Delete project and all related data (cascade delete)
+    // Prisma will handle the cascade deletion based on the schema relationships
+    await prisma.project.delete({
+      where: { id }
+    });
+
+    return NextResponse.json({ 
+      message: 'Project and all indexes deleted successfully',
+      deletedProject: {
+        id: project.id,
+        title: project.title,
+        slug: project.slug
+      },
+      indexCleanup: {
+        contextChunks: deletedChunks,
+        contentEntities: deletedEntities,
+        aiIndex: deletedAIIndex
+      }
+    });
+  } catch (error) {
+    console.error('Error deleting project:', error);
+    
+    // Check if it's a foreign key constraint error
+    if (error instanceof Error && error.message.includes('foreign key constraint')) {
+      return NextResponse.json(
+        { error: 'Cannot delete project: it has associated data that must be removed first' },
+        { status: 409 }
+      );
+    }
+    
+    return NextResponse.json(
+      { error: 'Failed to delete project' },
+      { status: 500 }
+    );
+  }
+}

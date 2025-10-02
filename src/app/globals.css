@@ -121,12 +121,12 @@
 }
 
 .dark {
-  /* Existing shadcn/ui dark tokens */
-  --background: oklch(0.145 0 0);
+  /* Existing shadcn/ui dark tokens - Updated for softer dark theme */
+  --background: oklch(0.18 0 0);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
+  --card: oklch(0.22 0 0);
   --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
+  --popover: oklch(0.22 0 0);
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.922 0 0);
   --primary-foreground: oklch(0.205 0 0);
@@ -154,8 +154,8 @@
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
 
-  /* UI System dark theme tokens */
-  --ui-ai-background: oklch(0.18 0 0);
+  /* UI System dark theme tokens - Updated for softer dark theme */
+  --ui-ai-background: oklch(0.22 0 0);
   --ui-ai-border: oklch(1 0 0 / 15%);
   --ui-ai-accent: oklch(0.269 0 0);
   --ui-highlight-spotlight: oklch(0.269 0 0 / 0.3);
@@ -163,8 +163,8 @@
   --ui-highlight-glow: oklch(0.269 0 0 / 0.5);
   --ui-gradient-primary: linear-gradient(135deg, oklch(0.269 0 0) 0%, oklch(0.32 0 0) 100%);
   --ui-gradient-accent: linear-gradient(135deg, oklch(0.922 0 0) 0%, oklch(0.985 0 0) 100%);
-  --ui-gradient-background: linear-gradient(180deg, oklch(0.145 0 0) 0%, oklch(0.18 0 0) 100%);
-  --ui-gradient-ai: linear-gradient(135deg, oklch(0.18 0 0) 0%, oklch(0.205 0 0) 100%);
+  --ui-gradient-background: linear-gradient(180deg, oklch(0.18 0 0) 0%, oklch(0.22 0 0) 100%);
+  --ui-gradient-ai: linear-gradient(135deg, oklch(0.22 0 0) 0%, oklch(0.24 0 0) 100%);
   --ui-shadow-ai: 0 8px 32px oklch(1 0 0 / 15%);
   --ui-shadow-highlight: 0 0 0 4px oklch(0.269 0 0 / 0.3);
 }
