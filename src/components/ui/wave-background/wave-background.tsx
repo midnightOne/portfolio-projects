@@ -295,10 +295,20 @@ export function WaveBackground({
 
   const updateDimensions = useCallback(() => {
     if (typeof window !== 'undefined') {
-      setDimensions({
-        width: window.innerWidth,
-        height: window.innerHeight
-      });
+      // On mobile, use a stable height to prevent jumping when address bar shows/hides
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      
+      // Use visualViewport for more stable dimensions on mobile
+      const width = window.visualViewport?.width || window.innerWidth;
+      
+      // For height, use the larger value to prevent shrinking when address bar appears
+      let height = window.innerHeight;
+      if (isMobile && window.visualViewport) {
+        // Use the initial viewport height on mobile to prevent address bar interference
+        height = Math.max(window.innerHeight, window.screen.height - 200); // Subtract typical address bar height
+      }
+      
+      setDimensions({ width, height });
     }
   }, []);
 
@@ -378,7 +388,15 @@ export function WaveBackground({
     updateDimensions();
     loadWaveConfiguration();
 
-    const handleResize = () => updateDimensions();
+    // Debounce resize handler to prevent excessive updates on mobile
+    let resizeTimeout: NodeJS.Timeout;
+    const handleResize = () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        updateDimensions();
+      }, 150); // Debounce by 150ms
+    };
+    
     const handleVisibilityChange = () => {
       if (!document.hidden) {
         // Page became visible - reset FPS tracking to avoid contamination
@@ -419,6 +437,7 @@ export function WaveBackground({
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      clearTimeout(resizeTimeout); // Clear pending resize timeout
       observer.disconnect();
       window.removeEventListener('resize', handleResize);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -439,24 +458,52 @@ export function WaveBackground({
   // RENDER
   // ============================================================================
 
+  // Shared style for all background states (prevents scroll jump on mobile)
+  // Use absolute positioning so it scrolls with the page, but lock dimensions
+  const backgroundStyle = {
+    position: 'absolute' as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
+    overflow: 'hidden' as const,
+    // Prevent layout shift when mobile address bar shows/hides
+    willChange: 'transform',
+    transform: 'translateZ(0)', // Force GPU acceleration to prevent repaints
+  };
+
   // Show fallback if not supported, performance is low, or error occurred
   // Just return empty div to show clean homepage background
   if (state.shouldUseFallback || !state.isSupported || state.error) {
     return (
-      <div className={cn('absolute inset-0 -z-10', className)} />
+      <div 
+        className={cn('absolute inset-0 -z-10', className)} 
+        style={backgroundStyle}
+      />
     );
   }
 
   // Show loading state - clean background until everything is ready
   if (state.isLoading || !state.config || !state.isReady || dimensions.width === 0) {
     return (
-      <div className={cn('absolute inset-0 -z-10', className)} />
+      <div 
+        className={cn('absolute inset-0 -z-10', className)} 
+        style={backgroundStyle}
+      />
     );
   }
 
   // Only render wave engine when everything is ready
   return (
-    <div className={cn('absolute inset-0 -z-10', className)}>
+    <div 
+      className={cn('absolute inset-0 -z-10', className)}
+      style={{
+        ...backgroundStyle,
+        pointerEvents: interactive ? 'auto' : 'none', // Allow interaction if enabled
+      }}
+    >
       <WaveEngine
         key="wave-engine" // Stable key to prevent re-mounting
         config={state.config}
