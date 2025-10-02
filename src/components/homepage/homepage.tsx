@@ -200,6 +200,12 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
     setProjectLoading(true);
     setProjectModalOpen(true);
     
+    // Use hash-based navigation (doesn't trigger WebRTC disconnections)
+    // This enables mobile back gestures while keeping WebRTC stable
+    if (typeof window !== 'undefined') {
+      window.location.hash = `modal=${projectSlug}`;
+    }
+    
     // Update UI state - modal opening
     updateUIState({
       lastUserAction: {
@@ -242,6 +248,10 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
     } else {
       // Project not found, close modal
       setProjectModalOpen(false);
+      // Clear hash
+      if (typeof window !== 'undefined' && window.location.hash) {
+        window.location.hash = '';
+      }
       
       // Update UI state - modal failed
       updateUIState({
@@ -262,7 +272,7 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
     handleProjectClickInternal(projectSlug);
   };
 
-  const handleCloseModal = useCallback(() => {
+  const handleCloseModal = useCallback(async () => {
     const uiManager = UIManager.getInstance();
     
     // Calculate time spent if there was a selected project
@@ -273,6 +283,11 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
     
     // Unregister modal with UIManager if there was a selected project
     if (selectedProject) {
+      // Clear hash (enables mobile back gestures without WebRTC disconnections)
+      if (typeof window !== 'undefined' && window.location.hash) {
+        window.history.back(); // Use back() to trigger proper navigation
+      }
+      
       uiManager.unregisterExternalModal(selectedProject.slug, 'project');
       
       // Update UI state - modal closing with time spent
@@ -300,6 +315,49 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
     });
   }, [selectedProject, updateUIState]);
 
+  // Hash-based navigation for mobile back gesture support
+  // Hash changes don't trigger WebRTC disconnections like pushState does
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      
+      if (hash.startsWith('#modal=')) {
+        const modalId = hash.replace('#modal=', '');
+        
+        // Open modal if not already open or different project
+        if (!projectModalOpen || selectedProject?.slug !== modalId) {
+          console.log('📱 Opening modal from hash:', modalId);
+          setProjectModalOpen(true);
+          setProjectLoading(true);
+          fetchProjectDetails(modalId).then(projectDetails => {
+            if (projectDetails) {
+              setSelectedProject(projectDetails);
+            } else {
+              setProjectModalOpen(false);
+            }
+            setProjectLoading(false);
+          });
+        }
+      } else if (!hash && projectModalOpen) {
+        // Close modal when hash is cleared (back gesture)
+        console.log('📱 Closing modal from hash change');
+        setSelectedProject(null);
+        setProjectModalOpen(false);
+        setProjectLoading(false);
+      }
+    };
+
+    // Handle initial hash on mount
+    handleHashChange();
+
+    // Listen for hash changes (mobile back gestures)
+    window.addEventListener('hashchange', handleHashChange);
+
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange);
+    };
+  }, [projectModalOpen, selectedProject]);
+
   // Register modal handler with UIManager
   useEffect(() => {
     const uiManager = UIManager.getInstance();
@@ -321,7 +379,7 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
           // This handles generic close requests like "close modal" or "close project-modal"
           if (selectedProject && projectModalOpen) {
             console.log(`🎯 Homepage closing project modal: ${selectedProject.slug} (requested: ${modalId})`);
-            handleCloseModal();
+            await handleCloseModal();
             return true;
           }
           return false; // No modal open
