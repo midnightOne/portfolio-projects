@@ -49,7 +49,7 @@ function checkWebGLSupport(): boolean {
 }
 
 function getDevicePerformanceLevel(): 'high' | 'medium' | 'low' {
-  // Check for mobile devices first
+  // Check for mobile devices first - classify as medium to enable wave with reduced quality
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   
   // Check for slow network connection
@@ -61,9 +61,15 @@ function getDevicePerformanceLevel(): 'high' | 'medium' | 'low' {
   // Check for reduced motion preference
   const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   
-  // If mobile, slow connection, or reduced motion, use low performance
-  if (isMobile || isSlowConnection || prefersReducedMotion) {
+  // Only disable for reduced motion preference (accessibility)
+  if (prefersReducedMotion) {
     return 'low';
+  }
+  
+  // Mobile devices get medium performance (wave enabled but optimized)
+  if (isMobile || isSlowConnection) {
+    console.log('Mobile/slow connection detected - using medium performance for optimized wave rendering');
+    return 'medium';
   }
 
   // Simple heuristic based on device capabilities
