@@ -318,6 +318,17 @@ export function AdminSidebar() {
                   </a>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/semantic/config')}
+                >
+                  <Link href="/admin/semantic/config" className="flex items-center gap-2">
+                    <SlidersHorizontal className="size-4" />
+                    <span>Chunking Configuration</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
