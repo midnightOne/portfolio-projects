@@ -1,5 +1,5 @@
 /**
- * Budget Thresholds API
+ * Semantic Budget Thresholds API
  * 
  * PUT: Update warning and critical thresholds
  */
@@ -12,22 +12,18 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     const { warningThreshold, criticalThreshold } = body;
 
-    // Validation
-    if (typeof warningThreshold !== 'number' || warningThreshold < 0 || warningThreshold > 1) {
+    if (
+      typeof warningThreshold !== 'number' ||
+      typeof criticalThreshold !== 'number' ||
+      warningThreshold < 0 ||
+      warningThreshold > 1 ||
+      criticalThreshold < 0 ||
+      criticalThreshold > 1
+    ) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Warning threshold must be a number between 0 and 1'
-        },
-        { status: 400 }
-      );
-    }
-
-    if (typeof criticalThreshold !== 'number' || criticalThreshold < 0 || criticalThreshold > 1) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Critical threshold must be a number between 0 and 1'
+          error: 'Invalid thresholds. Must be numbers between 0 and 1.'
         },
         { status: 400 }
       );
@@ -37,7 +33,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Warning threshold must be less than critical threshold'
+          error: 'Warning threshold must be less than critical threshold.'
         },
         { status: 400 }
       );
@@ -50,8 +46,7 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      budget,
-      message: 'Thresholds updated successfully'
+      budget
     });
   } catch (error) {
     console.error('Error updating thresholds:', error);

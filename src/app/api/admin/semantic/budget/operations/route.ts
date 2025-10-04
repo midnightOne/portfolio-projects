@@ -1,5 +1,5 @@
 /**
- * Spending History API
+ * Semantic Budget Operations API
  * 
  * GET: Get spending history with filtering
  */
@@ -10,20 +10,28 @@ import { semanticBudgetManager } from '@/lib/content/SemanticBudgetManager';
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
-
-    // Parse filters
+    
     const filter: any = {};
 
+    // Project filter
     const projectId = searchParams.get('projectId');
     if (projectId) {
       filter.projectId = projectId;
     }
 
+    // Operation type filter
     const operationType = searchParams.get('operationType');
     if (operationType) {
       filter.operationType = operationType;
     }
 
+    // Success filter
+    const success = searchParams.get('success');
+    if (success !== null) {
+      filter.success = success === 'true';
+    }
+
+    // Date range filter
     const startDate = searchParams.get('startDate');
     if (startDate) {
       filter.startDate = new Date(startDate);
@@ -34,24 +42,18 @@ export async function GET(request: NextRequest) {
       filter.endDate = new Date(endDate);
     }
 
-    const success = searchParams.get('success');
-    if (success !== null) {
-      filter.success = success === 'true';
-    }
-
     const operations = await semanticBudgetManager.getSpendingHistory(filter);
 
     return NextResponse.json({
       success: true,
-      operations,
-      count: operations.length
+      operations
     });
   } catch (error) {
-    console.error('Error fetching spending history:', error);
+    console.error('Error fetching operations:', error);
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to fetch spending history'
+        error: error instanceof Error ? error.message : 'Failed to fetch operations'
       },
       { status: 500 }
     );

@@ -1,7 +1,7 @@
 /**
- * Budget Allocation API
+ * Semantic Budget Allocation API
  * 
- * POST: Allocate additional funds to the semantic budget
+ * POST: Allocate additional funds to the budget
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -10,24 +10,13 @@ import { semanticBudgetManager } from '@/lib/content/SemanticBudgetManager';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { amount, description } = body;
+    const { amount } = body;
 
-    // Validation
     if (typeof amount !== 'number' || amount <= 0) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Amount must be a positive number'
-        },
-        { status: 400 }
-      );
-    }
-
-    if (amount > 10000) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Amount cannot exceed $10,000 per allocation'
+          error: 'Invalid amount. Must be a positive number.'
         },
         { status: 400 }
       );
@@ -35,20 +24,19 @@ export async function POST(request: NextRequest) {
 
     const budget = await semanticBudgetManager.allocateFunds({
       amount,
-      description
+      description: 'Manual allocation via admin interface'
     });
 
     return NextResponse.json({
       success: true,
-      budget,
-      message: `Successfully allocated $${amount.toFixed(2)} to semantic budget`
+      budget
     });
   } catch (error) {
-    console.error('Error allocating budget:', error);
+    console.error('Error allocating funds:', error);
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to allocate budget'
+        error: error instanceof Error ? error.message : 'Failed to allocate funds'
       },
       { status: 500 }
     );

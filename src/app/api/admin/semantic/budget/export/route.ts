@@ -1,7 +1,7 @@
 /**
- * Budget Export API
+ * Semantic Budget Export API
  * 
- * GET: Export spending data as CSV
+ * GET: Export spending history as CSV
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -10,20 +10,28 @@ import { semanticBudgetManager } from '@/lib/content/SemanticBudgetManager';
 export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams;
-
-    // Parse filters (same as operations endpoint)
+    
     const filter: any = {};
 
+    // Project filter
     const projectId = searchParams.get('projectId');
     if (projectId) {
       filter.projectId = projectId;
     }
 
+    // Operation type filter
     const operationType = searchParams.get('operationType');
     if (operationType) {
       filter.operationType = operationType;
     }
 
+    // Success filter
+    const success = searchParams.get('success');
+    if (success !== null) {
+      filter.success = success === 'true';
+    }
+
+    // Date range filter
     const startDate = searchParams.get('startDate');
     if (startDate) {
       filter.startDate = new Date(startDate);
@@ -36,23 +44,19 @@ export async function GET(request: NextRequest) {
 
     const csvContent = await semanticBudgetManager.exportSpendingDataCSV(filter);
 
-    // Generate filename with timestamp
-    const timestamp = new Date().toISOString().split('T')[0];
-    const filename = `semantic-budget-export-${timestamp}.csv`;
-
     return new NextResponse(csvContent, {
       status: 200,
       headers: {
         'Content-Type': 'text/csv',
-        'Content-Disposition': `attachment; filename="${filename}"`
+        'Content-Disposition': `attachment; filename="semantic-budget-export-${new Date().toISOString().split('T')[0]}.csv"`
       }
     });
   } catch (error) {
-    console.error('Error exporting budget data:', error);
+    console.error('Error exporting CSV:', error);
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to export budget data'
+        error: error instanceof Error ? error.message : 'Failed to export data'
       },
       { status: 500 }
     );

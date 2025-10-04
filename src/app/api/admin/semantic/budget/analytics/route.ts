@@ -1,5 +1,5 @@
 /**
- * Budget Analytics API
+ * Semantic Budget Analytics API
  * 
  * GET: Get budget analytics with trends and projections
  */
@@ -12,11 +12,11 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const days = parseInt(searchParams.get('days') || '30', 10);
 
-    if (days < 1 || days > 365) {
+    if (isNaN(days) || days < 1) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Days parameter must be between 1 and 365'
+          error: 'Invalid days parameter. Must be a positive integer.'
         },
         { status: 400 }
       );
@@ -26,19 +26,14 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      analytics,
-      period: {
-        days,
-        startDate: new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString(),
-        endDate: new Date().toISOString()
-      }
+      analytics
     });
   } catch (error) {
-    console.error('Error fetching budget analytics:', error);
+    console.error('Error fetching analytics:', error);
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to fetch budget analytics'
+        error: error instanceof Error ? error.message : 'Failed to fetch analytics'
       },
       { status: 500 }
     );

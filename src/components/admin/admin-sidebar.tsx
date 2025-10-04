@@ -329,6 +329,17 @@ export function AdminSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/semantic/budget')}
+                >
+                  <Link href="/admin/semantic/budget" className="flex items-center gap-2">
+                    <DollarSign className="size-4" />
+                    <span>Budget Manager</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
