@@ -719,6 +719,33 @@ model SummaryGenerationLog {
   @@map("summary_generation_logs")
 }
 
+model BatchEmbeddingJob {
+  id               String   @id @default(cuid())
+  batchId          String   @unique @map("batch_id")
+  status           String   @map("status")
+  model            String   @map("model")
+  priority         String   @map("priority")
+  requestCount     Int      @map("request_count")
+  completedCount   Int      @default(0) @map("completed_count")
+  failedCount      Int      @default(0) @map("failed_count")
+  estimatedTokens  Int      @map("estimated_tokens")
+  actualTokens     Int?     @map("actual_tokens")
+  estimatedCost    Decimal  @db.Decimal(10, 4) @map("estimated_cost")
+  actualCost       Decimal? @db.Decimal(10, 4) @map("actual_cost")
+  estimatedSavings Decimal  @db.Decimal(10, 4) @map("estimated_savings")
+  actualSavings    Decimal? @db.Decimal(10, 4) @map("actual_savings")
+  projectIds       String[] @map("project_ids")
+  metadata         Json     @default("{}")
+  createdAt        DateTime @default(now()) @map("created_at")
+  completedAt      DateTime? @map("completed_at")
+
+  @@index([batchId])
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+  @@map("batch_embedding_jobs")
+}
+
 enum ProjectStatus {
   DRAFT
   PUBLISHED

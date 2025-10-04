@@ -14,6 +14,8 @@ export interface BudgetAwareEmbeddingOptions {
   model?: string;
   projectId?: string;
   metadata?: Record<string, any>;
+  useBatchMode?: boolean; // Use batch API for 50% cost savings (24-hour processing)
+  batchPriority?: 'low' | 'normal' | 'high';
 }
 
 export interface BudgetAwareSummarizationOptions {
@@ -68,18 +70,23 @@ export class BudgetAwareAIOperations {
 
   /**
    * Generate embeddings with budget tracking
+   * Supports both standard (immediate) and batch (24-hour, 50% savings) modes
    */
   async generateEmbedding(options: BudgetAwareEmbeddingOptions): Promise<{
     embeddings: number[][];
     tokensUsed: number;
     cost: number;
+    batchId?: string; // Returned if using batch mode
   }> {
     const model = options.model || 'text-embedding-3-small';
     const inputs = Array.isArray(options.input) ? options.input : [options.input];
     
     // Estimate tokens (rough approximation: 1 token ≈ 4 characters)
     const estimatedTokens = inputs.reduce((sum, text) => sum + Math.ceil(text.length / 4), 0);
-    const estimatedCost = this.calculateCost(model, estimatedTokens);
+    
+    // Calculate cost based on mode (batch = 50% discount)
+    const costMultiplier = options.useBatchMode ? 0.5 : 1.0;
+    const estimatedCost = this.calculateCost(model, estimatedTokens) * costMultiplier;
 
     // Check budget before operation
     const affordCheck = await semanticBudgetManager.canAffordOperation(estimatedCost);
@@ -92,7 +99,41 @@ export class BudgetAwareAIOperations {
     }
 
     try {
-      // Perform embedding generation
+      // If batch mode requested, use batch API
+      if (options.useBatchMode) {
+        const { getBatchEmbeddingService } = await import('./BatchEmbeddingService');
+        const batchService = getBatchEmbeddingService();
+        
+        // Prepare batch requests
+        const requests = inputs.map((content, index) => ({
+          id: `${options.projectId || 'unknown'}-${Date.now()}-${index}`,
+          content,
+          metadata: {
+            chunkId: options.metadata?.chunkId || `chunk-${index}`,
+            projectId: options.projectId,
+            tier: options.metadata?.tier || 3
+          }
+        }));
+
+        // Submit batch job
+        const result = await batchService.submitBatchJob(requests, {
+          model,
+          priority: options.batchPriority || 'normal',
+          estimatedTokens,
+          estimatedCost,
+          projectIds: options.projectId ? [options.projectId] : []
+        });
+
+        // Return placeholder embeddings (actual embeddings will be processed later)
+        return {
+          embeddings: inputs.map(() => []), // Empty arrays as placeholders
+          tokensUsed: estimatedTokens,
+          cost: estimatedCost,
+          batchId: result.batchId
+        };
+      }
+
+      // Standard mode: immediate processing
       const response = await this.openai.embeddings.create({
         model,
         input: inputs
