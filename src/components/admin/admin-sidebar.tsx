@@ -298,6 +298,30 @@ export function AdminSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
+        {/* Semantic Content section */}
+        <SidebarGroup>
+          <SidebarGroupLabel className="flex items-center gap-2">
+            <Database className="size-4" />
+            Semantic Content
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={pathname === '/admin/semantic'}
+                  onClick={() => router.push('/admin/semantic')}
+                >
+                  <a href="/admin/semantic" className="flex items-center gap-2">
+                    <LayoutDashboard className="size-4" />
+                    <span>Semantic Dashboard</span>
+                  </a>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
         {/* AI Assistant section */}
         <SidebarGroup>
           <SidebarGroupLabel className="flex items-center gap-2">
