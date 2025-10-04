@@ -8,6 +8,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { SelectiveSectionRegenerator } from '@/lib/content/SelectiveSectionRegenerator';
+import { ContentIngestionService } from '@/lib/content/ContentIngestionService';
+import { prisma } from '@/lib/prisma';
 
 export async function POST(request: NextRequest) {
   try {
@@ -41,6 +43,62 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Check if this is a new project that needs initial ingestion
+    if (scope === 'project' && projectId) {
+      const existingEntity = await prisma.contentEntity.findFirst({
+        where: {
+          entityType: 'PROJECT',
+          OR: [
+            { slug: projectId },
+            { id: projectId }
+          ]
+        }
+      });
+
+      if (!existingEntity) {
+        // This is a new project - use ContentIngestionService for initial setup
+        console.log(`New project detected: ${projectId}. Using ContentIngestionService for initial ingestion.`);
+        
+        const project = await prisma.project.findFirst({
+          where: {
+            OR: [
+              { slug: projectId },
+              { id: projectId }
+            ]
+          },
+          include: {
+            articleContent: true,
+            tags: true,
+            aiIndex: true
+          }
+        });
+
+        if (!project) {
+          return NextResponse.json(
+            { error: `Project not found: ${projectId}` },
+            { status: 404 }
+          );
+        }
+
+        const ingestionService = new ContentIngestionService();
+        const result = await ingestionService.ingestProject(project);
+        
+        return NextResponse.json({
+          operationId: `ingestion-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          message: 'Initial content ingestion completed',
+          result: {
+            success: result.success,
+            tiersCreated: result.tiersCreated,
+            totalChunks: result.totalChunks,
+            embeddingsGenerated: result.embeddingsGenerated,
+            costEstimate: result.costEstimate,
+            processingTime: result.processingTime
+          }
+        });
+      }
+    }
+
+    // Existing project - use SelectiveSectionRegenerator
     const regenerator = new SelectiveSectionRegenerator();
     
     // Start regeneration (async)

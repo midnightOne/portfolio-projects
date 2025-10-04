@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth-utils';
 import { prisma } from '@/lib/prisma';
 import { semanticBudgetManager } from '@/lib/content/SemanticBudgetManager';
+import { getSemanticHealthMonitor } from '@/lib/content/SemanticHealthMonitor';
 
 export async function GET(request: NextRequest) {
   try {
@@ -25,13 +26,17 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Fetch vector index health metrics
-    const totalChunks = await prisma.contextChunk.count();
-    const chunksWithEmbeddings = await prisma.contextChunk.count({
-      where: {
-        embeddingGeneratedAt: { not: null }
-      }
+    // Use the new SemanticHealthMonitor for comprehensive metrics
+    const healthMonitor = getSemanticHealthMonitor();
+    const healthMetrics = await healthMonitor.performHealthCheck({
+      includePerformanceTests: false, // Skip performance tests for faster response
+      includeCostAnalysis: true,
+      includeDataValidation: true
     });
+
+    // Legacy metrics for backward compatibility
+    const totalChunks = healthMetrics.database.totalChunks;
+    const chunksWithEmbeddings = healthMetrics.database.chunksWithEmbeddings;
 
     // Get total projects with semantic indexes
     const totalProjects = await prisma.project.count();

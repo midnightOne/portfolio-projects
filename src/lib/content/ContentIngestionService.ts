@@ -255,8 +255,16 @@ export class ContentIngestionService extends EventEmitter {
       });
 
       // Generate hierarchical content with simplified T0-T3 structure and heading-bounded chunking
+      // This replaces the legacy tier generation logic with the new SmartContentGenerator
       const generationResult = await this.smartGenerator.generateHierarchicalContent(project);
       const tierContents = generationResult.tiers;
+
+      console.log(`[ContentIngestionService] Using SmartContentGenerator for ${project.slug}:`, {
+        tiersGenerated: tierContents.length,
+        tierTypes: tierContents.map(t => `T${t.tier}`).join(', '),
+        costSavings: generationResult.costSavings.estimatedCostSaved.toFixed(4),
+        processingTime: `${generationResult.processingStats.processingTime}ms`
+      });
 
       // Log cost savings and performance stats
       console.log(`🎯 Smart Generation Results for ${project.slug}:`, {

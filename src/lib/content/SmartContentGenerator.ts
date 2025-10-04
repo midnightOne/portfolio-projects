@@ -12,6 +12,7 @@ import { PrismaClient } from '@prisma/client';
 import { ProjectIndexer, EnhancedProjectIndex, HierarchicalSection, ContentChangeMap } from '../services/project-indexer';
 import OpenAI from 'openai';
 import { semanticBudgetManager } from './SemanticBudgetManager';
+import { getSummaryGenerationService } from './SummaryGenerationService';
 
 const prisma = new PrismaClient();
 
@@ -53,6 +54,7 @@ export interface SmartGenerationResult {
 export class SmartContentGenerator {
   private projectIndexer: ProjectIndexer;
   private openai: OpenAI | null;
+  private summaryService = getSummaryGenerationService();
   private embeddingModel = 'text-embedding-3-small';
   private embeddingDimensions = 1536;
   
@@ -185,13 +187,52 @@ export class SmartContentGenerator {
   private async generateT1Summary(project: any, enhancedIndex: EnhancedProjectIndex): Promise<TierContent> {
     let content: string;
     let source: string;
+    let importance = 0.9;
 
-    if (this.openai) {
-      // Generate AI summary
-      content = await this.generateAISummary(project, enhancedIndex) || 
-                [project.description, project.briefOverview].filter(Boolean).join('\n\n');
-      source = content === [project.description, project.briefOverview].filter(Boolean).join('\n\n') 
-        ? 'extracted' : 'ai-generated';
+    // Prepare content for summary generation
+    const sourceContent = [
+      project.title,
+      project.description,
+      project.briefOverview,
+      // Include key sections for context
+      enhancedIndex.hierarchicalSections
+        .filter(s => s.nodeType === 'heading' && s.headingLevel === 1)
+        .map(s => `${s.title}: ${s.content.substring(0, 200)}`)
+        .join('\n\n')
+    ].filter(Boolean).join('\n\n');
+
+    if (this.summaryService && sourceContent.length > 100) {
+      try {
+        // Use SummaryGenerationService with anti-hallucination measures
+        const result = await this.summaryService.generateSummary({
+          content: sourceContent,
+          type: 'T1',
+          projectId: project.id,
+          metadata: {
+            projectTitle: project.title,
+            projectSlug: project.slug
+          }
+        });
+
+        content = result.summary;
+        source = 'ai-generated';
+        
+        // Adjust importance based on confidence score
+        importance = 0.8 + (result.confidenceScore * 0.2); // 0.8-1.0 range
+
+        console.log(`[SmartContentGenerator] T1 summary generated:`, {
+          projectId: project.id,
+          confidence: result.confidenceScore.toFixed(3),
+          cost: result.cost.toFixed(4),
+          tokensUsed: result.tokensUsed,
+          importance: importance.toFixed(3)
+        });
+      } catch (error) {
+        console.error('Failed to generate T1 summary with SummaryGenerationService:', error);
+        // Fallback to existing content
+        content = [project.description, project.briefOverview].filter(Boolean).join('\n\n');
+        source = 'extracted';
+      }
     } else {
       // Fallback to existing content
       content = [project.description, project.briefOverview].filter(Boolean).join('\n\n');
@@ -210,7 +251,7 @@ export class SmartContentGenerator {
       derivationPath: 'T0→T1',
       metadata: {
         type: 'summary',
-        importance: 0.9,
+        importance,
         source,
         generationMode: source === 'ai-generated' ? 'ai' : 'manual',
         editable: true,
@@ -231,19 +272,53 @@ export class SmartContentGenerator {
   ): Promise<TierContent> {
     let content: string;
     let source: string;
+    let importance = 0.7; // Base importance for T2
 
     // Extract section content including all subsections for T2 summaries
     const sectionWithSubsections = this.extractSectionContentWithSubsections(section, enhancedIndex);
 
-    if (this.openai && sectionWithSubsections.length > 200) {
-      // Generate AI summary of entire section including subsections
-      content = await this.generateSectionSummary(section, 'detailed') || 
-                section.summary || sectionWithSubsections;
-      source = content === (section.summary || sectionWithSubsections) ? 'extracted' : 'ai-generated';
+    if (this.summaryService && sectionWithSubsections.length > 200) {
+      try {
+        // Use SummaryGenerationService for T2 section summaries
+        const result = await this.summaryService.generateSummary({
+          content: sectionWithSubsections,
+          type: 'T2',
+          projectId: project.id,
+          sectionTitle: section.title,
+          metadata: {
+            headingLevel: section.headingLevel,
+            anchorId: section.anchorId,
+            sectionGroup: section.anchorId
+          }
+        });
+
+        content = result.summary;
+        source = 'ai-generated';
+        
+        // Adjust importance based on heading level and confidence
+        const levelBonus = section.headingLevel === 1 ? 0.2 : section.headingLevel === 2 ? 0.1 : 0;
+        importance = 0.6 + levelBonus + (result.confidenceScore * 0.2);
+
+        console.log(`[SmartContentGenerator] T2 summary generated for "${section.title}":`, {
+          headingLevel: section.headingLevel,
+          confidence: result.confidenceScore.toFixed(3),
+          cost: result.cost.toFixed(4),
+          tokensUsed: result.tokensUsed,
+          importance: importance.toFixed(3)
+        });
+      } catch (error) {
+        console.error(`Failed to generate T2 summary for section "${section.title}":`, error);
+        // Fallback to existing content
+        content = section.summary || sectionWithSubsections;
+        source = 'extracted';
+      }
     } else {
       // Use existing summary or content for short sections
       content = section.summary || sectionWithSubsections;
       source = 'extracted';
+      
+      // Adjust importance for extracted content based on heading level
+      importance = section.headingLevel === 1 ? 0.8 : section.headingLevel === 2 ? 0.7 : 0.6;
     }
 
     // Determine parent chunk based on heading hierarchy
@@ -265,6 +340,7 @@ export class SmartContentGenerator {
         headingLevel: section.headingLevel,
         anchorId: section.anchorId,
         tiptapPosition: section.tiptapPosition,
+        importance,
         source,
         generationMode: source === 'ai-generated' ? 'ai' : 'manual',
         editable: true,

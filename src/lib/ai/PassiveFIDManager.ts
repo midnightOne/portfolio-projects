@@ -422,6 +422,7 @@ export class PassiveFIDManager {
 
   /**
    * Get project context (cached per project) - includes semantic items and summaries
+   * Now uses the new semantic chunks API for better F-I-D context
    */
   private async getProjectContext(projectId: string): Promise<{ context: any; semanticItems: SemanticItem[] }> {
     // Check project-specific cache
@@ -434,8 +435,40 @@ export class PassiveFIDManager {
       };
     }
 
-    console.log('🌐 Fetching project context from server:', projectId);
+    console.log('🌐 Fetching project context from semantic chunks API:', projectId);
     try {
+      // First try the new semantic chunks API
+      const semanticResponse = await fetch(`${this.getBaseUrl()}/api/semantic/chunks/${projectId}?tiers=1,2,3&limit=20`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (semanticResponse.ok) {
+        const semanticResult = await semanticResponse.json();
+        if (semanticResult.success && semanticResult.data) {
+          // Transform semantic chunks into context format
+          const context = this.transformSemanticChunksToContext(semanticResult.data);
+          
+          // Cache the context
+          this.projectContextCache.set(projectId, {
+            context,
+            timestamp: Date.now()
+          });
+
+          console.log('📦 Cached semantic project context for:', projectId, {
+            chunks: semanticResult.data.chunks.length,
+            tiers: Object.keys(semanticResult.data.metadata.tierDistribution)
+          });
+
+          return {
+            context,
+            semanticItems: this.extractSemanticItemsFromChunks(semanticResult.data.chunks, projectId)
+          };
+        }
+      }
+
+      // Fallback to legacy project context API
+      console.log('🔄 Falling back to legacy project context API for:', projectId);
       const response = await fetch(`${this.getBaseUrl()}/api/ai/tools/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -454,7 +487,7 @@ export class PassiveFIDManager {
             timestamp: Date.now()
           });
 
-          console.log('📦 Cached project context for:', projectId);
+          console.log('📦 Cached legacy project context for:', projectId);
           return {
             context: result.data,
             semanticItems: this.extractSemanticItems(result.data, projectId)
@@ -466,6 +499,82 @@ export class PassiveFIDManager {
     }
 
     return { context: null, semanticItems: [] };
+  }
+
+  /**
+   * Transform semantic chunks API response into legacy context format
+   */
+  private transformSemanticChunksToContext(semanticData: any): any {
+    const { chunks, metadata } = semanticData;
+    
+    // Find T1 summary chunk
+    const t1Chunk = chunks.find((c: any) => c.tier === 1);
+    const briefSummary = t1Chunk?.content || `Project ${semanticData.projectId} semantic content`;
+    
+    // Find T2 chunks for detailed summary
+    const t2Chunks = chunks.filter((c: any) => c.tier === 2);
+    const detailedSummary = t2Chunks.length > 0 
+      ? t2Chunks.map((c: any) => `${c.title}: ${c.content}`).join('\n\n')
+      : briefSummary;
+
+    // Extract key technologies and topics from T2/T3 chunks
+    const keyTechnologies = new Set<string>();
+    const mainTopics = new Set<string>();
+    
+    chunks.forEach((chunk: any) => {
+      if (chunk.metadata?.technologies) {
+        chunk.metadata.technologies.forEach((tech: string) => keyTechnologies.add(tech));
+      }
+      if (chunk.metadata?.topics) {
+        chunk.metadata.topics.forEach((topic: string) => mainTopics.add(topic));
+      }
+      if (chunk.tier === 2 && chunk.title) {
+        mainTopics.add(chunk.title.toLowerCase());
+      }
+    });
+
+    return {
+      projectId: semanticData.projectId,
+      title: `Project ${semanticData.projectId}`,
+      briefSummary,
+      detailedSummary,
+      keyTechnologies: Array.from(keyTechnologies),
+      mainTopics: Array.from(mainTopics),
+      semanticItems: chunks.map((chunk: any) => ({
+        id: chunk.id,
+        oneLiner: chunk.title || `T${chunk.tier} content`,
+        chunkId: chunk.chunkId,
+        tier: chunk.tier,
+        importance: chunk.importance
+      })),
+      metadata: {
+        totalChunks: metadata.totalChunks,
+        tierDistribution: metadata.tierDistribution,
+        averageImportance: metadata.averageImportance,
+        lastUpdated: metadata.lastUpdated,
+        source: 'semantic-chunks-api'
+      }
+    };
+  }
+
+  /**
+   * Extract semantic items from semantic chunks (new format)
+   */
+  private extractSemanticItemsFromChunks(chunks: any[], projectId: string): SemanticItem[] {
+    return chunks
+      .filter(chunk => chunk.tier >= 2) // T2 and T3 chunks are most useful for navigation
+      .sort((a, b) => {
+        // Sort by tier first, then by importance
+        if (a.tier !== b.tier) return a.tier - b.tier;
+        return (b.importance || 0) - (a.importance || 0);
+      })
+      .slice(0, 15) // Limit to top 15 items
+      .map(chunk => ({
+        id: chunk.id,
+        oneLiner: chunk.title || `${chunk.tier === 2 ? 'Section' : 'Content'}: ${chunk.content.substring(0, 60)}...`,
+        chunkId: chunk.chunkId,
+        tier: chunk.tier
+      }));
   }
 
   /**

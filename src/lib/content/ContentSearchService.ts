@@ -161,7 +161,7 @@ export class ContentSearchService implements ContentProvider {
   }
 
   /**
-   * Search content using hybrid semantic + metadata approach (internal method)
+   * Search content using hybrid semantic + metadata approach with importance scoring (internal method)
    */
   async searchContentInternal(params: ContentSearchParams): Promise<ContentSearchResult> {
     const startTime = Date.now();
@@ -245,12 +245,17 @@ export class ContentSearchService implements ContentProvider {
       );
       timings.hybridSearchTime = Date.now() - hybridSearchStartTime;
 
-      // Step 3: Apply MMR diversification
+      // Step 3: Apply importance-aware ranking (NEW - integrates importance scores)
+      const importanceRankingStartTime = Date.now();
+      const importanceRankedResults = this._applyImportanceRanking(searchResults);
+      timings.importanceRankingTime = Date.now() - importanceRankingStartTime;
+
+      // Step 4: Apply MMR diversification
       const mmrStartTime = Date.now();
-      const diversifiedResults = this._applyMMR(searchResults, k, diversifyBy);
+      const diversifiedResults = this._applyMMR(importanceRankedResults, k, diversifyBy);
       timings.mmrTime = Date.now() - mmrStartTime;
 
-      // Step 4: Format results for return
+      // Step 5: Format results for return
       const formatStartTime = Date.now();
       const formattedResults = await this._formatSearchResults(diversifiedResults, query);
       timings.formatTime = Date.now() - formatStartTime;
@@ -262,6 +267,7 @@ export class ContentSearchService implements ContentProvider {
         query,
         totalResults: formattedResults.length,
         semanticResults: searchResults.length,
+        importanceRankedResults: importanceRankedResults.length,
         diversifiedResults: diversifiedResults.length,
         timings,
         timestamp: Date.now()
@@ -271,10 +277,11 @@ export class ContentSearchService implements ContentProvider {
       console.log(`[ContentSearch] Performance breakdown for query "${query}":`, {
         embedding: `${timings.queryEmbeddingTime}ms${timings.embeddingCacheHit ? ' (cached)' : ' (API)'}`,
         hybridSearch: `${timings.hybridSearchTime}ms`,
+        importanceRanking: `${timings.importanceRankingTime}ms`,
         mmr: `${timings.mmrTime}ms`,
         format: `${timings.formatTime}ms`,
         total: `${timings.totalTime}ms`,
-        results: `${searchResults.length} → ${diversifiedResults.length} → ${formattedResults.length}`
+        results: `${searchResults.length} → ${importanceRankedResults.length} → ${diversifiedResults.length} → ${formattedResults.length}`
       });
 
       // Log detailed embedding breakdown if not cached
@@ -296,7 +303,8 @@ export class ContentSearchService implements ContentProvider {
           queryEmbeddingTime: timings.queryEmbeddingTime,
           searchTime: timings.totalTime,
           // Add detailed timing breakdown
-          timingBreakdown: timings
+          timingBreakdown: timings,
+          importanceRankingEnabled: true
         }
       };
 
@@ -320,7 +328,8 @@ export class ContentSearchService implements ContentProvider {
           diversifiedResults: 0,
           queryEmbeddingTime: 0,
           searchTime: Date.now() - startTime,
-          timingBreakdown: {}
+          timingBreakdown: {},
+          importanceRankingEnabled: false
         }
       };
     }
@@ -1022,6 +1031,71 @@ export class ContentSearchService implements ContentProvider {
     } catch (error) {
       console.error('Raw SQL metadata search failed:', error);
       return [];
+    }
+  }
+
+  /**
+   * Apply importance-aware ranking to search results
+   * Combines semantic similarity scores with importance scores from semantic chunks
+   */
+  private _applyImportanceRanking(results: InternalSearchResult[]): InternalSearchResult[] {
+    const startTime = Date.now();
+
+    // Fetch importance scores for all chunks
+    const rankedResults = results.map(result => {
+      // Get importance score from metadata or default to 0.5
+      const importance = this._extractImportanceScore(result);
+      
+      // Combine similarity and importance scores
+      // Formula: finalScore = (0.7 * similarity) + (0.3 * importance)
+      // This gives more weight to semantic similarity while boosting important content
+      const combinedScore = (0.7 * result.similarity) + (0.3 * importance);
+      
+      return {
+        ...result,
+        similarity: combinedScore, // Update similarity with combined score
+        metadata: {
+          ...result.metadata,
+          originalSimilarity: result.similarity,
+          importanceScore: importance,
+          combinedScore
+        }
+      };
+    });
+
+    // Sort by combined score (descending)
+    rankedResults.sort((a, b) => b.similarity - a.similarity);
+
+    console.log(`[ContentSearch] Importance ranking applied in ${Date.now() - startTime}ms:`, {
+      originalResults: results.length,
+      rankedResults: rankedResults.length,
+      topScores: rankedResults.slice(0, 3).map(r => ({
+        id: r.id,
+        originalSim: r.metadata.originalSimilarity?.toFixed(3),
+        importance: r.metadata.importanceScore?.toFixed(3),
+        combined: r.metadata.combinedScore?.toFixed(3)
+      }))
+    });
+
+    return rankedResults;
+  }
+
+  /**
+   * Extract importance score from search result
+   */
+  private _extractImportanceScore(result: InternalSearchResult): number {
+    // Try to get importance from metadata
+    if (result.metadata?.importance && typeof result.metadata.importance === 'number') {
+      return Math.max(0, Math.min(1, result.metadata.importance)); // Clamp to 0-1
+    }
+
+    // Fallback: derive importance from tier (T1 > T2 > T3 > T0)
+    switch (result.tier) {
+      case 1: return 0.9; // Project summaries are highly important
+      case 2: return 0.7; // Section summaries are moderately important
+      case 3: return 0.5; // Raw content chunks are baseline important
+      case 0: return 0.3; // Metadata is less important for search
+      default: return 0.5; // Default fallback
     }
   }
 
