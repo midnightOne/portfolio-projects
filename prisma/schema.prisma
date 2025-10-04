@@ -7,7 +7,7 @@ datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
   directUrl  = env("DIRECT_URL")
-  extensions = [pgvector(map: "vector", schema: "public")]
+  extensions = [vector(schema: "public")]
 }
 
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
@@ -254,20 +254,20 @@ model AIGeneralSettings {
 }
 
 model ProjectAIIndex {
-  projectId     String        @id @db.VarChar(255)
-  summary       String
-  keywords      Json          @default("[]")
-  topics        Json          @default("[]")
-  technologies  Json          @default("[]")
-  sectionsCount Int           @default(0)
-  mediaCount    Int           @default(0)
-  contentHash   String?       @db.VarChar(255)
-  contentTiers  Json?         // T0-T4 tier content storage
-  embeddingVector Unsupported("vector(1536)")?     // Vector embedding for semantic search
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @default(now())
-  project       Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  contentChunks ContextChunk[] // Relation to hierarchical content chunks
+  projectId       String                 @id @db.VarChar(255)
+  summary         String
+  keywords        Json                   @default("[]")
+  topics          Json                   @default("[]")
+  technologies    Json                   @default("[]")
+  sectionsCount   Int                    @default(0)
+  mediaCount      Int                    @default(0)
+  contentHash     String?                @db.VarChar(255)
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @default(now())
+  contentTiers    Json?
+  embeddingVector Unsupported("vector")?
+  contentChunks   ContextChunk[]
+  project         Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([contentHash])
   @@index([updatedAt])
@@ -298,9 +298,9 @@ model HomepageConfig {
   sections       Json
   globalTheme    String          @default("default")
   layout         String          @default("standard")
-  waveConfig     Json?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
+  waveConfig     Json?
   sectionConfigs SectionConfig[]
 
   @@map("homepage_config")
@@ -493,6 +493,136 @@ model AIJobAnalysis {
   @@map("ai_job_analyses")
 }
 
+model VoiceProviderConfig {
+  id         String   @id @default(cuid())
+  provider   String
+  name       String
+  isDefault  Boolean  @default(false) @map("is_default")
+  configJson String   @map("config_json")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([provider, name])
+  @@index([provider])
+  @@index([isDefault])
+  @@map("voice_provider_configs")
+}
+
+// Hierarchical Content Storage Models for T0-T3 Tier System
+// NOTE: pgvector fields (embeddingVector) use Unsupported("vector(1536)") type
+// Currently optimized for OpenAI embeddings (1536 dimensions).
+// For other embedding models with different dimensions, a schema migration will be needed.
+// Vector fields are not accessible via Prisma client. Use raw SQL queries instead.
+
+model ContentEntity {
+  id            String            @id @default(cuid())
+  entityType    ContentEntityType
+  slug          String
+  title         String?           @db.VarChar(255)
+  description   String?
+  tags          Json              @default("[]")
+  technologies  Json              @default("[]")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+  contentChunks ContextChunk[]
+
+  @@unique([entityType, slug])
+  @@index([entityType])
+  @@index([slug])
+  @@index([tags], type: Gin)
+  @@index([technologies], type: Gin)
+  @@map("content_entities")
+}
+
+model ContextChunk {
+  id              String                 @id @default(cuid())
+  entityId        String                 @map("entity_id")
+  projectIndexId  String?                @map("project_index_id")
+  tier            Int                    // 0-3 representing T0-T3 tiers (simplified from T0-T4)
+  chunkId         String                 @map("chunk_id")
+  title           String?                @db.VarChar(255)
+  content         String
+  tokenCount      Int                    @default(0) @map("token_count")
+  embeddingVector Unsupported("vector(1536)")? @map("embedding_vector") // 1536 for OpenAI models; other models may need schema migration
+  
+  // Enhanced hierarchical relationship fields
+  parentChunkId   String?                @map("parent_chunk_id")
+  rootChunkId     String?                @map("root_chunk_id") // Made optional for migration compatibility
+  sectionGroup    String?                @map("section_group")
+  
+  // Section-relative positioning (NEVER absolute line numbers!)
+  sectionStartLine Int?                  @map("section_start_line") // Line within section (0 = heading line)
+  sectionEndLine  Int?                   @map("section_end_line")   // Line within section (relative to section start)
+  
+  // Heading-bounded chunking (T3 specific)
+  sectionBounded  Boolean                @default(false) @map("section_bounded") // True for T3 chunks (never cross headings)
+  chunkIndexInSection Int?               @map("chunk_index_in_section") // Index within parent section (0, 1, 2...)
+  
+  // Importance and ranking (separate field for query performance)
+  importance      Float                  @default(0.5) // 0-1 scale, separate from metadata for performance
+  importanceSource String                @default("ai") @map("importance_source") // 'ai' | 'manual'
+  
+  // Generation metadata
+  generationMode  String                 @default("system") @map("generation_mode") // 'system' | 'ai' | 'manual' | 'hybrid'
+  lastModified    DateTime               @default(now()) @map("last_modified")
+  modifiedBy      String                 @default("system") @map("modified_by") // 'system' | 'ai' | 'user'
+  manuallyEdited  Boolean                @default(false) @map("manually_edited") // Preserve during regeneration
+  
+  // Content hash for change detection
+  contentHash     String?                @map("content_hash") @db.VarChar(255)
+  sectionContentHash String?             @map("section_content_hash") @db.VarChar(255) // Hash of entire section (for T3 chunks)
+  
+  // Embedding tracking
+  embeddingModel  String?                @map("embedding_model") // Model version used for embedding
+  embeddingGeneratedAt DateTime?         @map("embedding_generated_at") // When embedding was created
+  
+  // Tier-specific metadata (includes derivationPath)
+  metadata        Json                   @default("{}") // Flexible tier-specific data including derivationPath
+  derivation_path String?                // Keep for backward compatibility, will be moved to metadata
+  
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
+  
+  // Relations
+  entity          ContentEntity          @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  parentChunk     ContextChunk?          @relation("ChunkHierarchy", fields: [parentChunkId], references: [id])
+  childChunks     ContextChunk[]         @relation("ChunkHierarchy")
+  projectIndex    ProjectAIIndex?        @relation(fields: [projectIndexId], references: [projectId])
+
+  @@unique([entityId, tier, chunkId])
+  @@index([entityId])
+  @@index([tier])
+  @@index([chunkId])
+  @@index([tokenCount])
+  @@index([projectIndexId])
+  @@index([embeddingVector], map: "idx_context_chunks_embedding_hnsw")
+  @@index([entityId, tier], map: "idx_context_chunks_entity_tier")
+  @@index([parentChunkId], map: "idx_context_chunks_parent_chunk_id")
+  @@index([rootChunkId], map: "idx_context_chunks_root_chunk_id")
+  @@index([sectionGroup], map: "idx_context_chunks_section_group")
+  @@index([tier], map: "idx_context_chunks_tier")
+  @@index([projectIndexId, tier]) // Performance index for (projectId, tier)
+  @@index([importance]) // Performance index for importance queries
+  @@index([manuallyEdited]) // Performance index for manual edit filtering
+  @@index([embeddingGeneratedAt]) // Performance index for embedding tracking
+  @@map("context_chunks")
+}
+
+model ContentVersion {
+  id             String   @id @default(cuid())
+  entityId       String   @map("entity_id")
+  versionNumber  Int      @map("version_number")
+  contentHash    String   @map("content_hash") @db.VarChar(255)
+  changesSummary String?  @map("changes_summary")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([entityId, versionNumber])
+  @@index([entityId])
+  @@index([contentHash])
+  @@index([createdAt])
+  @@map("content_versions")
+}
+
 enum ProjectStatus {
   DRAFT
   PUBLISHED
@@ -538,21 +668,6 @@ enum AnalyticsEvent {
   @@map("analytics_event")
 }
 
-model VoiceProviderConfig {
-  id        String   @id @default(cuid())
-  provider  String   // 'openai' | 'elevenlabs'
-  name      String   // User-defined config name (e.g., "Professional", "Casual", "Technical")
-  isDefault Boolean  @default(false) @map("is_default")
-  configJson String  @map("config_json") // Serialized provider-specific configuration
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@unique([provider, name])
-  @@index([provider])
-  @@index([isDefault])
-  @@map("voice_provider_configs")
-}
-
 enum AIRateLimitTier {
   BASIC
   STANDARD
@@ -560,89 +675,6 @@ enum AIRateLimitTier {
   UNLIMITED
 
   @@map("ai_rate_limit_tier")
-}
-
-// Hierarchical Content Storage Models for T0-T4 Tier System
-// NOTE: pgvector fields (embeddingVector) use Unsupported("vector(1536)") type
-// and are not accessible via Prisma client. Use raw SQL queries instead:
-// - prisma/sql/findSimilarContent.sql
-// - prisma/sql/insertContextChunk.sql  
-// - prisma/sql/semanticSearch.sql
-// - prisma/sql/updateEmbedding.sql
-
-model ContentEntity {
-  id           String         @id @default(cuid())
-  entityType   ContentEntityType
-  slug         String         // Project slug, 'bio', 'resume', etc.
-  title        String?        @db.VarChar(255)
-  description  String?
-  tags         Json           @default("[]") // String array of tags
-  technologies Json           @default("[]") // String array of technologies
-  createdAt    DateTime       @default(now()) @map("created_at")
-  updatedAt    DateTime       @updatedAt @map("updated_at")
-  contentChunks ContextChunk[]
-
-  @@unique([entityType, slug])
-  @@index([entityType])
-  @@index([slug])
-  @@index([tags], type: Gin)
-  @@index([technologies], type: Gin)
-  @@map("content_entities")
-}
-
-model ContextChunk {
-  id              String         @id @default(cuid())
-  entityId        String         @map("entity_id")
-  projectIndexId  String?        @map("project_index_id") // Optional link to ProjectAIIndex
-  tier            Int            // 0-4 representing T0-T4 tiers
-  chunkId         String         @map("chunk_id") // Navigation anchor ID for UI (e.g., "ai-powered-recommendation-engine")
-  title           String?        @db.VarChar(255)
-  content         String         // The actual text content for this tier
-  tokenCount      Int            @default(0) @map("token_count") // Estimated token count
-  embeddingVector Unsupported("vector(1536)")?        @map("embedding_vector") // Vector embedding for semantic search
-  metadata        Json           @default("{}") // Additional metadata (importance score, keywords, etc.)
-  
-  // NEW: Hierarchical relationship fields
-  parentChunkId   String?        @map("parent_chunk_id")    // Points to parent chunk
-  rootChunkId     String?        @map("root_chunk_id")      // Points to T0/T1 root
-  sectionGroup    String?        @map("section_group")      // Groups related chunks
-  derivationPath  String?        @map("derivation_path")    // e.g., "T1→T2.1→T3.5"
-  createdAt       DateTime       @default(now()) @map("created_at")
-  updatedAt       DateTime       @updatedAt @map("updated_at")
-  
-  // Relations
-  entity          ContentEntity  @relation(fields: [entityId], references: [id], onDelete: Cascade)
-  projectIndex    ProjectAIIndex? @relation(fields: [projectIndexId], references: [projectId], onDelete: SetNull)
-  
-  // NEW: Hierarchical relations
-  parentChunk     ContextChunk?  @relation("ChunkHierarchy", fields: [parentChunkId], references: [id])
-  childChunks     ContextChunk[] @relation("ChunkHierarchy")
-
-  @@unique([entityId, tier, chunkId])
-  @@index([entityId])
-  @@index([tier])
-  @@index([chunkId])
-  @@index([tokenCount])
-  @@index([projectIndexId])
-  @@index([parentChunkId])
-  @@index([rootChunkId])
-  @@index([sectionGroup])
-  @@map("context_chunks")
-}
-
-model ContentVersion {
-  id              String    @id @default(cuid())
-  entityId        String    @map("entity_id")
-  versionNumber   Int       @map("version_number")
-  contentHash     String    @map("content_hash") @db.VarChar(255)
-  changesSummary  String?   @map("changes_summary")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  
-  @@unique([entityId, versionNumber])
-  @@index([entityId])
-  @@index([contentHash])
-  @@index([createdAt])
-  @@map("content_versions")
 }
 
 enum ContentEntityType {
@@ -654,4 +686,182 @@ enum ContentEntityType {
   CUSTOM
 
   @@map("content_entity_type")
+}
+// Semantic Content Management Models
+
+model SemanticBudget {
+  id                  String             @id @default(cuid())
+  allocatedFunds      Decimal            @default(0.00) @map("allocated_funds") @db.Decimal(10, 2) // Total budget in USD
+  remainingFunds      Decimal            @default(0.00) @map("remaining_funds") @db.Decimal(10, 2) // Current balance
+  totalSpent          Decimal            @default(0.00) @map("total_spent") @db.Decimal(10, 2) // Cumulative spending
+  
+  // Spending breakdown
+  embeddingCosts      Decimal            @default(0.00) @map("embedding_costs") @db.Decimal(10, 2)
+  summarizationCosts  Decimal            @default(0.00) @map("summarization_costs") @db.Decimal(10, 2)
+  
+  // Thresholds
+  warningThreshold    Float              @default(0.8) @map("warning_threshold") // 80% default
+  criticalThreshold   Float              @default(0.9) @map("critical_threshold") // 90% default
+  
+  // Status
+  isActive            Boolean            @default(true) @map("is_active")
+  lastAllocatedAt     DateTime?          @map("last_allocated_at")
+  depletedAt          DateTime?          @map("depleted_at")
+  
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+  
+  // Relations
+  operations          SemanticOperation[]
+
+  @@map("semantic_budgets")
+}
+
+model SemanticOperation {
+  id                  String         @id @default(cuid())
+  budgetId            String         @map("budget_id")
+  projectId           String?        @map("project_id") // Optional - some operations are global
+  operationType       String         @map("operation_type") // 'embedding' | 'summarization' | 'regeneration'
+  
+  // Cost details
+  tokensUsed          Int            @default(0) @map("tokens_used")
+  cost                Decimal        @default(0.00) @db.Decimal(10, 4) // Cost in USD with 4 decimal precision
+  model               String?        // Model used (e.g., 'text-embedding-3-small', 'gpt-4o-mini')
+  
+  // Operation details
+  chunksProcessed     Int            @default(0) @map("chunks_processed")
+  tiersAffected       Json           @default("[]") @map("tiers_affected") // Array of tier numbers
+  success             Boolean        @default(true)
+  error               String?        // Error message if failed
+  
+  // Metadata
+  metadata            Json           @default("{}") // Additional operation-specific data
+  
+  // Timestamps
+  startedAt           DateTime       @default(now()) @map("started_at")
+  completedAt         DateTime?      @map("completed_at")
+  duration            Int?           // Duration in milliseconds
+  
+  // Relations
+  budget              SemanticBudget @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  @@index([budgetId])
+  @@index([projectId])
+  @@index([operationType])
+  @@index([startedAt])
+  @@index([success])
+  @@map("semantic_operations")
+}
+
+model ChunkingConfig {
+  id                        String   @id @default(cuid())
+  
+  // Heading-bounded chunking strategy (always true)
+  respectHeadingBoundaries  Boolean  @default(true) @map("respect_heading_boundaries") // Never cross headings
+  
+  // Chunk sizing
+  targetChunkSize           Int      @default(300) @map("target_chunk_size") // Ideal tokens per T3 chunk
+  maxSectionSize            Int      @default(500) @map("max_section_size") // Max tokens before splitting section
+  minSectionSize            Int      @default(50) @map("min_section_size") // Min tokens to avoid tiny chunks
+  
+  // Context continuity
+  sectionBoundaryOverlap    Int      @default(25) @map("section_boundary_overlap") // Overlap tokens within sections
+  
+  // Splitting strategy
+  splitStrategy             String   @default("paragraph") // 'paragraph' | 'sentence' | 'token'
+  
+  // Embedding model
+  embeddingModel            String   @default("text-embedding-3-small") @map("embedding_model")
+  
+  // Summary generation
+  t1MaxLength               Int      @default(200) @map("t1_max_length") // Project summary max tokens
+  t2MaxLength               Int      @default(150) @map("t2_max_length") // Section summary max tokens
+  
+  // Change detection
+  sectionChangePercent      Float    @default(0.2) @map("section_change_percent") // % sections changed to trigger full regen
+  minorChangeThreshold      Int      @default(2) @map("minor_change_threshold") // Max sections for "minor" classification
+  
+  // Behavior
+  defaultBehavior           String   @default("prompt") // 'auto' | 'manual' | 'prompt'
+  draftModeSkipIndexing     Boolean  @default(true) @map("draft_mode_skip_indexing")
+  
+  // Metadata
+  name                      String   @default("Default") // User-defined config name
+  isDefault                 Boolean  @default(true) @map("is_default")
+  
+  createdAt                 DateTime @default(now()) @map("created_at")
+  updatedAt                 DateTime @updatedAt @map("updated_at")
+
+  @@map("chunking_configs")
+}
+
+model SummaryGenerationConfig {
+  id                        String                  @id @default(cuid())
+  
+  // Model selection
+  model                     String                  @default("gpt-4o-mini") // 'gpt-4o', 'gpt-4o-mini', 'claude-3-5-sonnet'
+  temperature               Float                   @default(0.3) // Low temperature for factual accuracy
+  
+  // Configurable prompts
+  t1SystemPrompt            String                  @map("t1_system_prompt") @db.Text // Project summary generation prompt
+  t2SystemPrompt            String                  @map("t2_system_prompt") @db.Text // Section summary generation prompt
+  
+  // Length constraints
+  t1MaxLength               Int                     @default(200) @map("t1_max_length") // Default: 200 tokens
+  t2MaxLength               Int                     @default(150) @map("t2_max_length") // Default: 150 tokens
+  
+  // Quality controls
+  preventHallucination      Boolean                 @default(true) @map("prevent_hallucination")
+  preserveKeywords          Boolean                 @default(true) @map("preserve_keywords")
+  requireFactualAccuracy    Boolean                 @default(true) @map("require_factual_accuracy")
+  
+  // Metadata
+  name                      String                  @default("Default") // User-defined config name
+  isDefault                 Boolean                 @default(true) @map("is_default")
+  
+  createdAt                 DateTime                @default(now()) @map("created_at")
+  updatedAt                 DateTime                @updatedAt @map("updated_at")
+  
+  // Relations
+  generationLogs            SummaryGenerationLog[]
+
+  @@map("summary_generation_configs")
+}
+
+model SummaryGenerationLog {
+  id                        String                   @id @default(cuid())
+  configId                  String                   @map("config_id")
+  chunkId                   String?                  @map("chunk_id") // Optional link to generated chunk
+  
+  // Input
+  originalContent           String                   @map("original_content") @db.Text
+  promptUsed                String                   @map("prompt_used") @db.Text
+  modelUsed                 String                   @map("model_used")
+  
+  // Output
+  generatedSummary          String                   @map("generated_summary") @db.Text
+  tokensUsed                Int                      @map("tokens_used")
+  cost                      Decimal                  @db.Decimal(10, 4) // Cost in USD
+  
+  // Quality metrics
+  confidenceScore           Float?                   @map("confidence_score") // AI-generated confidence (0-1)
+  manualReviewFlag          Boolean                  @default(false) @map("manual_review_flag") // Flagged for human review
+  qualityRating             Int?                     @map("quality_rating") // Human quality rating (1-5)
+  
+  // Metadata
+  metadata                  Json                     @default("{}")
+  
+  generatedAt               DateTime                 @default(now()) @map("generated_at")
+  reviewedAt                DateTime?                @map("reviewed_at")
+  reviewedBy                String?                  @map("reviewed_by")
+  
+  // Relations
+  config                    SummaryGenerationConfig  @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  @@index([configId])
+  @@index([chunkId])
+  @@index([generatedAt])
+  @@index([manualReviewFlag])
+  @@index([qualityRating])
+  @@map("summary_generation_logs")
 }
