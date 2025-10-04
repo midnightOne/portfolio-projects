@@ -340,6 +340,17 @@ export function AdminSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/semantic/bulk-operations')}
+                >
+                  <Link href="/admin/semantic/bulk-operations" className="flex items-center gap-2">
+                    <Trash2 className="size-4" />
+                    <span>Bulk Operations</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

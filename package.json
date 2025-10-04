@@ -14,7 +14,6 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed-homepage": "node scripts/seed-homepage-config.js",
-
     "db:setup-pgvector": "tsx scripts/setup-pgvector.ts",
     "db:test-content": "tsx scripts/test-hierarchical-content.ts",
     "db:verify-content": "tsx scripts/verify-hierarchical-content-system.ts",
@@ -92,6 +91,7 @@
     "dotenv": "^17.2.1",
     "framer-motion": "^12.23.12",
     "gsap": "^3.13.0",
+    "jszip": "^3.10.1",
     "lowlight": "^3.3.0",
     "lucide-react": "^0.525.0",
     "multer": "^2.0.2",
