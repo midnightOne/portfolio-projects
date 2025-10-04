@@ -615,13 +615,15 @@ export function SemanticDashboard() {
                     <TableCell>${project.totalCost.toFixed(4)}</TableCell>
                     <TableCell>{getHealthStatusBadge(project.healthStatus)}</TableCell>
                     <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => router.push(`/admin/semantic/projects/${project.projectId}`)}
-                      >
-                        View Details
-                      </Button>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => router.push(`/admin/semantic/projects/${project.projectId}`)}
+                        >
+                          View Tree
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))
