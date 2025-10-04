@@ -32,7 +32,7 @@ export interface ContentSearchParams {
     entityType?: string;                // Limit to specific entity type
   };
   k?: number;                          // Number of results (default: 5)
-  maxTier?: 1 | 2 | 3 | 4;            // Maximum content tier to return
+  maxTier?: 1 | 2 | 3;                // Maximum content tier to return (simplified T0-T3 structure)
   diversifyBy?: 'project' | 'type';    // Ensure results span different projects/types
   filters?: {
     tags?: string[];                   // Filter by tags
@@ -652,7 +652,7 @@ export class ContentSearchService implements ContentProvider {
   async searchWithinSection(
     sectionGroup: string,
     query: string,
-    maxTier: number = 4
+    maxTier: number = 3
   ): Promise<InternalSearchResult[]> {
     // Generate query embedding
     let queryEmbedding: number[] = [];
@@ -703,7 +703,6 @@ export class ContentSearchService implements ContentProvider {
     summary: any | null;
     keyPoints: any[];
     details: any[];
-    fullContent: any[];
   }> {
     return await this.vectorOps.getRelatedContentAcrossTiers(rootChunkId, includeTiers);
   }

@@ -420,8 +420,8 @@ export const contentSearchToolDefinition: UnifiedToolDefinition = {
       },
       maxTier: {
         type: 'number',
-        description: 'Maximum content tier to return (1=summary, 2=bullets, 3=detailed, 4=full)',
-        enum: [1, 2, 3, 4],
+        description: 'Maximum content tier to return (1=summary, 2=headings, 3=content)',
+        enum: [1, 2, 3],
         default: 3
       },
       diversifyBy: {
@@ -553,10 +553,10 @@ export const contentGetToolDefinition: UnifiedToolDefinition = {
         type: 'array',
         items: {
           type: 'number',
-          enum: [0, 1, 2, 3, 4]
+          enum: [0, 1, 2, 3]
         },
-        description: 'Which content tiers to include (0=metadata, 1=summary, 2=bullets, 3=detailed, 4=full)',
-        default: [0, 1, 2, 3, 4]
+        description: 'Which content tiers to include (0=metadata, 1=summary, 2=headings, 3=content)',
+        default: [0, 1, 2, 3]
       }
     },
     required: ['ids']
@@ -641,8 +641,8 @@ export const sectionSearchToolDefinition: UnifiedToolDefinition = {
       },
       maxTier: {
         type: 'number',
-        description: 'Maximum content tier to include (1-4)',
-        default: 4
+        description: 'Maximum content tier to include (1-3)',
+        default: 3
       }
     },
     required: ['sectionGroup', 'query']
@@ -692,8 +692,8 @@ export const relatedContentToolDefinition: UnifiedToolDefinition = {
         properties: {
           summary: { type: 'object' },
           keyPoints: { type: 'array', items: { type: 'object' } },
-          details: { type: 'array', items: { type: 'object' } },
-          fullContent: { type: 'array', items: { type: 'object' } }
+          details: { type: 'array', items: { type: 'object' } }
+          // Note: fullContent removed in T0-T3 simplified structure
         }
       },
       error: { type: 'string' }

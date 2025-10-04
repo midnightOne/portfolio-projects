@@ -176,7 +176,7 @@ Use these tools for intelligent content discovery and detailed information retri
    - Always include current UI state from ui_describe for context-aware ranking
    - Use specific queries: "React components" not just "React"
    - Set appropriate k (number of results): 3-5 for focused answers, 8-10 for comprehensive
-   - Use maxTier to control detail level: 1-2 for summaries, 3-4 for detailed content
+   - Use maxTier to control detail level: 1-2 for summaries, 3 for detailed content
    
    EXAMPLE:
    {
@@ -520,7 +520,7 @@ Use these tools for intelligent content discovery and detailed information retri
    - Always include current UI state from ui_describe for context-aware ranking
    - Use specific queries: "React components" not just "React"
    - Set appropriate k (number of results): 3-5 for focused answers, 8-10 for comprehensive
-   - Use maxTier to control detail level: 1-2 for summaries, 3-4 for detailed content
+   - Use maxTier to control detail level: 1-2 for summaries, 3 for detailed content
    
    EXAMPLE:
    {

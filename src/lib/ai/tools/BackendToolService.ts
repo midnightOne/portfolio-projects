@@ -1155,7 +1155,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         ids,
         uiState,
         maxTokens = 900,
-        includeTiers = [0, 1, 2, 3, 4]
+        includeTiers = [0, 1, 2, 3]
       } = parameters;
 
       console.log('Content get request:', {
@@ -1869,7 +1869,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
     context: ServerToolExecutionContext
   ): Promise<any> {
     try {
-      const { sectionGroup, query, maxTier = 4 } = parameters;
+      const { sectionGroup, query, maxTier = 3 } = parameters;
 
       console.log('Section search request:', {
         sectionGroup,
@@ -1933,7 +1933,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         summary: relatedContent.summary ? 'found' : 'none',
         keyPoints: relatedContent.keyPoints.length,
         details: relatedContent.details.length,
-        fullContent: relatedContent.fullContent.length,
+        // Note: fullContent removed in T0-T3 simplified structure
         sessionId: context.sessionId
       });
 

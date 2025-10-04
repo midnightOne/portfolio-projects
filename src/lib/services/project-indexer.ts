@@ -217,13 +217,15 @@ export class ProjectIndexer {
   }
 
   /**
-   * Assign tier based on heading level and content type
+   * Assign tier based on heading level and content type (simplified T0-T3 structure)
    */
   private assignTier(section: IndexedSection): number {
     if (section.nodeType === 'heading') {
-      return section.depth === 1 ? 2 : 3; // H1 = T2, H2+ = T3
+      // All headings (H1/H2/H3) are T2 in simplified structure
+      return 2;
     }
-    return 3; // Content blocks = T3
+    // Content blocks are T3 (terminal tier)
+    return 3;
   }
 
   /**

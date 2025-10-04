@@ -107,9 +107,8 @@ export class ContentIngestionService extends EventEmitter {
   private readonly EMBEDDING_COST_PER_1K_TOKENS = 0.00002; // $0.02 per 1M tokens
   private readonly GPT4_MINI_COST_PER_1K_TOKENS = 0.00015; // $0.15 per 1M input tokens
   
-  // Chunking configuration for T4 tier
-  private readonly T4_CHUNK_SIZE = 300; // tokens
-  private readonly T4_CHUNK_OVERLAP = 50; // tokens
+  // Chunking configuration (now handled by SmartContentGenerator for T3 tier)
+  // T3 chunks are heading-bounded and use intelligent splitting
 
   constructor() {
     super();
@@ -255,7 +254,7 @@ export class ContentIngestionService extends EventEmitter {
         }
       });
 
-      // Generate hierarchical content with smart incremental processing
+      // Generate hierarchical content with simplified T0-T3 structure and heading-bounded chunking
       const generationResult = await this.smartGenerator.generateHierarchicalContent(project);
       const tierContents = generationResult.tiers;
 
@@ -291,11 +290,11 @@ export class ContentIngestionService extends EventEmitter {
           tokenCount: tierContent.tokenCount,
           embedding: tierContent.embedding,
           metadata: tierContent.metadata,
-          // NEW: Include hierarchical relationship data
-          parentChunkId: tierContent.metadata.parentChunkId,
-          rootChunkId: tierContent.metadata.rootChunkId,
-          sectionGroup: tierContent.metadata.sectionGroup,
-          derivationPath: tierContent.metadata.derivationPath
+          // Include hierarchical relationship data from TierContent
+          parentChunkId: tierContent.parentChunkId,
+          rootChunkId: tierContent.rootChunkId,
+          sectionGroup: tierContent.sectionGroup,
+          derivationPath: tierContent.derivationPath
         });
         
         // Get the full chunk data for return
@@ -415,7 +414,7 @@ export class ContentIngestionService extends EventEmitter {
   }
 
   /**
-   * Generate T0-T4 tier content with hybrid approach and hierarchical relationships
+   * Generate T0-T3 tier content with hybrid approach and hierarchical relationships (simplified structure)
    */
   private async generateProjectTiersHybrid(project: any, userMarkers: UserDefinedTierMarkers): Promise<TierContent[]> {
     const tiers: TierContent[] = [];
@@ -657,39 +656,8 @@ export class ContentIngestionService extends EventEmitter {
       }
     }
 
-    // T4: Full content with chunking (always from article content, children of T3 sections)
-    if (project.articleContent?.content) {
-      const chunks = this.chunkContent(project.articleContent.content, this.T4_CHUNK_SIZE, this.T4_CHUNK_OVERLAP);
-      
-      chunks.forEach((chunk, index) => {
-        const chunkId = `full-content-${index}`;
-        
-        // Try to find the most relevant T3 parent based on content similarity
-        const parentT3ChunkId = this.findBestParentChunk(chunk, tiers.filter(t => t.tier === 3));
-        
-        tiers.push({
-          tier: 4,
-          chunkId,
-          title: `Content Chunk ${index + 1}`,
-          content: chunk,
-          tokenCount: this.estimateTokenCount(chunk),
-          metadata: {
-            type: 'full-content-chunk',
-            chunkIndex: index,
-            totalChunks: chunks.length,
-            contentType: project.articleContent.contentType,
-            source: 'article-content',
-            // NEW: Hierarchical relationship metadata
-            parentChunkId: parentT3ChunkId || t1ChunkId,
-            rootChunkId: t0ChunkId,
-            sectionGroup: parentT3ChunkId ? 
-              tiers.find(t => t.chunkId === parentT3ChunkId)?.metadata.sectionGroup : 
-              'full-content',
-            derivationPath: `T0→T1→...→T4.${index + 1}`
-          }
-        });
-      });
-    }
+    // Note: T3 is now the terminal tier with heading-bounded chunking
+    // Full content chunking is handled by SmartContentGenerator's T3 generation
 
     return tiers;
   }

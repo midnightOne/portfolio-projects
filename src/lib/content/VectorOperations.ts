@@ -371,7 +371,7 @@ export class VectorOperations {
     sectionGroup: string, 
     embedding: number[], 
     limit: number = 10,
-    maxTier: number = 4
+    maxTier: number = 3
   ): Promise<VectorSearchResult[]> {
     const embeddingString = `[${embedding.join(',')}]`;
     
@@ -410,7 +410,6 @@ export class VectorOperations {
     summary: any | null;
     keyPoints: any[];
     details: any[];
-    fullContent: any[];
   }> {
     const tierList = includeTiers.join(',');
     
@@ -428,8 +427,8 @@ export class VectorOperations {
     return {
       summary: chunks.find(c => c.tier === 1) || null,
       keyPoints: chunks.filter(c => c.tier === 2),
-      details: chunks.filter(c => c.tier === 3),
-      fullContent: chunks.filter(c => c.tier === 4)
+      details: chunks.filter(c => c.tier === 3)
+      // Note: T3 is now the terminal tier in simplified structure
     };
   }
 }
