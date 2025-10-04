@@ -230,7 +230,7 @@ async function storeGeneratedContent(project: any, tiers: any[]) {
         tokenCount: tier.tokenCount,
         metadata: tier.metadata,
         sectionGroup: tier.metadata.sectionGroup || null,
-        derivationPath: tier.metadata.derivationPath || null
+        //derivationPath: tier.metadata.derivationPath || null
       },
       update: {
         title: tier.title,
@@ -238,7 +238,7 @@ async function storeGeneratedContent(project: any, tiers: any[]) {
         tokenCount: tier.tokenCount,
         metadata: tier.metadata,
         sectionGroup: tier.metadata.sectionGroup || null,
-        derivationPath: tier.metadata.derivationPath || null
+        //derivationPath: tier.metadata.derivationPath || null
       }
     });
     
@@ -302,7 +302,7 @@ async function testHierarchicalRelationships() {
       console.log(`    - ${chunk.chunkId} (${chunk.title})`);
       console.log(`      Parent: ${chunk.parentChunkId || 'none'}`);
       console.log(`      Section Group: ${chunk.sectionGroup || 'none'}`);
-      console.log(`      Derivation: ${chunk.derivationPath || 'none'}`);
+      //console.log(`      Derivation: ${chunk.derivationPath || 'none'}`);
       console.log(`      Node Type: ${metadata?.nodeType || 'unknown'}`);
       console.log(`      Anchor: ${metadata?.anchorId || 'none'}`);
     });
