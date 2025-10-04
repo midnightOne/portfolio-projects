@@ -801,10 +801,26 @@ export class ContentChangeDetector {
   }
 
   private async extractSectionContent(section: any, fullContent: string): Promise<string> {
-    // Extract content for this section based on position
-    const start = section.startOffset || 0;
-    const end = section.endOffset || fullContent.length;
-    return fullContent.substring(start, end);
+    // If section has content property, use it directly
+    if (section.content && section.content.length > 0) {
+      return section.content;
+    }
+    
+    // If section has markdownContent, use it
+    if (section.markdownContent && section.markdownContent.length > 0) {
+      return section.markdownContent;
+    }
+    
+    // Fallback: Extract content based on position if offsets are available
+    if (section.startOffset !== undefined && section.endOffset !== undefined) {
+      const start = section.startOffset;
+      const end = section.endOffset;
+      return fullContent.substring(start, end);
+    }
+    
+    // Last resort: return empty string (this shouldn't happen)
+    console.warn(`Unable to extract content for section: ${section.title || section.id}`);
+    return '';
   }
 
   private generateT3ChunkIds(section: any, sectionContent: string): string[] {
@@ -843,9 +859,10 @@ export class ContentChangeDetector {
   }
 
   private estimateTokenCount(text: string): number {
-    // Rough approximation: 1 token ≈ 0.75 words
-    const words = text.split(/\s+/).length;
-    return Math.ceil(words / 0.75);
+    // Use character-based approximation for token counting
+    // GPT-4 tokenization: ~1 token per 4 characters for English text
+    // This is more accurate than word-based (words/0.75) and doesn't require tiktoken WASM
+    return Math.ceil(text.length / 4);
   }
 
   private calculateSectionCost(tokens: number): number {

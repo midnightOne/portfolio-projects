@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { SemanticChunkEditor } from "./semantic-chunk-editor";
+import { SemanticRegenerationTrigger } from "./semantic-regeneration-trigger";
 
 interface TreeNode {
   chunkId: string;
@@ -343,6 +344,11 @@ export function SemanticTreeView({ projectId }: SemanticTreeViewProps) {
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
+              <SemanticRegenerationTrigger
+                variant="dropdown"
+                projectId={projectId}
+                onComplete={() => window.location.reload()}
+              />
               <Button
                 variant="outline"
                 size="sm"

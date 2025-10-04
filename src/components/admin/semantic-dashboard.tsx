@@ -40,6 +40,7 @@ import {
   ArrowUpDown
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { SemanticRegenerationTrigger } from "./semantic-regeneration-trigger";
 
 interface DashboardMetrics {
   vectorIndexHealth: {
@@ -455,13 +456,10 @@ export function SemanticDashboard() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
-          <Button 
-            onClick={() => router.push('/admin/semantic/regenerate')}
-            className="flex items-center gap-2"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Regenerate Indexes
-          </Button>
+          <SemanticRegenerationTrigger 
+            variant="dropdown"
+            onComplete={() => fetchDashboardMetrics()}
+          />
           <Button 
             variant="outline"
             onClick={() => router.push('/admin/semantic/cleanup')}
@@ -623,6 +621,12 @@ export function SemanticDashboard() {
                         >
                           View Tree
                         </Button>
+                        <SemanticRegenerationTrigger
+                          variant="button"
+                          projectId={project.projectId}
+                          projectTitle={project.title}
+                          onComplete={() => fetchDashboardMetrics()}
+                        />
                       </div>
                     </TableCell>
                   </TableRow>
