@@ -11,6 +11,7 @@
 import { PrismaClient } from '@prisma/client';
 import { ProjectIndexer, EnhancedProjectIndex, HierarchicalSection, ContentChangeMap } from '../services/project-indexer';
 import OpenAI from 'openai';
+import { semanticBudgetManager } from './SemanticBudgetManager';
 
 const prisma = new PrismaClient();
 
