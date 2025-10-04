@@ -7,7 +7,6 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   ChevronRight,
   ChevronDown,
@@ -23,7 +22,8 @@ import {
   Loader2,
   ChevronsRight,
   ChevronsDown,
-  Filter
+  Filter,
+  X
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { SemanticChunkEditor } from "./semantic-chunk-editor";
@@ -218,16 +218,21 @@ export function SemanticTreeView({ projectId }: SemanticTreeViewProps) {
       <div key={node.chunkId} className="select-none">
         <div
           className={`
-            flex items-start gap-2 p-3 rounded-lg border transition-colors
+            flex items-start gap-2 p-3 rounded-lg border transition-colors relative
             ${isSelected ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200'}
             ${matches ? 'opacity-100' : 'opacity-60'}
+            ${editingChunkId === node.chunkId ? 'ring-2 ring-blue-500 z-10' : ''}
             hover:bg-gray-50 cursor-pointer
           `}
           style={{ marginLeft: `${depth * 24}px` }}
+          onClick={() => setEditingChunkId(node.chunkId)}
         >
           {/* Expand/Collapse Button */}
           <button
-            onClick={() => hasChildren && toggleNode(node.chunkId)}
+            onClick={(e) => {
+              e.stopPropagation();
+              hasChildren && toggleNode(node.chunkId);
+            }}
             className={`flex-shrink-0 p-1 rounded hover:bg-gray-200 transition-colors ${
               !hasChildren ? 'invisible' : ''
             }`}
@@ -240,11 +245,13 @@ export function SemanticTreeView({ projectId }: SemanticTreeViewProps) {
           </button>
 
           {/* Selection Checkbox */}
-          <Checkbox
-            checked={isSelected}
-            onCheckedChange={() => toggleChunkSelection(node.chunkId)}
-            className="mt-1"
-          />
+          <div onClick={(e) => e.stopPropagation()}>
+            <Checkbox
+              checked={isSelected}
+              onCheckedChange={() => toggleChunkSelection(node.chunkId)}
+              className="mt-1"
+            />
+          </div>
 
           {/* Tier Icon */}
           <div className="flex-shrink-0 mt-1">
@@ -283,26 +290,11 @@ export function SemanticTreeView({ projectId }: SemanticTreeViewProps) {
             </div>
           </div>
 
-          {/* Actions */}
-          <div className="flex-shrink-0 flex gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                setEditingChunkId(node.chunkId);
-              }}
-              className="h-8 px-2"
-            >
-              <Edit className="h-3 w-3 mr-1" />
-              Edit
-            </Button>
-          </div>
         </div>
 
         {/* Children */}
         {isExpanded && hasChildren && (
-          <div className="mt-1">
+          <div className="mt-2 space-y-1">
             {node.children.map(child => renderNode(child, depth + 1))}
           </div>
         )}
@@ -336,43 +328,45 @@ export function SemanticTreeView({ projectId }: SemanticTreeViewProps) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <Layers className="h-5 w-5" />
-              Semantic Content Tree
-            </CardTitle>
-            <CardDescription>
-              Hierarchical view of semantic chunks (T0 → T1 → T2 → T3)
-            </CardDescription>
+    <div className="flex gap-4">
+      {/* Tree Panel - Left Side */}
+      <Card className={`transition-all duration-300 flex flex-col ${editingChunkId ? 'w-1/2' : 'w-full'}`}>
+        <CardHeader className="flex-shrink-0">
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Layers className="h-5 w-5" />
+                Semantic Content Tree
+              </CardTitle>
+              <CardDescription>
+                Hierarchical view of semantic chunks (T0 → T1 → T2 → T3)
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={expandAll}
+                className="flex items-center gap-1"
+              >
+                <ChevronsDown className="h-4 w-4" />
+                Expand All
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={collapseAll}
+                className="flex items-center gap-1"
+              >
+                <ChevronsRight className="h-4 w-4" />
+                Collapse All
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={expandAll}
-              className="flex items-center gap-1"
-            >
-              <ChevronsDown className="h-4 w-4" />
-              Expand All
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={collapseAll}
-              className="flex items-center gap-1"
-            >
-              <ChevronsRight className="h-4 w-4" />
-              Collapse All
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>
+        </CardHeader>
+      <CardContent className="flex-1 flex flex-col overflow-hidden min-h-0">
         {/* Filters and Search */}
-        <div className="flex gap-2 mb-4">
+        <div className="flex gap-2 mb-4 flex-shrink-0">
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <Input
@@ -406,7 +400,7 @@ export function SemanticTreeView({ projectId }: SemanticTreeViewProps) {
 
         {/* Selection Actions */}
         {selectedChunks.size > 0 && (
-          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between flex-shrink-0">
             <span className="text-sm font-medium text-blue-900">
               {selectedChunks.size} chunk{selectedChunks.size !== 1 ? 's' : ''} selected
             </span>
@@ -428,13 +422,13 @@ export function SemanticTreeView({ projectId }: SemanticTreeViewProps) {
           </div>
         )}
 
-        {/* Tree */}
-        <div className="space-y-1">
+        {/* Tree - Scrollable */}
+        <div className="flex-1 overflow-y-auto space-y-1 pr-2">
           {renderNode(treeData)}
         </div>
 
         {/* Stats */}
-        <div className="mt-4 pt-4 border-t border-gray-200">
+        <div className="mt-4 pt-4 border-t border-gray-200 flex-shrink-0">
           <div className="grid grid-cols-4 gap-4 text-center">
             <div>
               <div className="text-2xl font-bold text-purple-600">
@@ -479,28 +473,52 @@ export function SemanticTreeView({ projectId }: SemanticTreeViewProps) {
           </div>
         </div>
       </CardContent>
-
-      {/* Chunk Editor Modal */}
-      <Dialog open={!!editingChunkId} onOpenChange={(open) => !open && setEditingChunkId(null)}>
-        <DialogContent className="max-w-[98vw] w-[98vw] h-[95vh] max-h-[95vh] p-0 gap-0 flex flex-col">
-          <DialogHeader className="px-6 py-4 border-b flex-shrink-0">
-            <DialogTitle>Edit Semantic Chunk</DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 overflow-y-auto px-6 py-4">
-            {editingChunkId && (
-              <SemanticChunkEditor
-                chunkId={editingChunkId}
-                projectId={projectId}
-                onClose={() => setEditingChunkId(null)}
-                onSave={() => {
-                  setEditingChunkId(null);
-                  fetchTreeData(); // Refresh tree after save
-                }}
-              />
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
     </Card>
+
+      {/* Editor Panel - Right Side */}
+      {editingChunkId && (
+        <Card className="w-1/2 flex flex-col">
+          <CardHeader className="flex-shrink-0 border-b">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Edit className="h-5 w-5" />
+                Edit Chunk
+              </CardTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setEditingChunkId(null)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="flex-1 overflow-y-auto p-6">
+            <SemanticChunkEditor
+              chunkId={editingChunkId}
+              projectId={projectId}
+              onClose={() => setEditingChunkId(null)}
+              onSave={async (updatedChunk) => {
+                // Save current expanded state
+                const currentExpanded = new Set(expandedNodes);
+                
+                // Keep editor open, just refresh tree data
+                try {
+                  const response = await fetch(`/api/admin/semantic/projects/${projectId}/tree`);
+                  if (response.ok) {
+                    const data = await response.json();
+                    setTreeData(data);
+                    // Restore expanded state
+                    setExpandedNodes(currentExpanded);
+                  }
+                } catch (error) {
+                  console.error('Error refreshing tree:', error);
+                }
+              }}
+            />
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 }

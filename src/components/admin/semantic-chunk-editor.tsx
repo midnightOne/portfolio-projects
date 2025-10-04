@@ -2,11 +2,10 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
@@ -17,7 +16,6 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle,
-  Edit,
   Bot,
   Shield,
   Link as LinkIcon,
@@ -26,8 +24,9 @@ import {
   User
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { AIPromptInterface, AIPromptResult, TextSelection, ProjectContext } from './ai-prompt-interface';
+import { AIPromptInterface, AIPromptResult, TextSelection } from './ai-prompt-interface';
 import { TextSelectionManager, TextareaAdapter } from './text-selection-manager';
+import { useToast } from '@/components/ui/toast';
 
 interface ChunkData {
   id: string;
@@ -72,6 +71,7 @@ export function SemanticChunkEditor({
   onClose,
   onSave
 }: SemanticChunkEditorProps) {
+  const toast = useToast();
   const [chunk, setChunk] = useState<ChunkData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -159,6 +159,9 @@ export function SemanticChunkEditor({
       const updatedChunk = await response.json();
       setChunk(updatedChunk);
       setHasChanges(false);
+      
+      // Show success notification
+      toast.success("Changes saved", "Chunk has been updated successfully");
       
       if (onSave) {
         onSave(updatedChunk);
