@@ -211,14 +211,6 @@ export function SemanticBulkOperations() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h2 className="text-2xl font-bold">Bulk Operations</h2>
-        <p className="text-muted-foreground">
-          Maintenance operations for semantic content management
-        </p>
-      </div>
-
       {/* Tabs */}
       <div className="flex gap-2 border-b">
         <button
