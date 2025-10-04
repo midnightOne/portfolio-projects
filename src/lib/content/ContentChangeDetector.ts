@@ -280,13 +280,17 @@ export class ContentChangeDetector {
           select: { chunkId: true }
         });
 
+        // Get contentHash from chunk or generate it
+        const chunkData = chunk as any; // Type assertion for fields that might not be in Prisma types
+        const contentHash = chunkData.contentHash || this.generateContentHash(chunk.content);
+
         headings.push({
           id: chunk.chunkId.replace(/^h\d+-/, ''), // Remove heading prefix
           text: chunk.title || '',
           level: headingLevel,
           position: metadata?.position || 0,
           sectionContent: chunk.content,
-          contentHash: chunk.contentHash || this.generateContentHash(chunk.content),
+          contentHash,
           t2ChunkId: chunk.chunkId,
           t3ChunkIds: t3Chunks.map(c => c.chunkId)
         });
