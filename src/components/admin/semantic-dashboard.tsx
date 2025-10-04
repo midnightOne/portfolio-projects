@@ -41,6 +41,8 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { SemanticRegenerationTrigger } from "./semantic-regeneration-trigger";
+import { StageBasedProcessingPanel } from "./stage-based-processing-panel";
+import { GranularProcessingControl } from "./granular-processing-control";
 
 interface DashboardMetrics {
   vectorIndexHealth: {
@@ -100,6 +102,8 @@ export function SemanticDashboard() {
   const [sortField, setSortField] = useState<SortField>('lastRegenerated');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [healthFilter, setHealthFilter] = useState<HealthFilter>('all');
+  const [showStageBasedProcessing, setShowStageBasedProcessing] = useState(false);
+  const [showGranularControl, setShowGranularControl] = useState(false);
 
   useEffect(() => {
     fetchDashboardMetrics();
@@ -456,6 +460,21 @@ export function SemanticDashboard() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
+          <Button 
+            onClick={() => setShowStageBasedProcessing(true)}
+            className="flex items-center gap-2"
+          >
+            <Activity className="h-4 w-4" />
+            Stage-Based Processing
+          </Button>
+          <Button 
+            variant="outline"
+            onClick={() => setShowGranularControl(true)}
+            className="flex items-center gap-2"
+          >
+            <Package className="h-4 w-4" />
+            Granular Control
+          </Button>
           <SemanticRegenerationTrigger 
             variant="dropdown"
             onComplete={() => fetchDashboardMetrics()}
@@ -636,6 +655,39 @@ export function SemanticDashboard() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Stage-Based Processing Panel */}
+      {showStageBasedProcessing && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <StageBasedProcessingPanel
+              scope="all"
+              onComplete={(result) => {
+                console.log('Stage-based processing completed:', result);
+                fetchDashboardMetrics();
+                setShowStageBasedProcessing(false);
+              }}
+              onClose={() => setShowStageBasedProcessing(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Granular Processing Control Panel */}
+      {showGranularControl && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-6xl w-full max-h-[90vh] overflow-y-auto p-6">
+            <GranularProcessingControl
+              onStartProcessing={(scope, stages) => {
+                console.log('Granular processing started:', { scope, stages });
+                fetchDashboardMetrics();
+                setShowGranularControl(false);
+              }}
+              onClose={() => setShowGranularControl(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
