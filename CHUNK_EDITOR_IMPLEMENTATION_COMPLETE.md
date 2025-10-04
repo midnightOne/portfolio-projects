@@ -249,28 +249,20 @@ All files pass TypeScript validation with no errors:
 
 ## Integration Points
 
-### With Semantic Tree View
+### With Semantic Tree View ✅ INTEGRATED
 
-The chunk editor is designed to integrate seamlessly with the semantic tree view:
+The chunk editor has been fully integrated with the semantic tree view:
 
-```tsx
-// Example integration
-<SemanticTreeView projectId={projectId}>
-  {(node) => (
-    <TreeNode
-      node={node}
-      onEdit={(chunkId) => (
-        <SemanticChunkEditor
-          chunkId={chunkId}
-          projectId={projectId}
-          onClose={handleClose}
-          onSave={handleSave}
-        />
-      )}
-    />
-  )}
-</SemanticTreeView>
-```
+**Integration Details:**
+- Edit button added to each tree node
+- Opens in a modal dialog (95vw x 95vh for maximum space)
+- Automatically refreshes tree after save
+- Clean close handling with confirmation for unsaved changes
+
+**Code Location:**
+- `src/components/admin/semantic-tree-view.tsx` - Updated with editor integration
+- Modal opens when clicking "Edit" button on any chunk
+- Tree refreshes automatically after successful save
 
 ### With Project Editor
 

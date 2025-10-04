@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   ChevronRight,
   ChevronDown,
@@ -25,6 +26,7 @@ import {
   Filter
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { SemanticChunkEditor } from "./semantic-chunk-editor";
 
 interface TreeNode {
   chunkId: string;
@@ -58,6 +60,7 @@ export function SemanticTreeView({ projectId }: SemanticTreeViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterTier, setFilterTier] = useState<number | null>(null);
   const [filterEmbedding, setFilterEmbedding] = useState<'all' | 'has' | 'missing'>('all');
+  const [editingChunkId, setEditingChunkId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTreeData();
@@ -287,24 +290,12 @@ export function SemanticTreeView({ projectId }: SemanticTreeViewProps) {
               size="sm"
               onClick={(e) => {
                 e.stopPropagation();
-                // TODO: Open chunk details modal
-                console.log('View chunk:', node.chunkId);
+                setEditingChunkId(node.chunkId);
               }}
               className="h-8 px-2"
             >
-              View
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                // TODO: Open chunk editor modal (Task 9)
-                console.log('Edit chunk:', node.chunkId);
-              }}
-              className="h-8 px-2"
-            >
-              <Edit className="h-3 w-3" />
+              <Edit className="h-3 w-3 mr-1" />
+              Edit
             </Button>
           </div>
         </div>
@@ -488,6 +479,28 @@ export function SemanticTreeView({ projectId }: SemanticTreeViewProps) {
           </div>
         </div>
       </CardContent>
+
+      {/* Chunk Editor Modal */}
+      <Dialog open={!!editingChunkId} onOpenChange={(open) => !open && setEditingChunkId(null)}>
+        <DialogContent className="max-w-[98vw] w-[98vw] h-[95vh] max-h-[95vh] p-0 gap-0 flex flex-col">
+          <DialogHeader className="px-6 py-4 border-b flex-shrink-0">
+            <DialogTitle>Edit Semantic Chunk</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            {editingChunkId && (
+              <SemanticChunkEditor
+                chunkId={editingChunkId}
+                projectId={projectId}
+                onClose={() => setEditingChunkId(null)}
+                onSave={() => {
+                  setEditingChunkId(null);
+                  fetchTreeData(); // Refresh tree after save
+                }}
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
