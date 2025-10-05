@@ -167,9 +167,15 @@ export class StageBasedProcessingService extends EventEmitter {
   async startProcessing(request: ProcessingRequest): Promise<string> {
     const { operationId } = request;
 
+    console.log(`[StageBasedProcessingService] Starting processing for operation: ${operationId}`);
+    console.log(`[StageBasedProcessingService] Active operations before: ${this.activeOperations.size}`);
+
     // Initialize progress tracking
     const progress = this.initializeProgress(request);
     this.activeOperations.set(operationId, progress);
+    
+    console.log(`[StageBasedProcessingService] Progress initialized and stored for ${operationId}`);
+    console.log(`[StageBasedProcessingService] Active operations after: ${this.activeOperations.size}`);
 
     // Add to job queue
     await this.addToJobQueue(request);
@@ -271,7 +277,12 @@ export class StageBasedProcessingService extends EventEmitter {
    * Get processing progress
    */
   getProgress(operationId: string): ProcessingProgress | null {
-    return this.activeOperations.get(operationId) || null;
+    console.log(`[StageBasedProcessingService] getProgress called for ${operationId}`);
+    console.log(`[StageBasedProcessingService] Active operations count: ${this.activeOperations.size}`);
+    console.log(`[StageBasedProcessingService] Available operationIds:`, Array.from(this.activeOperations.keys()));
+    const progress = this.activeOperations.get(operationId) || null;
+    console.log(`[StageBasedProcessingService] Returning progress:`, progress ? 'FOUND' : 'NULL');
+    return progress;
   }
 
   /**
@@ -361,6 +372,9 @@ export class StageBasedProcessingService extends EventEmitter {
       throw new Error(`Operation not found: ${request.operationId}`);
     }
 
+    console.log(`[ExecuteProcessing] Starting execution for ${request.operationId}`);
+    console.log(`[ExecuteProcessing] Request stages:`, request.stages);
+
     progress.status = 'in_progress';
     this.updateJobQueueStatus(request.operationId, 'in_progress');
     this.notifyProgress(request.operationId, progress);
@@ -369,6 +383,8 @@ export class StageBasedProcessingService extends EventEmitter {
       // Execute stages in order
       const stages: ProcessingStage[] = ['chunking', 'summaries', 'embeddings', 'validation'];
       const enabledStages = request.stages.filter(s => s.enabled).map(s => s.stage);
+      
+      console.log(`[ExecuteProcessing] Enabled stages:`, enabledStages);
       
       // Start from resume stage if specified
       const startIndex = request.resumeFromStage 
@@ -379,11 +395,17 @@ export class StageBasedProcessingService extends EventEmitter {
         const stage = stages[i];
         
         if (!enabledStages.includes(stage)) {
+          console.log(`[ExecuteProcessing] Skipping disabled stage: ${stage}`);
           continue;
         }
 
         const stageConfig = request.stages.find(s => s.stage === stage);
-        if (!stageConfig) continue;
+        if (!stageConfig) {
+          console.log(`[ExecuteProcessing] No config found for stage: ${stage}`);
+          continue;
+        }
+
+        console.log(`[ExecuteProcessing] Executing stage: ${stage}`);
 
         progress.currentStage = stage;
         progress.stageProgress[stage].status = 'in_progress';
@@ -393,11 +415,15 @@ export class StageBasedProcessingService extends EventEmitter {
         try {
           await this.executeStage(request, stage, stageConfig);
           
+          console.log(`[ExecuteProcessing] Stage ${stage} completed successfully`);
+          
           progress.stageProgress[stage].status = 'completed';
           progress.stageProgress[stage].completedAt = new Date();
           progress.stageProgress[stage].progress = 100;
           
         } catch (error) {
+          console.error(`[ExecuteProcessing] Stage ${stage} failed:`, error);
+          
           progress.stageProgress[stage].status = 'failed';
           progress.stageProgress[stage].errors.push(error.message);
           progress.errors.push({
@@ -493,7 +519,10 @@ export class StageBasedProcessingService extends EventEmitter {
 
     // Get projects to process
     const projects = await this.getProjectsToProcess(request);
+    
+    // Set initial estimate (will update with actual count after generation)
     stageProgress.totalItems = projects.length;
+    stageProgress.itemsProcessed = 0;
 
     const checkpoint: ChunkingCheckpoint = {
       projectsProcessed: [],
@@ -503,22 +532,30 @@ export class StageBasedProcessingService extends EventEmitter {
 
     for (const project of projects) {
       try {
+        console.log(`[ChunkingStage] Processing project: ${project.id}`);
+        
         // Generate hierarchical content using SmartContentGenerator
         const result = await this.smartGenerator.generateHierarchicalContent(project);
+        
+        console.log(`[ChunkingStage] Generated ${result.tiers.length} chunks for project ${project.id}`);
         
         checkpoint.chunksCreated.push(...result.tiers);
         checkpoint.projectsProcessed.push(project.id);
         
         stageProgress.itemsProcessed++;
-        stageProgress.progress = (stageProgress.itemsProcessed / stageProgress.totalItems) * 100;
+        
+        // Update total items to show chunk count once we have it
+        stageProgress.totalItems = checkpoint.chunksCreated.length;
+        stageProgress.progress = 100; // Chunking is complete once generation is done
         
         // Store checkpoint
         stageProgress.checkpoint = checkpoint;
         
-        console.log(`[ChunkingStage] Progress: ${stageProgress.itemsProcessed}/${stageProgress.totalItems} (${stageProgress.progress.toFixed(1)}%)`);
+        console.log(`[ChunkingStage] Total chunks created: ${checkpoint.chunksCreated.length}`);
         this.notifyProgress(request.operationId, progress);
 
       } catch (error) {
+        console.error(`[ChunkingStage] Error processing project ${project.id}:`, error);
         stageProgress.errors.push(`Project ${project.id}: ${error.message}`);
         throw error;
       }
@@ -681,6 +718,8 @@ export class StageBasedProcessingService extends EventEmitter {
     const progress = this.activeOperations.get(request.operationId)!;
     const stageProgress = progress.stageProgress.validation;
 
+    console.log(`[ValidationStage] Starting validation for operation ${request.operationId}`);
+
     // Get chunks from previous stages
     const chunkingCheckpoint = progress.stageProgress.chunking.checkpoint as ChunkingCheckpoint;
     if (!chunkingCheckpoint) {
@@ -688,6 +727,8 @@ export class StageBasedProcessingService extends EventEmitter {
     }
 
     const allChunks = chunkingCheckpoint.chunksCreated;
+    console.log(`[ValidationStage] Found ${allChunks.length} chunks to validate and store`);
+    
     stageProgress.totalItems = allChunks.length;
 
     const checkpoint: ValidationCheckpoint = {
@@ -705,6 +746,7 @@ export class StageBasedProcessingService extends EventEmitter {
         this.validateChunk(chunk);
         
         // Store chunk in database
+        console.log(`[ValidationStage] Storing chunk ${chunk.chunkId} (tier ${chunk.tier})`);
         await this.storeValidatedChunk(chunk, request);
         
         checkpoint.validatedChunks.push(chunk.chunkId);
@@ -716,10 +758,13 @@ export class StageBasedProcessingService extends EventEmitter {
         this.notifyProgress(request.operationId, progress);
 
       } catch (error) {
+        console.error(`[ValidationStage] Error storing chunk ${chunk.chunkId}:`, error);
         stageProgress.errors.push(`Chunk ${chunk.chunkId}: ${error.message}`);
         throw error;
       }
     }
+    
+    console.log(`[ValidationStage] Successfully validated and stored ${checkpoint.validatedChunks.length} chunks`);
 
     // Generate health metrics
     checkpoint.healthMetrics = {
@@ -898,7 +943,7 @@ export class StageBasedProcessingService extends EventEmitter {
     // Store chunk using VectorOperations
     await this.vectorOps.upsertContextChunkWithVector({
       entityId: entity.id,
-      projectIndexId: null, // Don't use project_index_id for now to avoid foreign key issues
+      projectIndexId: request.projectId, // Link to project for easier queries
       tier: chunk.tier,
       chunkId: chunk.chunkId,
       title: chunk.title,

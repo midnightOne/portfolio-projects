@@ -860,6 +860,7 @@ ${type === 'concise'
 
   /**
    * Generate T3 heading-bounded chunks (actual content without AI summarization)
+   * Enhanced with comprehensive diagnostics and logging
    */
   private async generateT3HeadingBoundedChunks(
     project: any,
@@ -867,14 +868,156 @@ ${type === 'concise'
   ): Promise<TierContent[]> {
     const t3Chunks: TierContent[] = [];
 
-    // Get all content sections that have actual content (not just headings)
+    console.log(`[T3Generation] Starting T3 generation for project ${project.id}`);
+    console.log(`[T3Generation] Total hierarchical sections: ${enhancedIndex.hierarchicalSections.length}`);
+
+    // Analyze all sections for debugging
+    const sectionAnalysis = this.analyzeSectionTypesForT3(enhancedIndex.hierarchicalSections);
+    console.log(`[T3Generation] Section analysis:`, sectionAnalysis);
+
+    // Get all content sections that have actual content (paragraphs and code blocks, not headings)
     const contentSections = enhancedIndex.hierarchicalSections.filter(s =>
-      s.nodeType === 'content' && s.content.trim().length > 50
+      (s.nodeType === 'paragraph' || s.nodeType === 'codeBlock') && s.content.trim().length > 50
     );
 
-    console.log(`[T3Generation] Processing ${contentSections.length} content sections`);
+    console.log(`[T3Generation] Content sections after filtering (paragraph/codeBlock >50 chars): ${contentSections.length}`);
 
-    for (const section of contentSections) {
+    // If no content sections found, try alternative strategies
+    if (contentSections.length === 0) {
+      console.log(`[T3Generation] No content sections found, trying fallback strategies...`);
+      
+      // Strategy 1: Try with lower content threshold for paragraphs and code blocks
+      const shortContentSections = enhancedIndex.hierarchicalSections.filter(s =>
+        (s.nodeType === 'paragraph' || s.nodeType === 'codeBlock') && s.content.trim().length > 10
+      );
+      console.log(`[T3Generation] Short content sections (paragraph/codeBlock >10 chars): ${shortContentSections.length}`);
+
+      // Strategy 2: Try all sections with content (including headings)
+      const allSectionsWithContent = enhancedIndex.hierarchicalSections.filter(s =>
+        s.content && s.content.trim().length > 20
+      );
+      console.log(`[T3Generation] All sections with content >20 chars: ${allSectionsWithContent.length}`);
+
+      // Use the best available strategy
+      if (shortContentSections.length > 0) {
+        console.log(`[T3Generation] Using short content sections strategy`);
+        for (const section of shortContentSections) {
+          const t3Chunk = await this.createT3ChunkFromSection(section, project, enhancedIndex, 'short-content');
+          if (t3Chunk) {
+            t3Chunks.push(t3Chunk);
+          }
+        }
+      } else if (allSectionsWithContent.length > 0) {
+        console.log(`[T3Generation] Using all sections with content strategy`);
+        for (const section of allSectionsWithContent) {
+          const t3Chunk = await this.createT3ChunkFromSection(section, project, enhancedIndex, 'all-content');
+          if (t3Chunk) {
+            t3Chunks.push(t3Chunk);
+          }
+        }
+      } else {
+        console.log(`[T3Generation] No suitable sections found for T3 generation`);
+      }
+    } else {
+      // Process normal content sections
+      console.log(`[T3Generation] Using normal content sections strategy`);
+      for (const section of contentSections) {
+        const t3Chunk = await this.createT3ChunkFromSection(section, project, enhancedIndex, 'normal-content');
+        if (t3Chunk) {
+          t3Chunks.push(t3Chunk);
+        }
+      }
+    }
+
+    console.log(`[T3Generation] Generated ${t3Chunks.length} T3 chunks with original content`);
+    
+    // Log sample of generated chunks for debugging
+    if (t3Chunks.length > 0) {
+      console.log(`[T3Generation] Sample T3 chunk:`, {
+        chunkId: t3Chunks[0].chunkId,
+        title: t3Chunks[0].title,
+        contentLength: t3Chunks[0].content.length,
+        tokenCount: t3Chunks[0].tokenCount,
+        parentChunkId: t3Chunks[0].parentChunkId
+      });
+    }
+
+    return t3Chunks;
+  }
+
+  /**
+   * Analyze section types for T3 generation debugging
+   */
+  private analyzeSectionTypesForT3(sections: HierarchicalSection[]): {
+    totalSections: number;
+    byNodeType: Record<string, number>;
+    contentSectionsByLength: {
+      empty: number;
+      short: number; // 1-50 chars
+      medium: number; // 51-200 chars
+      long: number; // >200 chars
+    };
+    sampleSections: Array<{
+      nodeType: string;
+      contentLength: number;
+      title?: string;
+      id: string;
+    }>;
+  } {
+    const byNodeType: Record<string, number> = {};
+    const contentSectionsByLength = { empty: 0, short: 0, medium: 0, long: 0 };
+    const sampleSections: Array<{
+      nodeType: string;
+      contentLength: number;
+      title?: string;
+      id: string;
+    }> = [];
+
+    sections.forEach((section, index) => {
+      // Count by node type
+      byNodeType[section.nodeType] = (byNodeType[section.nodeType] || 0) + 1;
+
+      // Analyze content length
+      const contentLength = section.content?.trim().length || 0;
+      if (contentLength === 0) {
+        contentSectionsByLength.empty++;
+      } else if (contentLength <= 50) {
+        contentSectionsByLength.short++;
+      } else if (contentLength <= 200) {
+        contentSectionsByLength.medium++;
+      } else {
+        contentSectionsByLength.long++;
+      }
+
+      // Collect samples (first 5 sections)
+      if (index < 5) {
+        sampleSections.push({
+          nodeType: section.nodeType,
+          contentLength,
+          title: section.title,
+          id: section.id
+        });
+      }
+    });
+
+    return {
+      totalSections: sections.length,
+      byNodeType,
+      contentSectionsByLength,
+      sampleSections
+    };
+  }
+
+  /**
+   * Create T3 chunk from section with enhanced logging
+   */
+  private async createT3ChunkFromSection(
+    section: HierarchicalSection,
+    project: any,
+    enhancedIndex: EnhancedProjectIndex,
+    strategy: string
+  ): Promise<TierContent | null> {
+    try {
       // Find the parent heading for this content section
       const parentHeading = this.findParentHeading(section, enhancedIndex.hierarchicalSections);
 
@@ -883,6 +1026,14 @@ ${type === 'concise'
 
       // Create T3 chunk with actual content (no AI summarization)
       const t3ChunkId = `t3-${project.slug}-${section.id}`;
+
+      console.log(`[T3Generation] Creating T3 chunk with strategy '${strategy}':`, {
+        chunkId: t3ChunkId,
+        sectionId: section.id,
+        contentLength: section.content.length,
+        parentHeading: parentHeading?.title || 'none',
+        title: contentTitle
+      });
 
       const t3Chunk: TierContent = {
         tier: 3,
@@ -894,9 +1045,9 @@ ${type === 'concise'
         rootChunkId: 'metadata',
         sectionGroup: parentHeading?.title || 'Content',
         derivationPath: 'T0 → T1 → T2 → T3',
-        sectionStartLine: section.tiptapPosition.start,
-        sectionEndLine: section.tiptapPosition.end,
-        sectionBounded: true, // T3 chunks are always section-bounded
+        sectionStartLine: 0, // Default to 0
+        sectionEndLine: section.content.split('\n').length - 1,
+        sectionBounded: true, // T3 chunks are section-bounded
         chunkIndexInSection: 0, // Default to 0
         metadata: {
           type: 'content',
@@ -907,15 +1058,17 @@ ${type === 'concise'
           aiGenerated: false, // T3 contains original content
           sectionId: section.id,
           parentHeadingId: parentHeading?.id,
-          headingLevel: parentHeading?.headingLevel || 0
+          headingLevel: parentHeading?.headingLevel || 0,
+          generationStrategy: strategy
         }
       };
 
-      t3Chunks.push(t3Chunk);
-    }
+      return t3Chunk;
 
-    console.log(`[T3Generation] Generated ${t3Chunks.length} T3 chunks with original content`);
-    return t3Chunks;
+    } catch (error) {
+      console.error(`[T3Generation] Failed to create T3 chunk for section ${section.id}:`, error);
+      return null;
+    }
   }
 
   /**

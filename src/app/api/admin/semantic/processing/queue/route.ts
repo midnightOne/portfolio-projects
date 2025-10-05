@@ -7,19 +7,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth-utils';
-import { StageBasedProcessingService } from '@/lib/content/StageBasedProcessingService';
-
-// In-memory job queue for demonstration
-// In production, this would be stored in Redis or database
-const jobQueue = new Map<string, {
-  operationId: string;
-  projectId?: string;
-  type: 'full' | 'chunking' | 'summaries' | 'embeddings' | 'validation';
-  status: 'queued' | 'in_progress' | 'paused' | 'completed' | 'failed';
-  startedAt: Date;
-  estimatedDuration: string;
-  stages: string[];
-}>();
+import { getProcessingService } from '@/lib/content/StageBasedProcessingServiceSingleton';
+import { getJobQueueManager, QueuedJob } from '@/lib/content/JobQueueManager';
 
 export async function GET(request: NextRequest) {
   try {
@@ -35,24 +24,31 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const projectId = searchParams.get('projectId');
 
-    // Get processing service instance to check active operations
-    const processingService = new StageBasedProcessingService();
+    // Get job queue manager and processing service
+    const queueManager = getJobQueueManager();
+    const processingService = getProcessingService();
     
     // Filter jobs by project if specified
-    let jobs = Array.from(jobQueue.values());
-    if (projectId) {
-      jobs = jobs.filter(job => job.projectId === projectId);
-    }
+    let jobs = projectId 
+      ? queueManager.getJobsByProject(projectId)
+      : queueManager.getAllJobs();
 
     // Enrich jobs with current progress from processing service
     const enrichedJobs = jobs.map(job => {
       const progress = processingService.getProgress(job.operationId);
-      return {
+      const updatedJob = {
         ...job,
         progress,
         // Update status from progress if available
         status: progress?.status || job.status
       };
+      
+      // Update job status in queue if we have progress
+      if (progress && progress.status !== job.status) {
+        queueManager.updateJobStatus(job.operationId, progress.status as QueuedJob['status']);
+      }
+      
+      return updatedJob;
     });
 
     return NextResponse.json({
@@ -107,7 +103,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Add job to queue
-    const job = {
+    const job: QueuedJob = {
       operationId,
       projectId,
       type,
@@ -117,7 +113,8 @@ export async function POST(request: NextRequest) {
       stages
     };
 
-    jobQueue.set(operationId, job);
+    const queueManager = getJobQueueManager();
+    queueManager.addJob(job);
 
     return NextResponse.json({
       message: 'Job added to queue',
@@ -163,7 +160,8 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Remove job from queue
-    const removed = jobQueue.delete(operationId);
+    const queueManager = getJobQueueManager();
+    const removed = queueManager.removeJob(operationId);
 
     if (!removed) {
       return NextResponse.json(
@@ -187,5 +185,3 @@ export async function DELETE(request: NextRequest) {
     );
   }
 }
-
-// Note: jobQueue is internal to this module and not exported to comply with Next.js API route constraints

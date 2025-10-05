@@ -45,14 +45,22 @@ export async function GET(
     }
 
     // Get semantic content statistics
-    const chunks = await prisma.contextChunk.findMany({
-      where: { projectIndexId: projectId },
+    // First find the content entity for this project
+    const contentEntity = await prisma.contentEntity.findFirst({
+      where: {
+        entityType: 'PROJECT',
+        slug: project.slug
+      }
+    });
+
+    const chunks = contentEntity ? await prisma.contextChunk.findMany({
+      where: { entityId: contentEntity.id },
       select: {
         tier: true,
         lastModified: true,
         embeddingGeneratedAt: true
       }
-    });
+    }) : [];
 
     // Calculate tier distribution
     const tierDistribution: Record<number, number> = {};
@@ -65,14 +73,6 @@ export async function GET(
         lastProcessed = chunk.lastModified;
       }
     }
-
-    // Check if project has content entity
-    const contentEntity = await prisma.contentEntity.findFirst({
-      where: {
-        entityType: 'PROJECT',
-        slug: project.slug
-      }
-    });
 
     const projectInfo = {
       id: project.id,

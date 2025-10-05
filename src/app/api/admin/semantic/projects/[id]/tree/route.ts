@@ -45,9 +45,52 @@ export async function GET(
 
     const { id: projectId } = await params;
 
-    // Fetch all chunks for this project
+    // Get project to find its slug
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      select: { slug: true }
+    });
+
+    if (!project) {
+      return NextResponse.json(
+        { error: 'Project not found' },
+        { status: 404 }
+      );
+    }
+
+    // Find content entity for this project
+    const contentEntity = await prisma.contentEntity.findFirst({
+      where: {
+        entityType: 'PROJECT',
+        slug: project.slug
+      }
+    });
+
+    if (!contentEntity) {
+      return NextResponse.json({
+        chunkId: 'empty',
+        tier: -1,
+        title: 'No semantic content',
+        contentPreview: 'This project has no semantic chunks yet.',
+        tokenCount: 0,
+        importance: 0,
+        hasEmbedding: false,
+        embeddingModel: null,
+        embeddingGeneratedAt: null,
+        manuallyEdited: false,
+        generationMode: 'system',
+        modifiedBy: 'system',
+        lastModified: new Date(),
+        sectionGroup: null,
+        parentChunkId: null,
+        metadata: {},
+        children: []
+      });
+    }
+
+    // Fetch all chunks for this project using entityId
     const chunks = await prisma.contextChunk.findMany({
-      where: { projectIndexId: projectId },
+      where: { entityId: contentEntity.id },
       orderBy: [
         { tier: 'asc' },
         { sectionStartLine: 'asc' },

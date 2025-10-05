@@ -7,9 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { StageBasedProcessingService } from '@/lib/content/StageBasedProcessingService';
-
-const processingService = new StageBasedProcessingService();
+import { getProcessingService } from '@/lib/content/StageBasedProcessingServiceSingleton';
 
 export async function GET(
   request: NextRequest,
@@ -20,6 +18,7 @@ export async function GET(
   const useSSE = searchParams.get('sse') === 'true';
 
   try {
+    const processingService = getProcessingService();
     const progress = processingService.getProgress(operationId);
 
     if (!progress) {
@@ -94,6 +93,7 @@ export async function POST(
   const { operationId } = await params;
 
   try {
+    const processingService = getProcessingService();
     const body = await request.json();
     const { action, resumeFromStage } = body;
 

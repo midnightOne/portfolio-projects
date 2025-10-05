@@ -6,7 +6,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { StageBasedProcessingService, ProcessingRequest, StageConfig } from '@/lib/content/StageBasedProcessingService';
+import { ProcessingRequest, StageConfig } from '@/lib/content/StageBasedProcessingService';
+import { getProcessingService } from '@/lib/content/StageBasedProcessingServiceSingleton';
+import { getJobQueueManager, QueuedJob } from '@/lib/content/JobQueueManager';
 
 export async function POST(request: NextRequest) {
   try {
@@ -78,8 +80,27 @@ export async function POST(request: NextRequest) {
       preserveManualEdits
     };
 
+    // Determine job type based on enabled stages
+    const enabledStages = stages.filter((s: any) => s.enabled);
+    const jobType: QueuedJob['type'] = 
+      enabledStages.length === 1 && enabledStages[0].stage !== 'validation'
+        ? enabledStages[0].stage 
+        : 'full';
+
+    // Add job to queue for tracking
+    const queueManager = getJobQueueManager();
+    queueManager.addJob({
+      operationId,
+      projectId,
+      type: jobType,
+      status: 'queued',
+      startedAt: new Date(),
+      estimatedDuration: enabledStages.length === 1 ? '~30 seconds' : '~2 minutes',
+      stages: enabledStages.map((s: any) => s.stage)
+    });
+
     // Start processing
-    const processingService = new StageBasedProcessingService();
+    const processingService = getProcessingService();
     await processingService.startProcessing(processingRequest);
 
     return NextResponse.json({
