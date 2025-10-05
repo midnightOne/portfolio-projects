@@ -33,7 +33,12 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "test:single": "jest --maxWorkers=1 --verbose=false --silent=false"
+    "test:single": "jest --maxWorkers=1 --verbose=false --silent=false",
+    "diagnostics": "tsx scripts/run-semantic-diagnostics.ts",
+    "diagnostics:t3": "tsx scripts/run-semantic-diagnostics.ts -- --t3-only",
+    "diagnostics:sse": "tsx scripts/run-semantic-diagnostics.ts -- --sse-only",
+    "diagnostics:comprehensive": "tsx scripts/run-semantic-diagnostics.ts -- --comprehensive",
+    "diagnostics:quick": "tsx scripts/run-semantic-diagnostics.ts -- --quick"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.57.0",
