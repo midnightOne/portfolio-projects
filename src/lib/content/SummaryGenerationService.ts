@@ -341,7 +341,7 @@ Create a comprehensive summary (150-300 words) that preserves all technical deta
 
     patterns.forEach(pattern => {
       const matches = content.match(pattern) || [];
-      matches.forEach(match => {
+      matches.forEach((match: string) => {
         if (match.length > 2 && match.length < 20) {
           terms.add(match);
         }

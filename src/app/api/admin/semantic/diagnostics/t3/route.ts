@@ -159,16 +159,23 @@ async function getT3ChunkStatistics(projectId?: string): Promise<{
     });
 
     // Get T3 chunks by project
-    const t3ChunksByProject = await prisma.contextChunk.groupBy({
+    const t3ChunksByProjectRaw = await prisma.contextChunk.groupBy({
       by: ['entityId'],
       where: { tier: 3 },
-      _count: { id: true },
-      include: {
-        entity: {
-          select: { slug: true }
-        }
-      }
+      _count: { id: true }
     });
+
+    // Get entity slugs separately
+    const entityIds = t3ChunksByProjectRaw.map(item => item.entityId);
+    const entities = await prisma.contentEntity.findMany({
+      where: { id: { in: entityIds } },
+      select: { id: true, slug: true }
+    });
+
+    const t3ChunksByProject = t3ChunksByProjectRaw.map(item => ({
+      ...item,
+      entity: entities.find(e => e.id === item.entityId)
+    }));
 
     // Get recent T3 chunks (last 24 hours)
     const recentT3Chunks = await prisma.contextChunk.count({
@@ -200,7 +207,7 @@ async function getT3ChunkStatistics(projectId?: string): Promise<{
     return {
       totalT3Chunks,
       t3ChunksByProject: t3ChunksByProject.map(item => ({
-        projectSlug: (item as any).entity?.slug || 'unknown',
+        projectSlug: item.entity?.slug || 'unknown',
         count: item._count.id
       })),
       averageT3ChunksPerProject,

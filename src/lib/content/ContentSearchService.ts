@@ -77,6 +77,7 @@ export interface ContentSearchResult {
     originalResults?: number;
     rankedResults?: number;
     uiContext?: any;
+    importanceRankingEnabled?: boolean;
   };
 }
 

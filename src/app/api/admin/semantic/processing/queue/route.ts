@@ -188,5 +188,4 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
-// Export the job queue for internal use
-export { jobQueue };
+// Note: jobQueue is internal to this module and not exported to comply with Next.js API route constraints

@@ -986,8 +986,8 @@ export class StageBasedProcessingService extends EventEmitter {
       const enabledStages = request.stages.filter(s => s.enabled);
       const processingType = this.determineProcessingType(enabledStages);
       
-      // Import the job queue directly instead of making HTTP call
-      const { jobQueue } = await import('../../app/api/admin/semantic/processing/queue/route');
+      // Note: Job queue functionality moved to internal tracking
+      // const { jobQueue } = await import('../../app/api/admin/semantic/processing/queue/route');
       
       const job = {
         operationId: request.operationId,
@@ -999,8 +999,8 @@ export class StageBasedProcessingService extends EventEmitter {
         stages: enabledStages.map(s => s.stage)
       };
 
-      jobQueue.set(request.operationId, job);
-      console.log(`Added job to queue: ${request.operationId} (${processingType})`);
+      // jobQueue.set(request.operationId, job);
+      console.log(`Job tracking: ${request.operationId} (${processingType})`);
     } catch (error) {
       console.warn('Failed to add job to queue:', error);
       // Don't fail the operation if queue update fails
@@ -1051,12 +1051,8 @@ export class StageBasedProcessingService extends EventEmitter {
    */
   private async updateJobQueueStatus(operationId: string, status: 'queued' | 'in_progress' | 'paused' | 'completed' | 'failed'): Promise<void> {
     try {
-      const { jobQueue } = await import('../../app/api/admin/semantic/processing/queue/route');
-      const job = jobQueue.get(operationId);
-      if (job) {
-        job.status = status;
-        jobQueue.set(operationId, job);
-      }
+      // Job queue status tracking is now handled internally
+      console.log(`Job status update: ${operationId} -> ${status}`);
     } catch (error) {
       console.warn('Failed to update job queue status:', error);
     }

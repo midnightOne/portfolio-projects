@@ -12,10 +12,10 @@ const prisma = new PrismaClient();
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { projectId: string } }
+  { params }: { params: Promise<{ projectId: string }> }
 ) {
   try {
-    const { projectId } = params;
+    const { projectId } = await params;
     const { searchParams } = new URL(request.url);
     
     // Parse query parameters
@@ -61,12 +61,12 @@ export async function GET(
         parentChunkId: true,
         rootChunkId: true,
         sectionGroup: true,
-        derivationPath: true,
+        derivation_path: true,
         metadata: true,
         createdAt: true,
         updatedAt: true,
         // Conditionally include embedding vector
-        ...(includeEmbeddings && { embeddingVector: true })
+        ...(includeEmbeddings && { embedding_vector: true })
       },
       orderBy: [
         { tier: 'asc' },
@@ -92,7 +92,7 @@ export async function GET(
       parentChunkId: chunk.parentChunkId,
       rootChunkId: chunk.rootChunkId,
       sectionGroup: chunk.sectionGroup,
-      derivationPath: chunk.derivationPath,
+      derivationPath: chunk.derivation_path,
       
       // Metadata
       metadata: chunk.metadata,
@@ -102,9 +102,9 @@ export async function GET(
       updatedAt: chunk.updatedAt,
       
       // Optional embedding vector
-      ...(includeEmbeddings && chunk.embeddingVector && {
-        embedding: Array.from(chunk.embeddingVector as number[])
-      })
+      ...(includeEmbeddings && chunk.embedding_vector ? {
+        embedding: Array.from(chunk.embedding_vector as number[])
+      } : {})
     }));
 
     // Calculate tier distribution for metadata
@@ -149,10 +149,10 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { projectId: string } }
+  { params }: { params: Promise<{ projectId: string }> }
 ) {
   try {
-    const { projectId } = params;
+    const { projectId } = await params;
     const body = await request.json();
     
     // This endpoint could be used for updating chunk importance scores
