@@ -57,14 +57,14 @@ export class SmartContentGenerator {
   private summaryService = getSummaryGenerationService();
   private embeddingModel = 'text-embedding-3-small';
   private embeddingDimensions = 1536;
-  
+
   // Cost tracking (approximate costs in USD)
   private readonly EMBEDDING_COST_PER_1K_TOKENS = 0.00002;
   private readonly GPT4_MINI_COST_PER_1K_TOKENS = 0.00015;
 
   constructor() {
     this.projectIndexer = ProjectIndexer.getInstance();
-    
+
     const apiKey = process.env.OPENAI_API_KEY;
     if (apiKey) {
       this.openai = new OpenAI({ apiKey });
@@ -79,10 +79,10 @@ export class SmartContentGenerator {
    */
   async generateHierarchicalContent(project: any): Promise<SmartGenerationResult> {
     const startTime = Date.now();
-    
+
     // Get enhanced project index with change detection
     const enhancedIndex = await this.projectIndexer.indexProjectHierarchical(project.id);
-    
+
     const tiers: TierContent[] = [];
     let tokensSkipped = 0;
     let sectionsSkipped = 0;
@@ -107,10 +107,10 @@ export class SmartContentGenerator {
     }
 
     // T2: Process all headings (H1/H2/H3) with proper parent-child nesting
-    const headingSections = enhancedIndex.hierarchicalSections.filter(s => 
+    const headingSections = enhancedIndex.hierarchicalSections.filter(s =>
       s.nodeType === 'heading' && s.headingLevel >= 1 && s.headingLevel <= 3
     );
-    
+
     for (const section of headingSections) {
       if (this.needsRegeneration(section, enhancedIndex.contentChangeMap)) {
         tiers.push(await this.generateT2FromHeading(section, project, enhancedIndex));
@@ -216,7 +216,7 @@ export class SmartContentGenerator {
 
         content = result.summary;
         source = 'ai-generated';
-        
+
         // Adjust importance based on confidence score
         importance = 0.8 + (result.confidenceScore * 0.2); // 0.8-1.0 range
 
@@ -266,8 +266,8 @@ export class SmartContentGenerator {
    * Generate T2 content from heading (H1/H2/H3 with proper parent-child nesting)
    */
   private async generateT2FromHeading(
-    section: HierarchicalSection, 
-    project: any, 
+    section: HierarchicalSection,
+    project: any,
     enhancedIndex: EnhancedProjectIndex
   ): Promise<TierContent> {
     let content: string;
@@ -294,7 +294,7 @@ export class SmartContentGenerator {
 
         content = result.summary;
         source = 'ai-generated';
-        
+
         // Adjust importance based on heading level and confidence
         const levelBonus = section.headingLevel === 1 ? 0.2 : section.headingLevel === 2 ? 0.1 : 0;
         importance = 0.6 + levelBonus + (result.confidenceScore * 0.2);
@@ -316,7 +316,7 @@ export class SmartContentGenerator {
       // Use existing summary or content for short sections
       content = section.summary || sectionWithSubsections;
       source = 'extracted';
-      
+
       // Adjust importance for extracted content based on heading level
       importance = section.headingLevel === 1 ? 0.8 : section.headingLevel === 2 ? 0.7 : 0.6;
     }
@@ -351,38 +351,10 @@ export class SmartContentGenerator {
   }
 
   /**
-   * Generate T3 heading-bounded chunks (never cross heading boundaries)
-   */
-  private async generateT3HeadingBoundedChunks(
-    project: any, 
-    enhancedIndex: EnhancedProjectIndex
-  ): Promise<TierContent[]> {
-    const t3Chunks: TierContent[] = [];
-
-    if (!project.articleContent?.content) {
-      return t3Chunks;
-    }
-
-    // Parse article content into sections bounded by headings
-    const headingBoundedSections = this.parseHeadingBoundedSections(
-      project.articleContent.content, 
-      enhancedIndex.hierarchicalSections
-    );
-
-    for (const section of headingBoundedSections) {
-      // Apply heading-bounded chunking algorithm with three strategies
-      const sectionChunks = this.applyHeadingBoundedChunking(section, enhancedIndex);
-      t3Chunks.push(...sectionChunks);
-    }
-
-    return t3Chunks;
-  }
-
-  /**
    * Parse content into sections bounded by headings
    */
   private parseHeadingBoundedSections(
-    content: string, 
+    content: string,
     hierarchicalSections: HierarchicalSection[]
   ): Array<{
     sectionId: string;
@@ -408,10 +380,10 @@ export class SmartContentGenerator {
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      
+
       // Check if this line is a heading
       const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
-      
+
       if (headingMatch) {
         // Save previous section if exists
         if (currentSection) {
@@ -426,7 +398,7 @@ export class SmartContentGenerator {
         const sectionId = this.generateAnchorId(headingText);
 
         // Find corresponding hierarchical section for parent T2 chunk
-        const hierarchicalSection = hierarchicalSections.find(s => 
+        const hierarchicalSection = hierarchicalSections.find(s =>
           s.anchorId === sectionId || s.title === headingText
         );
 
@@ -468,7 +440,7 @@ export class SmartContentGenerator {
   ): TierContent[] {
     const chunks: TierContent[] = [];
     const sectionTokenCount = this.estimateTokenCount(section.content);
-    
+
     // Strategy 1: Single chunk (small sections)
     if (sectionTokenCount <= 400) {
       chunks.push(this.createT3Chunk(
@@ -522,15 +494,15 @@ export class SmartContentGenerator {
     sectionStartLine: number,
     sectionEndLine: number
   ): TierContent {
-    const chunkId = totalChunks === 1 
-      ? `section-${section.sectionId}` 
+    const chunkId = totalChunks === 1
+      ? `section-${section.sectionId}`
       : `section-${section.sectionId}-${chunkIndex}`;
 
     return {
       tier: 3,
       chunkId,
-      title: totalChunks === 1 
-        ? `${section.headingText} Content` 
+      title: totalChunks === 1
+        ? `${section.headingText} Content`
         : `${section.headingText} Part ${chunkIndex + 1}`,
       content,
       tokenCount: this.estimateTokenCount(content),
@@ -560,13 +532,13 @@ export class SmartContentGenerator {
    * Extract section content including all subsections for T2 summaries
    */
   private extractSectionContentWithSubsections(
-    section: HierarchicalSection, 
+    section: HierarchicalSection,
     enhancedIndex: EnhancedProjectIndex
   ): string {
     let content = section.content;
 
     // Find all child sections and include their content
-    const childSections = enhancedIndex.hierarchicalSections.filter(s => 
+    const childSections = enhancedIndex.hierarchicalSections.filter(s =>
       s.parentSectionId === section.id
     );
 
@@ -583,7 +555,7 @@ export class SmartContentGenerator {
    * Find parent T2 chunk ID based on heading hierarchy
    */
   private findParentT2ChunkId(
-    section: HierarchicalSection, 
+    section: HierarchicalSection,
     enhancedIndex: EnhancedProjectIndex
   ): string {
     if (section.headingLevel === 1) {
@@ -591,7 +563,7 @@ export class SmartContentGenerator {
     }
 
     // Find parent heading
-    const parentSection = enhancedIndex.hierarchicalSections.find(s => 
+    const parentSection = enhancedIndex.hierarchicalSections.find(s =>
       s.id === section.parentSectionId && s.nodeType === 'heading'
     );
 
@@ -602,15 +574,15 @@ export class SmartContentGenerator {
    * Build derivation path for hierarchical structure
    */
   private buildDerivationPath(
-    section: HierarchicalSection, 
+    section: HierarchicalSection,
     enhancedIndex: EnhancedProjectIndex
   ): string {
     const path = ['T0', 'T1'];
-    
+
     // Build path through parent headings
     const buildPath = (currentSection: HierarchicalSection): void => {
       if (currentSection.parentSectionId) {
-        const parent = enhancedIndex.hierarchicalSections.find(s => 
+        const parent = enhancedIndex.hierarchicalSections.find(s =>
           s.id === currentSection.parentSectionId && s.nodeType === 'heading'
         );
         if (parent) {
@@ -643,11 +615,11 @@ export class SmartContentGenerator {
 
     for (const paragraph of paragraphs) {
       const paragraphTokens = this.estimateTokenCount(paragraph);
-      
+
       // If adding this paragraph would exceed max size, save current chunk
       if (currentTokens + paragraphTokens > maxChunkSize && currentChunk) {
         chunks.push(currentChunk.trim());
-        
+
         // Start new chunk with overlap from previous chunk
         const overlapContent = this.getLastNTokens(currentChunk, overlapSize);
         currentChunk = overlapContent + '\n\n' + paragraph;
@@ -689,7 +661,7 @@ export class SmartContentGenerator {
   private calculateChunkStartLine(sectionContent: string, chunkContent: string, chunkIndex: number): number {
     const sectionLines = sectionContent.split('\n');
     const chunkLines = chunkContent.split('\n');
-    
+
     // Find where this chunk starts in the section
     for (let i = 0; i <= sectionLines.length - chunkLines.length; i++) {
       const sectionSlice = sectionLines.slice(i, i + chunkLines.length).join('\n');
@@ -697,7 +669,7 @@ export class SmartContentGenerator {
         return i;
       }
     }
-    
+
     return chunkIndex * 10; // Fallback estimate
   }
 
@@ -718,12 +690,12 @@ export class SmartContentGenerator {
    */
   private validateHeadingBoundaries(chunks: TierContent[]): void {
     const t3Chunks = chunks.filter(c => c.tier === 3);
-    
+
     for (const chunk of t3Chunks) {
       if (!chunk.sectionBounded) {
         console.warn(`Warning: T3 chunk ${chunk.chunkId} is not section-bounded`);
       }
-      
+
       // Validate that chunk content doesn't contain heading markers
       const headingPattern = /^#{1,6}\s+/gm;
       if (headingPattern.test(chunk.content)) {
@@ -741,23 +713,23 @@ export class SmartContentGenerator {
   }
 
   private hasSignificantContentChange(changeMap: ContentChangeMap): boolean {
-    return changeMap.articleHashChanged || 
-           changeMap.added.length > 0 || 
-           changeMap.modified.length > 2; // Threshold for significant change
+    return changeMap.articleHashChanged ||
+      changeMap.added.length > 0 ||
+      changeMap.modified.length > 2; // Threshold for significant change
   }
 
   private findParentH1Section(
-    section: HierarchicalSection, 
+    section: HierarchicalSection,
     allSections: HierarchicalSection[]
   ): HierarchicalSection | null {
     if (!section.parentSectionId) return null;
-    
+
     let current = allSections.find(s => s.id === section.parentSectionId);
     while (current) {
       if (current.nodeType === 'heading' && current.headingLevel === 1) {
         return current;
       }
-      current = current.parentSectionId ? 
+      current = current.parentSectionId ?
         allSections.find(s => s.id === current!.parentSectionId) : null;
     }
     return null;
@@ -805,9 +777,9 @@ export class SmartContentGenerator {
 Title: ${project.title}
 Description: ${project.description}
 Key Sections: ${enhancedIndex.hierarchicalSections
-  .filter(s => s.nodeType === 'heading' && s.headingLevel === 1)
-  .map(s => s.title)
-  .join(', ')}
+          .filter(s => s.nodeType === 'heading' && s.headingLevel === 1)
+          .map(s => s.title)
+          .join(', ')}
 
 Focus on the main purpose, key technologies, and primary outcomes.`;
 
@@ -837,9 +809,9 @@ Focus on the main purpose, key technologies, and primary outcomes.`;
 Title: ${section.title}
 Content: ${section.content.substring(0, 1000)}
 
-${type === 'concise' 
-  ? 'Focus on the main point and key takeaways.' 
-  : 'Include technical details, implementation notes, and specific outcomes.'}`;
+${type === 'concise'
+          ? 'Focus on the main point and key takeaways.'
+          : 'Include technical details, implementation notes, and specific outcomes.'}`;
 
       const response = await this.openai.chat.completions.create({
         model: 'gpt-4o-mini',
@@ -858,17 +830,17 @@ ${type === 'concise'
   private chunkContent(content: string, chunkSize: number, overlap: number): string[] {
     const words = content.split(/\s+/);
     const chunks: string[] = [];
-    
+
     const wordsPerChunk = Math.floor(chunkSize * 0.75);
     const overlapWords = Math.floor(overlap * 0.75);
-    
+
     for (let i = 0; i < words.length; i += wordsPerChunk - overlapWords) {
       const chunk = words.slice(i, i + wordsPerChunk).join(' ');
       if (chunk.trim()) {
         chunks.push(chunk);
       }
     }
-    
+
     return chunks;
   }
 
@@ -884,5 +856,121 @@ ${type === 'concise'
       hash = hash & hash;
     }
     return hash.toString(36);
+  }
+
+  /**
+   * Generate T3 heading-bounded chunks (actual content without AI summarization)
+   */
+  private async generateT3HeadingBoundedChunks(
+    project: any,
+    enhancedIndex: EnhancedProjectIndex
+  ): Promise<TierContent[]> {
+    const t3Chunks: TierContent[] = [];
+
+    // Get all content sections that have actual content (not just headings)
+    const contentSections = enhancedIndex.hierarchicalSections.filter(s =>
+      s.nodeType === 'content' && s.content.trim().length > 50
+    );
+
+    console.log(`[T3Generation] Processing ${contentSections.length} content sections`);
+
+    for (const section of contentSections) {
+      // Find the parent heading for this content section
+      const parentHeading = this.findParentHeading(section, enhancedIndex.hierarchicalSections);
+
+      // Generate content-derived title for T3 chunks
+      const contentTitle = this.generateContentTitle(section.content);
+
+      // Create T3 chunk with actual content (no AI summarization)
+      const t3ChunkId = `t3-${project.slug}-${section.id}`;
+
+      const t3Chunk: TierContent = {
+        tier: 3,
+        chunkId: t3ChunkId,
+        title: contentTitle, // Use content-derived title
+        content: section.content, // Use actual content without summarization
+        tokenCount: this.estimateTokenCount(section.content),
+        parentChunkId: parentHeading?.anchorId || 'project-summary',
+        rootChunkId: 'metadata',
+        sectionGroup: parentHeading?.title || 'Content',
+        derivationPath: 'T0 → T1 → T2 → T3',
+        sectionStartLine: section.tiptapPosition.start,
+        sectionEndLine: section.tiptapPosition.end,
+        sectionBounded: true, // T3 chunks are always section-bounded
+        chunkIndexInSection: 0, // Default to 0
+        metadata: {
+          type: 'content',
+          importance: 0.7,
+          source: 'original-content',
+          generationMode: 'system',
+          editable: true,
+          aiGenerated: false, // T3 contains original content
+          sectionId: section.id,
+          parentHeadingId: parentHeading?.id,
+          headingLevel: parentHeading?.headingLevel || 0
+        }
+      };
+
+      t3Chunks.push(t3Chunk);
+    }
+
+    console.log(`[T3Generation] Generated ${t3Chunks.length} T3 chunks with original content`);
+    return t3Chunks;
+  }
+
+  /**
+   * Generate content-derived title for T3 chunks
+   */
+  private generateContentTitle(content: string): string {
+    // Clean the content
+    const cleanContent = content.trim();
+
+    // Strategy 1: Use first sentence if it's a good length (10-80 chars)
+    const sentences = cleanContent.split(/[.!?]+/);
+    const firstSentence = sentences[0]?.trim();
+
+    if (firstSentence && firstSentence.length >= 10 && firstSentence.length <= 80) {
+      return firstSentence;
+    }
+
+    // Strategy 2: Use first paragraph if it's reasonable (10-100 chars)
+    const paragraphs = cleanContent.split(/\n\s*\n/);
+    const firstParagraph = paragraphs[0]?.trim();
+
+    if (firstParagraph && firstParagraph.length >= 10 && firstParagraph.length <= 100) {
+      return firstParagraph;
+    }
+
+    // Strategy 3: Use first 60 characters with word boundary
+    if (cleanContent.length > 60) {
+      const truncated = cleanContent.substring(0, 60);
+      const lastSpace = truncated.lastIndexOf(' ');
+      return lastSpace > 20 ? truncated.substring(0, lastSpace) + '...' : truncated + '...';
+    }
+
+    // Strategy 4: Use the content as-is if it's short
+    return cleanContent.length > 0 ? cleanContent : 'Content Section';
+  }
+
+  /**
+   * Find the parent heading for a content section
+   */
+  private findParentHeading(
+    section: HierarchicalSection,
+    allSections: HierarchicalSection[]
+  ): HierarchicalSection | null {
+    // Look for the closest preceding heading
+    const sectionIndex = allSections.findIndex(s => s.id === section.id);
+    if (sectionIndex === -1) return null;
+
+    // Search backwards for the nearest heading
+    for (let i = sectionIndex - 1; i >= 0; i--) {
+      const candidate = allSections[i];
+      if (candidate.nodeType === 'heading') {
+        return candidate;
+      }
+    }
+
+    return null;
   }
 }

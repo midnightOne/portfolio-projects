@@ -171,6 +171,9 @@ export class StageBasedProcessingService extends EventEmitter {
     const progress = this.initializeProgress(request);
     this.activeOperations.set(operationId, progress);
 
+    // Add to job queue
+    await this.addToJobQueue(request);
+
     // Start processing asynchronously
     this.executeProcessing(request).catch(error => {
       console.error(`Processing operation ${operationId} failed:`, error);
@@ -359,6 +362,7 @@ export class StageBasedProcessingService extends EventEmitter {
     }
 
     progress.status = 'in_progress';
+    this.updateJobQueueStatus(request.operationId, 'in_progress');
     this.notifyProgress(request.operationId, progress);
 
     try {
@@ -408,6 +412,7 @@ export class StageBasedProcessingService extends EventEmitter {
           // Set next stage for resume capability
           progress.nextStage = stages[i + 1] as ProcessingStage;
           progress.canResume = true;
+          this.updateJobQueueStatus(request.operationId, 'failed');
           throw error;
         }
 
@@ -423,11 +428,29 @@ export class StageBasedProcessingService extends EventEmitter {
       progress.overallProgress = 100;
       progress.canResume = false;
       
+      this.updateJobQueueStatus(request.operationId, 'completed');
       this.notifyProgress(request.operationId, progress);
+
+      // Keep operation in memory for 2 minutes for SSE connections
+      setTimeout(() => {
+        this.activeOperations.delete(request.operationId);
+        this.progressCallbacks.delete(request.operationId);
+        console.log(`Cleaned up completed operation: ${request.operationId}`);
+      }, 120000); // 2 minutes
 
     } catch (error) {
       progress.status = 'failed';
       progress.completedAt = new Date();
+      this.updateJobQueueStatus(request.operationId, 'failed');
+      this.notifyProgress(request.operationId, progress);
+
+      // Keep failed operation in memory for 2 minutes for SSE connections
+      setTimeout(() => {
+        this.activeOperations.delete(request.operationId);
+        this.progressCallbacks.delete(request.operationId);
+        console.log(`Cleaned up failed operation: ${request.operationId}`);
+      }, 120000); // 2 minutes
+      
       throw error;
     }
   }
@@ -492,6 +515,7 @@ export class StageBasedProcessingService extends EventEmitter {
         // Store checkpoint
         stageProgress.checkpoint = checkpoint;
         
+        console.log(`[ChunkingStage] Progress: ${stageProgress.itemsProcessed}/${stageProgress.totalItems} (${stageProgress.progress.toFixed(1)}%)`);
         this.notifyProgress(request.operationId, progress);
 
       } catch (error) {
@@ -671,8 +695,11 @@ export class StageBasedProcessingService extends EventEmitter {
       healthMetrics: {}
     };
 
+    // Sort chunks by tier to ensure parents are created before children
+    const sortedChunks = [...allChunks].sort((a, b) => a.tier - b.tier);
+    
     // Validate hierarchical relationships
-    for (const chunk of allChunks) {
+    for (const chunk of sortedChunks) {
       try {
         // Validate chunk structure
         this.validateChunk(chunk);
@@ -806,8 +833,8 @@ export class StageBasedProcessingService extends EventEmitter {
       throw new Error(`Invalid chunk structure: missing required fields`);
     }
 
-    // Validate tier relationships
-    if (chunk.tier > 0 && !chunk.parentChunkId) {
+    // Validate tier relationships (T1 can have no parent, T2+ must have parents)
+    if (chunk.tier > 1 && !chunk.parentChunkId) {
       throw new Error(`Chunk ${chunk.chunkId} missing parent relationship`);
     }
 
@@ -849,10 +876,29 @@ export class StageBasedProcessingService extends EventEmitter {
       update: {}
     });
 
+    // For T1 chunks, parent should be null (they are root chunks)
+    let resolvedParentChunkId = null;
+    if (chunk.parentChunkId && chunk.tier > 1) {
+      // Only resolve parent for T2+ chunks
+      const parentChunk = await prisma.contextChunk.findFirst({
+        where: {
+          entityId: entity.id,
+          chunkId: chunk.parentChunkId
+        },
+        select: { id: true }
+      });
+      
+      if (parentChunk) {
+        resolvedParentChunkId = parentChunk.id;
+      } else {
+        console.warn(`Parent chunk not found for ${chunk.chunkId}, proceeding without parent`);
+      }
+    }
+
     // Store chunk using VectorOperations
     await this.vectorOps.upsertContextChunkWithVector({
       entityId: entity.id,
-      projectIndexId: request.projectId!,
+      projectIndexId: null, // Don't use project_index_id for now to avoid foreign key issues
       tier: chunk.tier,
       chunkId: chunk.chunkId,
       title: chunk.title,
@@ -860,7 +906,7 @@ export class StageBasedProcessingService extends EventEmitter {
       tokenCount: chunk.tokenCount,
       embedding: chunk.embedding,
       metadata: chunk.metadata,
-      parentChunkId: chunk.parentChunkId,
+      parentChunkId: resolvedParentChunkId,
       rootChunkId: chunk.rootChunkId,
       sectionGroup: chunk.sectionGroup,
       derivationPath: chunk.derivationPath
@@ -933,6 +979,90 @@ export class StageBasedProcessingService extends EventEmitter {
   }
 
   /**
+   * Add job to queue
+   */
+  private async addToJobQueue(request: ProcessingRequest): Promise<void> {
+    try {
+      const enabledStages = request.stages.filter(s => s.enabled);
+      const processingType = this.determineProcessingType(enabledStages);
+      
+      // Import the job queue directly instead of making HTTP call
+      const { jobQueue } = await import('../../app/api/admin/semantic/processing/queue/route');
+      
+      const job = {
+        operationId: request.operationId,
+        projectId: request.projectId,
+        type: processingType as 'full' | 'chunking' | 'summaries' | 'embeddings' | 'validation',
+        status: 'queued' as const,
+        startedAt: new Date(),
+        estimatedDuration: this.getEstimatedDuration(enabledStages),
+        stages: enabledStages.map(s => s.stage)
+      };
+
+      jobQueue.set(request.operationId, job);
+      console.log(`Added job to queue: ${request.operationId} (${processingType})`);
+    } catch (error) {
+      console.warn('Failed to add job to queue:', error);
+      // Don't fail the operation if queue update fails
+    }
+  }
+
+  /**
+   * Determine processing type from enabled stages
+   */
+  private determineProcessingType(stages: StageConfig[]): string {
+    const enabledStageNames = stages.map(s => s.stage);
+    
+    if (enabledStageNames.length === 4) {
+      return 'full';
+    } else if (enabledStageNames.includes('chunking') && enabledStageNames.length <= 2) {
+      return 'chunking';
+    } else if (enabledStageNames.includes('summaries') && enabledStageNames.length <= 2) {
+      return 'summaries';
+    } else if (enabledStageNames.includes('embeddings') && enabledStageNames.length <= 2) {
+      return 'embeddings';
+    } else if (enabledStageNames.includes('validation') && enabledStageNames.length === 1) {
+      return 'validation';
+    } else {
+      return 'custom';
+    }
+  }
+
+  /**
+   * Get estimated duration for stages
+   */
+  private getEstimatedDuration(stages: StageConfig[]): string {
+    const hasBatch = stages.some(s => s.mode === 'batch');
+    const stageCount = stages.length;
+    
+    if (hasBatch) {
+      return '~24 hours (batch processing)';
+    } else if (stageCount >= 4) {
+      return '~2-3 minutes';
+    } else if (stageCount >= 2) {
+      return '~1 minute';
+    } else {
+      return '~30 seconds';
+    }
+  }
+
+  /**
+   * Update job queue status
+   */
+  private async updateJobQueueStatus(operationId: string, status: 'queued' | 'in_progress' | 'paused' | 'completed' | 'failed'): Promise<void> {
+    try {
+      const { jobQueue } = await import('../../app/api/admin/semantic/processing/queue/route');
+      const job = jobQueue.get(operationId);
+      if (job) {
+        job.status = status;
+        jobQueue.set(operationId, job);
+      }
+    } catch (error) {
+      console.warn('Failed to update job queue status:', error);
+    }
+  }
+
+  /**
    * Notify progress update
    */
   private notifyProgress(operationId: string, progress: ProcessingProgress): void {
@@ -944,6 +1074,8 @@ export class StageBasedProcessingService extends EventEmitter {
     // Emit event for other listeners
     this.emit('progress', { operationId, progress });
   }
+
+
 }
 
 export default StageBasedProcessingService;
