@@ -87,35 +87,21 @@ export function ProjectSemanticManager({ projectId }: ProjectSemanticManagerProp
   // Auto-remove completed jobs after 30 seconds
   useEffect(() => {
     const completedJobs = jobQueue.filter(job => 
-      (job.status === 'completed' || job.status === 'failed') && 
-      job.progress?.completedAt
+      job.status === 'completed' || job.status === 'failed'
     );
     
-    if (completedJobs.length === 0) return;
-    
-    const timeouts: NodeJS.Timeout[] = [];
-    
     completedJobs.forEach(job => {
-      const completedTime = new Date(job.progress.completedAt).getTime();
-      const now = Date.now();
-      const timeSinceCompletion = now - completedTime;
-      
-      // Auto-remove after 30 seconds
-      if (timeSinceCompletion > 30000) {
-        // Remove immediately if already past 30 seconds
-        removeJob(job.operationId);
-      } else {
-        // Schedule removal for remaining time
-        const timeUntilRemoval = 30000 - timeSinceCompletion;
-        const timeout = setTimeout(() => removeJob(job.operationId), timeUntilRemoval);
-        timeouts.push(timeout);
+      if (job.progress?.completedAt) {
+        const completedTime = new Date(job.progress.completedAt).getTime();
+        const now = Date.now();
+        const timeSinceCompletion = now - completedTime;
+        
+        // Auto-remove after 30 seconds
+        if (timeSinceCompletion > 30000) {
+          setTimeout(() => removeJob(job.operationId), 1000);
+        }
       }
     });
-    
-    // Cleanup timeouts on unmount or when jobQueue changes
-    return () => {
-      timeouts.forEach(timeout => clearTimeout(timeout));
-    };
   }, [jobQueue]);
 
   const fetchProjectInfo = async () => {
@@ -138,20 +124,7 @@ export function ProjectSemanticManager({ projectId }: ProjectSemanticManagerProp
       const response = await fetch(`/api/admin/semantic/processing/queue?projectId=${projectId}`);
       if (response.ok) {
         const data = await response.json();
-        const serverJobs = data.jobs || [];
-        
-        // Merge server jobs with local jobs, preferring server data but keeping local-only jobs
-        setJobQueue(prev => {
-          const merged = new Map<string, JobQueueItem>();
-          
-          // Add all local jobs first
-          prev.forEach(job => merged.set(job.operationId, job));
-          
-          // Update with server data (this will update progress and status)
-          serverJobs.forEach((job: JobQueueItem) => merged.set(job.operationId, job));
-          
-          return Array.from(merged.values());
-        });
+        setJobQueue(data.jobs || []);
       }
     } catch (err) {
       console.error('Failed to fetch job queue:', err);
