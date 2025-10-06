@@ -280,27 +280,60 @@ export function EnhancedProjectEditor({ projectId, mode, onSaveControlsChange }:
       const url = isEditing ? `/api/admin/projects/${projectId}` : '/api/admin/projects';
       const method = isEditing ? 'PUT' : 'POST';
 
+      console.log('[EnhancedProjectEditor] Saving project:', {
+        url,
+        method,
+        hasArticleContentJson: !!formData.articleContentJson,
+        articleContentJsonLength: JSON.stringify(formData.articleContentJson || {}).length
+      });
+
       const response = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)
       });
 
+      console.log('[EnhancedProjectEditor] Save response:', {
+        status: response.status,
+        ok: response.ok
+      });
+
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('[EnhancedProjectEditor] Save failed:', errorData);
         throw new Error(errorData.error || 'Failed to save project');
       }
 
       const result = await response.json();
+      console.log('[EnhancedProjectEditor] Save successful, received updated project');
+      
       setLastSaveTime(new Date());
       setHasUnsavedChanges(false);
 
       if (!isEditing && result.project?.id) {
         router.push(`/admin/projects/editor/${result.project.id}`);
-      } else if (isEditing) {
-        await fetchProject();
+      } else if (isEditing && result.project) {
+        // Use the returned project data instead of refetching
+        console.log('[EnhancedProjectEditor] Updating local state with saved project data');
+        setProject(result.project);
+        
+        // Update form data to match what was saved
+        const projectData = result.project;
+        setFormData({
+          title: projectData.title || '',
+          description: projectData.description || '',
+          briefOverview: projectData.briefOverview || '',
+          tags: projectData.tags?.map((t: any) => t.name) || [],
+          status: projectData.status || 'DRAFT',
+          visibility: projectData.visibility || 'PRIVATE',
+          workDate: projectData.workDate ? new Date(projectData.workDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+          articleContent: projectData.articleContent?.content || '',
+          articleContentJson: projectData.articleContent?.jsonContent || undefined,
+          contentType: projectData.articleContent?.contentType || 'json'
+        });
       }
     } catch (err) {
+      console.error('[EnhancedProjectEditor] Save error:', err);
       setError(err instanceof Error ? err.message : 'Failed to save project');
     } finally {
       setSaving(false);
@@ -893,7 +926,10 @@ export function EnhancedProjectEditor({ projectId, mode, onSaveControlsChange }:
                             : formData.articleContent
                         }
                         onChange={(content) => {
+                          // Convert JSON to plain text for articleContent field
+                          const plainText = tiptapToMarkdown(content);
                           handleFormDataChange({
+                            articleContent: plainText,
                             articleContentJson: content,
                             contentType: 'json'
                           });
