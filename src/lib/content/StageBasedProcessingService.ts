@@ -533,11 +533,14 @@ export class StageBasedProcessingService extends EventEmitter {
     for (const project of projects) {
       try {
         console.log(`[ChunkingStage] Processing project: ${project.id}`);
+        console.log(`[ChunkingStage] Generating scaffold: T0 + T1/T2 placeholders + fully populated T3 chunks`);
         
-        // Generate hierarchical content using SmartContentGenerator
-        const result = await this.smartGenerator.generateHierarchicalContent(project);
+        // Generate ONLY scaffold: T0, placeholders (T1, T2), and fully populated T3 chunks
+        // NO AI summary generation - that happens in summaries stage
+        const result = await this.smartGenerator.generateScaffoldOnly(project);
         
-        console.log(`[ChunkingStage] Generated ${result.tiers.length} chunks for project ${project.id}`);
+        console.log(`[ChunkingStage] Scaffold generated: ${result.tiers.length} total items`);
+        console.log(`[ChunkingStage] Breakdown: T0=1, T1=1 (placeholder), T2=${result.tiers.filter(t => t.tier === 2).length} (placeholders), T3=${result.tiers.filter(t => t.tier === 3).length} (populated)`);
         
         checkpoint.chunksCreated.push(...result.tiers);
         checkpoint.projectsProcessed.push(project.id);
@@ -546,12 +549,12 @@ export class StageBasedProcessingService extends EventEmitter {
         
         // Update total items to show chunk count once we have it
         stageProgress.totalItems = checkpoint.chunksCreated.length;
-        stageProgress.progress = 100; // Chunking is complete once generation is done
+        stageProgress.progress = 100; // Chunking is complete once scaffold is generated
         
         // Store checkpoint
         stageProgress.checkpoint = checkpoint;
         
-        console.log(`[ChunkingStage] Total chunks created: ${checkpoint.chunksCreated.length}`);
+        console.log(`[ChunkingStage] Total scaffold items created: ${checkpoint.chunksCreated.length}`);
         this.notifyProgress(request.operationId, progress);
 
       } catch (error) {
@@ -563,7 +566,7 @@ export class StageBasedProcessingService extends EventEmitter {
   }
 
   /**
-   * Execute summaries stage
+   * Execute summaries stage - Fill T1 and T2 placeholders with AI-generated summaries
    */
   private async executeSummariesStage(
     request: ProcessingRequest,
@@ -572,16 +575,27 @@ export class StageBasedProcessingService extends EventEmitter {
     const progress = this.activeOperations.get(request.operationId)!;
     const stageProgress = progress.stageProgress.summaries;
 
+    console.log(`[SummariesStage] Starting AI summary generation for T1 and T2 placeholders`);
+
     // Get chunks from chunking stage
     const chunkingCheckpoint = progress.stageProgress.chunking.checkpoint as ChunkingCheckpoint;
     if (!chunkingCheckpoint) {
       throw new Error('Chunking stage must be completed before summaries');
     }
 
+    // Get project to fetch actual content
+    const projects = await this.getProjectsToProcess(request);
+    const project = projects[0]; // Assuming single project for now
+
+    // Get enhanced project index for content extraction
+    const enhancedIndex = await this.projectIndexer.indexProjectHierarchical(project.id);
+
+    // Filter only placeholders that need AI generation (T1 and T2)
     const chunksNeedingSummaries = chunkingCheckpoint.chunksCreated.filter(
-      chunk => chunk.tier === 1 || chunk.tier === 2 // T1 and T2 need AI summaries
+      chunk => (chunk.tier === 1 || chunk.tier === 2) && chunk.metadata.needsAIGeneration
     );
 
+    console.log(`[SummariesStage] Found ${chunksNeedingSummaries.length} placeholders to fill`);
     stageProgress.totalItems = chunksNeedingSummaries.length;
 
     const checkpoint: SummariesCheckpoint = {
@@ -590,18 +604,55 @@ export class StageBasedProcessingService extends EventEmitter {
 
     for (const chunk of chunksNeedingSummaries) {
       try {
+        console.log(`[SummariesStage] Generating ${chunk.tier === 1 ? 'T1' : 'T2'} summary for: ${chunk.chunkId}`);
+        
+        // Get the actual content to summarize
+        let sourceContent: string;
+        
+        if (chunk.tier === 1) {
+          // T1: Summarize entire project content
+          const allT3Chunks = chunkingCheckpoint.chunksCreated.filter(c => c.tier === 3);
+          sourceContent = allT3Chunks.map(c => c.content).join('\n\n');
+          console.log(`[SummariesStage] T1: Using ${allT3Chunks.length} T3 chunks as source (${sourceContent.length} chars)`);
+        } else {
+          // T2: Summarize section content (all T3 chunks in this section)
+          const sectionGroup = chunk.sectionGroup || chunk.chunkId;
+          const sectionT3Chunks = chunkingCheckpoint.chunksCreated.filter(
+            c => c.tier === 3 && c.sectionGroup === sectionGroup
+          );
+          sourceContent = sectionT3Chunks.map(c => c.content).join('\n\n');
+          console.log(`[SummariesStage] T2 (${chunk.chunkId}): Using ${sectionT3Chunks.length} T3 chunks as source (${sourceContent.length} chars)`);
+        }
+
+        // Skip if no source content available
+        if (!sourceContent || sourceContent.length < 50) {
+          console.log(`[SummariesStage] Skipping ${chunk.chunkId}: insufficient source content`);
+          chunk.content = 'No content available for summary';
+          chunk.metadata.needsAIGeneration = false;
+          chunk.metadata.source = 'empty';
+          continue;
+        }
+
         // Generate summary using SummaryGenerationService
         const result = await this.summaryService.generateSummary({
-          content: chunk.content,
+          content: sourceContent,
           type: chunk.tier === 1 ? 'T1' : 'T2',
           projectId: request.projectId || '',
+          sectionTitle: chunk.title,
           metadata: chunk.metadata
         });
 
         // Update chunk content with generated summary
         chunk.content = result.summary;
+        chunk.tokenCount = this.estimateTokenCount(result.summary);
         chunk.metadata.aiGenerated = true;
+        chunk.metadata.needsAIGeneration = false;
+        chunk.metadata.placeholder = false;
         chunk.metadata.confidenceScore = result.confidenceScore;
+        chunk.metadata.source = 'ai-generated';
+        chunk.metadata.generationMode = 'ai';
+
+        console.log(`[SummariesStage] Generated summary for ${chunk.chunkId}: ${result.summary.substring(0, 100)}...`);
 
         checkpoint.summariesGenerated.push({
           chunkId: chunk.chunkId,
@@ -619,10 +670,21 @@ export class StageBasedProcessingService extends EventEmitter {
         this.notifyProgress(request.operationId, progress);
 
       } catch (error) {
+        console.error(`[SummariesStage] Error generating summary for ${chunk.chunkId}:`, error);
         stageProgress.errors.push(`Chunk ${chunk.chunkId}: ${error.message}`);
         throw error;
       }
     }
+
+    console.log(`[SummariesStage] Complete: Generated ${checkpoint.summariesGenerated.length} summaries`);
+  }
+
+  /**
+   * Estimate token count for text
+   */
+  private estimateTokenCount(text: string): number {
+    // Rough estimate: ~4 characters per token
+    return Math.ceil(text.length / 4);
   }
 
   /**

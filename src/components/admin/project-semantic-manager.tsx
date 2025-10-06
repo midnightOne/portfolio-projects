@@ -84,25 +84,26 @@ export function ProjectSemanticManager({ projectId }: ProjectSemanticManagerProp
     return () => clearInterval(interval);
   }, [projectId]);
 
-  // Auto-remove completed jobs after 30 seconds
-  useEffect(() => {
-    const completedJobs = jobQueue.filter(job => 
-      job.status === 'completed' || job.status === 'failed'
-    );
-    
-    completedJobs.forEach(job => {
-      if (job.progress?.completedAt) {
-        const completedTime = new Date(job.progress.completedAt).getTime();
-        const now = Date.now();
-        const timeSinceCompletion = now - completedTime;
-        
-        // Auto-remove after 30 seconds
-        if (timeSinceCompletion > 30000) {
-          setTimeout(() => removeJob(job.operationId), 1000);
-        }
-      }
-    });
-  }, [jobQueue]);
+  // Auto-remove completed jobs after 30 seconds (disabled to prevent flashing)
+  // Users can manually remove jobs using the trash button
+  // useEffect(() => {
+  //   const completedJobs = jobQueue.filter(job => 
+  //     job.status === 'completed' || job.status === 'failed'
+  //   );
+  //   
+  //   completedJobs.forEach(job => {
+  //     if (job.progress?.completedAt) {
+  //       const completedTime = new Date(job.progress.completedAt).getTime();
+  //       const now = Date.now();
+  //       const timeSinceCompletion = now - completedTime;
+  //       
+  //       // Auto-remove after 30 seconds
+  //       if (timeSinceCompletion > 30000) {
+  //         setTimeout(() => removeJob(job.operationId), 1000);
+  //       }
+  //     }
+  //   });
+  // }, [jobQueue]);
 
   const fetchProjectInfo = async () => {
     try {
@@ -189,7 +190,7 @@ export function ProjectSemanticManager({ projectId }: ProjectSemanticManagerProp
       case 'chunking':
         return baseConfigs.map(c => ({ 
           ...c, 
-          enabled: c.stage === 'chunking' || c.stage === 'validation' 
+          enabled: c.stage === 'chunking' || c.stage === 'validation' // Validation saves chunks to DB
         }));
       case 'summaries':
         return baseConfigs.map(c => ({ 
@@ -216,7 +217,7 @@ export function ProjectSemanticManager({ projectId }: ProjectSemanticManagerProp
   const getEstimatedDuration = (type: string): string => {
     switch (type) {
       case 'full': return '~2-3 minutes';
-      case 'chunking': return '~10 seconds';
+      case 'chunking': return '~2-5 seconds';
       case 'summaries': return '~30 seconds';
       case 'embeddings': return '~24 hours (batch)';
       case 'validation': return '~5 seconds';
