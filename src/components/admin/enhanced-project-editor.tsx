@@ -708,12 +708,12 @@ export function EnhancedProjectEditor({ projectId, mode, onSaveControlsChange }:
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-neutral-900">
-      <div className={`${CONTAINERS.wide} ${SPACING.section.sm}`} style={{ maxWidth: MAX_WIDTHS.editor }}>
+    <div className="h-screen bg-gray-50 dark:bg-neutral-900 overflow-hidden">
+      <div className={`${CONTAINERS.wide} ${SPACING.section.sm} h-full flex flex-col`} style={{ maxWidth: MAX_WIDTHS.editor }}>
 
-        <div className={`flex ${SPACING.gap.sm} min-h-[calc(100vh-4rem)]`}>
+        <div className={`flex ${SPACING.gap.sm} flex-1 overflow-hidden`}>
           {/* Project Editor - 65% */}
-          <div className="flex-1" style={{ flexBasis: '65%' }}>
+          <div className="flex-1 overflow-hidden" style={{ flexBasis: '65%' }}>
             <Card className="h-full overflow-hidden p-0">
               <div className="flex h-full">
                 {/* Left Sidebar - Metadata */}
@@ -888,9 +888,9 @@ export function EnhancedProjectEditor({ projectId, mode, onSaveControlsChange }:
                 </div>
 
                 {/* Right Content Area - Article Content */}
-                <div className="flex-1 flex flex-col bg-white overflow-hidden">
+                <div className="flex-1 bg-white">
                   {/* Tiptap Editor */}
-                  <div className="flex-1 overflow-hidden">
+                  <div className="h-full">
                     {getTiptapAdapter() ? (
                       <TextSelectionManager
                         adapter={getTiptapAdapter()!}
@@ -915,7 +915,7 @@ export function EnhancedProjectEditor({ projectId, mode, onSaveControlsChange }:
                           onSelectionChange={(selection) => handleTextSelection(selection, 'articleContent')}
                           placeholder="Start writing your project article with rich formatting. Use / to insert special content blocks like image carousels, interactive embeds, and download buttons."
                           showAIPanel={false} // AI panel is handled separately
-                          className="h-full"
+                          className="min-h-full"
                         />
                       </TextSelectionManager>
                     ) : (

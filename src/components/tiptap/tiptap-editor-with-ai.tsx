@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useEditor, EditorContent, JSONContent } from '@tiptap/react';
 import { StarterKit } from '@tiptap/starter-kit';
 import { Placeholder } from '@tiptap/extension-placeholder';
@@ -650,15 +650,23 @@ export function TiptapEditorWithAI({
   }, [editor, content, getInitialContent]);
 
   if (!showAIPanel) {
-    // Simple editor without AI panel
+    // Simple editor without AI panel - takes full height and handles scrolling
     return (
-      <div className={className}>
-        <div className="rounded-b-lg overflow-hidden bg-white dark:bg-neutral-800">
-          <Toolbar editor={editor} />
-          <EditorContent
-            editor={editor}
-            className="min-h-[400px] w-full max-w-full p-4 [&_.ProseMirror]:outline-none [&_.ProseMirror]:border-none [&_.ProseMirror]:focus:outline-none [&_.ProseMirror]:focus:ring-0 [&_.ProseMirror]:dark:text-neutral-400 [&_.ProseMirror_h1]:text-3xl [&_.ProseMirror_h1]:font-bold [&_.ProseMirror_h1]:mb-4 [&_.ProseMirror_h2]:text-2xl [&_.ProseMirror_h2]:font-bold [&_.ProseMirror_h2]:mb-3 [&_.ProseMirror_h3]:text-xl [&_.ProseMirror_h3]:font-bold [&_.ProseMirror_h3]:mb-2 [&_.ProseMirror_p]:mb-3 [&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ul]:ml-6 [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ol]:ml-6 [&_.ProseMirror_blockquote]:border-l-4 [&_.ProseMirror_blockquote]:border-gray-300 [&_.ProseMirror_blockquote]:dark:border-gray-600 [&_.ProseMirror_blockquote]:pl-4 [&_.ProseMirror_blockquote]:italic [&_.ProseMirror_code]:bg-gray-100 [&_.ProseMirror_code]:dark:bg-neutral-900 [&_.ProseMirror_code]:dark:text-gray-100 [&_.ProseMirror_code]:px-1 [&_.ProseMirror_code]:rounded [&_.ProseMirror_code]:font-mono [&_.ProseMirror_code]:text-sm"
-          />
+      <div className={`h-full flex flex-col ${className}`}>
+        <div className="h-full flex flex-col bg-white dark:bg-neutral-800">
+          {/* Sticky Toolbar */}
+          <div className="sticky top-0 z-30 bg-white dark:bg-neutral-800 border-b shadow-md flex-shrink-0">
+            <Toolbar editor={editor} />
+          </div>
+          {/* Scrollable Content */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-4">
+              <EditorContent
+                editor={editor}
+                className="w-full max-w-full [&_.ProseMirror]:outline-none [&_.ProseMirror]:border-none [&_.ProseMirror]:focus:outline-none [&_.ProseMirror]:focus:ring-0 [&_.ProseMirror]:dark:text-neutral-400 [&_.ProseMirror_h1]:text-3xl [&_.ProseMirror_h1]:font-bold [&_.ProseMirror_h1]:mb-4 [&_.ProseMirror_h2]:text-2xl [&_.ProseMirror_h2]:font-bold [&_.ProseMirror_h2]:mb-3 [&_.ProseMirror_h3]:text-xl [&_.ProseMirror_h3]:font-bold [&_.ProseMirror_h3]:mb-2 [&_.ProseMirror_p]:mb-3 [&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ul]:ml-6 [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ol]:ml-6 [&_.ProseMirror_blockquote]:border-l-4 [&_.ProseMirror_blockquote]:border-gray-300 [&_.ProseMirror_blockquote]:dark:border-gray-600 [&_.ProseMirror_blockquote]:pl-4 [&_.ProseMirror_blockquote]:italic [&_.ProseMirror_code]:bg-gray-100 [&_.ProseMirror_code]:dark:bg-neutral-900 [&_.ProseMirror_code]:dark:text-gray-100 [&_.ProseMirror_code]:px-1 [&_.ProseMirror_code]:rounded [&_.ProseMirror_code]:font-mono [&_.ProseMirror_code]:text-sm"
+              />
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -669,7 +677,8 @@ export function TiptapEditorWithAI({
     <div className={`flex gap-4 ${className}`}>
       {/* Tiptap Editor - 65% */}
       <div className="flex-1" style={{ flexBasis: '65%' }}>
-        <Card className="h-full" style={{ height: `${aiPanelHeight}px` }}>
+        <Card className="h-full flex flex-col" style={{ height: `${aiPanelHeight}px` }}>
+          {/* Card Header */}
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5" />
@@ -679,17 +688,21 @@ export function TiptapEditorWithAI({
               Write your project article with rich formatting. Select text to use AI assistance.
             </p>
           </CardHeader>
-          <CardContent className="flex-1 overflow-hidden p-0">
-            <div className="h-full flex flex-col">
-              <Toolbar editor={editor} />
-              <div className="flex-1 min-h-[500px] overflow-y-auto">
+          
+          {/* Sticky Toolbar - Uses CSS sticky positioning */}
+          <div className="sticky top-0 z-30 bg-white dark:bg-neutral-800 border-b shadow-md">
+            <Toolbar editor={editor} />
+          </div>
+          
+          {/* Scrollable Content Area */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-4">
                 <EditorContent
                   editor={editor}
-                  className="h-full w-full max-w-full p-4 [&_.ProseMirror]:outline-none [&_.ProseMirror]:border-none [&_.ProseMirror]:focus:outline-none [&_.ProseMirror]:focus:ring-0 [&_.ProseMirror]:dark:text-neutral-400 [&_.ProseMirror_h1]:text-3xl [&_.ProseMirror_h1]:font-bold [&_.ProseMirror_h1]:mb-4 [&_.ProseMirror_h2]:text-2xl [&_.ProseMirror_h2]:font-bold [&_.ProseMirror_h2]:mb-3 [&_.ProseMirror_h3]:text-xl [&_.ProseMirror_h3]:font-bold [&_.ProseMirror_h3]:mb-2 [&_.ProseMirror_p]:mb-3 [&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ul]:ml-6 [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ol]:ml-6 [&_.ProseMirror_blockquote]:border-l-4 [&_.ProseMirror_blockquote]:border-gray-300 [&_.ProseMirror_blockquote]:dark:border-gray-600 [&_.ProseMirror_blockquote]:pl-4 [&_.ProseMirror_blockquote]:italic [&_.ProseMirror_code]:bg-gray-100 [&_.ProseMirror_code]:dark:bg-neutral-900 [&_.ProseMirror_code]:dark:text-gray-100 [&_.ProseMirror_code]:px-1 [&_.ProseMirror_code]:rounded [&_.ProseMirror_code]:font-mono [&_.ProseMirror_code]:text-sm"
+                  className="w-full max-w-full [&_.ProseMirror]:outline-none [&_.ProseMirror]:border-none [&_.ProseMirror]:focus:outline-none [&_.ProseMirror]:focus:ring-0 [&_.ProseMirror]:dark:text-neutral-400 [&_.ProseMirror_h1]:text-3xl [&_.ProseMirror_h1]:font-bold [&_.ProseMirror_h1]:mb-4 [&_.ProseMirror_h2]:text-2xl [&_.ProseMirror_h2]:font-bold [&_.ProseMirror_h2]:mb-3 [&_.ProseMirror_h3]:text-xl [&_.ProseMirror_h3]:font-bold [&_.ProseMirror_h3]:mb-2 [&_.ProseMirror_p]:mb-3 [&_.ProseMirror_ul]:list-disc [&_.ProseMirror_ul]:ml-6 [&_.ProseMirror_ol]:list-decimal [&_.ProseMirror_ol]:ml-6 [&_.ProseMirror_blockquote]:border-l-4 [&_.ProseMirror_blockquote]:border-gray-300 [&_.ProseMirror_blockquote]:dark:border-gray-600 [&_.ProseMirror_blockquote]:pl-4 [&_.ProseMirror_blockquote]:italic [&_.ProseMirror_code]:bg-gray-100 [&_.ProseMirror_code]:dark:bg-neutral-900 [&_.ProseMirror_code]:dark:text-gray-100 [&_.ProseMirror_code]:px-1 [&_.ProseMirror_code]:rounded [&_.ProseMirror_code]:font-mono [&_.ProseMirror_code]:text-sm"
                 />
-              </div>
             </div>
-          </CardContent>
+          </div>
         </Card>
       </div>
 
