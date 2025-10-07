@@ -957,28 +957,53 @@ export class StageBasedProcessingService extends EventEmitter {
     // Sort chunks by tier to ensure parents are created before children
     const sortedChunks = [...allChunks].sort((a, b) => a.tier - b.tier);
     
-    // Validate hierarchical relationships
+    // Validate all chunks first (fast, no I/O)
+    console.log(`[ValidationStage] Validating ${sortedChunks.length} chunks...`);
     for (const chunk of sortedChunks) {
       try {
-        // Validate chunk structure
         this.validateChunk(chunk);
-        
-        // Store chunk in database
-        console.log(`[ValidationStage] Storing chunk ${chunk.chunkId} (tier ${chunk.tier})`);
-        await this.storeValidatedChunk(chunk, request);
-        
-        checkpoint.validatedChunks.push(chunk.chunkId);
-        
-        stageProgress.itemsProcessed++;
-        stageProgress.progress = (stageProgress.itemsProcessed / stageProgress.totalItems) * 100;
-        stageProgress.checkpoint = checkpoint;
-
-        this.notifyProgress(request.operationId, progress);
-
       } catch (error) {
-        console.error(`[ValidationStage] Error storing chunk ${chunk.chunkId}:`, error);
+        console.error(`[ValidationStage] Validation failed for chunk ${chunk.chunkId}:`, error);
         stageProgress.errors.push(`Chunk ${chunk.chunkId}: ${error.message}`);
         throw error;
+      }
+    }
+    console.log(`[ValidationStage] All chunks validated successfully`);
+    
+    // Check if chunks have embeddings
+    const hasEmbeddings = sortedChunks.some(chunk => chunk.embedding);
+    
+    if (!hasEmbeddings && sortedChunks.length > 1) {
+      // Use batch storage for better performance (no embeddings)
+      console.log(`[ValidationStage] Using batch storage for ${sortedChunks.length} chunks (no embeddings)`);
+      await this.batchStoreChunks(sortedChunks, request);
+      
+      checkpoint.validatedChunks.push(...sortedChunks.map(c => c.chunkId));
+      stageProgress.itemsProcessed = sortedChunks.length;
+      stageProgress.progress = 100;
+      stageProgress.checkpoint = checkpoint;
+      this.notifyProgress(request.operationId, progress);
+    } else {
+      // Store chunks one by one (needed for embeddings or single chunk)
+      console.log(`[ValidationStage] Using individual storage (${hasEmbeddings ? 'has embeddings' : 'single chunk'})`);
+      for (const chunk of sortedChunks) {
+        try {
+          console.log(`[ValidationStage] Storing chunk ${chunk.chunkId} (tier ${chunk.tier})`);
+          await this.storeValidatedChunk(chunk, request);
+          
+          checkpoint.validatedChunks.push(chunk.chunkId);
+          
+          stageProgress.itemsProcessed++;
+          stageProgress.progress = (stageProgress.itemsProcessed / stageProgress.totalItems) * 100;
+          stageProgress.checkpoint = checkpoint;
+
+          this.notifyProgress(request.operationId, progress);
+
+        } catch (error) {
+          console.error(`[ValidationStage] Error storing chunk ${chunk.chunkId}:`, error);
+          stageProgress.errors.push(`Chunk ${chunk.chunkId}: ${error.message}`);
+          throw error;
+        }
       }
     }
     
@@ -1105,6 +1130,142 @@ export class StageBasedProcessingService extends EventEmitter {
     if (chunk.tier === 3 && chunk.sectionBounded !== true) {
       throw new Error(`T3 chunk ${chunk.chunkId} must be section-bounded`);
     }
+  }
+
+  /**
+   * Batch store chunks in database (more efficient for multiple chunks without embeddings)
+   */
+  private async batchStoreChunks(chunks: TierContent[], request: ProcessingRequest): Promise<void> {
+    console.log(`[batchStoreChunks] Batch storing ${chunks.length} chunks for projectId: ${request.projectId}`);
+    
+    const startTime = Date.now();
+    
+    // Get or create project and entity (once for all chunks)
+    const projects = await this.getProjectsToProcess(request);
+    const project = projects[0];
+    
+    if (!project) {
+      throw new Error('No project found for batch storage');
+    }
+    
+    console.log(`[batchStoreChunks] Found project: ${project.slug}`);
+    
+    // Ensure ProjectAIIndex exists
+    await prisma.projectAIIndex.upsert({
+      where: { projectId: request.projectId },
+      create: {
+        projectId: request.projectId,
+        summary: '',
+        keywords: [],
+        topics: [],
+        technologies: [],
+        sectionsCount: 0,
+        mediaCount: 0
+      },
+      update: {}
+    });
+    
+    const entity = await prisma.contentEntity.upsert({
+      where: {
+        entityType_slug: {
+          entityType: 'PROJECT',
+          slug: project.slug
+        }
+      },
+      create: {
+        entityType: 'PROJECT',
+        slug: project.slug,
+        title: project.title,
+        description: project.description || '',
+        tags: [],
+        technologies: []
+      },
+      update: {
+        title: project.title,
+        description: project.description || ''
+      }
+    });
+    
+    console.log(`[batchStoreChunks] Entity and project index ready. Starting batch upsert...`);
+    
+    // Build a map of logical chunk IDs to database IDs for parent resolution
+    const chunkIdToDbId = new Map<string, string>();
+    
+    // Use Prisma transaction with individual upserts (Prisma doesn't have native upsertMany)
+    // This is still faster than separate transactions per chunk
+    await prisma.$transaction(async (tx) => {
+      for (const chunk of chunks) {
+        const truncatedTitle = chunk.title ? chunk.title.substring(0, 255) : null;
+        
+        // Resolve parent chunk ID from logical ID to database UUID
+        let resolvedParentChunkId: string | null = null;
+        if (chunk.parentChunkId && chunk.tier > 1) {
+          // First check our local map (for chunks created in this batch)
+          if (chunkIdToDbId.has(chunk.parentChunkId)) {
+            resolvedParentChunkId = chunkIdToDbId.get(chunk.parentChunkId)!;
+          } else {
+            // Look up in database
+            const parentChunk = await tx.contextChunk.findFirst({
+              where: {
+                entityId: entity.id,
+                chunkId: chunk.parentChunkId
+              },
+              select: { id: true }
+            });
+            
+            if (parentChunk) {
+              resolvedParentChunkId = parentChunk.id;
+              chunkIdToDbId.set(chunk.parentChunkId, parentChunk.id);
+            } else {
+              console.warn(`[batchStoreChunks] Parent chunk not found for ${chunk.chunkId}, proceeding without parent`);
+            }
+          }
+        }
+        
+        const result = await tx.contextChunk.upsert({
+          where: {
+            entityId_tier_chunkId: {
+              entityId: entity.id,
+              tier: chunk.tier,
+              chunkId: chunk.chunkId
+            }
+          },
+          create: {
+            entityId: entity.id,
+            projectIndexId: request.projectId,
+            tier: chunk.tier,
+            chunkId: chunk.chunkId,
+            title: truncatedTitle,
+            content: chunk.content,
+            tokenCount: chunk.tokenCount,
+            metadata: chunk.metadata || {},
+            parentChunkId: resolvedParentChunkId,
+            rootChunkId: chunk.rootChunkId || null,
+            sectionGroup: chunk.sectionGroup || null,
+            derivation_path: chunk.derivationPath || null,
+            sectionBounded: chunk.tier === 3 ? true : (chunk.sectionBounded || false)
+          },
+          update: {
+            title: truncatedTitle,
+            content: chunk.content,
+            tokenCount: chunk.tokenCount,
+            metadata: chunk.metadata || {},
+            parentChunkId: resolvedParentChunkId,
+            rootChunkId: chunk.rootChunkId || null,
+            sectionGroup: chunk.sectionGroup || null,
+            derivation_path: chunk.derivationPath || null,
+            sectionBounded: chunk.tier === 3 ? true : (chunk.sectionBounded || false),
+            updatedAt: new Date()
+          }
+        });
+        
+        // Store the database ID for this chunk (for use as parent by subsequent chunks)
+        chunkIdToDbId.set(chunk.chunkId, result.id);
+      }
+    });
+    
+    const duration = Date.now() - startTime;
+    console.log(`[batchStoreChunks] Successfully batch stored ${chunks.length} chunks in ${duration}ms (avg ${Math.round(duration / chunks.length)}ms per chunk)`);
   }
 
   /**
