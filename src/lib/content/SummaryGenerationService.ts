@@ -307,6 +307,25 @@ Create a comprehensive summary (150-300 words) that preserves all technical deta
   }
 
   /**
+   * Public method to get configuration by ID (for API use)
+   */
+  public getConfigById(configId?: string): SummaryGenerationConfig {
+    return this.getConfig(configId);
+  }
+
+  /**
+   * Get all available configurations
+   */
+  public getAllConfigs(): SummaryGenerationConfig[] {
+    return Object.keys(this.DEFAULT_CONFIGS).map(key => ({
+      id: key,
+      ...this.DEFAULT_CONFIGS[key],
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }));
+  }
+
+  /**
    * Enhance prompt with anti-hallucination measures
    */
   private enhancePromptForFactualAccuracy(

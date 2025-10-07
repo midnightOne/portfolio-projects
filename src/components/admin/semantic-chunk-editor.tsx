@@ -109,6 +109,8 @@ export function SemanticChunkEditor({
   const [summaryModel, setSummaryModel] = useState('gpt-4o-mini');
   const [summaryPromptExpanded, setSummaryPromptExpanded] = useState(false);
   const [customSystemPrompt, setCustomSystemPrompt] = useState('');
+  const [defaultPrompt, setDefaultPrompt] = useState('');
+  const [loadingDefaultPrompt, setLoadingDefaultPrompt] = useState(false);
   const [summaryResult, setSummaryResult] = useState<{
     summary: string;
     cost: number;
@@ -123,6 +125,13 @@ export function SemanticChunkEditor({
   useEffect(() => {
     fetchChunkDetails();
   }, [chunkId]);
+
+  // Fetch default prompt when chunk changes
+  useEffect(() => {
+    if (chunk && (chunk.tier === 1 || chunk.tier === 2)) {
+      fetchDefaultPrompt();
+    }
+  }, [chunk?.tier]);
 
   useEffect(() => {
     if (chunk) {
@@ -316,6 +325,25 @@ export function SemanticChunkEditor({
     }
   };
 
+  const fetchDefaultPrompt = async () => {
+    if (!chunk) return;
+    
+    try {
+      setLoadingDefaultPrompt(true);
+      const tier = chunk.tier === 1 ? 'T1' : 'T2';
+      const response = await fetch(`/api/admin/semantic/summary-config?tier=${tier}&configId=default-balanced`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        setDefaultPrompt(data.prompt || '');
+      }
+    } catch (error) {
+      console.error('Error fetching default prompt:', error);
+    } finally {
+      setLoadingDefaultPrompt(false);
+    }
+  };
+
   const getTierBadgeColor = (tier: number) => {
     switch (tier) {
       case 0: return 'bg-purple-100 text-purple-800 border-purple-300';
@@ -392,6 +420,12 @@ export function SemanticChunkEditor({
               <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
                 <CheckCircle className="h-3 w-3 mr-1" />
                 Has Embedding
+              </Badge>
+            )}
+            {chunk.tier === 2 && chunk.metadata?.autoPopulated && (
+              <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
+                <Sparkles className="h-3 w-3 mr-1" />
+                Auto-Populated
               </Badge>
             )}
           </div>
@@ -579,6 +613,16 @@ export function SemanticChunkEditor({
                 Generate AI Summary
               </h3>
               
+              {chunk.metadata?.autoPopulated && (
+                <Alert className="bg-blue-50 border-blue-200">
+                  <AlertCircle className="h-4 w-4 text-blue-600" />
+                  <AlertDescription className="text-xs text-blue-800">
+                    This section was auto-populated with raw content because it fits within the summary budget. 
+                    You can still generate an AI summary if you prefer a condensed version.
+                  </AlertDescription>
+                </Alert>
+              )}
+              
               <div className="space-y-3">
                 {/* Model Selection */}
                 <div className="space-y-2">
@@ -602,23 +646,35 @@ export function SemanticChunkEditor({
                 {/* Custom System Prompt (Collapsible) */}
                 <Collapsible open={summaryPromptExpanded} onOpenChange={setSummaryPromptExpanded}>
                   <CollapsibleTrigger className="flex items-center justify-between w-full text-xs font-medium hover:text-purple-600 transition-colors">
-                    <span>Custom System Prompt</span>
+                    <span>System Prompt {customSystemPrompt ? '(Custom)' : '(Default)'}</span>
                     {summaryPromptExpanded ? (
                       <ChevronUp className="h-3 w-3" />
                     ) : (
                       <ChevronDown className="h-3 w-3" />
                     )}
                   </CollapsibleTrigger>
-                  <CollapsibleContent className="mt-2">
+                  <CollapsibleContent className="mt-2 space-y-2">
+                    {/* Show default prompt for reference */}
+                    {defaultPrompt && !customSystemPrompt && (
+                      <div className="p-2 bg-gray-50 rounded border border-gray-200">
+                        <p className="text-xs font-semibold text-gray-700 mb-1">Default Prompt:</p>
+                        <pre className="text-xs text-gray-600 whitespace-pre-wrap font-mono">
+                          {defaultPrompt}
+                        </pre>
+                      </div>
+                    )}
+                    
                     <Textarea
                       value={customSystemPrompt}
                       onChange={(e) => setCustomSystemPrompt(e.target.value)}
-                      placeholder={`Leave empty to use default ${chunk.tier === 1 ? 'T1' : 'T2'} prompt...`}
+                      placeholder={`Leave empty to use default ${chunk.tier === 1 ? 'T1' : 'T2'} prompt above...`}
                       rows={6}
                       className="text-xs font-mono"
                     />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Override the default system prompt for custom summary generation
+                    <p className="text-xs text-gray-500">
+                      {customSystemPrompt 
+                        ? 'Using custom prompt. Clear to use default.'
+                        : 'Using default prompt. Edit above to customize.'}
                     </p>
                   </CollapsibleContent>
                 </Collapsible>

@@ -35,7 +35,7 @@ export class T3HeadingBoundedChunking {
       const currentHeading = headings[i];
       const nextHeading = headings[i + 1];
 
-      console.log(`[T3Generation] Processing heading: "${currentHeading.title}" (H${currentHeading.headingLevel})`);
+      console.log(`[T3Generation] Processing heading: "${currentHeading.title}" (H${currentHeading.headingLevel}, anchorId: ${currentHeading.anchorId})`);
 
       // Find all content sections between this heading and the next
       const contentBetweenHeadings = this.collectContentBetweenHeadings(
@@ -67,6 +67,10 @@ export class T3HeadingBoundedChunking {
 
       // Create T3 chunks from the token-based splits
       sectionChunks.forEach((chunkContent, chunkIndex) => {
+        const tokenCount = this.estimateTokenCount(chunkContent);
+        
+        console.log(`[T3Generation]   -> T3 chunk ${chunkIndex}: ${tokenCount} tokens, sectionGroup="${currentHeading.anchorId}"`);
+        
         const t3Chunk: TierContent = {
           tier: 3,
           chunkId: `t3-${currentHeading.anchorId}-${chunkIndex}`,
@@ -74,7 +78,7 @@ export class T3HeadingBoundedChunking {
             ? currentHeading.title 
             : `${currentHeading.title} (part ${chunkIndex + 1})`,
           content: chunkContent,
-          tokenCount: this.estimateTokenCount(chunkContent),
+          tokenCount,
           parentChunkId: currentHeading.anchorId, // T2 chunk ID
           rootChunkId: 'metadata',
           sectionGroup: currentHeading.anchorId,

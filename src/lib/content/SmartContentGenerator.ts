@@ -154,8 +154,8 @@ export class SmartContentGenerator {
   }
 
   /**
-   * Generate ONLY the scaffold: T0 + T1 placeholder + T2 placeholders + fully populated T3 chunks
-   * NO AI summary generation - that happens in the summaries stage
+   * Generate ONLY the scaffold: T0 + T1 placeholder + T2 (auto-populated if small) + fully populated T3 chunks
+   * NO AI summary generation - that happens in the summaries stage (for T1 and large T2s)
    */
   async generateScaffoldOnly(project: any): Promise<SmartGenerationResult> {
     const startTime = Date.now();
@@ -173,20 +173,34 @@ export class SmartContentGenerator {
     // T1: Create placeholder (to be filled by summaries stage)
     tiers.push(this.createT1Placeholder(project, enhancedIndex));
 
-    // T2: Create placeholders for all headings (to be filled by summaries stage)
+    // T3: Generate fully populated terminal chunks from actual content FIRST
+    // We need these to determine if T2s can use raw content
+    const t3Chunks = this.t3Chunker.generateT3Chunks(project, enhancedIndex);
+    
+    // T2: Create chunks for all headings
+    // If section content fits budget, use raw content; otherwise create placeholder
     const headingSections = enhancedIndex.hierarchicalSections.filter(s =>
       s.nodeType === 'heading' && s.headingLevel >= 1 && s.headingLevel <= 3
     );
 
+    let t2AutoPopulated = 0;
+    let t2PlaceholdersCreated = 0;
+    
     for (const section of headingSections) {
-      tiers.push(this.createT2Placeholder(section, project, enhancedIndex));
+      const t2Chunk = this.createT2ChunkOrPlaceholder(section, project, enhancedIndex, t3Chunks);
+      tiers.push(t2Chunk);
+      
+      if (t2Chunk.metadata.needsAIGeneration) {
+        t2PlaceholdersCreated++;
+      } else {
+        t2AutoPopulated++;
+      }
     }
 
-    // T3: Generate fully populated terminal chunks from actual content
-    const t3Chunks = this.t3Chunker.generateT3Chunks(project, enhancedIndex);
+    // Add all T3 chunks
     tiers.push(...t3Chunks);
 
-    console.log(`[SmartContentGenerator] Scaffold complete: T0=1, T1=1, T2=${headingSections.length}, T3=${t3Chunks.length}`);
+    console.log(`[SmartContentGenerator] Scaffold complete: T0=1, T1=1, T2=${headingSections.length} (${t2AutoPopulated} auto-populated, ${t2PlaceholdersCreated} placeholders), T3=${t3Chunks.length}`);
 
     // Validate that chunks don't cross heading boundaries
     this.validateHeadingBoundaries(tiers);
@@ -234,14 +248,73 @@ export class SmartContentGenerator {
   }
 
   /**
-   * Create T2 placeholder (empty, marked for AI generation)
+   * Create T2 chunk - use raw content if it fits budget, otherwise create placeholder
    */
-  private createT2Placeholder(
+  private createT2ChunkOrPlaceholder(
     section: HierarchicalSection,
     project: any,
-    enhancedIndex: EnhancedProjectIndex
+    enhancedIndex: EnhancedProjectIndex,
+    t3Chunks: TierContent[]
   ): TierContent {
     const parentChunkId = section.parent?.anchorId || 'summary';
+    
+    // Get T3 chunks for this section
+    console.log(`[T2Check] Section "${section.title}" (${section.anchorId}): Looking for T3 chunks with sectionGroup="${section.anchorId}"`);
+    const sectionT3Chunks = t3Chunks.filter(t3 => t3.sectionGroup === section.anchorId);
+    console.log(`[T2Check] Found ${sectionT3Chunks.length} T3 chunks for this section`);
+    
+    if (sectionT3Chunks.length > 0) {
+      console.log(`[T2Check] First T3 chunk:`, {
+        chunkId: sectionT3Chunks[0].chunkId,
+        sectionGroup: sectionT3Chunks[0].sectionGroup,
+        tokenCount: sectionT3Chunks[0].tokenCount,
+        contentPreview: sectionT3Chunks[0].content.substring(0, 100)
+      });
+    }
+    
+    const combinedContent = sectionT3Chunks.map(t3 => t3.content).join('\n\n');
+    const totalTokens = this.estimateTokenCount(combinedContent);
+    
+    console.log(`[T2Check] Combined content: ${combinedContent.length} chars, ${totalTokens} tokens`);
+    
+    // T2 max length from config (default: 200 words ≈ 266 tokens)
+    const T2_MAX_TOKENS = 266; // Roughly 200 words
+    
+    // If content fits within T2 budget, use it directly
+    if (totalTokens <= T2_MAX_TOKENS && combinedContent.length > 0) {
+      console.log(`[T2AutoPopulate] Section "${section.title}": ${totalTokens} tokens fits budget, using raw content`);
+      
+      return {
+        tier: 2,
+        chunkId: section.anchorId,
+        title: section.title,
+        content: combinedContent,
+        tokenCount: totalTokens,
+        parentChunkId,
+        rootChunkId: 'metadata',
+        sectionGroup: section.anchorId,
+        derivationPath: this.buildDerivationPath(section, enhancedIndex),
+        metadata: {
+          type: 'heading-summary',
+          nodeType: 'heading',
+          headingLevel: section.headingLevel,
+          anchorId: section.anchorId,
+          tiptapPosition: section.tiptapPosition,
+          placeholder: false,
+          needsAIGeneration: false,
+          editable: true,
+          source: 'auto-populated',
+          generationMode: 'extracted',
+          contentHash: section.contentHash,
+          includesSubsections: true,
+          autoPopulated: true,
+          originalTokenCount: totalTokens
+        }
+      };
+    }
+    
+    // Content too large - create placeholder for AI summary
+    console.log(`[T2Placeholder] Section "${section.title}": ${totalTokens} tokens exceeds budget (${T2_MAX_TOKENS}), needs AI summary`);
     
     return {
       tier: 2,

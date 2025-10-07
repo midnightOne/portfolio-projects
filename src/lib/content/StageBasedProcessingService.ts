@@ -591,11 +591,12 @@ export class StageBasedProcessingService extends EventEmitter {
     const enhancedIndex = await this.projectIndexer.indexProjectHierarchical(project.id);
 
     // Filter only placeholders that need AI generation (T1 and T2)
-    const chunksNeedingSummaries = chunkingCheckpoint.chunksCreated.filter(
-      chunk => (chunk.tier === 1 || chunk.tier === 2) && chunk.metadata.needsAIGeneration
-    );
+    // Auto-populated T2s (small sections that fit the budget) are already complete
+    const allT1T2Chunks = chunkingCheckpoint.chunksCreated.filter(chunk => chunk.tier === 1 || chunk.tier === 2);
+    const autoPopulatedT2s = allT1T2Chunks.filter(chunk => chunk.tier === 2 && chunk.metadata.autoPopulated);
+    const chunksNeedingSummaries = allT1T2Chunks.filter(chunk => chunk.metadata.needsAIGeneration);
 
-    console.log(`[SummariesStage] Found ${chunksNeedingSummaries.length} placeholders to fill`);
+    console.log(`[SummariesStage] T1/T2 Summary: ${allT1T2Chunks.length} total, ${autoPopulatedT2s.length} auto-populated, ${chunksNeedingSummaries.length} need AI`);
     stageProgress.totalItems = chunksNeedingSummaries.length;
 
     const checkpoint: SummariesCheckpoint = {
