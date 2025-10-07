@@ -340,7 +340,17 @@ export function tiptapToPlainText(content: TiptapContentData | JSONContent): str
     }
     
     if (node.content) {
-      return node.content.map(extractText).join('');
+      // Add proper line breaks for specific node types
+      if (node.type === 'bulletList' || node.type === 'orderedList') {
+        // List items should be on separate lines
+        return node.content.map(extractText).join('\n');
+      } else if (node.type === 'listItem') {
+        // List item content should be joined without breaks (paragraph inside item)
+        return node.content.map(extractText).join('');
+      } else {
+        // Default: join without separator (for inline content like marks)
+        return node.content.map(extractText).join('');
+      }
     }
     
     return '';

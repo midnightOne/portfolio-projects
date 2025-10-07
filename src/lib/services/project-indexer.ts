@@ -537,7 +537,8 @@ export class ProjectIndexer {
       }
 
       // Create sections for important content blocks
-      if (this.shouldCreateSection(node)) {
+      const createdSection = this.shouldCreateSection(node);
+      if (createdSection) {
         const sectionId = `section-${++sectionCounter}`;
         const title = this.extractSectionTitle(node);
         const summary = this.generateSectionSummary(nodeContent, nodeMarkdown);
@@ -560,8 +561,11 @@ export class ProjectIndexer {
         });
       }
 
-      // Process children
-      if (node.content) {
+      // Process children ONLY if we didn't create a section for this node
+      // This prevents duplicate content when parent containers (like bulletList)
+      // already contain all their children's text
+      const shouldProcessChildren = !createdSection || node.type === 'doc';
+      if (shouldProcessChildren && node.content) {
         node.content.forEach(child => processNode(child, depth + 1));
       }
     };
