@@ -14,6 +14,7 @@ import OpenAI from 'openai';
 import { semanticBudgetManager } from './SemanticBudgetManager';
 import { getSummaryGenerationService } from './SummaryGenerationService';
 import { T3HeadingBoundedChunking } from './T3HeadingBoundedChunking';
+import ChunkingConfigService from './ChunkingConfigService';
 
 const prisma = new PrismaClient();
 
@@ -180,6 +181,13 @@ export class SmartContentGenerator {
     // We need these to determine if T2s can use raw content
     const t3Chunks = this.t3Chunker.generateT3Chunks(project, enhancedIndex);
     
+    // Get T2 max length from chunking config (in tokens)
+    const chunkingConfigService = ChunkingConfigService.getInstance();
+    const chunkingConfig = await chunkingConfigService.getDefaultConfig();
+    const t2MaxTokens = chunkingConfig.t2MaxLength; // Already in tokens
+    
+    console.log(`[SmartContentGenerator] Using T2 max length from config: ${t2MaxTokens} tokens`);
+    
     // T2: Create chunks for all headings
     // If section content fits budget, use raw content; otherwise create placeholder
     const headingSections = enhancedIndex.hierarchicalSections.filter(s =>
@@ -190,7 +198,7 @@ export class SmartContentGenerator {
     let t2PlaceholdersCreated = 0;
     
     for (const section of headingSections) {
-      const t2Chunk = this.createT2ChunkOrPlaceholder(section, project, enhancedIndex, t3Chunks);
+      const t2Chunk = await this.createT2ChunkOrPlaceholder(section, project, enhancedIndex, t3Chunks, t2MaxTokens);
       tiers.push(t2Chunk);
       
       if (t2Chunk.metadata.needsAIGeneration) {
@@ -253,39 +261,32 @@ export class SmartContentGenerator {
   /**
    * Create T2 chunk - use raw content if it fits budget, otherwise create placeholder
    */
-  private createT2ChunkOrPlaceholder(
+  private async createT2ChunkOrPlaceholder(
     section: HierarchicalSection,
     project: any,
     enhancedIndex: EnhancedProjectIndex,
-    t3Chunks: TierContent[]
-  ): TierContent {
-    const parentChunkId = section.parent?.anchorId || 'summary';
-    
-    // Get T3 chunks for this section
-    console.log(`[T2Check] Section "${section.title}" (${section.anchorId}): Looking for T3 chunks with sectionGroup="${section.anchorId}"`);
-    const sectionT3Chunks = t3Chunks.filter(t3 => t3.sectionGroup === section.anchorId);
-    console.log(`[T2Check] Found ${sectionT3Chunks.length} T3 chunks for this section`);
-    
-    if (sectionT3Chunks.length > 0) {
-      console.log(`[T2Check] First T3 chunk:`, {
-        chunkId: sectionT3Chunks[0].chunkId,
-        sectionGroup: sectionT3Chunks[0].sectionGroup,
-        tokenCount: sectionT3Chunks[0].tokenCount,
-        contentPreview: sectionT3Chunks[0].content.substring(0, 100)
-      });
+    t3Chunks: TierContent[],
+    t2MaxTokens: number
+  ): Promise<TierContent> {
+    // Determine parent chunk ID
+    let parentChunkId = 'summary'; // Default to T1
+    if (section.headingLevel > 1 && section.parentSectionId) {
+      const parentSection = enhancedIndex.hierarchicalSections.find(s =>
+        s.id === section.parentSectionId && s.nodeType === 'heading'
+      );
+      if (parentSection) {
+        parentChunkId = parentSection.anchorId;
+      }
     }
     
+    // Get T3 chunks for this section
+    const sectionT3Chunks = t3Chunks.filter(t3 => t3.sectionGroup === section.anchorId);
     const combinedContent = sectionT3Chunks.map(t3 => t3.content).join('\n\n');
     const totalTokens = this.estimateTokenCount(combinedContent);
     
-    console.log(`[T2Check] Combined content: ${combinedContent.length} chars, ${totalTokens} tokens`);
-    
-    // T2 max length from config (default: 200 words ≈ 266 tokens)
-    const T2_MAX_TOKENS = 266; // Roughly 200 words
-    
     // If content fits within T2 budget, use it directly
-    if (totalTokens <= T2_MAX_TOKENS && combinedContent.length > 0) {
-      console.log(`[T2AutoPopulate] Section "${section.title}": ${totalTokens} tokens fits budget, using raw content`);
+    if (totalTokens <= t2MaxTokens && combinedContent.length > 0) {
+      console.log(`[T2AutoPopulate] Section "${section.title}": ${totalTokens} tokens fits budget (${t2MaxTokens}), using raw content`);
       
       return {
         tier: 2,
@@ -317,7 +318,7 @@ export class SmartContentGenerator {
     }
     
     // Content too large - create placeholder for AI summary
-    console.log(`[T2Placeholder] Section "${section.title}": ${totalTokens} tokens exceeds budget (${T2_MAX_TOKENS}), needs AI summary`);
+    console.log(`[T2Placeholder] Section "${section.title}": ${totalTokens} tokens exceeds budget (${t2MaxTokens}), needs AI summary`);
     
     return {
       tier: 2,

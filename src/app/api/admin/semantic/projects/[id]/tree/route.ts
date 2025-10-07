@@ -140,9 +140,10 @@ export async function GET(
 
     // Build tree structure
     const chunkMap = new Map<string, TreeNode>();
+    const logicalIdMap = new Map<string, string>(); // Map logical chunkId to database UUID
     const rootNodes: TreeNode[] = [];
 
-    // First pass: create all nodes
+    // First pass: create all nodes and build logical ID map
     for (const chunk of chunks) {
       const node: TreeNode = {
         chunkId: chunk.id,
@@ -164,19 +165,33 @@ export async function GET(
         children: []
       };
       chunkMap.set(chunk.id, node);
+      // Store logical chunkId mapping for legacy parent resolution
+      logicalIdMap.set(chunk.chunkId, chunk.id);
     }
 
-    // Second pass: build hierarchy
+    // Second pass: build hierarchy (with legacy logical ID support)
     for (const chunk of chunks) {
       const node = chunkMap.get(chunk.id);
       if (!node) continue;
 
       if (chunk.parentChunkId) {
-        const parent = chunkMap.get(chunk.parentChunkId);
+        // Try to find parent by database UUID first, then by logical chunkId (for legacy data)
+        let parent = chunkMap.get(chunk.parentChunkId);
+        
+        if (!parent && logicalIdMap.has(chunk.parentChunkId)) {
+          // Legacy: parentChunkId is a logical ID (like 'metadata'), resolve to database UUID
+          const parentDbId = logicalIdMap.get(chunk.parentChunkId);
+          if (parentDbId) {
+            parent = chunkMap.get(parentDbId);
+            console.log(`[Tree API] Resolved legacy parent "${chunk.parentChunkId}" to database UUID for chunk ${chunk.chunkId}`);
+          }
+        }
+        
         if (parent) {
           parent.children.push(node);
         } else {
-          // Parent not found, add to root
+          // Parent not found, add to root (orphaned chunk)
+          console.warn(`[Tree API] Orphaned chunk ${chunk.chunkId} (tier ${chunk.tier}), parent "${chunk.parentChunkId}" not found`);
           rootNodes.push(node);
         }
       } else {
@@ -200,28 +215,55 @@ export async function GET(
 
     sortChildren(rootNodes);
 
-    // Return the first root node (should be T0) or all roots if multiple
-    const treeRoot = rootNodes.length === 1 ? rootNodes[0] : {
-      chunkId: 'root',
-      tier: -1,
-      title: 'Project Root',
-      contentPreview: 'Multiple root nodes found',
-      tokenCount: 0,
-      importance: 0,
-      hasEmbedding: false,
-      embeddingModel: null,
-      embeddingGeneratedAt: null,
-      manuallyEdited: false,
-      generationMode: 'system',
-      modifiedBy: 'system',
-      lastModified: new Date(),
-      sectionGroup: null,
-      parentChunkId: null,
-      metadata: {},
-      children: rootNodes
-    };
-
-    return NextResponse.json(treeRoot);
+    // Return T0 as root, or create a wrapper if we have orphaned chunks
+    if (rootNodes.length === 0) {
+      // No chunks at all
+      return NextResponse.json({
+        chunkId: 'empty',
+        tier: -1,
+        title: 'No semantic content',
+        contentPreview: 'This project has no semantic chunks yet.',
+        tokenCount: 0,
+        importance: 0,
+        hasEmbedding: false,
+        embeddingModel: null,
+        embeddingGeneratedAt: null,
+        manuallyEdited: false,
+        generationMode: 'system',
+        modifiedBy: 'system',
+        lastModified: new Date(),
+        sectionGroup: null,
+        parentChunkId: null,
+        metadata: {},
+        children: []
+      });
+    } else if (rootNodes.length === 1) {
+      // Single root (T0) - correct hierarchy
+      return NextResponse.json(rootNodes[0]);
+    } else {
+      // Multiple root nodes - likely data corruption or orphaned chunks
+      // Create a temporary wrapper for display
+      console.warn(`[Tree API] Found ${rootNodes.length} root nodes, expected 1. This indicates orphaned chunks.`);
+      return NextResponse.json({
+        chunkId: 'root',
+        tier: -1,
+        title: 'Project Root (Multiple Roots Detected)',
+        contentPreview: `⚠️ Found ${rootNodes.length} root nodes. This may indicate data corruption or orphaned chunks that need parent resolution.`,
+        tokenCount: 0,
+        importance: 0,
+        hasEmbedding: false,
+        embeddingModel: null,
+        embeddingGeneratedAt: null,
+        manuallyEdited: false,
+        generationMode: 'system',
+        modifiedBy: 'system',
+        lastModified: new Date(),
+        sectionGroup: null,
+        parentChunkId: null,
+        metadata: { warning: 'multiple_roots', rootCount: rootNodes.length },
+        children: rootNodes
+      });
+    }
   } catch (error) {
     console.error('Error fetching semantic tree:', error);
     return NextResponse.json(

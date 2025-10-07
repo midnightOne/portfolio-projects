@@ -1441,7 +1441,8 @@ export class StageBasedProcessingService extends EventEmitter {
         
         // Resolve parent chunk ID from logical ID to database UUID
         let resolvedParentChunkId: string | null = null;
-        if (chunk.parentChunkId && chunk.tier > 1) {
+        if (chunk.parentChunkId && chunk.tier >= 1) {
+          // T1+ chunks need parent resolution (T1 → T0, T2+ → T1 or other T2s)
           // Check if parentChunkId is already a database UUID (starts with 'c' and is ~25 chars for cuid)
           // If so, use it directly. Otherwise, it's a logical ID and needs resolution.
           const isDbId = chunk.parentChunkId.startsWith('c') && chunk.parentChunkId.length >= 20;
@@ -1582,10 +1583,10 @@ export class StageBasedProcessingService extends EventEmitter {
       update: {}
     });
 
-    // For T1 chunks, parent should be null (they are root chunks)
+    // Resolve parent chunk ID from logical ID to database UUID
     let resolvedParentChunkId = null;
-    if (chunk.parentChunkId && chunk.tier > 1) {
-      // Only resolve parent for T2+ chunks
+    if (chunk.parentChunkId && chunk.tier >= 1) {
+      // T1+ chunks need parent resolution (T1 → T0, T2+ → T1 or other T2s)
       // Check if parentChunkId is already a database UUID (starts with 'c' and is ~25 chars for cuid)
       const isDbId = chunk.parentChunkId.startsWith('c') && chunk.parentChunkId.length >= 20;
       

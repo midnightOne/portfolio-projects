@@ -17,6 +17,12 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   Settings,
   Save,
@@ -29,7 +35,10 @@ import {
   Loader2,
   Info,
   TrendingUp,
-  Package
+  Package,
+  FileText,
+  ChevronDown,
+  Sparkles
 } from "lucide-react";
 import { HelpText } from "@/components/ui/help-text";
 
@@ -82,6 +91,21 @@ interface CostImpact {
   estimatedRegenerationCost: number;
 }
 
+interface SummaryConfig {
+  id: string;
+  name: string;
+  model: string;
+  temperature: number;
+  t1SystemPrompt: string;
+  t2SystemPrompt: string;
+  t1MaxLength: number;
+  t2MaxLength: number;
+  preventHallucination: boolean;
+  preserveKeywords: boolean;
+  requireFactualAccuracy: boolean;
+  isDefault: boolean;
+}
+
 export function ChunkingConfig() {
   const [config, setConfig] = useState<ChunkingSettings | null>(null);
   const [originalConfig, setOriginalConfig] = useState<ChunkingSettings | null>(null);
@@ -91,9 +115,15 @@ export function ChunkingConfig() {
   const [calculatingCost, setCalculatingCost] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  
+  // Summary AI config state
+  const [summaryConfigs, setSummaryConfigs] = useState<SummaryConfig[]>([]);
+  const [selectedSummaryConfig, setSelectedSummaryConfig] = useState<SummaryConfig | null>(null);
+  const [summaryPromptsOpen, setSummaryPromptsOpen] = useState(false);
 
   useEffect(() => {
     loadConfig();
+    loadSummaryConfigs();
   }, []);
 
   useEffect(() => {
@@ -123,6 +153,26 @@ export function ChunkingConfig() {
       console.error('Failed to load config:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadSummaryConfigs = async () => {
+    try {
+      const response = await fetch('/api/admin/semantic/summary-config', {
+        method: 'POST',
+      });
+      
+      if (!response.ok) return;
+      
+      const data = await response.json();
+      const configs = data.configs || [];
+      setSummaryConfigs(configs);
+      
+      // Select default config
+      const defaultConfig = configs.find((c: SummaryConfig) => c.isDefault) || configs[0];
+      setSelectedSummaryConfig(defaultConfig);
+    } catch (error) {
+      console.error('Failed to load summary configs:', error);
     }
   };
 
@@ -303,6 +353,10 @@ export function ChunkingConfig() {
             <Package className="h-4 w-4 mr-2" />
             Chunking
           </TabsTrigger>
+          <TabsTrigger value="summary">
+            <FileText className="h-4 w-4 mr-2" />
+            Summary
+          </TabsTrigger>
           <TabsTrigger value="embedding">
             <Zap className="h-4 w-4 mr-2" />
             Embedding
@@ -438,12 +492,15 @@ export function ChunkingConfig() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
 
+        {/* Summary Settings */}
+        <TabsContent value="summary" className="space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>Summary Generation</CardTitle>
               <CardDescription>
-                Configure AI-generated summary lengths
+                Configure AI-generated summary lengths and auto-population thresholds
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -479,11 +536,108 @@ export function ChunkingConfig() {
                   step={25}
                 />
                 <HelpText>
-                  Maximum tokens for section-level summaries (T2).
+                  Maximum tokens for section-level summaries (T2). Also used as the auto-population threshold during chunking - if a section's raw content fits within this limit, it will be used directly instead of generating an AI summary.
                 </HelpText>
               </div>
             </CardContent>
           </Card>
+
+          {/* AI Configuration */}
+          {selectedSummaryConfig && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Sparkles className="h-4 w-4" />
+                  AI Model & Prompts
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Used during batch summary generation (read-only presets)
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Config Selector */}
+                <div className="space-y-2">
+                  <Label className="text-xs">Preset</Label>
+                  <Select 
+                    value={selectedSummaryConfig.id} 
+                    onValueChange={(id) => {
+                      const config = summaryConfigs.find(c => c.id === id);
+                      if (config) setSelectedSummaryConfig(config);
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {summaryConfigs.map((cfg) => (
+                        <SelectItem key={cfg.id} value={cfg.id} className="text-xs">
+                          {cfg.name}
+                          {cfg.isDefault && <Badge variant="outline" className="ml-2 text-xs">Default</Badge>}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Compact Model/Temp Display */}
+                <div className="grid grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <p className="text-muted-foreground mb-1">Model</p>
+                    <p className="font-mono">{selectedSummaryConfig.model}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground mb-1">Temperature</p>
+                    <p className="font-mono">{selectedSummaryConfig.temperature}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground mb-1">Quality</p>
+                    <div className="flex gap-1">
+                      {selectedSummaryConfig.preventHallucination && (
+                        <CheckCircle className="h-3 w-3 text-green-600" title="Anti-Hallucination" />
+                      )}
+                      {selectedSummaryConfig.preserveKeywords && (
+                        <CheckCircle className="h-3 w-3 text-blue-600" title="Preserve Keywords" />
+                      )}
+                      {selectedSummaryConfig.requireFactualAccuracy && (
+                        <CheckCircle className="h-3 w-3 text-purple-600" title="Factual Accuracy" />
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* System Prompts - Collapsible */}
+                <Collapsible open={summaryPromptsOpen} onOpenChange={setSummaryPromptsOpen}>
+                  <CollapsibleTrigger className="flex items-center gap-2 text-xs font-medium hover:underline">
+                    <ChevronDown className={`h-3 w-3 transition-transform ${summaryPromptsOpen ? 'rotate-180' : ''}`} />
+                    System Prompts (T1 / T2)
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="space-y-3 mt-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">T1 (Project Summary)</Label>
+                      <Textarea
+                        value={selectedSummaryConfig.t1SystemPrompt}
+                        readOnly
+                        rows={6}
+                        className="font-mono text-[10px] bg-muted resize-none"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">T2 (Section Summary)</Label>
+                      <Textarea
+                        value={selectedSummaryConfig.t2SystemPrompt}
+                        readOnly
+                        rows={6}
+                        className="font-mono text-[10px] bg-muted resize-none"
+                      />
+                    </div>
+                    <p className="text-[10px] text-muted-foreground italic">
+                      For custom prompts, use manual generation in the Semantic Tree View
+                    </p>
+                  </CollapsibleContent>
+                </Collapsible>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Embedding Settings */}
