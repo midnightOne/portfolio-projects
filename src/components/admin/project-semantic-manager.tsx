@@ -73,6 +73,13 @@ export function ProjectSemanticManager({ projectId }: ProjectSemanticManagerProp
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [verifyingVectors, setVerifyingVectors] = useState(false);
+  const [vectorVerificationResult, setVectorVerificationResult] = useState<{
+    totalChunks: number;
+    chunksWithVectors: number;
+    chunksWithoutVectors: number;
+    percentageWithVectors: number;
+  } | null>(null);
 
   // Fetch project information
   useEffect(() => {
@@ -129,6 +136,31 @@ export function ProjectSemanticManager({ projectId }: ProjectSemanticManagerProp
       }
     } catch (err) {
       console.error('Failed to fetch job queue:', err);
+    }
+  };
+
+  const verifyVectors = async () => {
+    setVerifyingVectors(true);
+    setVectorVerificationResult(null);
+    
+    try {
+      const response = await fetch(`/api/admin/semantic/projects/${projectId}/verify-vectors`);
+      if (!response.ok) {
+        throw new Error(`Failed to verify vectors: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      setVectorVerificationResult({
+        totalChunks: data.totalChunks,
+        chunksWithVectors: data.chunksWithVectors,
+        chunksWithoutVectors: data.chunksWithoutVectors,
+        percentageWithVectors: data.percentageWithVectors
+      });
+    } catch (err) {
+      console.error('Failed to verify vectors:', err);
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setVerifyingVectors(false);
     }
   };
 
@@ -201,7 +233,7 @@ export function ProjectSemanticManager({ projectId }: ProjectSemanticManagerProp
         return baseConfigs.map(c => ({ 
           ...c, 
           enabled: c.stage === 'embeddings' || c.stage === 'validation',
-          mode: c.stage === 'embeddings' ? 'batch' : 'immediate' // Use batch for cost savings
+          mode: 'immediate' // Use immediate mode for embeddings (batch not fully implemented yet)
         }));
       case 'validation':
         return baseConfigs.map(c => ({ 
@@ -219,7 +251,7 @@ export function ProjectSemanticManager({ projectId }: ProjectSemanticManagerProp
       case 'full': return '~2-3 minutes';
       case 'chunking': return '~2-5 seconds';
       case 'summaries': return '~30 seconds';
-      case 'embeddings': return '~24 hours (batch)';
+      case 'embeddings': return '~10-20 seconds';
       case 'validation': return '~5 seconds';
       default: return '~1 minute';
     }
@@ -510,6 +542,54 @@ export function ProjectSemanticManager({ projectId }: ProjectSemanticManagerProp
               </div>
             </div>
           </div>
+          
+          <Separator className="my-4" />
+          
+          {/* Vector Verification */}
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium">Database Vectors</div>
+              <div className="text-xs text-muted-foreground">Verify actual embedding vectors in database</div>
+            </div>
+            <Button
+              onClick={verifyVectors}
+              variant="outline"
+              size="sm"
+              disabled={verifyingVectors}
+            >
+              {verifyingVectors ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Checking...
+                </>
+              ) : (
+                <>
+                  <Database className="h-4 w-4 mr-2" />
+                  Verify Vectors
+                </>
+              )}
+            </Button>
+          </div>
+          
+          {vectorVerificationResult && (
+            <Alert className={vectorVerificationResult.percentageWithVectors === 100 ? "border-green-500" : "border-yellow-500"}>
+              <AlertDescription>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between font-medium">
+                    <span>Vector Status:</span>
+                    <Badge variant={vectorVerificationResult.percentageWithVectors === 100 ? "default" : "outline"}>
+                      {vectorVerificationResult.chunksWithVectors} / {vectorVerificationResult.totalChunks} ({vectorVerificationResult.percentageWithVectors}%)
+                    </Badge>
+                  </div>
+                  {vectorVerificationResult.chunksWithoutVectors > 0 && (
+                    <div className="text-sm text-muted-foreground">
+                      ⚠️ {vectorVerificationResult.chunksWithoutVectors} chunk(s) missing embeddings
+                    </div>
+                  )}
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
         </CardContent>
       </Card>
 

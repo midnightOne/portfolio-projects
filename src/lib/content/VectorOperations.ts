@@ -83,6 +83,8 @@ export class VectorOperations {
             content = ${data.content},
             token_count = ${data.tokenCount},
             embedding_vector = ${embeddingString}::vector(1536),
+            embedding_generated_at = NOW(),
+            embedding_model = 'text-embedding-3-small',
             metadata = ${JSON.stringify(data.metadata || {})}::jsonb,
             parent_chunk_id = ${data.parentChunkId || null},
             root_chunk_id = ${data.rootChunkId || null},
@@ -118,7 +120,8 @@ export class VectorOperations {
         result = await this.prisma.$queryRaw<{ id: string; created_at: Date }[]>`
           INSERT INTO context_chunks (
             id, entity_id, project_index_id, tier, chunk_id, title, content, token_count, 
-            embedding_vector, metadata, parent_chunk_id, root_chunk_id, section_group, 
+            embedding_vector, embedding_generated_at, embedding_model,
+            metadata, parent_chunk_id, root_chunk_id, section_group, 
             derivation_path, created_at, updated_at
           ) VALUES (
             gen_random_uuid(),
@@ -130,6 +133,8 @@ export class VectorOperations {
             ${data.content},
             ${data.tokenCount},
             ${embeddingString}::vector(1536),
+            NOW(),
+            'text-embedding-3-small',
             ${JSON.stringify(data.metadata || {})}::jsonb,
             ${data.parentChunkId || null},
             ${data.rootChunkId || null},

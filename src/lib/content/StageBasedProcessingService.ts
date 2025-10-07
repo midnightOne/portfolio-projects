@@ -127,6 +127,7 @@ interface EmbeddingsCheckpoint {
     cost: number;
   }>;
   batchJobIds?: string[];
+  chunksWithEmbeddings?: TierContent[]; // Chunks with generated embeddings attached
 }
 
 interface ValidationCheckpoint {
@@ -790,21 +791,56 @@ export class StageBasedProcessingService extends EventEmitter {
 
       console.log(`[EmbeddingsStage] Found ${dbChunks.length} existing chunks in database`);
 
-      // Convert database chunks to TierContent format
+      // Build a map of chunkId -> database UUID for parent resolution
+      const chunkIdToDbId = new Map<string, string>();
+      dbChunks.forEach(chunk => {
+        chunkIdToDbId.set(chunk.chunkId, chunk.id);
+      });
+
+      // Convert database chunks to TierContent format and restore parent relationships
       // Note: Prisma automatically converts snake_case DB columns to camelCase
-      allChunks = dbChunks.map(dbChunk => ({
-        tier: dbChunk.tier,
-        chunkId: dbChunk.chunkId,
-        title: dbChunk.title,
-        content: dbChunk.content,
-        tokenCount: dbChunk.tokenCount,
-        parentChunkId: dbChunk.parentChunkId || null,
-        rootChunkId: dbChunk.rootChunkId || null,
-        sectionGroup: dbChunk.sectionGroup || null,
-        derivationPath: dbChunk.derivation_path || null, // Note: No @map in schema, stays snake_case
-        sectionBounded: dbChunk.tier === 3 ? true : dbChunk.sectionBounded, // T3 chunks are always section-bounded
-        metadata: dbChunk.metadata as any || {}
-      }));
+      allChunks = dbChunks.map(dbChunk => {
+        let parentChunkId = dbChunk.parentChunkId;
+        
+        // If parent is missing and this is a T2+ chunk, try to infer it from the hierarchy
+        if (!parentChunkId && dbChunk.tier > 1) {
+          console.log(`[EmbeddingsStage] Chunk ${dbChunk.chunkId} (T${dbChunk.tier}) missing parent - attempting to restore`);
+          
+          if (dbChunk.tier === 2) {
+            // T2 chunks should be parented to T1 "summary"
+            const t1Parent = dbChunks.find(c => c.tier === 1 && c.chunkId === 'summary');
+            if (t1Parent) {
+              parentChunkId = t1Parent.id;
+              console.log(`[EmbeddingsStage] Restored T2 parent to summary (${t1Parent.id})`);
+            }
+          } else if (dbChunk.tier === 3) {
+            // T3 chunks should be parented to their T2 section
+            // Try to find T2 parent by sectionGroup or by matching chunk ID pattern
+            const sectionGroup = dbChunk.sectionGroup;
+            if (sectionGroup) {
+              const t2Parent = dbChunks.find(c => c.tier === 2 && c.chunkId === sectionGroup);
+              if (t2Parent) {
+                parentChunkId = t2Parent.id;
+                console.log(`[EmbeddingsStage] Restored T3 parent to ${sectionGroup} (${t2Parent.id})`);
+              }
+            }
+          }
+        }
+        
+        return {
+          tier: dbChunk.tier,
+          chunkId: dbChunk.chunkId,
+          title: dbChunk.title,
+          content: dbChunk.content,
+          tokenCount: dbChunk.tokenCount,
+          parentChunkId: parentChunkId || null,
+          rootChunkId: dbChunk.rootChunkId || null,
+          sectionGroup: dbChunk.sectionGroup || null,
+          derivationPath: dbChunk.derivation_path || null, // Note: No @map in schema, stays snake_case
+          sectionBounded: dbChunk.tier === 3 ? true : dbChunk.sectionBounded, // T3 chunks are always section-bounded
+          metadata: dbChunk.metadata as any || {}
+        };
+      });
     }
 
     stageProgress.totalItems = allChunks.length;
@@ -814,6 +850,8 @@ export class StageBasedProcessingService extends EventEmitter {
       embeddingsGenerated: [],
       batchJobIds: []
     };
+
+    console.log(`[EmbeddingsStage] Mode: ${config.mode}`);
 
     if (config.mode === 'batch') {
       // Use batch processing for cost savings
@@ -845,8 +883,12 @@ export class StageBasedProcessingService extends EventEmitter {
 
     } else {
       // Immediate processing
+      console.log(`[EmbeddingsStage] Starting immediate embedding generation for ${allChunks.length} chunks`);
+      
       for (const chunk of allChunks) {
         try {
+          console.log(`[EmbeddingsStage] Generating embedding for chunk ${chunk.chunkId} (${stageProgress.itemsProcessed + 1}/${allChunks.length})`);
+          
           // Generate embedding using OpenAI directly since VectorOperations doesn't have this method
           const embedding = await this.generateEmbedding(chunk.content);
           chunk.embedding = embedding;
@@ -865,13 +907,24 @@ export class StageBasedProcessingService extends EventEmitter {
           stageProgress.checkpoint = checkpoint;
 
           this.notifyProgress(request.operationId, progress);
+          
+          console.log(`[EmbeddingsStage] Embedding generated for ${chunk.chunkId}, progress: ${stageProgress.progress.toFixed(1)}%`);
 
         } catch (error) {
+          console.error(`[EmbeddingsStage] Error generating embedding for ${chunk.chunkId}:`, error);
           stageProgress.errors.push(`Chunk ${chunk.chunkId}: ${error.message}`);
           throw error;
         }
       }
+      
+      console.log(`[EmbeddingsStage] Completed immediate embedding generation: ${checkpoint.embeddingsGenerated.length} embeddings`);
+      
+      // Store chunks with embeddings in checkpoint for validation stage
+      checkpoint.chunksWithEmbeddings = allChunks;
+      stageProgress.checkpoint = checkpoint;
     }
+    
+    console.log(`[EmbeddingsStage] Stage complete. Chunks with embeddings: ${checkpoint.chunksWithEmbeddings?.length || 0}`);
   }
 
   /**
@@ -886,19 +939,27 @@ export class StageBasedProcessingService extends EventEmitter {
 
     console.log(`[ValidationStage] Starting validation for operation ${request.operationId}`);
 
-    // Get chunks from previous stages (summaries checkpoint takes priority, then chunking checkpoint, then DB)
+    // Get chunks from previous stages (embeddings, summaries, chunking, or DB)
+    const embeddingsCheckpoint = progress.stageProgress.embeddings.checkpoint as EmbeddingsCheckpoint;
     const summariesCheckpoint = progress.stageProgress.summaries.checkpoint as SummariesCheckpoint;
     const chunkingCheckpoint = progress.stageProgress.chunking.checkpoint as ChunkingCheckpoint;
     let allChunks: TierContent[];
 
     console.log(`[ValidationStage] Checking checkpoints:`, {
+      hasEmbeddingsCheckpoint: !!embeddingsCheckpoint,
+      hasChunksWithEmbeddings: !!embeddingsCheckpoint?.chunksWithEmbeddings,
+      chunksWithEmbeddingsLength: embeddingsCheckpoint?.chunksWithEmbeddings?.length,
       hasSummariesCheckpoint: !!summariesCheckpoint,
       hasModifiedChunks: !!summariesCheckpoint?.modifiedChunks,
       modifiedChunksLength: summariesCheckpoint?.modifiedChunks?.length,
       hasChunkingCheckpoint: !!chunkingCheckpoint
     });
 
-    if (summariesCheckpoint?.modifiedChunks && summariesCheckpoint.modifiedChunks.length > 0) {
+    if (embeddingsCheckpoint?.chunksWithEmbeddings && embeddingsCheckpoint.chunksWithEmbeddings.length > 0) {
+      // Use chunks with embeddings from embeddings stage (has vectors attached)
+      console.log(`[ValidationStage] Using ${embeddingsCheckpoint.chunksWithEmbeddings.length} chunks with embeddings from embeddings checkpoint`);
+      allChunks = embeddingsCheckpoint.chunksWithEmbeddings;
+    } else if (summariesCheckpoint?.modifiedChunks && summariesCheckpoint.modifiedChunks.length > 0) {
       // Use only modified chunks from summaries stage
       console.log(`[ValidationStage] Using ${summariesCheckpoint.modifiedChunks.length} modified chunks from summaries checkpoint`);
       allChunks = summariesCheckpoint.modifiedChunks;
@@ -957,7 +1018,7 @@ export class StageBasedProcessingService extends EventEmitter {
     // Sort chunks by tier to ensure parents are created before children
     const sortedChunks = [...allChunks].sort((a, b) => a.tier - b.tier);
     
-    // Validate all chunks first (fast, no I/O)
+    // Validate all chunks (fast, no I/O)
     console.log(`[ValidationStage] Validating ${sortedChunks.length} chunks...`);
     for (const chunk of sortedChunks) {
       try {
@@ -1338,18 +1399,29 @@ export class StageBasedProcessingService extends EventEmitter {
     let resolvedParentChunkId = null;
     if (chunk.parentChunkId && chunk.tier > 1) {
       // Only resolve parent for T2+ chunks
-      const parentChunk = await prisma.contextChunk.findFirst({
-        where: {
-          entityId: entity.id,
-          chunkId: chunk.parentChunkId
-        },
-        select: { id: true }
-      });
+      // Check if parentChunkId is already a database UUID (starts with 'c' and is ~25 chars for cuid)
+      const isDbId = chunk.parentChunkId.startsWith('c') && chunk.parentChunkId.length >= 20;
       
-      if (parentChunk) {
-        resolvedParentChunkId = parentChunk.id;
+      if (isDbId) {
+        // Already a database UUID, use directly
+        resolvedParentChunkId = chunk.parentChunkId;
+        console.log(`[storeValidatedChunk] Using existing DB parent ID for ${chunk.chunkId}`);
       } else {
-        console.warn(`Parent chunk not found for ${chunk.chunkId}, proceeding without parent`);
+        // It's a logical ID, look it up in the database
+        const parentChunk = await prisma.contextChunk.findFirst({
+          where: {
+            entityId: entity.id,
+            chunkId: chunk.parentChunkId
+          },
+          select: { id: true }
+        });
+        
+        if (parentChunk) {
+          resolvedParentChunkId = parentChunk.id;
+          console.log(`[storeValidatedChunk] Resolved parent "${chunk.parentChunkId}" from database for ${chunk.chunkId}`);
+        } else {
+          console.warn(`[storeValidatedChunk] Parent chunk not found for ${chunk.chunkId} (parent: ${chunk.parentChunkId}), proceeding without parent`);
+        }
       }
     }
 
