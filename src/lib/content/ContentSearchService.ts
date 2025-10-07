@@ -194,6 +194,9 @@ export class ContentSearchService implements ContentProvider {
       let cacheHit = false;
       const embeddingTimings: Record<string, number> = {};
 
+      console.log(`[ContentSearch] Starting search for query: "${query}"`);
+      console.log(`[ContentSearch] OpenAI client available: ${!!this.openai}`);
+
       if (this.openai && query.trim()) {
         try {
           // Check cache first
@@ -236,6 +239,7 @@ export class ContentSearchService implements ContentProvider {
 
       // Step 2: Perform semantic search with metadata filtering
       const hybridSearchStartTime = Date.now();
+      console.log(`[ContentSearch] Query embedding length: ${queryEmbedding.length}, calling hybridSearch with maxTier: ${maxTier}, k: ${k * 3}`);
       const searchResults = await this._performHybridSearch(
         queryEmbedding,
         query,
@@ -245,6 +249,7 @@ export class ContentSearchService implements ContentProvider {
         k * 3 // Get more results for diversification
       );
       timings.hybridSearchTime = Date.now() - hybridSearchStartTime;
+      console.log(`[ContentSearch] Hybrid search returned ${searchResults.length} results`);
 
       // Step 3: Apply importance-aware ranking (NEW - integrates importance scores)
       const importanceRankingStartTime = Date.now();

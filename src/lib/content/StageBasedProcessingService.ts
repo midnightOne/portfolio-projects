@@ -21,6 +21,7 @@ import { VectorOperations } from './VectorOperations';
 import { SemanticBudgetManager } from './SemanticBudgetManager';
 import { ProjectIndexer } from '../services/project-indexer';
 import { EventEmitter } from 'events';
+import OpenAI from 'openai';
 
 // Processing stages
 export type ProcessingStage = 'chunking' | 'summaries' | 'embeddings' | 'validation';
@@ -145,6 +146,7 @@ export class StageBasedProcessingService extends EventEmitter {
   private vectorOps: VectorOperations;
   private budgetManager: SemanticBudgetManager;
   private projectIndexer: ProjectIndexer;
+  private openai: OpenAI | null;
 
   // Progress tracking
   private activeOperations = new Map<string, ProcessingProgress>();
@@ -161,6 +163,15 @@ export class StageBasedProcessingService extends EventEmitter {
     this.vectorOps = new VectorOperations(prisma);
     this.budgetManager = new SemanticBudgetManager();
     this.projectIndexer = ProjectIndexer.getInstance();
+    
+    // Initialize OpenAI client for embedding generation
+    if (apiKey) {
+      this.openai = new OpenAI({ apiKey });
+      console.log('[StageBasedProcessingService] OpenAI client initialized for embeddings');
+    } else {
+      console.warn('[StageBasedProcessingService] OPENAI_API_KEY not found - embedding generation will fail');
+      this.openai = null;
+    }
   }
 
   /**
@@ -565,6 +576,11 @@ export class StageBasedProcessingService extends EventEmitter {
         throw error;
       }
     }
+    
+    // Save chunks to database after chunking completes
+    console.log(`[ChunkingStage] Saving ${checkpoint.chunksCreated.length} chunks to database...`);
+    await this.saveChunksToDatabase(request, checkpoint.chunksCreated, false); // false = no embeddings yet
+    console.log(`[ChunkingStage] ✓ Chunks saved to database`);
   }
 
   /**
@@ -734,8 +750,14 @@ export class StageBasedProcessingService extends EventEmitter {
     stageProgress.checkpoint = checkpoint;
 
     console.log(`[SummariesStage] Complete: Generated ${checkpoint.summariesGenerated.length} summaries`);
-    console.log(`[SummariesStage] Stored ${modifiedChunks.length} modified chunks in checkpoint for validation`);
-    console.log(`[SummariesStage] Modified chunk IDs: ${modifiedChunks.map(c => c.chunkId).join(', ')}`);
+    console.log(`[SummariesStage] Stored ${modifiedChunks.length} modified chunks in checkpoint`);
+    
+    // Update chunks in database with new summaries
+    if (modifiedChunks.length > 0) {
+      console.log(`[SummariesStage] Updating ${modifiedChunks.length} chunks in database with AI summaries...`);
+      await this.updateChunksInDatabase(request, modifiedChunks);
+      console.log(`[SummariesStage] ✓ Chunks updated in database`);
+    }
   }
 
   /**
@@ -761,13 +783,19 @@ export class StageBasedProcessingService extends EventEmitter {
     const chunkingCheckpoint = progress.stageProgress.chunking.checkpoint as ChunkingCheckpoint;
     let allChunks: TierContent[];
 
-    if (summariesCheckpoint?.modifiedChunks) {
-      // Use only modified chunks from summaries stage
-      console.log(`[EmbeddingsStage] Using modified chunks from summaries checkpoint`);
+    if (summariesCheckpoint?.modifiedChunks && chunkingCheckpoint) {
+      // MERGE modified chunks from summaries with unmodified chunks from chunking
+      const modifiedChunkIds = new Set(summariesCheckpoint.modifiedChunks.map(c => c.chunkId));
+      const unmodifiedChunks = chunkingCheckpoint.chunksCreated.filter(c => !modifiedChunkIds.has(c.chunkId));
+      allChunks = [...summariesCheckpoint.modifiedChunks, ...unmodifiedChunks];
+      console.log(`[EmbeddingsStage] Merged ${summariesCheckpoint.modifiedChunks.length} modified + ${unmodifiedChunks.length} unmodified = ${allChunks.length} total chunks`);
+    } else if (summariesCheckpoint?.modifiedChunks) {
+      // Only modified chunks from summaries stage (no chunking checkpoint)
+      console.log(`[EmbeddingsStage] Using ${summariesCheckpoint.modifiedChunks.length} modified chunks from summaries checkpoint`);
       allChunks = summariesCheckpoint.modifiedChunks;
     } else if (chunkingCheckpoint) {
       // Use chunks from chunking stage
-      console.log(`[EmbeddingsStage] Using chunks from chunking checkpoint`);
+      console.log(`[EmbeddingsStage] Using ${chunkingCheckpoint.chunksCreated.length} chunks from chunking checkpoint`);
       allChunks = chunkingCheckpoint.chunksCreated;
     } else {
       // Fetch existing chunks from database
@@ -925,6 +953,13 @@ export class StageBasedProcessingService extends EventEmitter {
     }
     
     console.log(`[EmbeddingsStage] Stage complete. Chunks with embeddings: ${checkpoint.chunksWithEmbeddings?.length || 0}`);
+    
+    // Update chunks in database with embeddings
+    if (checkpoint.chunksWithEmbeddings && checkpoint.chunksWithEmbeddings.length > 0) {
+      console.log(`[EmbeddingsStage] Updating ${checkpoint.chunksWithEmbeddings.length} chunks in database with embeddings...`);
+      await this.updateChunksInDatabase(request, checkpoint.chunksWithEmbeddings, true); // true = has embeddings
+      console.log(`[EmbeddingsStage] ✓ Chunks with embeddings saved to database`);
+    }
   }
 
   /**
@@ -959,9 +994,17 @@ export class StageBasedProcessingService extends EventEmitter {
       // Use chunks with embeddings from embeddings stage (has vectors attached)
       console.log(`[ValidationStage] Using ${embeddingsCheckpoint.chunksWithEmbeddings.length} chunks with embeddings from embeddings checkpoint`);
       allChunks = embeddingsCheckpoint.chunksWithEmbeddings;
+    } else if (summariesCheckpoint?.modifiedChunks && summariesCheckpoint.modifiedChunks.length > 0 && chunkingCheckpoint) {
+      // MERGE modified chunks from summaries with unmodified chunks from chunking
+      // Modified chunks = T1/T2 with AI summaries
+      // Unmodified chunks = T0, T3, and auto-populated T2s
+      const modifiedChunkIds = new Set(summariesCheckpoint.modifiedChunks.map(c => c.chunkId));
+      const unmodifiedChunks = chunkingCheckpoint.chunksCreated.filter(c => !modifiedChunkIds.has(c.chunkId));
+      allChunks = [...summariesCheckpoint.modifiedChunks, ...unmodifiedChunks];
+      console.log(`[ValidationStage] Merged ${summariesCheckpoint.modifiedChunks.length} modified + ${unmodifiedChunks.length} unmodified = ${allChunks.length} total chunks`);
     } else if (summariesCheckpoint?.modifiedChunks && summariesCheckpoint.modifiedChunks.length > 0) {
-      // Use only modified chunks from summaries stage
-      console.log(`[ValidationStage] Using ${summariesCheckpoint.modifiedChunks.length} modified chunks from summaries checkpoint`);
+      // Only modified chunks (no chunking checkpoint - summaries ran independently)
+      console.log(`[ValidationStage] Using ${summariesCheckpoint.modifiedChunks.length} modified chunks from summaries checkpoint (no chunking checkpoint)`);
       allChunks = summariesCheckpoint.modifiedChunks;
     } else if (chunkingCheckpoint) {
       // Use chunks from chunking stage (all chunks, since they're all new)
@@ -1031,44 +1074,12 @@ export class StageBasedProcessingService extends EventEmitter {
     }
     console.log(`[ValidationStage] All chunks validated successfully`);
     
-    // Check if chunks have embeddings
-    const hasEmbeddings = sortedChunks.some(chunk => chunk.embedding);
+    // Mark all chunks as validated (no storage needed - already saved incrementally)
+    checkpoint.validatedChunks = sortedChunks.map(c => c.chunkId);
+    stageProgress.itemsProcessed = sortedChunks.length;
+    stageProgress.progress = 100;
     
-    if (!hasEmbeddings && sortedChunks.length > 1) {
-      // Use batch storage for better performance (no embeddings)
-      console.log(`[ValidationStage] Using batch storage for ${sortedChunks.length} chunks (no embeddings)`);
-      await this.batchStoreChunks(sortedChunks, request);
-      
-      checkpoint.validatedChunks.push(...sortedChunks.map(c => c.chunkId));
-      stageProgress.itemsProcessed = sortedChunks.length;
-      stageProgress.progress = 100;
-      stageProgress.checkpoint = checkpoint;
-      this.notifyProgress(request.operationId, progress);
-    } else {
-      // Store chunks one by one (needed for embeddings or single chunk)
-      console.log(`[ValidationStage] Using individual storage (${hasEmbeddings ? 'has embeddings' : 'single chunk'})`);
-      for (const chunk of sortedChunks) {
-        try {
-          console.log(`[ValidationStage] Storing chunk ${chunk.chunkId} (tier ${chunk.tier})`);
-          await this.storeValidatedChunk(chunk, request);
-          
-          checkpoint.validatedChunks.push(chunk.chunkId);
-          
-          stageProgress.itemsProcessed++;
-          stageProgress.progress = (stageProgress.itemsProcessed / stageProgress.totalItems) * 100;
-          stageProgress.checkpoint = checkpoint;
-
-          this.notifyProgress(request.operationId, progress);
-
-        } catch (error) {
-          console.error(`[ValidationStage] Error storing chunk ${chunk.chunkId}:`, error);
-          stageProgress.errors.push(`Chunk ${chunk.chunkId}: ${error.message}`);
-          throw error;
-        }
-      }
-    }
-    
-    console.log(`[ValidationStage] Successfully validated and stored ${checkpoint.validatedChunks.length} chunks`);
+    console.log(`[ValidationStage] ✓ Validated ${checkpoint.validatedChunks.length} chunks (already persisted in previous stages)`);
 
     // Generate health metrics
     checkpoint.healthMetrics = {
@@ -1122,6 +1133,126 @@ export class StageBasedProcessingService extends EventEmitter {
         throw error;
       }
     }, 2000); // Poll every 2 seconds for testing
+  }
+
+  /**
+   * Save chunks to database (used after chunking stage)
+   */
+  private async saveChunksToDatabase(
+    request: ProcessingRequest,
+    chunks: TierContent[],
+    hasEmbeddings: boolean = false
+  ): Promise<void> {
+    const projects = await this.getProjectsToProcess(request);
+    const project = projects[0];
+    
+    // Ensure content entity exists
+    let entity = await prisma.contentEntity.findFirst({
+      where: {
+        slug: project.slug,
+        entityType: 'PROJECT'
+      }
+    });
+
+    if (!entity) {
+      entity = await prisma.contentEntity.create({
+        data: {
+          slug: project.slug,
+          entityType: 'PROJECT',
+          title: project.title,
+          description: project.description || project.summary || `AI context for ${project.title}`
+        }
+      });
+    }
+
+    // Ensure ProjectAIIndex exists
+    await prisma.projectAIIndex.upsert({
+      where: { projectId: project.id },
+      update: {},
+      create: {
+        projectId: project.id,
+        summary: project.summary || project.description || `AI index for ${project.title}`
+      }
+    });
+
+    // Use batch storage for efficiency
+    if (!hasEmbeddings && chunks.length > 1) {
+      await this.batchStoreChunks(chunks, request);
+    } else {
+      // Store one by one (with embeddings or single chunk)
+      for (const chunk of chunks) {
+        await this.storeValidatedChunk(chunk, request);
+      }
+    }
+  }
+
+  /**
+   * Update existing chunks in database (used after summaries/embeddings stages)
+   */
+  private async updateChunksInDatabase(
+    request: ProcessingRequest,
+    chunks: TierContent[],
+    hasEmbeddings: boolean = false
+  ): Promise<void> {
+    const projects = await this.getProjectsToProcess(request);
+    const project = projects[0];
+    
+    const entity = await prisma.contentEntity.findFirst({
+      where: { slug: project.slug }
+    });
+
+    if (!entity) {
+      throw new Error(`Content entity not found for project ${project.slug}`);
+    }
+
+    // Update chunks one by one
+    for (const chunk of chunks) {
+      // Find existing chunk by chunkId
+      const existingChunk = await prisma.contextChunk.findFirst({
+        where: {
+          entityId: entity.id,
+          chunkId: chunk.chunkId
+        }
+      });
+
+      if (existingChunk) {
+        // Update with new content/embedding using raw SQL for efficiency
+        if (hasEmbeddings && chunk.embedding) {
+          // Update with embedding
+          // NOTE: PostgreSQL pgvector requires vectors to be cast from string format.
+          // We convert the number array [0.1, 0.2, ...] to a string "[0.1,0.2,...]"
+          // and then cast it to vector(1536) type. Direct array insertion is not supported by pgvector.
+          const embeddingString = `[${chunk.embedding.join(',')}]`;
+          await prisma.$executeRaw`
+            UPDATE context_chunks
+            SET
+              content = ${chunk.content},
+              token_count = ${chunk.tokenCount},
+              metadata = ${JSON.stringify(chunk.metadata || {})}::jsonb,
+              embedding_vector = ${embeddingString}::vector(1536),
+              embedding_generated_at = NOW(),
+              embedding_model = 'text-embedding-3-small',
+              updated_at = NOW()
+            WHERE id = ${existingChunk.id}
+          `;
+        } else {
+          // Update without embedding (just content)
+          await prisma.contextChunk.update({
+            where: { id: existingChunk.id },
+            data: {
+              content: chunk.content,
+              tokenCount: chunk.tokenCount,
+              metadata: chunk.metadata || {},
+              updatedAt: new Date()
+            }
+          });
+        }
+        
+        console.log(`[UpdateChunks] Updated chunk ${chunk.chunkId} (${chunk.tier === 1 ? 'T1' : chunk.tier === 2 ? 'T2' : chunk.tier === 3 ? 'T3' : 'T0'})`);
+      } else {
+        console.warn(`[UpdateChunks] Chunk ${chunk.chunkId} not found in database, skipping update`);
+      }
+    }
   }
 
   /**
@@ -1249,13 +1380,63 @@ export class StageBasedProcessingService extends EventEmitter {
     
     console.log(`[batchStoreChunks] Entity and project index ready. Starting batch upsert...`);
     
-    // Build a map of logical chunk IDs to database IDs for parent resolution
+    // Build a map of logical chunk IDs to database IDs for parent and root resolution
     const chunkIdToDbId = new Map<string, string>();
+    let t0DbId: string | null = null;
     
     // Use Prisma transaction with individual upserts (Prisma doesn't have native upsertMany)
     // This is still faster than separate transactions per chunk
     await prisma.$transaction(async (tx) => {
+      // First pass: Store T0 chunk to get its database ID
+      const t0Chunk = chunks.find(c => c.tier === 0);
+      if (t0Chunk) {
+        const t0Result = await tx.contextChunk.upsert({
+          where: {
+            entityId_tier_chunkId: {
+              entityId: entity.id,
+              tier: 0,
+              chunkId: t0Chunk.chunkId
+            }
+          },
+          create: {
+            entityId: entity.id,
+            projectIndexId: request.projectId,
+            tier: 0,
+            chunkId: t0Chunk.chunkId,
+            title: t0Chunk.title ? t0Chunk.title.substring(0, 255) : null,
+            content: t0Chunk.content,
+            tokenCount: t0Chunk.tokenCount,
+            metadata: t0Chunk.metadata || {},
+            parentChunkId: null,
+            rootChunkId: null, // Will be set to self after getting ID
+            sectionGroup: t0Chunk.sectionGroup || null,
+            derivation_path: t0Chunk.derivationPath || null,
+            sectionBounded: false
+          },
+          update: {
+            title: t0Chunk.title ? t0Chunk.title.substring(0, 255) : null,
+            content: t0Chunk.content,
+            tokenCount: t0Chunk.tokenCount,
+            metadata: t0Chunk.metadata || {},
+            updatedAt: new Date()
+          }
+        });
+        
+        t0DbId = t0Result.id;
+        chunkIdToDbId.set(t0Chunk.chunkId, t0DbId);
+        
+        // Update T0's rootChunkId to point to itself
+        await tx.contextChunk.update({
+          where: { id: t0DbId },
+          data: { rootChunkId: t0DbId }
+        });
+        
+        console.log(`[batchStoreChunks] T0 chunk stored with ID: ${t0DbId}`);
+      }
+      
+      // Second pass: Store all other chunks
       for (const chunk of chunks) {
+        if (chunk.tier === 0) continue; // Already stored
         const truncatedTitle = chunk.title ? chunk.title.substring(0, 255) : null;
         
         // Resolve parent chunk ID from logical ID to database UUID
@@ -1296,6 +1477,12 @@ export class StageBasedProcessingService extends EventEmitter {
           }
         }
         
+        // Resolve rootChunkId: 'metadata' to T0's database UUID
+        let resolvedRootChunkId = chunk.rootChunkId;
+        if (chunk.rootChunkId === 'metadata' && t0DbId) {
+          resolvedRootChunkId = t0DbId;
+        }
+        
         const result = await tx.contextChunk.upsert({
           where: {
             entityId_tier_chunkId: {
@@ -1314,7 +1501,7 @@ export class StageBasedProcessingService extends EventEmitter {
             tokenCount: chunk.tokenCount,
             metadata: chunk.metadata || {},
             parentChunkId: resolvedParentChunkId,
-            rootChunkId: chunk.rootChunkId || null,
+            rootChunkId: resolvedRootChunkId || null,
             sectionGroup: chunk.sectionGroup || null,
             derivation_path: chunk.derivationPath || null,
             sectionBounded: chunk.tier === 3 ? true : (chunk.sectionBounded || false)
@@ -1325,7 +1512,7 @@ export class StageBasedProcessingService extends EventEmitter {
             tokenCount: chunk.tokenCount,
             metadata: chunk.metadata || {},
             parentChunkId: resolvedParentChunkId,
-            rootChunkId: chunk.rootChunkId || null,
+            rootChunkId: resolvedRootChunkId || null,
             sectionGroup: chunk.sectionGroup || null,
             derivation_path: chunk.derivationPath || null,
             sectionBounded: chunk.tier === 3 ? true : (chunk.sectionBounded || false),
@@ -1425,10 +1612,30 @@ export class StageBasedProcessingService extends EventEmitter {
       }
     }
 
+    // Resolve rootChunkId: 'metadata' to T0's database UUID
+    let resolvedRootChunkId = chunk.rootChunkId;
+    if (chunk.rootChunkId === 'metadata') {
+      const t0Chunk = await prisma.contextChunk.findFirst({
+        where: {
+          entityId: entity.id,
+          tier: 0
+        },
+        select: { id: true }
+      });
+      
+      if (t0Chunk) {
+        resolvedRootChunkId = t0Chunk.id;
+        console.log(`[storeValidatedChunk] Resolved rootChunkId 'metadata' to T0 database UUID: ${t0Chunk.id}`);
+      } else if (chunk.tier === 0) {
+        // This IS the T0 chunk - rootChunkId will be set to self after creation
+        resolvedRootChunkId = null;
+      }
+    }
+
     // Store chunk using VectorOperations
     // projectIndexId references project_ai_index.projectId (which we ensured exists above)
     console.log(`[storeValidatedChunk] Calling upsertContextChunkWithVector with projectIndexId: ${request.projectId}`);
-    await this.vectorOps.upsertContextChunkWithVector({
+    const result = await this.vectorOps.upsertContextChunkWithVector({
       entityId: entity.id,
       projectIndexId: request.projectId, // Now safe - ProjectAIIndex record exists
       tier: chunk.tier,
@@ -1439,10 +1646,20 @@ export class StageBasedProcessingService extends EventEmitter {
       embedding: chunk.embedding,
       metadata: chunk.metadata,
       parentChunkId: resolvedParentChunkId,
-      rootChunkId: chunk.rootChunkId,
+      rootChunkId: resolvedRootChunkId,
       sectionGroup: chunk.sectionGroup,
       derivationPath: chunk.derivationPath
     });
+    
+    // If this is T0 and we didn't have a rootChunkId, update it to point to itself
+    if (chunk.tier === 0 && !resolvedRootChunkId) {
+      await prisma.contextChunk.update({
+        where: { id: result.id },
+        data: { rootChunkId: result.id }
+      });
+      console.log(`[storeValidatedChunk] Updated T0 rootChunkId to self: ${result.id}`);
+    }
+    
     console.log(`[storeValidatedChunk] Chunk ${chunk.chunkId} stored successfully`);
   }
 
@@ -1461,9 +1678,22 @@ export class StageBasedProcessingService extends EventEmitter {
    * Generate embedding using OpenAI
    */
   private async generateEmbedding(content: string): Promise<number[]> {
-    // For now, return a mock embedding since we don't have OpenAI client here
-    // In production, this would use the OpenAI client to generate real embeddings
-    return new Array(1536).fill(0).map(() => Math.random() - 0.5);
+    if (!this.openai) {
+      throw new Error('OpenAI client not initialized - cannot generate embeddings. Please check OPENAI_API_KEY environment variable.');
+    }
+    
+    try {
+      const response = await this.openai.embeddings.create({
+        model: 'text-embedding-3-small',
+        input: content,
+        dimensions: 1536
+      });
+      
+      return response.data[0].embedding;
+    } catch (error) {
+      console.error('[StageBasedProcessingService] Failed to generate embedding:', error);
+      throw new Error(`Embedding generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   /**

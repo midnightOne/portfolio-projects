@@ -10,6 +10,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { SelectiveSectionRegenerator } from '@/lib/content/SelectiveSectionRegenerator';
 import { ContentIngestionService } from '@/lib/content/ContentIngestionService';
 import { prisma } from '@/lib/prisma';
+import { getProcessingService } from '@/lib/content/StageBasedProcessingServiceSingleton';
+import type { ProcessingRequest, StageConfig } from '@/lib/content/StageBasedProcessingService';
 
 export async function POST(request: NextRequest) {
   try {
@@ -56,8 +58,8 @@ export async function POST(request: NextRequest) {
       });
 
       if (!existingEntity) {
-        // This is a new project - use ContentIngestionService for initial setup
-        console.log(`New project detected: ${projectId}. Using ContentIngestionService for initial ingestion.`);
+        // This is a new project - use stage-based processing for initial setup
+        console.log(`New project detected: ${projectId}. Using stage-based processing for initial ingestion.`);
         
         const project = await prisma.project.findFirst({
           where: {
@@ -65,11 +67,6 @@ export async function POST(request: NextRequest) {
               { slug: projectId },
               { id: projectId }
             ]
-          },
-          include: {
-            articleContent: true,
-            tags: true,
-            aiIndex: true
           }
         });
 
@@ -80,20 +77,31 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        const ingestionService = new ContentIngestionService();
-        const result = await ingestionService.ingestProject(project);
+        // Create processing request with all stages enabled
+        const operationId = `stage-proc-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const stages: StageConfig[] = [
+          { stage: 'chunking', enabled: true, mode: 'immediate' },
+          { stage: 'summaries', enabled: true, mode: 'immediate' },
+          { stage: 'embeddings', enabled: true, mode: 'immediate' },
+          { stage: 'validation', enabled: true, mode: 'immediate' }
+        ];
+
+        const processingRequest: ProcessingRequest = {
+          operationId,
+          scope: 'project',
+          projectId: project.id,
+          stages,
+          preserveManualEdits: false // New project, no manual edits yet
+        };
+
+        // Start async processing
+        const processingService = getProcessingService();
+        await processingService.startProcessing(processingRequest);
         
         return NextResponse.json({
-          operationId: `ingestion-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          message: 'Initial content ingestion completed',
-          result: {
-            success: result.success,
-            tiersCreated: result.tiersCreated,
-            totalChunks: result.totalChunks,
-            embeddingsGenerated: result.embeddingsGenerated,
-            costEstimate: result.costEstimate,
-            processingTime: result.processingTime
-          }
+          operationId,
+          status: 'started',
+          message: 'Initial content ingestion started successfully'
         });
       }
     }
