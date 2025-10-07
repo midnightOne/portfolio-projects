@@ -56,7 +56,7 @@ export class SmartContentGenerator {
   private projectIndexer: ProjectIndexer;
   private openai: OpenAI | null;
   private summaryService = getSummaryGenerationService();
-  private t3Chunker = new T3HeadingBoundedChunking();
+  private t3Chunker: T3HeadingBoundedChunking;
   private embeddingModel = 'text-embedding-3-small';
   private embeddingDimensions = 1536;
 
@@ -64,8 +64,11 @@ export class SmartContentGenerator {
   private readonly EMBEDDING_COST_PER_1K_TOKENS = 0.00002;
   private readonly GPT4_MINI_COST_PER_1K_TOKENS = 0.00015;
 
-  constructor() {
+  constructor(chunkingConfig?: { targetChunkSize?: number; maxSectionSize?: number; minSectionSize?: number; sectionBoundaryOverlap?: number; splitStrategy?: 'paragraph' | 'sentence' | 'token' }) {
     this.projectIndexer = ProjectIndexer.getInstance();
+    
+    // Initialize T3 chunker with config
+    this.t3Chunker = new T3HeadingBoundedChunking(chunkingConfig);
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (apiKey) {

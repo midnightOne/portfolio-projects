@@ -117,6 +117,7 @@ interface SummariesCheckpoint {
     summary: string;
     cost: number;
   }>;
+  modifiedChunks?: TierContent[]; // Only chunks that were actually modified
 }
 
 interface EmbeddingsCheckpoint {
@@ -577,12 +578,6 @@ export class StageBasedProcessingService extends EventEmitter {
 
     console.log(`[SummariesStage] Starting AI summary generation for T1 and T2 placeholders`);
 
-    // Get chunks from chunking stage
-    const chunkingCheckpoint = progress.stageProgress.chunking.checkpoint as ChunkingCheckpoint;
-    if (!chunkingCheckpoint) {
-      throw new Error('Chunking stage must be completed before summaries');
-    }
-
     // Get project to fetch actual content
     const projects = await this.getProjectsToProcess(request);
     const project = projects[0]; // Assuming single project for now
@@ -590,9 +585,64 @@ export class StageBasedProcessingService extends EventEmitter {
     // Get enhanced project index for content extraction
     const enhancedIndex = await this.projectIndexer.indexProjectHierarchical(project.id);
 
+    // Get chunks - either from chunking checkpoint or from database
+    const chunkingCheckpoint = progress.stageProgress.chunking.checkpoint as ChunkingCheckpoint;
+    let allT1T2Chunks: TierContent[];
+    let allT3Chunks: TierContent[];
+
+    if (chunkingCheckpoint) {
+      // Use chunks from the current processing run
+      console.log(`[SummariesStage] Using chunks from current chunking checkpoint`);
+      allT1T2Chunks = chunkingCheckpoint.chunksCreated.filter(chunk => chunk.tier === 1 || chunk.tier === 2);
+      allT3Chunks = chunkingCheckpoint.chunksCreated.filter(chunk => chunk.tier === 3);
+    } else {
+      // Fetch existing chunks from database
+      console.log(`[SummariesStage] No chunking checkpoint - fetching existing chunks from database`);
+      
+      // Get content entity
+      const entity = await prisma.contentEntity.findFirst({
+        where: { slug: project.slug }
+      });
+
+      if (!entity) {
+        throw new Error(`No content entity found for project ${project.slug}`);
+      }
+
+      // Fetch all chunks from database
+      const dbChunks = await prisma.contextChunk.findMany({
+        where: { entityId: entity.id },
+        orderBy: { tier: 'asc' }
+      });
+
+      console.log(`[SummariesStage] Found ${dbChunks.length} existing chunks in database`);
+
+      // Convert database chunks to TierContent format
+      // Note: Prisma automatically converts snake_case DB columns to camelCase
+      const convertToTierContent = (dbChunk: any): TierContent => ({
+        tier: dbChunk.tier,
+        chunkId: dbChunk.chunkId,
+        title: dbChunk.title,
+        content: dbChunk.content,
+        tokenCount: dbChunk.tokenCount,
+        parentChunkId: dbChunk.parentChunkId || null,
+        rootChunkId: dbChunk.rootChunkId || null,
+        sectionGroup: dbChunk.sectionGroup || null,
+        derivationPath: dbChunk.derivation_path || null, // Note: No @map in schema, stays snake_case
+        sectionBounded: dbChunk.tier === 3 ? true : dbChunk.sectionBounded, // T3 chunks are always section-bounded
+        metadata: dbChunk.metadata as any || {}
+      });
+
+      allT1T2Chunks = dbChunks
+        .filter(chunk => chunk.tier === 1 || chunk.tier === 2)
+        .map(convertToTierContent);
+      
+      allT3Chunks = dbChunks
+        .filter(chunk => chunk.tier === 3)
+        .map(convertToTierContent);
+    }
+
     // Filter only placeholders that need AI generation (T1 and T2)
     // Auto-populated T2s (small sections that fit the budget) are already complete
-    const allT1T2Chunks = chunkingCheckpoint.chunksCreated.filter(chunk => chunk.tier === 1 || chunk.tier === 2);
     const autoPopulatedT2s = allT1T2Chunks.filter(chunk => chunk.tier === 2 && chunk.metadata.autoPopulated);
     const chunksNeedingSummaries = allT1T2Chunks.filter(chunk => chunk.metadata.needsAIGeneration);
 
@@ -612,14 +662,13 @@ export class StageBasedProcessingService extends EventEmitter {
         
         if (chunk.tier === 1) {
           // T1: Summarize entire project content
-          const allT3Chunks = chunkingCheckpoint.chunksCreated.filter(c => c.tier === 3);
           sourceContent = allT3Chunks.map(c => c.content).join('\n\n');
           console.log(`[SummariesStage] T1: Using ${allT3Chunks.length} T3 chunks as source (${sourceContent.length} chars)`);
         } else {
           // T2: Summarize section content (all T3 chunks in this section)
           const sectionGroup = chunk.sectionGroup || chunk.chunkId;
-          const sectionT3Chunks = chunkingCheckpoint.chunksCreated.filter(
-            c => c.tier === 3 && c.sectionGroup === sectionGroup
+          const sectionT3Chunks = allT3Chunks.filter(
+            c => c.sectionGroup === sectionGroup
           );
           sourceContent = sectionT3Chunks.map(c => c.content).join('\n\n');
           console.log(`[SummariesStage] T2 (${chunk.chunkId}): Using ${sectionT3Chunks.length} T3 chunks as source (${sourceContent.length} chars)`);
@@ -677,7 +726,15 @@ export class StageBasedProcessingService extends EventEmitter {
       }
     }
 
+    // Store only the modified chunks (the ones that had summaries generated) in checkpoint for validation stage
+    const modifiedChunkIds = new Set(checkpoint.summariesGenerated.map(s => s.chunkId));
+    const modifiedChunks = chunksNeedingSummaries.filter(chunk => modifiedChunkIds.has(chunk.chunkId));
+    checkpoint.modifiedChunks = modifiedChunks;
+    stageProgress.checkpoint = checkpoint;
+
     console.log(`[SummariesStage] Complete: Generated ${checkpoint.summariesGenerated.length} summaries`);
+    console.log(`[SummariesStage] Stored ${modifiedChunks.length} modified chunks in checkpoint for validation`);
+    console.log(`[SummariesStage] Modified chunk IDs: ${modifiedChunks.map(c => c.chunkId).join(', ')}`);
   }
 
   /**
@@ -698,14 +755,60 @@ export class StageBasedProcessingService extends EventEmitter {
     const progress = this.activeOperations.get(request.operationId)!;
     const stageProgress = progress.stageProgress.embeddings;
 
-    // Get chunks from previous stages
+    // Get chunks from previous stages (summaries, chunking, or database)
+    const summariesCheckpoint = progress.stageProgress.summaries.checkpoint as SummariesCheckpoint;
     const chunkingCheckpoint = progress.stageProgress.chunking.checkpoint as ChunkingCheckpoint;
-    if (!chunkingCheckpoint) {
-      throw new Error('Chunking stage must be completed before embeddings');
+    let allChunks: TierContent[];
+
+    if (summariesCheckpoint?.modifiedChunks) {
+      // Use only modified chunks from summaries stage
+      console.log(`[EmbeddingsStage] Using modified chunks from summaries checkpoint`);
+      allChunks = summariesCheckpoint.modifiedChunks;
+    } else if (chunkingCheckpoint) {
+      // Use chunks from chunking stage
+      console.log(`[EmbeddingsStage] Using chunks from chunking checkpoint`);
+      allChunks = chunkingCheckpoint.chunksCreated;
+    } else {
+      // Fetch existing chunks from database
+      console.log(`[EmbeddingsStage] No checkpoint found - fetching existing chunks from database`);
+      
+      const projects = await this.getProjectsToProcess(request);
+      const project = projects[0];
+      
+      const entity = await prisma.contentEntity.findFirst({
+        where: { slug: project.slug }
+      });
+
+      if (!entity) {
+        throw new Error(`No content entity found for project ${project.slug}`);
+      }
+
+      const dbChunks = await prisma.contextChunk.findMany({
+        where: { entityId: entity.id },
+        orderBy: { tier: 'asc' }
+      });
+
+      console.log(`[EmbeddingsStage] Found ${dbChunks.length} existing chunks in database`);
+
+      // Convert database chunks to TierContent format
+      // Note: Prisma automatically converts snake_case DB columns to camelCase
+      allChunks = dbChunks.map(dbChunk => ({
+        tier: dbChunk.tier,
+        chunkId: dbChunk.chunkId,
+        title: dbChunk.title,
+        content: dbChunk.content,
+        tokenCount: dbChunk.tokenCount,
+        parentChunkId: dbChunk.parentChunkId || null,
+        rootChunkId: dbChunk.rootChunkId || null,
+        sectionGroup: dbChunk.sectionGroup || null,
+        derivationPath: dbChunk.derivation_path || null, // Note: No @map in schema, stays snake_case
+        sectionBounded: dbChunk.tier === 3 ? true : dbChunk.sectionBounded, // T3 chunks are always section-bounded
+        metadata: dbChunk.metadata as any || {}
+      }));
     }
 
-    const allChunks = chunkingCheckpoint.chunksCreated;
     stageProgress.totalItems = allChunks.length;
+    console.log(`[EmbeddingsStage] Processing ${allChunks.length} chunks for embeddings`);
 
     const checkpoint: EmbeddingsCheckpoint = {
       embeddingsGenerated: [],
@@ -783,13 +886,65 @@ export class StageBasedProcessingService extends EventEmitter {
 
     console.log(`[ValidationStage] Starting validation for operation ${request.operationId}`);
 
-    // Get chunks from previous stages
+    // Get chunks from previous stages (summaries checkpoint takes priority, then chunking checkpoint, then DB)
+    const summariesCheckpoint = progress.stageProgress.summaries.checkpoint as SummariesCheckpoint;
     const chunkingCheckpoint = progress.stageProgress.chunking.checkpoint as ChunkingCheckpoint;
-    if (!chunkingCheckpoint) {
-      throw new Error('Chunking stage must be completed before validation');
+    let allChunks: TierContent[];
+
+    console.log(`[ValidationStage] Checking checkpoints:`, {
+      hasSummariesCheckpoint: !!summariesCheckpoint,
+      hasModifiedChunks: !!summariesCheckpoint?.modifiedChunks,
+      modifiedChunksLength: summariesCheckpoint?.modifiedChunks?.length,
+      hasChunkingCheckpoint: !!chunkingCheckpoint
+    });
+
+    if (summariesCheckpoint?.modifiedChunks && summariesCheckpoint.modifiedChunks.length > 0) {
+      // Use only modified chunks from summaries stage
+      console.log(`[ValidationStage] Using ${summariesCheckpoint.modifiedChunks.length} modified chunks from summaries checkpoint`);
+      allChunks = summariesCheckpoint.modifiedChunks;
+    } else if (chunkingCheckpoint) {
+      // Use chunks from chunking stage (all chunks, since they're all new)
+      console.log(`[ValidationStage] Using ${chunkingCheckpoint.chunksCreated.length} chunks from chunking checkpoint`);
+      allChunks = chunkingCheckpoint.chunksCreated;
+    } else {
+      // Fetch existing chunks from database
+      console.log(`[ValidationStage] No checkpoint found - fetching existing chunks from database`);
+      
+      const projects = await this.getProjectsToProcess(request);
+      const project = projects[0];
+      
+      const entity = await prisma.contentEntity.findFirst({
+        where: { slug: project.slug }
+      });
+
+      if (!entity) {
+        throw new Error(`No content entity found for project ${project.slug}`);
+      }
+
+      const dbChunks = await prisma.contextChunk.findMany({
+        where: { entityId: entity.id },
+        orderBy: { tier: 'asc' }
+      });
+
+      console.log(`[ValidationStage] Found ${dbChunks.length} existing chunks in database`);
+
+      // Convert database chunks to TierContent format
+      // Note: Prisma automatically converts snake_case DB columns to camelCase
+      allChunks = dbChunks.map(dbChunk => ({
+        tier: dbChunk.tier,
+        chunkId: dbChunk.chunkId,
+        title: dbChunk.title,
+        content: dbChunk.content,
+        tokenCount: dbChunk.tokenCount,
+        parentChunkId: dbChunk.parentChunkId || null,
+        rootChunkId: dbChunk.rootChunkId || null,
+        sectionGroup: dbChunk.sectionGroup || null,
+        derivationPath: dbChunk.derivation_path || null, // Note: No @map in schema, stays snake_case
+        sectionBounded: dbChunk.tier === 3 ? true : dbChunk.sectionBounded, // T3 chunks are always section-bounded
+        metadata: dbChunk.metadata as any || {}
+      }));
     }
 
-    const allChunks = chunkingCheckpoint.chunksCreated;
     console.log(`[ValidationStage] Found ${allChunks.length} chunks to validate and store`);
     
     stageProgress.totalItems = allChunks.length;

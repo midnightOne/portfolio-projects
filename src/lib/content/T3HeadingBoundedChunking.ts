@@ -8,9 +8,37 @@
 import { EnhancedProjectIndex, HierarchicalSection } from '../services/project-indexer';
 import { TierContent } from './SmartContentGenerator';
 
+export interface ChunkingConfig {
+  targetChunkSize: number;
+  maxSectionSize: number;
+  minSectionSize: number;
+  sectionBoundaryOverlap: number;
+  splitStrategy: 'paragraph' | 'sentence' | 'token';
+}
+
 export class T3HeadingBoundedChunking {
-  private readonly TARGET_CHUNK_TOKENS = 300;
-  private readonly MAX_CHUNK_TOKENS = 400;
+  private targetChunkTokens: number;
+  private maxChunkTokens: number;
+  private minSectionSize: number;
+  private sectionOverlap: number;
+  private splitStrategy: 'paragraph' | 'sentence' | 'token';
+
+  constructor(config?: Partial<ChunkingConfig>) {
+    // Use config if provided, otherwise use defaults
+    this.targetChunkTokens = config?.targetChunkSize ?? 300;
+    this.maxChunkTokens = config?.maxSectionSize ?? 400;
+    this.minSectionSize = config?.minSectionSize ?? 50;
+    this.sectionOverlap = config?.sectionBoundaryOverlap ?? 0;
+    this.splitStrategy = config?.splitStrategy ?? 'token';
+    
+    console.log(`[T3HeadingBoundedChunking] Initialized with config:`, {
+      targetChunkTokens: this.targetChunkTokens,
+      maxChunkTokens: this.maxChunkTokens,
+      minSectionSize: this.minSectionSize,
+      sectionOverlap: this.sectionOverlap,
+      splitStrategy: this.splitStrategy
+    });
+  }
 
   /**
    * Generate T3 chunks from hierarchical sections
@@ -140,14 +168,30 @@ export class T3HeadingBoundedChunking {
   }
 
   /**
-   * Chunk content by token limits while respecting sentence/paragraph boundaries
+   * Chunk content by token limits respecting the configured split strategy
    */
   private chunkContentByTokens(content: string): string[] {
+    if (this.splitStrategy === 'token') {
+      // Pure token-based splitting with overlap
+      return this.chunkByPureTokens(content);
+    } else if (this.splitStrategy === 'sentence') {
+      // Split by sentences while respecting token limits
+      return this.chunkBySentences(content);
+    } else {
+      // Split by paragraphs while respecting token limits
+      return this.chunkByParagraphs(content);
+    }
+  }
+
+  /**
+   * Chunk by paragraphs while respecting token limits (original method)
+   */
+  private chunkByParagraphs(content: string): string[] {
     const chunks: string[] = [];
     const totalTokens = this.estimateTokenCount(content);
 
     // If content is small enough, return as single chunk
-    if (totalTokens <= this.MAX_CHUNK_TOKENS) {
+    if (totalTokens <= this.maxChunkTokens) {
       return [content];
     }
 
@@ -161,7 +205,7 @@ export class T3HeadingBoundedChunking {
       const paragraphTokens = this.estimateTokenCount(paragraph);
       
       // If this single paragraph is too large, split it by sentences
-      if (paragraphTokens > this.MAX_CHUNK_TOKENS) {
+      if (paragraphTokens > this.maxChunkTokens) {
         // Save current chunk if it has content
         if (currentChunk.trim().length > 0) {
           chunks.push(currentChunk.trim());
@@ -170,14 +214,14 @@ export class T3HeadingBoundedChunking {
         }
         
         // Split large paragraph by sentences
-        const sentences = this.splitBySentences(paragraph);
+        const sentences = paragraph.split(/(?<=[.!?])\s+/);
         let sentenceChunk = '';
         let sentenceTokens = 0;
         
         for (const sentence of sentences) {
           const sentTokens = this.estimateTokenCount(sentence);
           
-          if (sentenceTokens + sentTokens > this.MAX_CHUNK_TOKENS && sentenceChunk.length > 0) {
+          if (sentenceTokens + sentTokens > this.maxChunkTokens && sentenceChunk.length > 0) {
             chunks.push(sentenceChunk.trim());
             sentenceChunk = sentence;
             sentenceTokens = sentTokens;
@@ -194,7 +238,7 @@ export class T3HeadingBoundedChunking {
       }
       
       // Check if adding this paragraph exceeds max tokens
-      if (currentTokens + paragraphTokens > this.MAX_CHUNK_TOKENS && currentChunk.length > 0) {
+      if (currentTokens + paragraphTokens > this.maxChunkTokens && currentChunk.length > 0) {
         // Save current chunk and start new one
         chunks.push(currentChunk.trim());
         currentChunk = paragraph;
@@ -215,20 +259,85 @@ export class T3HeadingBoundedChunking {
   }
 
   /**
-   * Split text by sentences
+   * Chunk by sentences while respecting token limits
    */
-  private splitBySentences(text: string): string[] {
-    // Split by sentence-ending punctuation followed by space or newline
-    return text
-      .split(/([.!?]+[\s\n]+)/)
-      .reduce((acc: string[], part, i, arr) => {
-        if (i % 2 === 0 && part.trim()) {
-          const sentence = part + (arr[i + 1] || '');
-          acc.push(sentence);
+  private chunkBySentences(text: string): string[] {
+    const sentences = text.split(/(?<=[.!?])\s+/);
+    const chunks: string[] = [];
+    let currentChunk = '';
+    let currentTokens = 0;
+
+    for (const sentence of sentences) {
+      const sentenceTokens = this.estimateTokenCount(sentence);
+      
+      // If adding this sentence would exceed MAX, save current chunk and start new
+      if (currentTokens + sentenceTokens > this.maxChunkTokens && currentChunk) {
+        chunks.push(currentChunk.trim());
+        currentChunk = sentence;
+        currentTokens = sentenceTokens;
+      } 
+      // If current chunk reaches TARGET, consider starting new chunk
+      else if (currentTokens >= this.targetChunkTokens && currentChunk) {
+        chunks.push(currentChunk.trim());
+        currentChunk = sentence;
+        currentTokens = sentenceTokens;
+      }
+      // Otherwise, add to current chunk
+      else {
+        currentChunk += (currentChunk ? ' ' : '') + sentence;
+        currentTokens += sentenceTokens;
+      }
+    }
+
+    if (currentChunk.trim()) {
+      chunks.push(currentChunk.trim());
+    }
+
+    return chunks.length > 0 ? chunks : [text];
+  }
+
+  /**
+   * Chunk by pure token count with overlap
+   */
+  private chunkByPureTokens(content: string): string[] {
+    const chunks: string[] = [];
+    const words = content.split(/\s+/);
+    const estimatedTokens = this.estimateTokenCount(content);
+    
+    if (estimatedTokens <= this.maxChunkTokens) {
+      return [content];
+    }
+    
+    let currentChunk: string[] = [];
+    let currentTokens = 0;
+    
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i];
+      const wordTokens = this.estimateTokenCount(word);
+      
+      if (currentTokens + wordTokens > this.maxChunkTokens && currentChunk.length > 0) {
+        chunks.push(currentChunk.join(' '));
+        
+        // Apply overlap: keep last N tokens
+        if (this.sectionOverlap > 0) {
+          const overlapWords = Math.ceil(this.sectionOverlap / 0.75); // Rough conversion
+          currentChunk = currentChunk.slice(-overlapWords);
+          currentTokens = this.estimateTokenCount(currentChunk.join(' '));
+        } else {
+          currentChunk = [];
+          currentTokens = 0;
         }
-        return acc;
-      }, [])
-      .filter(s => s.trim().length > 0);
+      }
+      
+      currentChunk.push(word);
+      currentTokens += wordTokens;
+    }
+    
+    if (currentChunk.length > 0) {
+      chunks.push(currentChunk.join(' '));
+    }
+    
+    return chunks.length > 0 ? chunks : [content];
   }
 
   /**

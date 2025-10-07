@@ -193,10 +193,30 @@ export class ChunkingConfigService {
       await this.unsetAllDefaults();
     }
 
-    // Parse existing batch mode settings
-    const existingBehavior = JSON.parse(
-      (await prisma.chunkingConfig.findFirst({ where: { name } }))?.defaultBehavior || '{}'
-    );
+    // Parse existing batch mode settings safely
+    const dbConfig = await prisma.chunkingConfig.findFirst({ where: { name } });
+    let existingBehavior: any = {};
+    
+    if (dbConfig?.defaultBehavior) {
+      const behaviorValue = dbConfig.defaultBehavior;
+      
+      // Check if it's a simple string like 'prompt', 'auto', or 'manual'
+      if (typeof behaviorValue === 'string' && 
+          ['auto', 'manual', 'prompt'].includes(behaviorValue)) {
+        // It's a simple behavior string, not a JSON object
+        existingBehavior = {};
+      } else if (typeof behaviorValue === 'string') {
+        // Try to parse as JSON
+        try {
+          existingBehavior = JSON.parse(behaviorValue);
+        } catch (e) {
+          console.warn(`[ChunkingConfigService] Failed to parse defaultBehavior: ${behaviorValue}`, e);
+          existingBehavior = {};
+        }
+      } else if (typeof behaviorValue === 'object') {
+        existingBehavior = behaviorValue;
+      }
+    }
 
     // Merge batch mode settings
     const batchModeSettings = {
@@ -419,7 +439,27 @@ export class ChunkingConfigService {
   }
 
   private mapToSettings(config: any): ChunkingSettings {
-    const behaviorData = JSON.parse(config.defaultBehavior || '{}');
+    // Handle defaultBehavior - it can be a string or JSON object
+    let behaviorData: any = {};
+    let defaultBehavior: 'auto' | 'manual' | 'prompt' = 'prompt';
+    
+    if (typeof config.defaultBehavior === 'string') {
+      // If it's a simple string like 'prompt', 'auto', or 'manual'
+      if (['auto', 'manual', 'prompt'].includes(config.defaultBehavior)) {
+        defaultBehavior = config.defaultBehavior as 'auto' | 'manual' | 'prompt';
+      } else {
+        // Try parsing as JSON
+        try {
+          behaviorData = JSON.parse(config.defaultBehavior);
+          defaultBehavior = behaviorData.behavior || 'prompt';
+        } catch {
+          defaultBehavior = 'prompt';
+        }
+      }
+    } else if (typeof config.defaultBehavior === 'object') {
+      behaviorData = config.defaultBehavior;
+      defaultBehavior = behaviorData.behavior || 'prompt';
+    }
     
     return {
       id: config.id,
@@ -436,12 +476,12 @@ export class ChunkingConfigService {
       t2MaxLength: config.t2MaxLength,
       sectionChangePercent: config.sectionChangePercent,
       minorChangeThreshold: config.minorChangeThreshold,
-      defaultBehavior: behaviorData.behavior || 'prompt',
+      defaultBehavior,
       draftModeSkipIndexing: config.draftModeSkipIndexing,
-      batchModeEnabled: behaviorData.batchModeEnabled ?? true,
-      batchModeMinChunks: behaviorData.batchModeMinChunks ?? 100,
-      batchModeAutoSchedule: behaviorData.batchModeAutoSchedule ?? false,
-      batchModeDefaultForRegeneration: behaviorData.batchModeDefaultForRegeneration ?? false,
+      batchModeEnabled: config.batchModeEnabled ?? behaviorData.batchModeEnabled ?? true,
+      batchModeMinChunks: config.batchModeMinChunks ?? behaviorData.batchModeMinChunks ?? 100,
+      batchModeAutoSchedule: config.batchModeAutoSchedule ?? behaviorData.batchModeAutoSchedule ?? false,
+      batchModeDefaultForRegeneration: config.batchModeDefaultForRegeneration ?? behaviorData.batchModeDefaultForRegeneration ?? false,
       batchModeDefaultForBulkOps: behaviorData.batchModeDefaultForBulkOps ?? true,
       batchModeDefaultForInitialIndexing: behaviorData.batchModeDefaultForInitialIndexing ?? true,
       createdAt: config.createdAt,
