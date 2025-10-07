@@ -13,6 +13,7 @@ import { ProjectIndexer, EnhancedProjectIndex, HierarchicalSection, ContentChang
 import OpenAI from 'openai';
 import { semanticBudgetManager } from './SemanticBudgetManager';
 import { getSummaryGenerationService } from './SummaryGenerationService';
+import { T3HeadingBoundedChunking } from './T3HeadingBoundedChunking';
 
 const prisma = new PrismaClient();
 
@@ -55,6 +56,7 @@ export class SmartContentGenerator {
   private projectIndexer: ProjectIndexer;
   private openai: OpenAI | null;
   private summaryService = getSummaryGenerationService();
+  private t3Chunker = new T3HeadingBoundedChunking();
   private embeddingModel = 'text-embedding-3-small';
   private embeddingDimensions = 1536;
 
@@ -127,7 +129,7 @@ export class SmartContentGenerator {
     }
 
     // T3: Generate heading-bounded chunks (never cross heading boundaries)
-    const t3Chunks = await this.generateT3HeadingBoundedChunks(project, enhancedIndex);
+    const t3Chunks = this.t3Chunker.generateT3Chunks(project, enhancedIndex);
     tiers.push(...t3Chunks);
 
     // Validate that chunks don't cross heading boundaries
@@ -181,7 +183,7 @@ export class SmartContentGenerator {
     }
 
     // T3: Generate fully populated terminal chunks from actual content
-    const t3Chunks = await this.generateT3HeadingBoundedChunks(project, enhancedIndex);
+    const t3Chunks = this.t3Chunker.generateT3Chunks(project, enhancedIndex);
     tiers.push(...t3Chunks);
 
     console.log(`[SmartContentGenerator] Scaffold complete: T0=1, T1=1, T2=${headingSections.length}, T3=${t3Chunks.length}`);

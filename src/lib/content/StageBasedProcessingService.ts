@@ -955,15 +955,36 @@ export class StageBasedProcessingService extends EventEmitter {
    * Store validated chunk in database
    */
   private async storeValidatedChunk(chunk: TierContent, request: ProcessingRequest): Promise<void> {
+    console.log(`[storeValidatedChunk] Storing chunk: ${chunk.chunkId} (T${chunk.tier}), projectId: ${request.projectId}`);
+    
     // Get or create content entity
     const project = await prisma.project.findUnique({
       where: { id: request.projectId },
-      select: { slug: true }
+      select: { slug: true, title: true }
     });
 
     if (!project) {
       throw new Error(`Project not found: ${request.projectId}`);
     }
+
+    console.log(`[storeValidatedChunk] Found project: ${project.slug}`);
+
+    // Ensure ProjectAIIndex exists (required for foreign key)
+    console.log(`[storeValidatedChunk] Upserting ProjectAIIndex for projectId: ${request.projectId}`);
+    const projectIndex = await prisma.projectAIIndex.upsert({
+      where: { projectId: request.projectId },
+      create: {
+        projectId: request.projectId,
+        summary: '',
+        keywords: [],
+        topics: [],
+        technologies: [],
+        sectionsCount: 0,
+        mediaCount: 0
+      },
+      update: {} // Don't overwrite existing data
+    });
+    console.log(`[storeValidatedChunk] ProjectAIIndex upserted successfully. Record projectId: ${projectIndex.projectId}`);
 
     const entity = await prisma.contentEntity.upsert({
       where: {
@@ -975,7 +996,7 @@ export class StageBasedProcessingService extends EventEmitter {
       create: {
         entityType: 'PROJECT',
         slug: project.slug,
-        title: chunk.title || '',
+        title: project.title || chunk.title || '',
         description: '',
         tags: [],
         technologies: []
@@ -1003,9 +1024,11 @@ export class StageBasedProcessingService extends EventEmitter {
     }
 
     // Store chunk using VectorOperations
+    // projectIndexId references project_ai_index.projectId (which we ensured exists above)
+    console.log(`[storeValidatedChunk] Calling upsertContextChunkWithVector with projectIndexId: ${request.projectId}`);
     await this.vectorOps.upsertContextChunkWithVector({
       entityId: entity.id,
-      projectIndexId: request.projectId, // Link to project for easier queries
+      projectIndexId: request.projectId, // Now safe - ProjectAIIndex record exists
       tier: chunk.tier,
       chunkId: chunk.chunkId,
       title: chunk.title,
@@ -1018,6 +1041,7 @@ export class StageBasedProcessingService extends EventEmitter {
       sectionGroup: chunk.sectionGroup,
       derivationPath: chunk.derivationPath
     });
+    console.log(`[storeValidatedChunk] Chunk ${chunk.chunkId} stored successfully`);
   }
 
   /**
