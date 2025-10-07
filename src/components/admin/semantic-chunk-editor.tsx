@@ -11,6 +11,18 @@ import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import {
   Save,
   X,
   Loader2,
@@ -21,7 +33,11 @@ import {
   Link as LinkIcon,
   Hash,
   Calendar,
-  User
+  User,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  DollarSign
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { AIPromptInterface, AIPromptResult, TextSelection } from './ai-prompt-interface';
@@ -87,6 +103,18 @@ export function SemanticChunkEditor({
   // AI assistance state
   const [selectedText, setSelectedText] = useState<TextSelection | undefined>();
   const [showAIAssistant, setShowAIAssistant] = useState(false);
+  
+  // Summary generation state
+  const [generatingSummary, setGeneratingSummary] = useState(false);
+  const [summaryModel, setSummaryModel] = useState('gpt-4o-mini');
+  const [summaryPromptExpanded, setSummaryPromptExpanded] = useState(false);
+  const [customSystemPrompt, setCustomSystemPrompt] = useState('');
+  const [summaryResult, setSummaryResult] = useState<{
+    summary: string;
+    cost: number;
+    tokensUsed: number;
+    confidenceScore: number;
+  } | null>(null);
   
   // Refs for text selection
   const contentRef = useRef<HTMLTextAreaElement>(null);
@@ -214,6 +242,78 @@ export function SemanticChunkEditor({
       return new TextareaAdapter(contentRef.current, setContent);
     }
     return null;
+  };
+
+  const handleGenerateSummary = async () => {
+    if (!chunk) return;
+    
+    try {
+      setGeneratingSummary(true);
+      setError(null);
+      setSummaryResult(null);
+      
+      console.log('[GenerateSummary] Sending request to:', `/api/admin/semantic/chunks/${chunkId}/generate-summary`);
+      console.log('[GenerateSummary] Request body:', {
+        model: summaryModel,
+        systemPrompt: customSystemPrompt || undefined,
+        configId: 'default-balanced'
+      });
+      
+      const response = await fetch(`/api/admin/semantic/chunks/${chunkId}/generate-summary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: summaryModel,
+          systemPrompt: customSystemPrompt || undefined,
+          configId: 'default-balanced'
+        })
+      });
+      
+      console.log('[GenerateSummary] Response status:', response.status);
+      console.log('[GenerateSummary] Response headers:', Object.fromEntries(response.headers.entries()));
+      
+      // Get response text first for debugging
+      const responseText = await response.text();
+      console.log('[GenerateSummary] Response text (first 500 chars):', responseText.substring(0, 500));
+      
+      if (!response.ok) {
+        let errorMessage = `Failed to generate summary: ${response.status}`;
+        try {
+          const errorData = JSON.parse(responseText);
+          errorMessage = errorData.error || errorMessage;
+          if (errorData.details) {
+            console.error('[GenerateSummary] Error details:', errorData.details);
+          }
+        } catch (parseError) {
+          console.error('[GenerateSummary] Failed to parse error response:', parseError);
+          errorMessage = `Server error (${response.status}): ${responseText.substring(0, 200)}`;
+        }
+        throw new Error(errorMessage);
+      }
+      
+      const result = JSON.parse(responseText);
+      
+      // Update content with generated summary
+      setContent(result.summary);
+      setHasChanges(true);
+      
+      // Store result for display
+      setSummaryResult({
+        summary: result.summary,
+        cost: result.cost,
+        tokensUsed: result.tokensUsed,
+        confidenceScore: result.confidenceScore
+      });
+      
+      toast.success("Summary generated", `Cost: $${result.cost.toFixed(4)} • Confidence: ${(result.confidenceScore * 100).toFixed(0)}%`);
+      
+    } catch (error) {
+      console.error('Error generating summary:', error);
+      setError(error instanceof Error ? error.message : 'Failed to generate summary');
+      toast.error("Generation failed", error instanceof Error ? error.message : 'Failed to generate summary');
+    } finally {
+      setGeneratingSummary(false);
+    }
   };
 
   const getTierBadgeColor = (tier: number) => {
@@ -470,6 +570,102 @@ export function SemanticChunkEditor({
               </p>
             </div>
           </div>
+
+          {/* AI Summary Generation (T1/T2 only) */}
+          {(chunk.tier === 1 || chunk.tier === 2) && (
+            <div className="space-y-3 p-4 border rounded-lg bg-gradient-to-br from-purple-50 to-blue-50 border-purple-200">
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-purple-600" />
+                Generate AI Summary
+              </h3>
+              
+              <div className="space-y-3">
+                {/* Model Selection */}
+                <div className="space-y-2">
+                  <Label htmlFor="summary-model" className="text-xs font-medium">
+                    Model
+                  </Label>
+                  <Select value={summaryModel} onValueChange={setSummaryModel}>
+                    <SelectTrigger id="summary-model" className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="gpt-4o-mini">GPT-4o Mini (Fast, Cost-Effective)</SelectItem>
+                      <SelectItem value="gpt-4o">GPT-4o (High Quality)</SelectItem>
+                      <SelectItem value="gpt-4-turbo">GPT-4 Turbo</SelectItem>
+                      <SelectItem value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</SelectItem>
+                      <SelectItem value="claude-3-5-haiku-20241022">Claude 3.5 Haiku</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Custom System Prompt (Collapsible) */}
+                <Collapsible open={summaryPromptExpanded} onOpenChange={setSummaryPromptExpanded}>
+                  <CollapsibleTrigger className="flex items-center justify-between w-full text-xs font-medium hover:text-purple-600 transition-colors">
+                    <span>Custom System Prompt</span>
+                    {summaryPromptExpanded ? (
+                      <ChevronUp className="h-3 w-3" />
+                    ) : (
+                      <ChevronDown className="h-3 w-3" />
+                    )}
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-2">
+                    <Textarea
+                      value={customSystemPrompt}
+                      onChange={(e) => setCustomSystemPrompt(e.target.value)}
+                      placeholder={`Leave empty to use default ${chunk.tier === 1 ? 'T1' : 'T2'} prompt...`}
+                      rows={6}
+                      className="text-xs font-mono"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Override the default system prompt for custom summary generation
+                    </p>
+                  </CollapsibleContent>
+                </Collapsible>
+
+                {/* Generate Button */}
+                <Button
+                  onClick={handleGenerateSummary}
+                  disabled={generatingSummary}
+                  className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+                  size="sm"
+                >
+                  {generatingSummary ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-4 w-4 mr-2" />
+                      Generate Summary
+                    </>
+                  )}
+                </Button>
+
+                {/* Result Display */}
+                {summaryResult && (
+                  <div className="mt-3 p-3 bg-white rounded-md border border-purple-200 space-y-1">
+                    <p className="text-xs font-semibold text-purple-900">Generation Complete</p>
+                    <div className="flex items-center gap-3 text-xs text-gray-600">
+                      <span className="flex items-center gap-1">
+                        <DollarSign className="h-3 w-3" />
+                        ${summaryResult.cost.toFixed(4)}
+                      </span>
+                      <span>{summaryResult.tokensUsed} tokens</span>
+                      <span>Confidence: {(summaryResult.confidenceScore * 100).toFixed(0)}%</span>
+                    </div>
+                  </div>
+                )}
+
+                <p className="text-xs text-gray-600">
+                  {chunk.tier === 1 
+                    ? 'Generates a project-level summary from all T3 chunks'
+                    : 'Generates a section summary from related T3 chunks'}
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Metadata */}
           <div className="space-y-3 p-4 border rounded-lg bg-gray-50">

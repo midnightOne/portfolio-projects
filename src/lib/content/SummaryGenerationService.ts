@@ -174,14 +174,24 @@ Create a comprehensive summary (150-300 words) that preserves all technical deta
 
   /**
    * Generate summary with quality controls and anti-hallucination measures
+   * 
+   * @param options - Summary generation options
+   * @param customModel - Optional custom model to override config model
+   * @param customPrompt - Optional custom system prompt to override config prompt
    */
-  async generateSummary(options: SummaryGenerationOptions): Promise<SummaryGenerationResult> {
+  async generateSummary(
+    options: SummaryGenerationOptions, 
+    customModel?: string,
+    customPrompt?: string
+  ): Promise<SummaryGenerationResult> {
     const config = this.getConfig(options.configId);
-    const systemPrompt = options.type === 'T1' ? config.t1SystemPrompt : config.t2SystemPrompt;
+    const baseSystemPrompt = options.type === 'T1' ? config.t1SystemPrompt : config.t2SystemPrompt;
+    const systemPrompt = customPrompt || baseSystemPrompt;
+    const model = customModel || config.model;
     const maxLength = options.type === 'T1' ? config.t1MaxLength : config.t2MaxLength;
 
-    // Enhance prompt with anti-hallucination measures if enabled
-    const enhancedPrompt = config.preventHallucination 
+    // Enhance prompt with anti-hallucination measures if enabled (skip if using custom prompt)
+    const enhancedPrompt = (config.preventHallucination && !customPrompt)
       ? this.enhancePromptForFactualAccuracy(systemPrompt, options)
       : systemPrompt;
 
@@ -189,7 +199,7 @@ Create a comprehensive summary (150-300 words) that preserves all technical deta
     const result = await this.budgetAwareAI.generateSummary({
       content: options.content,
       systemPrompt: enhancedPrompt,
-      model: config.model,
+      model,
       maxTokens: Math.ceil(maxLength * 1.3), // Allow some buffer for token estimation
       temperature: config.temperature,
       projectId: options.projectId,
@@ -197,6 +207,8 @@ Create a comprehensive summary (150-300 words) that preserves all technical deta
         summaryType: options.type,
         configId: config.id,
         sectionTitle: options.sectionTitle,
+        customModel: customModel || undefined,
+        customPrompt: customPrompt ? 'custom' : undefined,
         ...options.metadata
       }
     });
@@ -234,7 +246,7 @@ Create a comprehensive summary (150-300 words) that preserves all technical deta
       confidenceScore,
       qualityMetrics,
       configUsed: config.name,
-      modelUsed: config.model
+      modelUsed: model // Use actual model (may be custom)
     };
   }
 
