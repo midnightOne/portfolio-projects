@@ -1200,24 +1200,37 @@ export class StageBasedProcessingService extends EventEmitter {
         // Resolve parent chunk ID from logical ID to database UUID
         let resolvedParentChunkId: string | null = null;
         if (chunk.parentChunkId && chunk.tier > 1) {
-          // First check our local map (for chunks created in this batch)
-          if (chunkIdToDbId.has(chunk.parentChunkId)) {
-            resolvedParentChunkId = chunkIdToDbId.get(chunk.parentChunkId)!;
+          // Check if parentChunkId is already a database UUID (starts with 'c' and is ~25 chars for cuid)
+          // If so, use it directly. Otherwise, it's a logical ID and needs resolution.
+          const isDbId = chunk.parentChunkId.startsWith('c') && chunk.parentChunkId.length >= 20;
+          
+          if (isDbId) {
+            // Already a database UUID, use directly
+            resolvedParentChunkId = chunk.parentChunkId;
+            console.log(`[batchStoreChunks] Chunk ${chunk.chunkId}: Using existing DB parent ID: ${resolvedParentChunkId.substring(0, 8)}...`);
           } else {
-            // Look up in database
-            const parentChunk = await tx.contextChunk.findFirst({
-              where: {
-                entityId: entity.id,
-                chunkId: chunk.parentChunkId
-              },
-              select: { id: true }
-            });
-            
-            if (parentChunk) {
-              resolvedParentChunkId = parentChunk.id;
-              chunkIdToDbId.set(chunk.parentChunkId, parentChunk.id);
+            // It's a logical ID, need to resolve to database UUID
+            // First check our local map (for chunks created in this batch)
+            if (chunkIdToDbId.has(chunk.parentChunkId)) {
+              resolvedParentChunkId = chunkIdToDbId.get(chunk.parentChunkId)!;
+              console.log(`[batchStoreChunks] Chunk ${chunk.chunkId}: Resolved parent "${chunk.parentChunkId}" from local map`);
             } else {
-              console.warn(`[batchStoreChunks] Parent chunk not found for ${chunk.chunkId}, proceeding without parent`);
+              // Look up in database
+              const parentChunk = await tx.contextChunk.findFirst({
+                where: {
+                  entityId: entity.id,
+                  chunkId: chunk.parentChunkId
+                },
+                select: { id: true }
+              });
+              
+              if (parentChunk) {
+                resolvedParentChunkId = parentChunk.id;
+                chunkIdToDbId.set(chunk.parentChunkId, parentChunk.id);
+                console.log(`[batchStoreChunks] Chunk ${chunk.chunkId}: Resolved parent "${chunk.parentChunkId}" from database`);
+              } else {
+                console.warn(`[batchStoreChunks] Parent chunk not found for ${chunk.chunkId} (parent: ${chunk.parentChunkId}), proceeding without parent`);
+              }
             }
           }
         }
