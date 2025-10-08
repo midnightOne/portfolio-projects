@@ -20,6 +20,7 @@ import { BatchEmbeddingService } from './BatchEmbeddingService';
 import { VectorOperations } from './VectorOperations';
 import { SemanticBudgetManager } from './SemanticBudgetManager';
 import { ProjectIndexer } from '../services/project-indexer';
+import { IndexMaintenanceService } from '../database/IndexMaintenanceService';
 import { EventEmitter } from 'events';
 import OpenAI from 'openai';
 
@@ -146,6 +147,7 @@ export class StageBasedProcessingService extends EventEmitter {
   private vectorOps: VectorOperations;
   private budgetManager: SemanticBudgetManager;
   private projectIndexer: ProjectIndexer;
+  private indexMaintenance: IndexMaintenanceService;
   private openai: OpenAI | null;
 
   // Progress tracking
@@ -163,6 +165,13 @@ export class StageBasedProcessingService extends EventEmitter {
     this.vectorOps = new VectorOperations(prisma);
     this.budgetManager = new SemanticBudgetManager();
     this.projectIndexer = ProjectIndexer.getInstance();
+    
+    // Initialize index maintenance with optimized settings for embedding operations
+    this.indexMaintenance = IndexMaintenanceService.getInstance(prisma, {
+      autoAnalyzeThreshold: 50,    // Analyze after 50 embedding changes
+      reindexThreshold: 1000,       // Reindex after 1k changes (more frequent for HNSW)
+      enableAutoMaintenance: true
+    });
     
     // Initialize OpenAI client for embedding generation
     if (apiKey) {
@@ -959,6 +968,26 @@ export class StageBasedProcessingService extends EventEmitter {
       console.log(`[EmbeddingsStage] Updating ${checkpoint.chunksWithEmbeddings.length} chunks in database with embeddings...`);
       await this.updateChunksInDatabase(request, checkpoint.chunksWithEmbeddings, true); // true = has embeddings
       console.log(`[EmbeddingsStage] ✓ Chunks with embeddings saved to database`);
+      
+      // Trigger HNSW index maintenance after embedding generation
+      try {
+        console.log(`[EmbeddingsStage] Triggering HNSW index maintenance after ${checkpoint.chunksWithEmbeddings.length} new embeddings...`);
+        const maintenanceResult = await this.indexMaintenance.onContentChange('insert', checkpoint.chunksWithEmbeddings.length);
+        
+        if (maintenanceResult) {
+          console.log(`[EmbeddingsStage] 🔧 Index maintenance completed: ${maintenanceResult.action} (${maintenanceResult.duration}ms)`);
+          if (maintenanceResult.action === 'reindex') {
+            console.log(`[EmbeddingsStage] ✅ HNSW index rebuilt - vector search performance optimized for O(log n)`);
+          } else if (maintenanceResult.action === 'analyze') {
+            console.log(`[EmbeddingsStage] ✅ Table statistics updated - query planner optimized`);
+          }
+        } else {
+          console.log(`[EmbeddingsStage] ℹ️  No index maintenance needed (below threshold)`);
+        }
+      } catch (error) {
+        console.warn(`[EmbeddingsStage] Index maintenance failed (non-critical):`, error);
+        // Don't throw - index maintenance is optimization, not critical for embeddings
+      }
     }
   }
 

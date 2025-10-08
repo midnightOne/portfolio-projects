@@ -37,7 +37,9 @@ import {
   Zap,
   Activity,
   Filter,
-  ArrowUpDown
+  ArrowUpDown,
+  Settings,
+  Wrench
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { SemanticRegenerationTrigger } from "./semantic-regeneration-trigger";
@@ -104,6 +106,11 @@ export function SemanticDashboard() {
   const [healthFilter, setHealthFilter] = useState<HealthFilter>('all');
   const [showStageBasedProcessing, setShowStageBasedProcessing] = useState(false);
   const [showGranularControl, setShowGranularControl] = useState(false);
+  
+  // Index maintenance state
+  const [rebuildingIndex, setRebuildingIndex] = useState(false);
+  const [indexStats, setIndexStats] = useState<any>(null);
+  const [lastIndexCheck, setLastIndexCheck] = useState<Date | null>(null);
 
   useEffect(() => {
     fetchDashboardMetrics();
@@ -153,6 +160,61 @@ export function SemanticDashboard() {
       default: return <Badge variant="secondary">Unknown</Badge>;
     }
   };
+
+  // Index maintenance functions
+  const fetchIndexStats = async () => {
+    try {
+      const response = await fetch('/api/admin/semantic/force-reindex');
+      if (!response.ok) throw new Error('Failed to fetch index stats');
+      
+      const data = await response.json();
+      setIndexStats(data);
+      setLastIndexCheck(new Date());
+    } catch (error) {
+      console.error('Error fetching index stats:', error);
+    }
+  };
+
+  const forceRebuildIndex = async () => {
+    if (rebuildingIndex) return;
+    
+    try {
+      setRebuildingIndex(true);
+      console.log('🔧 Starting force HNSW index rebuild...');
+      
+      const response = await fetch('/api/admin/semantic/force-reindex', {
+        method: 'POST',
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to rebuild index');
+      }
+      
+      const result = await response.json();
+      console.log('✅ HNSW index rebuild completed:', result);
+      
+      // Refresh index stats and dashboard metrics
+      await Promise.all([
+        fetchIndexStats(),
+        fetchDashboardMetrics(true)
+      ]);
+      
+      // Show success message (you could add a toast here)
+      alert(`Index rebuilt successfully in ${(result.details.totalTime / 1000).toFixed(1)} seconds!`);
+      
+    } catch (error) {
+      console.error('❌ Force index rebuild failed:', error);
+      alert(`Index rebuild failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setRebuildingIndex(false);
+    }
+  };
+
+  // Fetch index stats on component mount
+  useEffect(() => {
+    fetchIndexStats();
+  }, []);
 
   const getHealthStatusBadge = (status: string) => {
     switch (status) {
@@ -341,6 +403,111 @@ export function SemanticDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Index Maintenance */}
+      {indexStats && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5" />
+              HNSW Index Maintenance
+            </CardTitle>
+            <CardDescription>
+              Manage vector index performance and statistics
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Index Stats */}
+            <div className="grid gap-4 md:grid-cols-3">
+              <div>
+                <div className="text-sm font-medium text-muted-foreground">Index Size</div>
+                <div className="text-lg font-semibold">{indexStats.stats?.indexSize || 'Unknown'}</div>
+              </div>
+              <div>
+                <div className="text-sm font-medium text-muted-foreground">Last Analyzed</div>
+                <div className="text-lg font-semibold">
+                  {indexStats.stats?.lastAnalyzed 
+                    ? formatDistanceToNow(new Date(indexStats.stats.lastAnalyzed), { addSuffix: true })
+                    : 'Never'
+                  }
+                </div>
+              </div>
+              <div>
+                <div className="text-sm font-medium text-muted-foreground">Changes Since Analysis</div>
+                <div className="text-lg font-semibold">{indexStats.stats?.changesSinceAnalyze || 0}</div>
+              </div>
+            </div>
+
+            {/* Recommendations */}
+            {indexStats.recommendations && (
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Maintenance Recommendations</div>
+                <div className="space-y-1">
+                  {indexStats.recommendations.recommendations.map((rec: string, index: number) => (
+                    <div 
+                      key={index} 
+                      className={`text-xs p-2 rounded ${
+                        indexStats.recommendations.urgency === 'high' ? 'bg-red-50 text-red-800' :
+                        indexStats.recommendations.urgency === 'medium' ? 'bg-yellow-50 text-yellow-800' :
+                        'bg-green-50 text-green-800'
+                      }`}
+                    >
+                      {rec}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Force Rebuild Button */}
+            <div className="flex items-center justify-between pt-4 border-t">
+              <div className="space-y-1">
+                <div className="text-sm font-medium">Force Index Rebuild</div>
+                <div className="text-xs text-muted-foreground">
+                  Immediately rebuild HNSW index for optimal O(log n) performance.
+                  <br />
+                  ⚠️ This may take several minutes but won't block searches.
+                </div>
+              </div>
+              
+              <Button
+                onClick={forceRebuildIndex}
+                disabled={rebuildingIndex || !indexStats.canForceReindex}
+                variant={rebuildingIndex ? "secondary" : "destructive"}
+                size="sm"
+                className="ml-4"
+              >
+                {rebuildingIndex ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Rebuilding...
+                  </>
+                ) : (
+                  <>
+                    <Wrench className="h-4 w-4 mr-2" />
+                    Force Rebuild
+                  </>
+                )}
+              </Button>
+            </div>
+
+            {/* Last Check Info */}
+            {lastIndexCheck && (
+              <div className="text-xs text-muted-foreground border-t pt-2">
+                Stats last checked: {formatDistanceToNow(lastIndexCheck, { addSuffix: true })}
+                <Button
+                  onClick={fetchIndexStats}
+                  variant="ghost"
+                  size="sm"
+                  className="ml-2 h-6 px-2"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Cost Analytics */}
       <Card>
