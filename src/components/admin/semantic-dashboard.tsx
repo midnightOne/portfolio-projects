@@ -16,6 +16,12 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -68,7 +74,9 @@ interface DashboardMetrics {
     tierDistribution: Record<number, number>;
     lastRegenerated: Date;
     totalCost: number;
-    healthStatus: 'healthy' | 'outdated' | 'incomplete' | 'error';
+    healthStatus: 'healthy' | 'no-content' | 'no-embeddings' | 'incomplete-summaries' | 'tree-invalid' | 'outdated' | 'corrupted';
+    healthDetails: string;
+    healthRecommendations: string[];
   }>;
   costAnalytics: {
     totalSpent: number;
@@ -94,7 +102,7 @@ interface DashboardMetrics {
 
 type SortField = 'title' | 'chunkCount' | 'lastRegenerated' | 'totalCost' | 'healthStatus';
 type SortOrder = 'asc' | 'desc';
-type HealthFilter = 'all' | 'healthy' | 'outdated' | 'incomplete' | 'error';
+type HealthFilter = 'all' | 'healthy' | 'no-content' | 'no-embeddings' | 'incomplete-summaries' | 'tree-invalid' | 'outdated' | 'corrupted';
 
 export function SemanticDashboard() {
   const router = useRouter();
@@ -223,20 +231,35 @@ export function SemanticDashboard() {
           <CheckCircle className="h-3 w-3" />
           Healthy
         </Badge>;
-      case 'outdated':
+      case 'no-content':
+        return <Badge variant="destructive" className="flex items-center gap-1">
+          <AlertCircle className="h-3 w-3" />
+          No Content
+        </Badge>;
+      case 'no-embeddings':
+        return <Badge variant="default" className="bg-orange-600 flex items-center gap-1">
+          <Database className="h-3 w-3" />
+          No Embeddings
+        </Badge>;
+      case 'incomplete-summaries':
         return <Badge variant="default" className="bg-yellow-600 flex items-center gap-1">
+          <Clock className="h-3 w-3" />
+          Incomplete Summaries
+        </Badge>;
+      case 'tree-invalid':
+        return <Badge variant="destructive" className="flex items-center gap-1">
+          <AlertCircle className="h-3 w-3" />
+          Tree Invalid
+        </Badge>;
+      case 'outdated':
+        return <Badge variant="default" className="bg-gray-600 flex items-center gap-1">
           <Clock className="h-3 w-3" />
           Outdated
         </Badge>;
-      case 'incomplete':
-        return <Badge variant="default" className="bg-orange-600 flex items-center gap-1">
-          <AlertCircle className="h-3 w-3" />
-          Incomplete
-        </Badge>;
-      case 'error':
+      case 'corrupted':
         return <Badge variant="destructive" className="flex items-center gap-1">
           <AlertCircle className="h-3 w-3" />
-          Error
+          Corrupted
         </Badge>;
       default:
         return <Badge variant="secondary">Unknown</Badge>;
@@ -701,9 +724,12 @@ export function SemanticDashboard() {
                 <SelectContent>
                   <SelectItem value="all">All</SelectItem>
                   <SelectItem value="healthy">Healthy</SelectItem>
+                  <SelectItem value="no-content">No Content</SelectItem>
+                  <SelectItem value="no-embeddings">No Embeddings</SelectItem>
+                  <SelectItem value="incomplete-summaries">Incomplete Summaries</SelectItem>
+                  <SelectItem value="tree-invalid">Tree Invalid</SelectItem>
                   <SelectItem value="outdated">Outdated</SelectItem>
-                  <SelectItem value="incomplete">Incomplete</SelectItem>
-                  <SelectItem value="error">Error</SelectItem>
+                  <SelectItem value="corrupted">Corrupted</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -797,7 +823,35 @@ export function SemanticDashboard() {
                       {formatDistanceToNow(new Date(project.lastRegenerated), { addSuffix: true })}
                     </TableCell>
                     <TableCell>${project.totalCost.toFixed(4)}</TableCell>
-                    <TableCell>{getHealthStatusBadge(project.healthStatus)}</TableCell>
+                    <TableCell>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="cursor-help">
+                              {getHealthStatusBadge(project.healthStatus)}
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-sm">
+                            <div className="space-y-2">
+                              <div className="font-semibold">{project.healthDetails}</div>
+                              {project.healthRecommendations && project.healthRecommendations.length > 0 && (
+                                <div>
+                                  <div className="text-xs font-medium mb-1">Recommendations:</div>
+                                  <ul className="text-xs space-y-1">
+                                    {project.healthRecommendations.map((rec, index) => (
+                                      <li key={index} className="flex items-start gap-1">
+                                        <span className="text-muted-foreground">•</span>
+                                        <span>{rec}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
                         <Button
