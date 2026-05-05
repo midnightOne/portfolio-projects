@@ -98,6 +98,61 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         }
     }
 
+
+
+    /**
+     * Add conversational context to tool results to encourage natural follow-up
+     */
+    private _addConversationalContext(toolName: string, result: string, parameters: any): string {
+        try {
+            const parsedResult = typeof result === 'string' ? JSON.parse(result) : result;
+            
+            switch (toolName) {
+                case 'ui_intent':
+                    if (parsedResult.success) {
+                        const target = parameters.target;
+                        if (target?.type === 'project' && target?.id) {
+                            return `Tool execution successful. I've opened the ${target.id} project for you. Now I should tell you about what you're seeing in this project and its key features.`;
+                        } else if (target?.type === 'section' && target?.id) {
+                            return `Tool execution successful. I've navigated to the ${target.id} section. Now I should explain what's important about this part of the portfolio.`;
+                        } else if (target?.type === 'route') {
+                            return `Tool execution successful. I've taken you to the ${target.id} page. Now I should describe what's available here.`;
+                        }
+                        return `Tool execution successful. Navigation completed. Now I should describe what you're seeing.`;
+                    }
+                    break;
+                    
+                case 'ui_describe':
+                    return `Tool execution successful. Based on what I can see on the current page, I should now help you understand what's available and how I can assist you further.`;
+                    
+                case 'searchProjects':
+                    if (parsedResult.results && parsedResult.results.length > 0) {
+                        const count = parsedResult.results.length;
+                        const query = parameters.query || 'your search';
+                        return `Tool execution successful. I found ${count} project${count === 1 ? '' : 's'} matching "${query}". Now I should tell you about the most relevant ones.`;
+                    } else {
+                        return `Tool execution successful. I didn't find any projects matching that search. Now I should suggest some alternatives or tell you about other available projects.`;
+                    }
+                    
+                case 'loadProjectContext':
+                    const projectId = parameters.projectId;
+                    return `Tool execution successful. I've loaded detailed information about the ${projectId} project. Now I should share the key highlights and technical details with you.`;
+                    
+                case 'content_search':
+                    if (parsedResult.results && parsedResult.results.length > 0) {
+                        const count = parsedResult.results.length;
+                        return `Tool execution successful. I found ${count} relevant content item${count === 1 ? '' : 's'} that should help answer your question. Now I should explain what I found.`;
+                    }
+                    break;
+            }
+        } catch (error) {
+            console.warn('Failed to parse tool result for conversational context:', error);
+        }
+        
+        // Default conversational prompt
+        return `Tool execution successful. Now I should explain what this means and how it relates to what you're looking for.`;
+    }
+
     /**
      * Load configuration with environment-aware approach
      */
@@ -395,10 +450,14 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
                         console.log(`OpenAI tool execution completed: ${toolDef.name}`, result);
 
-                        // Return result to OpenAI and trigger response
-                        //const backgroundRes = backgroundResult(result);
+                        // For navigation and search tools, add context to encourage natural follow-up
+                        if (['ui_intent', 'ui_describe', 'searchProjects', 'loadProjectContext', 'content_search'].includes(toolDef.name)) {
+                            const contextualResult = this._addConversationalContext(toolDef.name, result, parameters);
+                            console.log(`Added conversational context for ${toolDef.name}:`, contextualResult);
+                            return contextualResult;
+                        }
 
-                        return result; //or backgroundRes if we need to accumulate more results from tool calls until we want the model to speak
+                        return result;
 
                     } catch (error) {
                         console.error(`OpenAI tool execution failed: ${toolDef.name}`, error);
@@ -416,7 +475,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         const instructions = this._config?.instructions || `You are a concise, friendly AI narrator for Kirill’s XR/AI portfolio. You can help visitors learn about the portfolio owner's background, projects, and experience. You have access to navigation tools to show relevant content and guide users through the portfolio. Portfolio owner's name is Kirill.
 
 Key capabilities:
-- Answer questions about projects and experience using server tools (loadProjectContext, searchProjects)
+- Answer questions about projects and experience using server tools 
 - Navigate users declaratively using ui_intent for goal-based navigation
 - Get current UI state using ui_describe to understand context
 - Highlight important content using highlightText tool
@@ -436,6 +495,16 @@ NAV_CONTEXT Handling:
 - Use NAV_CONTEXT information to ground your responses and provide contextually relevant answers
 - Always consult your most recent NAV_CONTEXT for current UI state before calling navigation tools
 - If NAV_CONTEXT seems irrelevant to the current conversation, you may ignore it
+
+CRITICAL - Tool Execution Follow-up:
+- ALWAYS provide a natural spoken response immediately after executing any tool
+- When you navigate somewhere, describe what the user is now seeing
+- When you search for something, explain what you found and why it's relevant
+- When you load project context, share the key highlights with the user
+- Never execute a tool and then go silent - the conversation must feel continuous and connected
+- Use tool results to provide immediate value and context to the user
+- Respond BEFORE any NAV_CONTEXT messages arrive - don't wait for additional context
+- Your immediate response after tool execution is more important than waiting for perfect context
 
 Communication guidelines:
 - Speak English until asked to use a different language
