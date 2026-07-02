@@ -1,3 +1,6 @@
+﻿> **Status:** current (supporting reference — semantic-content — Batch API strategy reference). Predates the 2026-07-02 spec rewrite; where this conflicts with code or the owning spec's requirements/design, those win.
+> **Last verified against code:** carried over 2026-07-02 (e2d75b4) without line-by-line reverification.
+
 # Batch API Integration Strategy
 
 ## Overview
@@ -6,14 +9,14 @@ OpenAI's Batch API provides 50% cost savings on embeddings ($0.01 vs $0.02 per 1
 
 ## Use Cases
 
-### ✅ Use Batch API For:
+### âœ… Use Batch API For:
 1. **Initial project indexing** - New projects being added
 2. **Overnight regeneration** - Scheduled bulk updates
 3. **Full reindexing** - Maintenance operations
 4. **Bulk embedding updates** - Model changes, dimension updates
 5. **Historical data migration** - One-time operations
 
-### ❌ Don't Use Batch API For:
+### âŒ Don't Use Batch API For:
 1. **Real-time search** - User is waiting for results
 2. **Immediate project updates** - User just saved content
 3. **Interactive operations** - UI feedback required
@@ -27,17 +30,17 @@ OpenAI's Batch API provides 50% cost savings on embeddings ($0.01 vs $0.02 per 1
 - Total chunks: 50,000
 - Tokens per chunk: ~300
 - Total tokens: 15M
-- Cost: 15 × $0.02 = **$0.30**
+- Cost: 15 Ã— $0.02 = **$0.30**
 
 **Batch API:**
 - Same workload
-- Cost: 15 × $0.01 = **$0.15**
+- Cost: 15 Ã— $0.01 = **$0.15**
 - **Savings: $0.15 (50%)**
 
 ### Annual Savings Projection
 
 **Medium portfolio (200 projects, monthly updates):**
-- Monthly regeneration: 200 projects × 500 chunks = 100K chunks
+- Monthly regeneration: 200 projects Ã— 500 chunks = 100K chunks
 - Monthly tokens: ~30M
 - Standard cost: $0.60/month = $7.20/year
 - Batch cost: $0.30/month = $3.60/year
@@ -114,41 +117,41 @@ async function hybridRegeneration(project: Project, changes: ChangeMap) {
 
 ### Regeneration Dialog
 ```
-┌─────────────────────────────────────────┐
-│ Regenerate Semantic Index               │
-├─────────────────────────────────────────┤
-│ Sections to regenerate: 25              │
-│ Estimated tokens: 7,500                 │
-│                                         │
-│ Processing Mode:                        │
-│ ○ Immediate ($0.15)                     │
-│   Complete in ~30 seconds               │
-│                                         │
-│ ● Scheduled ($0.075) - 50% savings      │
-│   Complete within 24 hours              │
-│   Best for non-urgent updates           │
-│                                         │
-│ [Cancel]  [Start Regeneration]          │
-└─────────────────────────────────────────┘
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚ Regenerate Semantic Index               â”‚
+â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
+â”‚ Sections to regenerate: 25              â”‚
+â”‚ Estimated tokens: 7,500                 â”‚
+â”‚                                         â”‚
+â”‚ Processing Mode:                        â”‚
+â”‚ â—‹ Immediate ($0.15)                     â”‚
+â”‚   Complete in ~30 seconds               â”‚
+â”‚                                         â”‚
+â”‚ â— Scheduled ($0.075) - 50% savings      â”‚
+â”‚   Complete within 24 hours              â”‚
+â”‚   Best for non-urgent updates           â”‚
+â”‚                                         â”‚
+â”‚ [Cancel]  [Start Regeneration]          â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 ### Batch Job Status
 ```
-┌─────────────────────────────────────────┐
-│ Batch Jobs                              │
-├─────────────────────────────────────────┤
-│ ⏳ Project Index Update                 │
-│    Status: Processing                   │
-│    Progress: 45%                        │
-│    Est. completion: 8 hours             │
-│    Savings: $0.12                       │
-│                                         │
-│ ✅ Bulk Reindexing                      │
-│    Status: Completed                    │
-│    Processed: 50,000 chunks             │
-│    Saved: $0.15                         │
-│    Duration: 18 hours                   │
-└─────────────────────────────────────────┘
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚ Batch Jobs                              â”‚
+â”œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¤
+â”‚ â³ Project Index Update                 â”‚
+â”‚    Status: Processing                   â”‚
+â”‚    Progress: 45%                        â”‚
+â”‚    Est. completion: 8 hours             â”‚
+â”‚    Savings: $0.12                       â”‚
+â”‚                                         â”‚
+â”‚ âœ… Bulk Reindexing                      â”‚
+â”‚    Status: Completed                    â”‚
+â”‚    Processed: 50,000 chunks             â”‚
+â”‚    Saved: $0.15                         â”‚
+â”‚    Duration: 18 hours                   â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 ## Database Schema
@@ -240,11 +243,11 @@ interface ChunkingConfig {
 ### Dashboard Display
 ```
 Batch API Savings (Last 30 Days)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”
 Standard cost:  $12.50
 Batch cost:     $6.25
 Savings:        $6.25 (50%)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”â”
 Jobs completed: 15
 Avg duration:   16 hours
 Success rate:   100%

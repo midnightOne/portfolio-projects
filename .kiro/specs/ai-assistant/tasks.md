@@ -1,0 +1,68 @@
+# ai-assistant — Tasks
+
+**Status:** current
+**Owner domain:** visitor AI runtime
+**Last verified against code:** 2026-07-02 (`e2d75b4`)
+**Ledger regenerated from code truth per D36 — the old client-side-ai tasks.md (141KB, colliding numbering) is archived, not carried.**
+
+---
+
+## Already implemented (verified on branch)
+
+OpenAI Realtime + ElevenLabs adapters behind `IConversationalAgentAdapter` with WebRTC and ephemeral tokens; server-side prompt/tool injection at token mint; `UnifiedToolRegistry` with client/server contexts and `/api/ai/tools/execute`; declarative `ui_intent`/`ui_describe` via `UIManager` + `SemanticIDRegistry` (imperative tools and internal "MCP" library deleted on branch); semantic server tools (`content_search`, `content_get`, `content_getHierarchy`, `content_searchSection`, `content_getRelated`); F-I-D passive context (`PassiveFIDManager`, `ContextFrameManager`, `/api/ai/context/fid`); conversation logging via `conversation-history-manager`; pill UI with subtitle narration; admin voice config (`VoiceProviderConfig` CRUD); admin debug surfaces (currently on the duplicate provider — see task 1).
+
+## Open tasks
+
+### Phase 3 — consolidation
+
+- [ ] 1. Single conversational-agent provider (D21)
+  - [ ] 1.1 Migrate admin debug components (`VoiceDebugInterface`, `ContextMonitor`, `ToolCallMonitor`, …) to `components/providers/conversational-agent-provider.tsx`
+  - [ ] 1.2 Delete `src/contexts/ConversationalAgentContext.tsx` + `src/hooks/useConversationalAgent.ts` re-export
+  - [ ] 1.3 Debug pages functional against persisted-log replay
+  - _Requirements: 3.4, 10.1_
+
+- [ ] 2. Delete Gen-1 conversation stack
+  - [ ] 2.1 Remove `conversation-manager.ts`, `unified-conversation-manager.ts`, `conversation-transport.ts`, `context-manager.ts`; remove the `/api/ai/conversation` POST pipeline (keep read-only history/transcript/replay re-pointed at `conversation-history-manager`)
+  - [ ] 2.2 Fold `context-injector.ts` into `context-provider.ts`; update its 5 importing routes
+  - [ ] 2.3 Audit `/api/ai/context/{load,inject,cache}` + `/api/ai/context` — delete anything not called by adapters or F-I-D
+  - _Requirements: 9.1; design §3_
+
+- [ ] 3. Tool registry cleanup (D18/D19)
+  - [ ] 3.1 Unregister `fillFormField`, `submitForm`, `animateElement`; delete `content_navigateTo` definition
+  - [ ] 3.2 Merge `src/lib/voice/UINavigationTools.ts` + `src/lib/ai/tools/client-tools.ts` into one client-tool module
+  - [ ] 3.3 Agent smoke test: navigation + content search through both providers
+  - _Requirements: 4.4_
+
+- [ ] 4. Delete mock endpoints (D26)
+  - [ ] 4.1 Remove `/api/ai/conversation/{analytics,search,transcripts}` mocks, `/api/admin/ai/voice-analytics*`, `/api/ai/context` mock, duplicate `/api/ai/openai/token`
+  - _Requirements: 9.2_
+
+- [ ] 5. Config hygiene
+  - [ ] 5.1 Remove hardcoded ElevenLabs fallback agent ID; `localhost:3000` fallbacks → env-derived origin
+  - [ ] 5.2 Model references resolve via registry aliases (with `ai-admin` task set, D4)
+  - _Requirements: 3.2_
+
+### Phase 4 — features
+
+- [ ] 6. Google (Gemini Live) adapter (D22)
+  - [ ] 6.1 Session/token route (gateway-wrapped, duration-capped) + adapter implementing `IConversationalAgentAdapter`
+  - [ ] 6.2 Admin voice config support; smoke test `ui_intent` + `content_search`
+  - [ ] 6.3 Document tool-calling behavior/gaps → feed D41 exploration notes
+  - _Requirements: 3.2, 3.3_
+
+- [ ] 7. `BackendToolService` de-stubbing
+  - [ ] 7.1 Real profile/contact data from DB (remove hardcoded profile)
+  - [ ] 7.2 Persist contact-form submissions; real file processing for reflink uploads
+  - _Requirements: 8, Req 1.2_
+
+- [ ] 8. Job-analysis productization (with `ai-admin` D39 adapters)
+  - [ ] 8.1 Analysis via `default-reasoning` alias; persist `AIJobAnalysis`; admin review view
+  - _Requirements: 8.1_
+
+- [ ] 9. D41 prototyping (time-boxed, optional)
+  - [ ] 9.1 Evaluate watchdog-LLM / in-loop patterns behind existing seams; record findings in this spec; no architecture commitment
+  - _Requirements: open exploration section_
+
+## Backlog
+
+Form-filling tools (D18 — needs a real use case); simplified mobile pill variants; multi-language conversations.

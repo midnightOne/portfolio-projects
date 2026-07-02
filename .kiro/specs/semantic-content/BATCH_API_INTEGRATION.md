@@ -1,3 +1,6 @@
+﻿> **Status:** current (supporting reference — semantic-content — Batch API integration reference). Predates the 2026-07-02 spec rewrite; where this conflicts with code or the owning spec's requirements/design, those win.
+> **Last verified against code:** carried over 2026-07-02 (e2d75b4) without line-by-line reverification.
+
 # Batch API Integration for Cost Optimization
 
 ## Overview
@@ -18,8 +21,8 @@ The Batch API integration provides **50% cost savings** on embedding generation 
 
 **Scenario**: Regenerating 100 projects with 10,000 tokens each
 
-- **Standard API**: 1M tokens × $0.02 = **$0.02**
-- **Batch API**: 1M tokens × $0.01 = **$0.01**
+- **Standard API**: 1M tokens Ã— $0.02 = **$0.02**
+- **Batch API**: 1M tokens Ã— $0.01 = **$0.01**
 - **Savings**: **$0.01 (50%)**
 
 For larger portfolios:
@@ -28,7 +31,7 @@ For larger portfolios:
 
 ## When to Use Batch Mode
 
-### ✅ Ideal Use Cases
+### âœ… Ideal Use Cases
 
 1. **Overnight Regeneration**
    - Schedule regeneration to run overnight
@@ -45,7 +48,7 @@ For larger portfolios:
    - Embedding model upgrades
    - Quality improvements
 
-### ❌ Not Suitable For
+### âŒ Not Suitable For
 
 1. **Real-Time Search**
    - User-initiated searches need immediate results
@@ -456,12 +459,12 @@ For issues or questions:
 ## Summary
 
 The Batch API integration provides:
-- ✅ **50% cost savings** on embeddings
-- ✅ **Automatic fallback** to standard API
-- ✅ **Full budget tracking** and analytics
-- ✅ **Flexible scheduling** for overnight operations
-- ✅ **Queue management** with priorities
-- ✅ **Comprehensive monitoring** and alerts
+- âœ… **50% cost savings** on embeddings
+- âœ… **Automatic fallback** to standard API
+- âœ… **Full budget tracking** and analytics
+- âœ… **Flexible scheduling** for overnight operations
+- âœ… **Queue management** with priorities
+- âœ… **Comprehensive monitoring** and alerts
 
 **Recommended for**: Overnight regeneration, bulk indexing, periodic maintenance
 **Not recommended for**: Real-time search, interactive features, urgent updates
