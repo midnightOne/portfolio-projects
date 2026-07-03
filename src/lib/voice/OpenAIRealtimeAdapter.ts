@@ -16,7 +16,7 @@ import {
     AudioError,
     OpenAIRealtimeConfig
 } from '@/types/voice-agent';
-import { BaseConversationalAgentAdapter } from './IConversationalAgentAdapter';
+import { BaseConversationalAgentAdapter, ConnectOptions } from './IConversationalAgentAdapter';
 import { getClientAIModelManager } from './ClientAIModelManager';
 import { UIManager } from '@/lib/navigation/UIManager';
 
@@ -28,6 +28,7 @@ import {
     TransportEvent,
     RealtimeItem,
     backgroundResult,
+    OpenAIRealtimeWebRTC,
 } from '@openai/agents/realtime';
 import { z } from 'zod';
 
@@ -50,6 +51,8 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     protected _isRecording: boolean = false;
     protected _isInitialized: boolean = false;
     private _config: OpenAIRealtimeConfig | null = null;
+    private _sessionIsMicless: boolean = false;
+    private _silentAudioContext: AudioContext | null = null;
 
     // Analytics and debugging properties
     private _conversationAnalytics: {
@@ -550,20 +553,7 @@ Navigation Flow:
             this._options = options;
 
             // Create the realtime session using loaded configuration
-            this._session = new RealtimeSession(this._agent, {
-                //Any data here overrides configuration set by the server, at the moment we only re-define tools calls to be able to wrap them 
-                /*model: this._config?.model || 'gpt-realtime',
-                config: {
-                    audio: {
-                        output: {
-                            voice: this._config?.voice || 'cedar',
-                        },
-                    },
-                },*/
-            });
-
-            // Set up event listeners
-            this._setupEventListeners();
+            this._createRealtimeSession(false);
 
             this._isInitialized = true;
             console.log('OpenAIRealtimeAdapter: Initialization complete');
@@ -574,6 +564,44 @@ Navigation Flow:
                 'openai'
             );
         }
+    }
+
+    /**
+     * (Re)create the RealtimeSession for the requested input mode.
+     *
+     * micless=false: default WebRTC transport (SDK acquires the microphone on connect).
+     * micless=true:  custom WebRTC transport fed a silent MediaStream so the browser
+     *                never requests mic permission — the user interacts via text
+     *                (sendMessage) and the model may still speak through audioElement.
+     */
+    private _createRealtimeSession(micless: boolean): void {
+        if (!this._agent) {
+            throw new ConnectionError('Agent not initialized', 'openai');
+        }
+
+        if (micless) {
+            const transport = new OpenAIRealtimeWebRTC({
+                mediaStream: this._createSilentInputStream(),
+                audioElement: this._options?.audioElement,
+            });
+            this._session = new RealtimeSession(this._agent, { transport });
+        } else {
+            // Server-injected config is authoritative; we only re-define tool wrappers.
+            this._session = new RealtimeSession(this._agent, {});
+        }
+
+        this._sessionIsMicless = micless;
+        this._setupEventListeners();
+    }
+
+    /**
+     * A permissionless, always-silent audio input track (AudioContext destination
+     * with no connected source). Keeps the WebRTC audio m-line valid without a mic.
+     */
+    private _createSilentInputStream(): MediaStream {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        this._silentAudioContext = new AudioCtx();
+        return this._silentAudioContext.createMediaStreamDestination().stream;
     }
 
     private _setupEventListeners() {
@@ -1429,32 +1457,42 @@ Navigation Flow:
         }
     }
 
-    async connect(): Promise<void> {
-        console.log('OpenAIRealtimeAdapter: Connect called');
+    async connect(options?: ConnectOptions): Promise<void> {
+        const wantsMic = options?.audioInput !== false;
+        console.log(`OpenAIRealtimeAdapter: Connect called (audioInput: ${wantsMic ? 'microphone' : 'text-only'})`);
 
         if (!this._session) {
             throw new ConnectionError('Session not initialized', 'openai');
         }
 
         try {
-            // Request microphone permission explicitly
-            console.log('OpenAIRealtimeAdapter: Requesting microphone permission...');
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true,
-                        sampleRate: 24000,
-                        channelCount: 1
-                    }
-                });
-                console.log('OpenAIRealtimeAdapter: Microphone permission granted');
-                // Stop the stream since OpenAI SDK will handle it
-                stream.getTracks().forEach(track => track.stop());
-            } catch (micError) {
-                console.error('OpenAIRealtimeAdapter: Microphone permission denied:', micError);
-                throw new AudioError('Microphone permission required for voice AI', 'openai');
+            if (wantsMic) {
+                // Request microphone permission explicitly
+                console.log('OpenAIRealtimeAdapter: Requesting microphone permission...');
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true,
+                            sampleRate: 24000,
+                            channelCount: 1
+                        }
+                    });
+                    console.log('OpenAIRealtimeAdapter: Microphone permission granted');
+                    // Stop the stream since OpenAI SDK will handle it
+                    stream.getTracks().forEach(track => track.stop());
+                } catch (micError) {
+                    console.error('OpenAIRealtimeAdapter: Microphone permission denied:', micError);
+                    throw new AudioError('Microphone permission required for voice AI', 'openai');
+                }
+            }
+
+            // The transport is fixed at session construction, so a mode switch
+            // (mic <-> text-only) requires recreating the session before connecting.
+            if (this._sessionIsMicless !== !wantsMic) {
+                console.log('OpenAIRealtimeAdapter: Recreating session for input mode change');
+                this._createRealtimeSession(!wantsMic);
             }
 
             console.log('OpenAIRealtimeAdapter: Getting session token...');
@@ -1502,6 +1540,7 @@ Navigation Flow:
 
             this._isConnected = true;
             this._connectionStatus = 'connected';
+            this._audioInputMode = wantsMic ? 'microphone' : 'text-only';
 
             // Initialize conversation tracking
             this._conversationStartTime = new Date();
@@ -1601,6 +1640,12 @@ Navigation Flow:
                 this._session.close();
                 this._isConnected = false;
                 this._connectionStatus = 'disconnected';
+                this._audioInputMode = null;
+
+                if (this._silentAudioContext) {
+                    this._silentAudioContext.close().catch(() => {});
+                    this._silentAudioContext = null;
+                }
 
                 // Clean up UI state tracking
                 if (typeof window !== 'undefined') {
@@ -1786,6 +1831,24 @@ Navigation Flow:
     }
 
     async startAudioInput(): Promise<void> {
+        // Upgrade path: a text-only session has no mic track, so enabling voice means
+        // reconnecting with a microphone transport. Probe permission BEFORE dropping
+        // the current session so a denial leaves the text-only conversation intact.
+        // (Model-side context is lost on reconnect until D49 resume lands.)
+        if (this._isConnected && this._audioInputMode === 'text-only') {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                stream.getTracks().forEach(track => track.stop());
+            } catch (micError) {
+                console.error('OpenAIRealtimeAdapter: Mic upgrade denied:', micError);
+                throw new AudioError('Microphone permission required for voice AI', 'openai');
+            }
+
+            console.log('OpenAIRealtimeAdapter: Upgrading text-only session to microphone session (reconnect)');
+            await this.disconnect();
+            await this.connect({ audioInput: true });
+        }
+
         return this.startListening();
     }
 

@@ -6,12 +6,22 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getSession } from '@/lib/auth-utils';
 import { ProcessingRequest, StageConfig } from '@/lib/content/StageBasedProcessingService';
 import { getProcessingService } from '@/lib/content/StageBasedProcessingServiceSingleton';
 import { getJobQueueManager, QueuedJob } from '@/lib/content/JobQueueManager';
 
 export async function POST(request: NextRequest) {
   try {
+    // Check authentication — this route triggers OpenAI spend (chunk summaries/embeddings)
+    const session = await getSession();
+    if (!session?.user || (session.user as any)?.role !== 'admin') {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
     const { 
       scope, 

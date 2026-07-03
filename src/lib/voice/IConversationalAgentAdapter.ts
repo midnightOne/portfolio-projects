@@ -19,21 +19,36 @@ import {
   VoiceAgentError
 } from '@/types/voice-agent';
 
+/**
+ * How the session takes user input.
+ * 'microphone' — normal voice session, mic captured.
+ * 'text-only'  — session established without microphone access (silent input track);
+ *                the user types, the model may still speak. Required for clients
+ *                without a mic, denied permissions, and automated e2e drivers.
+ */
+export type AudioInputMode = 'microphone' | 'text-only';
+
+export interface ConnectOptions {
+  /** Capture microphone input. Defaults to true (voice session). Pass false for a text-only session. */
+  audioInput?: boolean;
+}
+
 export interface IConversationalAgentAdapter {
   // Provider identification
   readonly provider: VoiceProvider;
   readonly metadata: ProviderMetadata;
-  
+
   // Lifecycle management
   init(options: AdapterInitOptions): Promise<void>;
-  connect(): Promise<void>;
+  connect(options?: ConnectOptions): Promise<void>;
   disconnect(): Promise<void>;
   cleanup(): Promise<void>;
-  
+
   // Connection state
   getConnectionStatus(): ConnectionStatus;
   getSessionStatus(): SessionStatus;
   isConnected(): boolean;
+  getAudioInputMode(): AudioInputMode | null;
   
   // Audio management
   startAudioInput(): Promise<void>;
@@ -94,6 +109,7 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
   protected _audioElement?: HTMLAudioElement;
   protected _isMuted: boolean = false;
   protected _volume: number = 1.0;
+  protected _audioInputMode: AudioInputMode | null = null;
 
   constructor(provider: VoiceProvider, metadata: ProviderMetadata) {
     this._provider = provider;
@@ -119,6 +135,10 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
 
   isConnected(): boolean {
     return this._connectionStatus === 'connected';
+  }
+
+  getAudioInputMode(): AudioInputMode | null {
+    return this._audioInputMode;
   }
 
   isMuted(): boolean {
@@ -388,7 +408,7 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
 
   // Abstract methods that must be implemented by concrete adapters
   abstract init(options: AdapterInitOptions): Promise<void>;
-  abstract connect(): Promise<void>;
+  abstract connect(options?: ConnectOptions): Promise<void>;
   abstract disconnect(): Promise<void>;
   abstract cleanup(): Promise<void>;
   abstract startAudioInput(): Promise<void>;

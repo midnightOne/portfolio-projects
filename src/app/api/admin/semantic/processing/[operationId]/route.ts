@@ -7,6 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getSession } from '@/lib/auth-utils';
 import { getProcessingService } from '@/lib/content/StageBasedProcessingServiceSingleton';
 
 export async function GET(
@@ -18,6 +19,11 @@ export async function GET(
   const useSSE = searchParams.get('sse') === 'true';
 
   try {
+    const session = await getSession();
+    if (!session?.user || (session.user as any)?.role !== 'admin') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const processingService = getProcessingService();
     const progress = processingService.getProgress(operationId);
 
@@ -93,6 +99,11 @@ export async function POST(
   const { operationId } = await params;
 
   try {
+    const session = await getSession();
+    if (!session?.user || (session.user as any)?.role !== 'admin') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const processingService = getProcessingService();
     const body = await request.json();
     const { action, resumeFromStage } = body;

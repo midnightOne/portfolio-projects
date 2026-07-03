@@ -180,10 +180,19 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
     }
   }
 
-  async connect(): Promise<void> {
+  async connect(options?: import('./IConversationalAgentAdapter').ConnectOptions): Promise<void> {
+    // Text-only sessions are not implemented for ElevenLabs (maintain-only provider, D22);
+    // fail fast with a clear message so the UI can degrade instead of hitting a mic error.
+    if (options?.audioInput === false) {
+      throw new ConnectionError(
+        'Text-only sessions are not supported on the ElevenLabs provider',
+        'elevenlabs'
+      );
+    }
+
     try {
       this._setConnectionStatus('connecting');
-      
+
       // Request microphone permission before starting session (required by @elevenlabs/client)
       await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -262,6 +271,7 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
         onConnect: ({ conversationId }) => {
           this._conversationId = conversationId;
           this._setConnectionStatus('connected');
+          this._audioInputMode = 'microphone';
           this._reconnectAttempts = 0;
           
           // Start periodic reporting for unified monitoring

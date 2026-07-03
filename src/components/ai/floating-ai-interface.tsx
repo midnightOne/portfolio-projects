@@ -113,6 +113,7 @@ export function FloatingAIInterface({
     connect,
     disconnect,
     isConnected,
+    audioInputMode,
     startAudioInput,
     stopAudioInput,
     mute,
@@ -139,6 +140,10 @@ export function FloatingAIInterface({
   const [animationState, setAnimationState] = useState<'pill' | 'expanded' | 'transitioning'>('pill');
   const [showAccessMessage, setShowAccessMessage] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  // Microphone permission flow: 'ask' = offer enable-mic vs stay-text-only;
+  // 'denied' = browser blocked the mic, conversation continues text-only with retry
+  const [micPrompt, setMicPrompt] = useState<null | 'ask' | 'denied'>(null);
+  const [micBusy, setMicBusy] = useState(false);
   
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -473,13 +478,14 @@ export function FloatingAIInterface({
           return;
         }
 
-        // Send message through voice system if connected, otherwise use callback
-        if (isConnected) {
-          await sendMessage(inputValue.trim());
-        } else {
-          onTextSubmit?.(inputValue.trim());
+        // Typing while disconnected starts a text-only session (no mic permission needed)
+        if (!isConnected) {
+          console.log('Not connected - establishing text-only session for typed message...');
+          await connect({ audioInput: false });
         }
-        
+        await sendMessage(inputValue.trim());
+        onTextSubmit?.(inputValue.trim());
+
         setInputValue('');
         setHasInteracted(true);
         
@@ -588,23 +594,82 @@ export function FloatingAIInterface({
         console.log('Stopping voice input...');
         await stopAudioInput();
       } else {
-        // Start voice conversation - connect if needed, then start listening
-        console.log('Starting voice conversation...');
-        
-        if (!isConnected) {
-          console.log('Not connected, establishing connection first...');
-          await connect();
+        // Starting voice requires mic permission — route through the permission flow
+        // instead of letting getUserMedia fail deep inside the adapter.
+        const permission = await queryMicPermission();
+
+        if (permission === 'granted') {
+          await startVoice();
+        } else if (permission === 'denied') {
+          // Browser has the mic blocked: keep/put the conversation in text-only and offer retry
+          setMicPrompt('denied');
+          if (!isConnected) {
+            await connect({ audioInput: false });
+          }
+        } else {
+          // 'prompt' — let the user choose before triggering the native permission dialog
+          setMicPrompt('ask');
         }
-        
-        console.log('Starting audio input...');
-        await startAudioInput();
       }
     } catch (error) {
       console.error('Voice toggle error:', error);
       // Could show error message to user
     }
-    
+
     setHasInteracted(true);
+  };
+
+  /**
+   * Best-effort microphone permission state. Some browsers don't support
+   * querying the 'microphone' permission — treat those as 'prompt'.
+   */
+  const queryMicPermission = async (): Promise<'granted' | 'denied' | 'prompt'> => {
+    try {
+      const status = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      return status.state as 'granted' | 'denied' | 'prompt';
+    } catch {
+      return 'prompt';
+    }
+  };
+
+  /** Connect with microphone (or upgrade a text-only session) and start listening. */
+  const startVoice = async () => {
+    setMicBusy(true);
+    try {
+      if (!isConnected) {
+        console.log('Not connected, establishing voice connection first...');
+        await connect({ audioInput: true });
+      }
+      // If the session is text-only, startAudioInput performs the mic upgrade (reconnect)
+      console.log('Starting audio input...');
+      await startAudioInput();
+      setMicPrompt(null);
+    } catch (error) {
+      console.error('Voice start failed:', error);
+      // Mic denied at the native prompt (or unavailable): fall back to text-only
+      setMicPrompt('denied');
+      if (!isConnected) {
+        try {
+          await connect({ audioInput: false });
+        } catch (fallbackError) {
+          console.error('Text-only fallback connection failed:', fallbackError);
+        }
+      }
+    } finally {
+      setMicBusy(false);
+    }
+  };
+
+  /** User chose to continue without a microphone. */
+  const stayTextOnly = async () => {
+    setMicPrompt(null);
+    if (!isConnected) {
+      try {
+        await connect({ audioInput: false });
+      } catch (error) {
+        console.error('Text-only connection failed:', error);
+      }
+    }
   };
 
   // Handle quick action
@@ -894,6 +959,63 @@ export function FloatingAIInterface({
               )}
             </div>
             
+            {/* Microphone permission prompt (voice requested without mic access) */}
+            {micPrompt && (
+              <div
+                className="mx-6 mb-2 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm"
+                data-testid="mic-permission-prompt"
+              >
+                {micPrompt === 'ask' ? (
+                  <>
+                    <p className="text-foreground mb-2">
+                      Voice chat needs access to your microphone.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={startVoice}
+                        disabled={micBusy}
+                        className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                        data-testid="mic-prompt-enable"
+                      >
+                        {micBusy ? 'Requesting…' : 'Enable microphone'}
+                      </button>
+                      <button
+                        onClick={stayTextOnly}
+                        className="px-3 py-1.5 rounded-md border border-border text-foreground hover:bg-muted/50 transition-colors"
+                        data-testid="mic-prompt-text-only"
+                      >
+                        Stay text-only
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-foreground mb-2">
+                      Your browser has blocked microphone access — continuing in text-only mode.
+                      Allow the microphone in your browser&apos;s site settings to use voice.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={startVoice}
+                        disabled={micBusy}
+                        className="px-3 py-1.5 rounded-md border border-border text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50"
+                        data-testid="mic-prompt-retry"
+                      >
+                        {micBusy ? 'Checking…' : 'Retry microphone'}
+                      </button>
+                      <button
+                        onClick={() => setMicPrompt(null)}
+                        className="px-3 py-1.5 rounded-md text-muted-foreground hover:text-foreground transition-colors"
+                        data-testid="mic-prompt-dismiss"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             {/* Main Input Row - Always at bottom */}
             <div className="flex items-center gap-4 px-6 py-4">
               {/* Text Input */}
@@ -973,6 +1095,17 @@ export function FloatingAIInterface({
                 </div>
               )}
 
+              {/* Text-only session indicator */}
+              {isConnected && audioInputMode === 'text-only' && (
+                <div
+                  className="text-xs text-muted-foreground bg-muted/20 px-2 py-1 rounded-full"
+                  title="Connected without microphone — type to chat, or use the mic button to enable voice"
+                  data-testid="text-only-indicator"
+                >
+                  Text-only
+                </div>
+              )}
+
               {/* Voice Input Button - Now on the right */}
               <motion.button
                 onClick={handleVoiceToggle}
@@ -988,12 +1121,14 @@ export function FloatingAIInterface({
                 )}
                 disabled={isProcessing || !voiceSupported}
                 title={
-                  !voiceSupported 
+                  !voiceSupported
                     ? 'Voice AI not available for your access level'
-                    : isListening 
-                      ? 'Mute microphone' 
-                      : isConnected 
-                        ? 'Unmute microphone'
+                    : isListening
+                      ? 'Mute microphone'
+                      : isConnected
+                        ? audioInputMode === 'text-only'
+                          ? 'Enable voice (requires microphone)'
+                          : 'Unmute microphone'
                         : 'Connect and enable voice'
                 }
               >

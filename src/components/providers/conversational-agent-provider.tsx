@@ -13,7 +13,7 @@ import {
   AudioEvent,
   ToolEvent
 } from '@/types/voice-agent';
-import { IConversationalAgentAdapter, AdapterRegistry } from '@/lib/voice/IConversationalAgentAdapter';
+import { IConversationalAgentAdapter, AdapterRegistry, ConnectOptions, AudioInputMode } from '@/lib/voice/IConversationalAgentAdapter';
 import { OpenAIRealtimeAdapter } from '@/lib/voice/OpenAIRealtimeAdapter';
 import { ElevenLabsAdapter } from '@/lib/voice/ElevenLabsAdapter';
 import { useReflinkSession } from './reflink-session-provider';
@@ -30,9 +30,10 @@ interface ConversationalAgentContextType {
   switchProvider: (provider: VoiceProvider) => Promise<void>;
   
   // Connection management
-  connect: () => Promise<void>;
+  connect: (options?: ConnectOptions) => Promise<void>;
   disconnect: () => Promise<void>;
   isConnected: boolean;
+  audioInputMode: AudioInputMode | null;
   
   // Audio management
   startAudioInput: () => Promise<void>;
@@ -85,6 +86,7 @@ export function ConversationalAgentProvider({
   const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
   const [lastError, setLastError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [audioInputMode, setAudioInputMode] = useState<AudioInputMode | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolumeState] = useState(1.0);
   const [availableTools, setAvailableTools] = useState<string[]>([]);
@@ -354,7 +356,10 @@ export function ConversationalAgentProvider({
    */
   const handleConnectionEvent = useCallback((event: ConnectionEvent) => {
     setIsConnected(event.type === 'connected');
-    
+    if (event.type === 'disconnected' || event.type === 'error') {
+      setAudioInputMode(null);
+    }
+
     if (event.error) {
       setLastError(event.error);
     }
@@ -481,25 +486,31 @@ export function ConversationalAgentProvider({
   /**
    * Connect to voice provider
    */
-  const connect = async () => {
-    console.log('connect called, currentAdapter:', currentAdapter?.constructor.name, 'isConnected:', isConnected);
-    
+  const connect = async (options?: ConnectOptions) => {
+    const wantsMic = options?.audioInput !== false;
+    console.log('connect called, currentAdapter:', currentAdapter?.constructor.name, 'isConnected:', isConnected, 'audioInput:', wantsMic ? 'microphone' : 'text-only');
+
     if (!currentAdapter) {
       throw new Error('No adapter initialized');
     }
-    
-    if (!isFeatureEnabled('voice_ai')) {
+
+    // Text-only sessions only need the chat tier; the mic path stays gated on voice_ai
+    if (wantsMic && !isFeatureEnabled('voice_ai')) {
       throw new Error('Voice AI is not available for your access level');
     }
-    
+    if (!wantsMic && !isFeatureEnabled('chat_interface')) {
+      throw new Error('Chat is not available for your access level');
+    }
+
     // Prevent multiple simultaneous connections
     if (isConnected) {
       console.log('Already connected, skipping connection attempt');
       return;
     }
-    
+
     console.log('Calling adapter.connect()...');
-    await currentAdapter.connect();
+    await currentAdapter.connect(options);
+    setAudioInputMode(currentAdapter.getAudioInputMode());
     console.log('Adapter.connect() completed');
   };
 
@@ -523,6 +534,8 @@ export function ConversationalAgentProvider({
     
     console.log('Calling adapter.startAudioInput()...');
     await currentAdapter.startAudioInput();
+    // startAudioInput may have upgraded a text-only session to a microphone session
+    setAudioInputMode(currentAdapter.getAudioInputMode());
     console.log('Adapter.startAudioInput() completed');
   };
 
@@ -647,7 +660,8 @@ export function ConversationalAgentProvider({
     connect,
     disconnect,
     isConnected,
-    
+    audioInputMode,
+
     // Audio management
     startAudioInput,
     stopAudioInput,
