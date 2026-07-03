@@ -27,6 +27,26 @@ Each adapter owns the translation between this contract and its provider SDK. Th
 
 Provider/model selection: `VoiceProviderConfig` rows (admin CRUD at `/api/admin/ai/voice-config*`, default flag, import/test endpoints). The client receives resolved config through `ClientAIModelManager` — models by alias, never literal IDs in code.
 
+## 2b. Cascade adapter family (D45 — planned, Phase 4)
+
+A second family behind the **same** `IConversationalAgentAdapter`:
+
+```
+mic ──► streaming STT ──► reasoning adapter (D39: OpenAI | Anthropic | Google)
+                              │  server-side tool calls (UnifiedToolRegistry — mature classic-LLM tool use)
+                              ▼
+                          streaming TTS (ElevenLabs Flash first) ──► speaker
+```
+
+- **One brain, two renderings:** the cascade shares its LLM pipeline with text chat — answers are identical whether read or spoken. Text mode is simply the cascade minus STT/TTS.
+- **Tool reliability by construction:** tools execute in the classic LLM server-side; ElevenLabs is a TTS engine here, not an orchestrator — its agent-platform tool-calling problems are out of the loop entirely.
+- **Latency budget:** ~1–1.5s to first audio (STT endpointing + LLM TTFT + TTS TTFB, all streamed). Acceptable for portfolio Q&A; the native family stays the low-latency flagship.
+- **Turn-taking v1:** push-to-talk or conservative VAD; barge-in (cutting TTS on user speech) is a v2 refinement. This is the known-hard part of cascades — keep it deliberately simple first.
+- **STT provider** is a new small adapter surface (ElevenLabs Scribe / Deepgram / OpenAI transcription), configured like other providers (env keys D3, models via registry D4).
+- Everything else is untouched: same pill, same F-I-D injection (into the LLM context directly — simpler than realtime context items), same conversation logging, same gateway metering.
+
+Showcase framing: native S2S vs cascade behind one interface, switchable in admin, A/B-able live.
+
 ## 3. Session lifecycle
 
 1. Pill activation → access check (`access-and-cost`: tier/reflink) → token mint request.

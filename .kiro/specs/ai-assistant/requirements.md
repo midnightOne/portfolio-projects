@@ -49,6 +49,7 @@ Overview: [`../00-overview/README.md`](../00-overview/README.md)
 
 1. WHEN adapters are implemented THEN they SHALL conform to `IConversationalAgentAdapter` (connect, disconnect, sendMessage, tool-call bridging, transcript events, state).
 2. Provider lineup per D22: **OpenAI Realtime (primary), Google Gemini Live (to be added), ElevenLabs (maintained, last priority)**. Provider + model are selected via `VoiceProviderConfig` (DB, admin-editable); model IDs resolve through the registry aliases (D4) — never hardcoded (the ElevenLabs fallback agent ID is removed).
+2b. **Cascade family (D45, planned):** a second adapter family — streaming STT → reasoning adapter (D39) → streaming TTS (ElevenLabs first) — SHALL implement the same interface, sharing its brain with text chat so answers are identical across modes, with tool calls executing server-side in the classic LLM. When it ships, ElevenLabs' role shifts to TTS engine and its agent-platform adapter retires (D22 amendment). See `design-voice-adapters.md` §2b.
 3. WHEN a provider with weaker tool-calling is active (Google) THEN known limitations SHALL be documented in the adapter and mitigations tracked under the D41 exploration — the adapter interface SHALL NOT fork per provider.
 4. WHEN exactly one `ConversationalAgentProvider` exists (D21) THEN both the production pill and all admin debug surfaces SHALL consume it; parallel provider implementations are forbidden.
 
@@ -117,7 +118,7 @@ Overview: [`../00-overview/README.md`](../00-overview/README.md)
 
 ## Open design exploration (D41 — deliberately not a requirement)
 
-Voice ↔ reasoning orchestration: (a) reasoning model in-loop for deep tools only; (b) side-by-side watchdog reasoning LLM following the transcript and passively feeding grounded context to the voice model; (c) tool-harness hardening for weaker realtime models. Keep the D39 seam (unified server tools) so any option layers on without endpoint changes. Prototype in roadmap Phase 4.5; record findings here.
+Voice ↔ reasoning orchestration — **narrowed by D45**: the cascade family resolves this for its own path (the reasoning model *is* the agent there; no watchdog needed). Remaining open scope is the **native S2S path only**: (a) reasoning model in-loop for deep tools (already allowed by D39); (b) side-by-side watchdog reasoning LLM feeding grounded context to a weak-tool-calling realtime model (mainly Gemini Live); (c) tool-harness hardening. Keep the D39 seam (unified server tools) so any option layers on without endpoint changes. Prototype in roadmap Phase 4.5; record findings here.
 
 ## Cancelled / superseded
 

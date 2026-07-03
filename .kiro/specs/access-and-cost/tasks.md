@@ -21,6 +21,7 @@ Postgres-backed rate-limit tables + engine (`rate-limiter.ts`) — **built but u
   - [ ] 2.2 Wire onto every cost-incurring route (chat, both/all token mints, tools/execute, analyze-job, semantic regeneration; MCP joins in Phase 4)
   - [ ] 2.3 Unit tests: check order, fail-closed, allowlist rejection; grep check for unguarded routes
   - [ ] 2.4 Delete or absorb `withRateLimit` middleware
+  - [ ] 2.5 Debug-authorization step + `_debug` envelope assembly (verification spec task 3 — lands with the gateway, D46)
   - _Requirements: 1_
 
 - [ ] 3. Public text chat

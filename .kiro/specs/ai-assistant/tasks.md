@@ -59,8 +59,15 @@ OpenAI Realtime + ElevenLabs adapters behind `IConversationalAgentAdapter` with 
   - [ ] 8.1 Analysis via `default-reasoning` alias; persist `AIJobAnalysis`; admin review view
   - _Requirements: 8.1_
 
-- [ ] 9. D41 prototyping (time-boxed, optional)
-  - [ ] 9.1 Evaluate watchdog-LLM / in-loop patterns behind existing seams; record findings in this spec; no architecture commitment
+- [ ] 9. Cascade voice adapter (D45) — *after ai-admin task 4 (reasoning adapters)*
+  - [ ] 9.1 STT adapter surface (ElevenLabs Scribe / Deepgram / OpenAI transcription; env keys D3, config in `VoiceProviderConfig`)
+  - [ ] 9.2 `CascadeVoiceAdapter` implementing `IConversationalAgentAdapter`: streaming STT → reasoning adapter → ElevenLabs streaming TTS; push-to-talk or conservative VAD in v1
+  - [ ] 9.3 Shared-brain check: same question in text mode and cascade voice yields the same grounded answer (verification spec live-fire)
+  - [ ] 9.4 Retire the ElevenLabs agent-platform adapter (D22 amendment); admin A/B switch native ↔ cascade
+  - _Requirements: 3.2b; design-voice-adapters §2b_
+
+- [ ] 10. D41 prototyping (time-boxed, optional; native-S2S path only)
+  - [ ] 10.1 Evaluate watchdog-LLM / in-loop patterns behind existing seams (relevant mainly if Gemini Live tool-calling underperforms); record findings in this spec; no architecture commitment
   - _Requirements: open exploration section_
 
 ## Backlog

@@ -85,6 +85,7 @@ flowchart TB
 | [semantic-content](../semantic-content/requirements.md) | current — implemented, verification pending | T0–T3 pipeline, chunking, embeddings, search, budgets | verification tasks, hybrid retrieval, ProjectAIIndex retirement |
 | [access-and-cost](../access-and-cost/requirements.md) | current — **mostly unimplemented** | AI gateway, public text chat, rate limiting, reflinks, usage ledger, watchdog | nearly everything (Phase 2) |
 | [mcp-server](../mcp-server/requirements.md) | current — **unimplemented** | external MCP server | everything (Phase 4) |
+| [verification](../verification/requirements.md) | current — **mostly unimplemented** | agentic e2e verification: fakes, fixture, `check:*`, debug envelope, telemetry access, live-fire, CLAUDE.md | builds with each phase (D46) |
 | [_archive](../_archive/) | archived | superseded specs & analysis docs | — |
 
 Master direction document: [`ARCHITECTURE_ALIGNMENT_PROPOSAL.md`](../ARCHITECTURE_ALIGNMENT_PROPOSAL.md) (frozen rationale; the registry below is the living copy of its decisions). Roadmap phases live in its Section 7.
@@ -103,6 +104,7 @@ See [decision-registry.md](./decision-registry.md) — D1–D44. Rule of the reg
 6. **Task ledgers:** regenerated from code truth, never copied. A parent may be `[x]` only if all children are. Duplicate task/requirement numbers are forbidden. Completed history goes in a short "Already implemented" section, not a sea of checked boxes.
 7. **Naming:** tool names use underscores (`ui_intent`, `content_search`). "MCP" refers exclusively to the real external MCP server. Tiers are T0–T3.
 8. **Models & pricing are data** (registry D4/D38): no model IDs or prices in spec text or code — reference role aliases (`default-chat`, `default-cheap`, `default-realtime`, `default-embedding`, `default-reasoning`).
+9. **Definition of done includes agentic verification** (registry D46): a ledger task is `[x]` only after the deterministic suite passes and the feature's e2e path has been exercised (fakes in-session; live-fire at phase completion). New cost-incurring routes/tools/pipeline stages land **with** their verification hooks (`_debug` coverage, telemetry correlation, check script or Playwright tag). See the `verification` spec.
 
 ## 6. Repo orientation
 
