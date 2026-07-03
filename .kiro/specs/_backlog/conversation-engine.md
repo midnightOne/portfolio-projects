@@ -15,7 +15,8 @@ An admin-editable **node graph that scripts the agent's conversational policy** 
   - context set: which semantic content / F-I-D scope / static snippets are loaded,
   - tool allowlist: which registry tools are active here,
   - model alias: which model runs this node (cheap for small talk, reasoning for deep dives — pure data via D4).
-- **Edge / fork** = transition condition (intent match, tool result, explicit user pivot) whose traversal can **purge context** (drop the previous node's injected items — the NAV_CONTEXT replace-don't-append mechanics generalize to this) and **switch model** (alias change; on native realtime this may mean session re-mint, on the cascade it's a per-turn swap — one more reason D45 matters).
+- **Edge / fork** = transition condition (intent match, tool result, explicit user pivot) whose traversal can **purge context** (drop the previous node's injected items — the NAV_CONTEXT replace-don't-append mechanics generalize to this) and **switch model** (alias change; per-turn on the cascade, re-mint-at-a-pause on native realtime — one more reason D45 matters).
+- **State ownership (owner-confirmed):** the engine's graph state lives server-side in the harness; node transitions reach the live voice session as *non-disruptive* control-plane updates (`updateSession` → instructions/context/tools) over the standing connection. The voice connection is NOT restarted per transition — most transitions change only guidance/context/tools, which every runtime applies live. Re-mint is reserved for actual model/provider swaps on native sessions, at natural pauses. See `ai-assistant/design-voice-adapters.md` §1 state-ownership principle.
 - One graph serves **all runtimes**: native voice, cascade voice, text chat — because all of them already share the same prompt-assembly point, tool registry, and context-injection contract.
 
 ## 2. Why the current architecture is already 90% of the runtime

@@ -12,7 +12,7 @@ Status values: ✅ decided · 🔶 decided-not-yet-implemented · ❓ open · �
 
 | # | St | Decision |
 |---|---|---|
-| D1 | 🔶 | `feature/semantic-content-management-2` (== `claude/semantic-content-management-review`, `e2d75b4`) is the implementation baseline; Phase 0 merges it into `main`. |
+| D1 | 🔶 | `feature/semantic-content-management-2` (== `claude/semantic-content-management-review`) is the implementation baseline. *Amended 2026-07-02 (owner): the merge into `main` is **deferred** — `main` stays untouched as the known-deployable Vercel fallback; the current branch becomes **staging** (deployed, non-root domain) and all work continues on it. Phase 0 = stabilize + verify **on the branch** (roadmap 0.2–0.6; 0.1 merge is postponed until the owner promotes staging). |
 | D2 | ✅ | Stack pinned: Next.js 15.x / React 19 / Prisma 6 / Tailwind 4 / Tiptap 3. No framework migrations in this effort. |
 | D3 | ✅ | API keys live in environment variables only; never in the database. |
 | D4 | 🔶 | No hardcoded model IDs in code. DB-backed, admin-editable model registry with role aliases: `default-chat`, `default-cheap`, `default-realtime`, `default-embedding`, `default-reasoning`. |
