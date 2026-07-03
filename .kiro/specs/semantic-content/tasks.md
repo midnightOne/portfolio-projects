@@ -59,10 +59,10 @@ T0–T3 heading-bounded generation with contextual prefixes and section hashes; 
 
 ### Hygiene — DB (cross-cutting, no dependencies; do when convenient)
 
-- [ ] 7. Collapse migrations to a single fresh `init` (D54)
-  - [ ] 7.1 Reset `prisma/migrations` to one `init` migration generated from `schema.prisma`; **hand-add** `CREATE EXTENSION IF NOT EXISTS vector;` and the HNSW index DDL (`USING hnsw (embedding_vector vector_cosine_ops) WITH (m=16, ef_construction=64)`) — Prisma expresses neither (this is why Phase 0 needed a hand-written catch-up migration)
-  - [ ] 7.2 Recreate the local dev DB from the new init; `db:seed` + `seed:fixture`; `prisma migrate diff` shows zero drift; `check:semantic` still passes
-  - [ ] 7.3 Acceptance: single migration folder; fresh clone → `migrate deploy` → seed works first try. Rationale: all data is mock, no prod DB to migrate from; retires the ordering / `db push`-drift bug class found in Phase 0.
+- [x] 7. Collapse migrations to a single fresh `init` (D54) — **done 2026-07-03**
+  - [x] 7.1 Single `20260703220000_init` generated from `schema.prisma`. Prisma's `migrate diff --from-empty` already emits `CREATE EXTENSION IF NOT EXISTS "vector"` (positioned before the vector columns), so the extension is **automatic**; the one hand-patch is the HNSW index (`USING hnsw (embedding_vector vector_cosine_ops) WITH (m=16, ef_construction=64)`), which Prisma emits as a btree. All 8 prior migrations + the stray `setup-pgvector.sql` removed.
+  - [x] 7.2 Verified on a **truly empty DB** (dropped, no extension): `migrate deploy` applied the init clean; `migrate diff` shows zero drift; extension present; HNSW index confirmed `USING hnsw`; base seed + fixture seed run clean.
+  - [x] 7.3 Automation: `npm run db:reset` (= `prisma migrate reset` + fixture) with a `prisma.seed` hook so reset re-provisions extension + HNSW and reseeds in one command. (Prisma's AI-agent guardrail blocks `migrate reset` for assistants; works in a human terminal.)
   - _Requirements: registry D54_
 
 ## Backlog

@@ -19,7 +19,8 @@ Local PostgreSQL 16 + pgvector 0.6 runs inside **WSL Ubuntu-24.04**; `DATABASE_U
   Start-Process -WindowStyle Hidden wsl -ArgumentList '-d','Ubuntu-24.04','--','sleep','infinity'
   # postgres auto-starts with the distro (systemd service)
   ```
-- Fresh rebuild: drop/recreate `portfolio_dev` in WSL, then `npx prisma migrate deploy` (full history replays cleanly, includes pgvector + HNSW), then `npm run db:seed && npm run seed:fixture`.
+- **Reset + reseed (one command):** `npm run db:reset` — `prisma migrate reset` (drops, re-applies the single `init` migration, runs the base seed via the `prisma.seed` hook) then seeds the fixture. The `init` migration self-provisions the pgvector extension **and** the HNSW index, so no hand steps (D54). Note: Prisma's AI-agent guardrail blocks `migrate reset` when an assistant runs it; it works normally in your own terminal.
+- Migrations are a single squashed `init` (`20260703220000_init`). Fresh clone → `npx prisma migrate deploy` → `npm run db:seed && npm run seed:fixture` also works. If you change `schema.prisma`, add a new incremental migration as usual — but re-verify any pgvector/HNSW DDL by hand, since Prisma emits vector indexes as btree.
 - **If the app suddenly 500s with "Failed to fetch projects / tags":** WSL idled out and dropped Postgres. Recover: `Start-Process -WindowStyle Hidden wsl -ArgumentList '-d','Ubuntu-24.04','--','sleep','infinity'` then `wsl -d Ubuntu-24.04 -u root -- service postgresql start`. (Migration squash D54 won't fix this — it's a WSL-lifecycle issue, not a schema one.)
 - Alternative path (not chosen; Docker not installed): Docker Compose with `pgvector/pgvector:pg16`. A cloud dev branch (Neon/Supabase) is the deploy-time option.
 

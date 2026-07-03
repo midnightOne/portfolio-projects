@@ -13,6 +13,7 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
+    "db:reset": "prisma migrate reset --force && tsx scripts/seed-fixture.ts",
     "seed:fixture": "tsx scripts/seed-fixture.ts",
     "check:semantic": "tsx scripts/check-semantic.ts",
     "db:seed-homepage": "node scripts/seed-homepage-config.js",
@@ -139,5 +140,8 @@
     "tsx": "^4.20.3",
     "tw-animate-css": "^1.3.5",
     "typescript": "^5"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   }
 }

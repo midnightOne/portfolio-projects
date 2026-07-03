@@ -1,3 +1,14 @@
+-- Squashed single init migration (D54). pgvector extension + HNSW index are
+-- baked in, so `prisma migrate reset`/`deploy` provisions them automatically
+-- (no hand steps on clear+reseed). The one non-Prisma line is the HNSW index
+-- below, which Prisma emits as a btree; keep the `USING hnsw (...)` form.
+
+-- CreateSchema
+CREATE SCHEMA IF NOT EXISTS "public";
+
+-- CreateExtension
+CREATE EXTENSION IF NOT EXISTS "vector" WITH SCHEMA "public";
+
 -- CreateEnum
 CREATE TYPE "public"."project_status" AS ENUM ('DRAFT', 'PUBLISHED', 'ARCHIVED');
 
@@ -15,6 +26,9 @@ CREATE TYPE "public"."analytics_event" AS ENUM ('VIEW', 'DOWNLOAD', 'EXTERNAL_LI
 
 -- CreateEnum
 CREATE TYPE "public"."ai_rate_limit_tier" AS ENUM ('BASIC', 'STANDARD', 'PREMIUM', 'UNLIMITED');
+
+-- CreateEnum
+CREATE TYPE "public"."content_entity_type" AS ENUM ('PROJECT', 'BIO', 'RESUME', 'EXPERIENCE', 'SKILLS', 'CUSTOM');
 
 -- CreateTable
 CREATE TABLE "public"."projects" (
@@ -218,6 +232,8 @@ CREATE TABLE "public"."project_ai_index" (
     "contentHash" VARCHAR(255),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "contentTiers" JSONB,
+    "embeddingVector" vector(1536),
 
     CONSTRAINT "project_ai_index_pkey" PRIMARY KEY ("projectId")
 );
@@ -244,6 +260,7 @@ CREATE TABLE "public"."homepage_config" (
     "layout" TEXT NOT NULL DEFAULT 'standard',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "waveConfig" JSONB,
 
     CONSTRAINT "homepage_config_pkey" PRIMARY KEY ("id")
 );
@@ -416,6 +433,199 @@ CREATE TABLE "public"."voice_provider_configs" (
     "updated_at" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "voice_provider_configs_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "public"."content_entities" (
+    "id" TEXT NOT NULL,
+    "entityType" "public"."content_entity_type" NOT NULL,
+    "slug" TEXT NOT NULL,
+    "title" VARCHAR(255),
+    "description" TEXT,
+    "tags" JSONB NOT NULL DEFAULT '[]',
+    "technologies" JSONB NOT NULL DEFAULT '[]',
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "content_entities_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "public"."context_chunks" (
+    "id" TEXT NOT NULL,
+    "entity_id" TEXT NOT NULL,
+    "project_index_id" TEXT,
+    "tier" INTEGER NOT NULL,
+    "chunk_id" TEXT NOT NULL,
+    "title" VARCHAR(255),
+    "content" TEXT NOT NULL,
+    "token_count" INTEGER NOT NULL DEFAULT 0,
+    "embedding_vector" vector(1536),
+    "metadata" JSONB NOT NULL DEFAULT '{}',
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+    "parent_chunk_id" TEXT,
+    "root_chunk_id" TEXT,
+    "section_group" TEXT,
+    "derivation_path" TEXT,
+    "chunk_index_in_section" INTEGER,
+    "content_hash" VARCHAR(255),
+    "embedding_generated_at" TIMESTAMP(3),
+    "embedding_model" TEXT,
+    "generation_mode" TEXT NOT NULL DEFAULT 'system',
+    "importance" DOUBLE PRECISION NOT NULL DEFAULT 0.5,
+    "importance_source" TEXT NOT NULL DEFAULT 'ai',
+    "last_modified" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "manually_edited" BOOLEAN NOT NULL DEFAULT false,
+    "modified_by" TEXT NOT NULL DEFAULT 'system',
+    "section_bounded" BOOLEAN NOT NULL DEFAULT false,
+    "section_content_hash" VARCHAR(255),
+    "section_end_line" INTEGER,
+    "section_start_line" INTEGER,
+
+    CONSTRAINT "context_chunks_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "public"."content_versions" (
+    "id" TEXT NOT NULL,
+    "entity_id" TEXT NOT NULL,
+    "version_number" INTEGER NOT NULL,
+    "content_hash" VARCHAR(255) NOT NULL,
+    "changes_summary" TEXT,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "content_versions_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "public"."semantic_budgets" (
+    "id" TEXT NOT NULL,
+    "allocated_funds" DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    "remaining_funds" DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    "total_spent" DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    "embedding_costs" DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    "summarization_costs" DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    "warning_threshold" DOUBLE PRECISION NOT NULL DEFAULT 0.8,
+    "critical_threshold" DOUBLE PRECISION NOT NULL DEFAULT 0.9,
+    "is_active" BOOLEAN NOT NULL DEFAULT true,
+    "last_allocated_at" TIMESTAMP(3),
+    "depleted_at" TIMESTAMP(3),
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "semantic_budgets_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "public"."semantic_operations" (
+    "id" TEXT NOT NULL,
+    "budget_id" TEXT NOT NULL,
+    "project_id" TEXT,
+    "operation_type" TEXT NOT NULL,
+    "tokens_used" INTEGER NOT NULL DEFAULT 0,
+    "cost" DECIMAL(10,4) NOT NULL DEFAULT 0.00,
+    "model" TEXT,
+    "chunks_processed" INTEGER NOT NULL DEFAULT 0,
+    "tiers_affected" JSONB NOT NULL DEFAULT '[]',
+    "success" BOOLEAN NOT NULL DEFAULT true,
+    "error" TEXT,
+    "metadata" JSONB NOT NULL DEFAULT '{}',
+    "started_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "completed_at" TIMESTAMP(3),
+    "duration" INTEGER,
+
+    CONSTRAINT "semantic_operations_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "public"."chunking_configs" (
+    "id" TEXT NOT NULL,
+    "respect_heading_boundaries" BOOLEAN NOT NULL DEFAULT true,
+    "target_chunk_size" INTEGER NOT NULL DEFAULT 300,
+    "max_section_size" INTEGER NOT NULL DEFAULT 500,
+    "min_section_size" INTEGER NOT NULL DEFAULT 50,
+    "section_boundary_overlap" INTEGER NOT NULL DEFAULT 25,
+    "splitStrategy" TEXT NOT NULL DEFAULT 'paragraph',
+    "embedding_model" TEXT NOT NULL DEFAULT 'text-embedding-3-small',
+    "t1_max_length" INTEGER NOT NULL DEFAULT 200,
+    "t2_max_length" INTEGER NOT NULL DEFAULT 150,
+    "section_change_percent" DOUBLE PRECISION NOT NULL DEFAULT 0.2,
+    "minor_change_threshold" INTEGER NOT NULL DEFAULT 2,
+    "defaultBehavior" TEXT NOT NULL DEFAULT 'prompt',
+    "draft_mode_skip_indexing" BOOLEAN NOT NULL DEFAULT true,
+    "name" TEXT NOT NULL DEFAULT 'Default',
+    "is_default" BOOLEAN NOT NULL DEFAULT true,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "chunking_configs_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "public"."summary_generation_configs" (
+    "id" TEXT NOT NULL,
+    "model" TEXT NOT NULL DEFAULT 'gpt-4o-mini',
+    "temperature" DOUBLE PRECISION NOT NULL DEFAULT 0.3,
+    "t1_system_prompt" TEXT NOT NULL,
+    "t2_system_prompt" TEXT NOT NULL,
+    "t1_max_length" INTEGER NOT NULL DEFAULT 200,
+    "t2_max_length" INTEGER NOT NULL DEFAULT 150,
+    "prevent_hallucination" BOOLEAN NOT NULL DEFAULT true,
+    "preserve_keywords" BOOLEAN NOT NULL DEFAULT true,
+    "require_factual_accuracy" BOOLEAN NOT NULL DEFAULT true,
+    "name" TEXT NOT NULL DEFAULT 'Default',
+    "is_default" BOOLEAN NOT NULL DEFAULT true,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "summary_generation_configs_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "public"."summary_generation_logs" (
+    "id" TEXT NOT NULL,
+    "config_id" TEXT NOT NULL,
+    "chunk_id" TEXT,
+    "original_content" TEXT NOT NULL,
+    "prompt_used" TEXT NOT NULL,
+    "model_used" TEXT NOT NULL,
+    "generated_summary" TEXT NOT NULL,
+    "tokens_used" INTEGER NOT NULL,
+    "cost" DECIMAL(10,4) NOT NULL,
+    "confidence_score" DOUBLE PRECISION,
+    "manual_review_flag" BOOLEAN NOT NULL DEFAULT false,
+    "quality_rating" INTEGER,
+    "metadata" JSONB NOT NULL DEFAULT '{}',
+    "generated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "reviewed_at" TIMESTAMP(3),
+    "reviewed_by" TEXT,
+
+    CONSTRAINT "summary_generation_logs_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "public"."batch_embedding_jobs" (
+    "id" TEXT NOT NULL,
+    "batch_id" TEXT NOT NULL,
+    "status" TEXT NOT NULL,
+    "model" TEXT NOT NULL,
+    "priority" TEXT NOT NULL,
+    "request_count" INTEGER NOT NULL,
+    "completed_count" INTEGER NOT NULL DEFAULT 0,
+    "failed_count" INTEGER NOT NULL DEFAULT 0,
+    "estimated_tokens" INTEGER NOT NULL,
+    "actual_tokens" INTEGER,
+    "estimated_cost" DECIMAL(10,4) NOT NULL,
+    "actual_cost" DECIMAL(10,4),
+    "estimated_savings" DECIMAL(10,4) NOT NULL,
+    "actual_savings" DECIMAL(10,4),
+    "project_ids" TEXT[],
+    "metadata" JSONB NOT NULL DEFAULT '{}',
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "completed_at" TIMESTAMP(3),
+
+    CONSTRAINT "batch_embedding_jobs_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -658,7 +868,124 @@ CREATE INDEX "voice_provider_configs_is_default_idx" ON "public"."voice_provider
 CREATE UNIQUE INDEX "voice_provider_configs_provider_name_key" ON "public"."voice_provider_configs"("provider", "name");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "voice_provider_configs_provider_is_default_key" ON "public"."voice_provider_configs"("provider", "is_default");
+CREATE INDEX "content_entities_entityType_idx" ON "public"."content_entities"("entityType");
+
+-- CreateIndex
+CREATE INDEX "content_entities_slug_idx" ON "public"."content_entities"("slug");
+
+-- CreateIndex
+CREATE INDEX "content_entities_tags_idx" ON "public"."content_entities" USING GIN ("tags");
+
+-- CreateIndex
+CREATE INDEX "content_entities_technologies_idx" ON "public"."content_entities" USING GIN ("technologies");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "content_entities_entityType_slug_key" ON "public"."content_entities"("entityType", "slug");
+
+-- CreateIndex
+CREATE INDEX "context_chunks_entity_id_idx" ON "public"."context_chunks"("entity_id");
+
+-- CreateIndex
+CREATE INDEX "context_chunks_tier_idx" ON "public"."context_chunks"("tier");
+
+-- CreateIndex
+CREATE INDEX "context_chunks_chunk_id_idx" ON "public"."context_chunks"("chunk_id");
+
+-- CreateIndex
+CREATE INDEX "context_chunks_token_count_idx" ON "public"."context_chunks"("token_count");
+
+-- CreateIndex
+CREATE INDEX "context_chunks_project_index_id_idx" ON "public"."context_chunks"("project_index_id");
+
+-- CreateIndex
+CREATE INDEX "idx_context_chunks_embedding_hnsw" ON "public"."context_chunks" USING hnsw ("embedding_vector" vector_cosine_ops) WITH (m = 16, ef_construction = 64);
+
+-- CreateIndex
+CREATE INDEX "idx_context_chunks_entity_tier" ON "public"."context_chunks"("entity_id", "tier");
+
+-- CreateIndex
+CREATE INDEX "idx_context_chunks_parent_chunk_id" ON "public"."context_chunks"("parent_chunk_id");
+
+-- CreateIndex
+CREATE INDEX "idx_context_chunks_root_chunk_id" ON "public"."context_chunks"("root_chunk_id");
+
+-- CreateIndex
+CREATE INDEX "idx_context_chunks_section_group" ON "public"."context_chunks"("section_group");
+
+-- CreateIndex
+CREATE INDEX "idx_context_chunks_tier" ON "public"."context_chunks"("tier");
+
+-- CreateIndex
+CREATE INDEX "context_chunks_project_index_id_tier_idx" ON "public"."context_chunks"("project_index_id", "tier");
+
+-- CreateIndex
+CREATE INDEX "context_chunks_importance_idx" ON "public"."context_chunks"("importance");
+
+-- CreateIndex
+CREATE INDEX "context_chunks_manually_edited_idx" ON "public"."context_chunks"("manually_edited");
+
+-- CreateIndex
+CREATE INDEX "context_chunks_embedding_generated_at_idx" ON "public"."context_chunks"("embedding_generated_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "context_chunks_entity_id_tier_chunk_id_key" ON "public"."context_chunks"("entity_id", "tier", "chunk_id");
+
+-- CreateIndex
+CREATE INDEX "content_versions_entity_id_idx" ON "public"."content_versions"("entity_id");
+
+-- CreateIndex
+CREATE INDEX "content_versions_content_hash_idx" ON "public"."content_versions"("content_hash");
+
+-- CreateIndex
+CREATE INDEX "content_versions_created_at_idx" ON "public"."content_versions"("created_at");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "content_versions_entity_id_version_number_key" ON "public"."content_versions"("entity_id", "version_number");
+
+-- CreateIndex
+CREATE INDEX "semantic_operations_budget_id_idx" ON "public"."semantic_operations"("budget_id");
+
+-- CreateIndex
+CREATE INDEX "semantic_operations_project_id_idx" ON "public"."semantic_operations"("project_id");
+
+-- CreateIndex
+CREATE INDEX "semantic_operations_operation_type_idx" ON "public"."semantic_operations"("operation_type");
+
+-- CreateIndex
+CREATE INDEX "semantic_operations_started_at_idx" ON "public"."semantic_operations"("started_at");
+
+-- CreateIndex
+CREATE INDEX "semantic_operations_success_idx" ON "public"."semantic_operations"("success");
+
+-- CreateIndex
+CREATE INDEX "summary_generation_logs_config_id_idx" ON "public"."summary_generation_logs"("config_id");
+
+-- CreateIndex
+CREATE INDEX "summary_generation_logs_chunk_id_idx" ON "public"."summary_generation_logs"("chunk_id");
+
+-- CreateIndex
+CREATE INDEX "summary_generation_logs_generated_at_idx" ON "public"."summary_generation_logs"("generated_at");
+
+-- CreateIndex
+CREATE INDEX "summary_generation_logs_manual_review_flag_idx" ON "public"."summary_generation_logs"("manual_review_flag");
+
+-- CreateIndex
+CREATE INDEX "summary_generation_logs_quality_rating_idx" ON "public"."summary_generation_logs"("quality_rating");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "batch_embedding_jobs_batch_id_key" ON "public"."batch_embedding_jobs"("batch_id");
+
+-- CreateIndex
+CREATE INDEX "batch_embedding_jobs_batch_id_idx" ON "public"."batch_embedding_jobs"("batch_id");
+
+-- CreateIndex
+CREATE INDEX "batch_embedding_jobs_status_idx" ON "public"."batch_embedding_jobs"("status");
+
+-- CreateIndex
+CREATE INDEX "batch_embedding_jobs_priority_idx" ON "public"."batch_embedding_jobs"("priority");
+
+-- CreateIndex
+CREATE INDEX "batch_embedding_jobs_created_at_idx" ON "public"."batch_embedding_jobs"("created_at");
 
 -- CreateIndex
 CREATE INDEX "_ProjectTags_B_index" ON "public"."_ProjectTags"("B");
@@ -731,6 +1058,21 @@ ALTER TABLE "public"."ai_conversation_messages" ADD CONSTRAINT "ai_conversation_
 
 -- AddForeignKey
 ALTER TABLE "public"."ai_job_analyses" ADD CONSTRAINT "ai_job_analyses_reflink_id_fkey" FOREIGN KEY ("reflink_id") REFERENCES "public"."ai_reflinks"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."context_chunks" ADD CONSTRAINT "context_chunks_entity_id_fkey" FOREIGN KEY ("entity_id") REFERENCES "public"."content_entities"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."context_chunks" ADD CONSTRAINT "context_chunks_parent_chunk_id_fkey" FOREIGN KEY ("parent_chunk_id") REFERENCES "public"."context_chunks"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."context_chunks" ADD CONSTRAINT "context_chunks_project_index_id_fkey" FOREIGN KEY ("project_index_id") REFERENCES "public"."project_ai_index"("projectId") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."semantic_operations" ADD CONSTRAINT "semantic_operations_budget_id_fkey" FOREIGN KEY ("budget_id") REFERENCES "public"."semantic_budgets"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "public"."summary_generation_logs" ADD CONSTRAINT "summary_generation_logs_config_id_fkey" FOREIGN KEY ("config_id") REFERENCES "public"."summary_generation_configs"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "public"."_ProjectTags" ADD CONSTRAINT "_ProjectTags_A_fkey" FOREIGN KEY ("A") REFERENCES "public"."projects"("id") ON DELETE CASCADE ON UPDATE CASCADE;
