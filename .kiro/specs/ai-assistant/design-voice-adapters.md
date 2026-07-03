@@ -78,6 +78,15 @@ Design consequences:
 - Admin replay renders markers inline; a conversation with three legs across two providers reads as one timeline.
 - Serverless-honest (D43): all continuity state in Postgres; any instance can resume any conversation.
 
+## 4b. Pre-recorded voice assets (D50 — Phase 4 polish)
+
+A client-side audio asset player in the pill, **independent of the adapters** (it must work precisely when no adapter connection exists):
+
+- **Asset library:** clips keyed `(voiceId, phraseId)`, stored via the `media` pipeline, served statically. Admin manages the phrase list in voice config and regenerates clips through the active provider's TTS on voice change (OpenAI TTS shares realtime voice names; ElevenLabs TTS covers its voices — same voice in clip and live speech).
+- **Trigger classes:** tool-latency filler (server tool call > ~1.5s; rotating pool, context tags like *checking/searching/analyzing*; killed the instant model audio or user speech starts — never overlap), connection-state audio (driven by the adapter's connection-state events + the D49 resume flow: disruption clip → retrying → resume-failed apology), cold-start greeting (optional, while token mint + handshake complete).
+- **Honest logging:** every playback emits a `clip_played` event into the D49 conversation history — replay must show what the visitor actually heard; a clip is not model speech and must never be mistaken for it when debugging answer quality.
+- **D47 hook (later):** nodes may reference their own filler sets; the base feature has no engine dependency.
+
 ## 5. Known implementation gaps (tracked in tasks.md)
 
 - `localhost:3000` fallbacks in `voice-config.ts` / `BackendToolService.ts` — replace with env-derived origin.

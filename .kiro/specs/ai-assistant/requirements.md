@@ -127,6 +127,16 @@ Overview: [`../00-overview/README.md`](../00-overview/README.md)
 5. WHEN the owner replays a conversation in admin THEN disruption/resume markers SHALL render inline in the timeline, making recovered conversations debuggable without the owner having been present.
 6. Deliberate mid-conversation provider or model switches SHALL use the same resume path (different trigger, same machinery) — this is the tested foundation the D47 engine's model-switching forks stand on.
 
+## Requirement 13 — Pre-recorded voice assets (D50)
+
+**User story:** As a visitor, I want the assistant to sound responsive and graceful even during tool latency or connection loss; as the owner, I want those moments covered by clips in the assistant's own voice.
+
+1. WHEN a server tool/MCP call exceeds a latency threshold THEN the client MAY play a filler clip ("let me check…") from a small rotating, context-tagged pool — stopped instantly when model audio begins or the user speaks.
+2. WHEN the connection is lost THEN the client SHALL play connection-state audio ("sorry, connection issues — re-establishing…") **entirely client-side, with no model involvement**, while the D49 resume flow runs; a distinct clip covers resume failure.
+3. WHEN a session is starting (token mint + WebRTC handshake) THEN the client MAY play a greeting clip to mask cold-start.
+4. Clips SHALL be voice-matched: keyed by (voice, phrase), regenerated via the active provider's TTS when the configured voice changes, managed from admin voice config.
+5. WHEN any clip plays THEN a D49 history event SHALL record it, so admin replay distinguishes client clips from model speech.
+
 ## Open design exploration (D41 — deliberately not a requirement)
 
 Voice ↔ reasoning orchestration — **narrowed by D45**: the cascade family resolves this for its own path (the reasoning model *is* the agent there; no watchdog needed). Remaining open scope is the **native S2S path only**: (a) reasoning model in-loop for deep tools (already allowed by D39); (b) side-by-side watchdog reasoning LLM feeding grounded context to a weak-tool-calling realtime model (mainly Gemini Live); (c) tool-harness hardening. Keep the D39 seam (unified server tools) so any option layers on without endpoint changes. Prototype in roadmap Phase 4.5; record findings here.

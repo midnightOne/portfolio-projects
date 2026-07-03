@@ -74,6 +74,13 @@ OpenAI Realtime + ElevenLabs adapters behind `IConversationalAgentAdapter` with 
   - [ ] 9.4 Retire the ElevenLabs agent-platform adapter (D22 amendment); admin A/B switch native ↔ cascade
   - _Requirements: 3.2b; design-voice-adapters §2b_
 
+- [ ] 9b. Pre-recorded voice assets (D50 — polish, after task 5b resume flow exists)
+  - [ ] 9b.1 Client-side clip player in the pill (adapter-independent); asset storage via `media`; `(voiceId, phraseId)` keying
+  - [ ] 9b.2 Admin phrase management + TTS regeneration on voice change
+  - [ ] 9b.3 Triggers: tool-latency filler (rotating pool, instant cutoff on model/user audio), D49 connection-state clips (disruption/retrying/failed), optional cold-start greeting
+  - [ ] 9b.4 `clip_played` events in conversation history; replay renders clips distinctly from model speech
+  - _Requirements: 13_
+
 - [ ] 10. D41 prototyping (time-boxed, optional; native-S2S path only)
   - [ ] 10.1 Evaluate watchdog-LLM / in-loop patterns behind existing seams (relevant mainly if Gemini Live tool-calling underperforms); record findings in this spec; no architecture commitment
   - _Requirements: open exploration section_
