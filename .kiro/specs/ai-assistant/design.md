@@ -58,6 +58,16 @@ Principles:
 
 Admin surfaces (`/admin/ai/debug` and voice panels) mount the production provider, subscribe to its event stream (context injections, tool calls, transcripts), and read persisted sessions for replay. Live tail via the existing debug event emitter; no separate conversation engine. What the model saw = what the log shows — that identity is the debugging feature.
 
-## 5. Security posture
+## 5. Modularity & future-engine constraints (D47/D48 — binding on all work in this spec)
+
+The agent subsystem is a future standalone platform (`_backlog/agentic-platform.md`) and will later host a node-graph conversation engine (`_backlog/conversation-engine.md`). Neither is built now; both forbid shortcuts now:
+
+- **Dependency direction:** `src/lib/{ai,voice,navigation}` never import from `src/app/**` or portfolio components. Portfolio-specific tools (job analysis, contact) register into `UnifiedToolRegistry` from outside the core libs — capabilities are plugins, not built-ins.
+- **Optional composition:** every adapter must run a useful session with **zero** F-I-D injections and **no** client tools (pure Q&A mode). UI navigation is a capability, not a prerequisite. Don't let convenience couplings creep in.
+- **One policy home:** conversational policy (prompts, context scope, tool allowlists, model choice) is assembled server-side in exactly one place (context provider + token mint). The pill never embeds policy. The future engine replaces that one function.
+- **`updateSession` primitive:** the adapter contract includes mid-session reconfiguration (instructions, context items, tool set) — OpenAI Realtime supports `session.update`; the cascade applies changes per-turn; any adapter that can't must document session re-mint as its fallback. The engine's forks ("purge and switch context and model") ride on this + alias-based model selection (D4).
+- **No hardcoded host strings** in core libs — prompts/branding come from config/DB.
+
+## 6. Security posture
 
 See requirements Req 11 + `access-and-cost`. Key mechanics: prompts and tool schemas never constructed client-side; per-tier tool allowlists enforced inside `/api/ai/tools/execute`; ephemeral tokens carry duration caps; PRIVATE-visibility content excluded from all public-session retrieval at the service layer.

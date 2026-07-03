@@ -13,7 +13,8 @@
 - Lifecycle: `init(config)`, `connect(sessionAuth)`, `disconnect()`, connection-state events.
 - Conversation: `sendMessage(text)` (text mode over the same session), transcript events (partial/final, user/assistant), audio state (speaking/listening), interruption.
 - Tools: provider tool-call events normalized to registry invocations; tool results returned in the provider's expected shape.
-- Context: accepts injected context items (F-I-D NAV_CONTEXT) with replace-don't-append semantics.
+- Context: accepts injected context items (F-I-D NAV_CONTEXT) with replace-don't-append semantics. Context injection is **optional** — a session with zero injections must remain fully functional (D48).
+- Reconfiguration: `updateSession({instructions?, contextItems?, tools?})` for mid-session policy changes (D47 seam). Native OpenAI Realtime maps to `session.update`; the cascade applies on the next turn; adapters that can't support live update document session re-mint as the fallback.
 
 Each adapter owns the translation between this contract and its provider SDK. The differences are real (event models, tool schemas, context injection mechanics) — this layer stays hand-rolled by design (proposal §5).
 

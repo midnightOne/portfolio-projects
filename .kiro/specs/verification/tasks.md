@@ -60,4 +60,4 @@
 
 ## Backlog
 
-Production synthetic probes; visual regression; load tests — all out of scope per design §8.
+Production synthetic probes; visual regression; load tests — all out of scope per design §8. `check:modularity` (import-boundary lint enforcing D48 dependency direction: core libs never import from `src/app/**`) — build when D48 extraction gets scheduled, or earlier if boundary violations start appearing in review.

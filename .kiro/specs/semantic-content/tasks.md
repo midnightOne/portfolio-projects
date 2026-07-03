@@ -37,7 +37,8 @@ T0–T3 heading-bounded generation with contextual prefixes and section hashes; 
   - [ ] 3.3 Delete `project-indexer.ts`, legacy `src/lib/services/content-ingestion.ts` (T0–T4), `use-project-indexing.ts`, `project-indexing-integration.ts`, `/api/admin/ai/project-indexing/*`, `/admin/ai/project-indexing` page; remove legacy re-exports from `src/lib/content/index.ts`
   - [ ] 3.4 Prisma migrations: drop `ContextChunk.projectIndexId`, then `ProjectAIIndex`
   - [ ] 3.5 Acceptance: semantic search unaffected; `prisma migrate` clean; no imports of deleted modules
-  - _Requirements: 8_
+  - [ ] 3.6 While in there: confirm ingestion reads content through a single content-source entry point (the Tiptap/`ArticleContent` reader) rather than scattered Prisma reads — the D48 content-source seam; extract the entry point if the refactor is trivial, otherwise note the gap in `_backlog/agentic-platform.md`
+  - _Requirements: 8; registry D48(d)_
 
 - [ ] 4. Delete one-off diagnostic routes (D42): the 9 routes listed in design §5; keep `diagnostics`, `diagnostics/t3`, `dashboard`
 

@@ -45,6 +45,7 @@ Until the harness items exist (they land with Phases 0–3), approximate: seed d
 
 - Spec files carry status headers; task ledgers list only open work; update `Last verified against code` when you re-verify a spec.
 - One owner per concept — check the spec's contracts table before adding an API or model.
+- Future-proofing (registry D47/D48, outlines in `.kiro/specs/_backlog/`): core libs (`src/lib/{ai,voice,navigation,content}`) never import from `src/app/**`; no hardcoded prompts/model IDs in core libs; F-I-D and client tools stay optional per session; conversational policy is assembled in exactly one server-side place. A node-graph conversation engine and platform extraction plug in later through these seams.
 - Test selectors: reuse `SemanticIDRegistry` semantic IDs where present; else `data-testid`.
 - Hygiene debris (root test scripts, `test-*` pages) is being hard-deleted in Phase 3 — don't add new debris; scratch work goes outside the repo.
 - Update this file when commands, env, or the verification flow change — staleness here is a defect (verification spec Req 1.1).
