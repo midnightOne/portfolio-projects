@@ -42,6 +42,14 @@ OpenAI Realtime + ElevenLabs adapters behind `IConversationalAgentAdapter` with 
   - [ ] 5.2 Model references resolve via registry aliases (with `ai-admin` task set, D4)
   - _Requirements: 3.2_
 
+- [ ] 5b. Conversation continuity (D49) — *design lands with the Phase 3 persistence consolidation (task 2); full resume in Phase 4 alongside adapter work*
+  - [ ] 5b.1 Schema: session legs on `AIConversation` (provider, model alias, timestamps, end reason); leg-tagged messages/traces; latest-state snapshot storage
+  - [ ] 5b.2 Marker events (`session_disruption`, `session_resumed`) written by `conversation-history-manager`; admin replay renders them inline
+  - [ ] 5b.3 Resume flow: disruption detection → gateway re-validation → new leg mint → harness briefing (snapshot + bounded recap) → continue same history
+  - [ ] 5b.4 Cross-provider resume exercised (OpenAI leg → ElevenLabs/cascade leg); deliberate model-switch uses the same path
+  - [ ] 5b.5 Verification: forced-disconnect drill (kill connection mid-conversation → resume → markers present, context coherent) — joins `verification` live-fire recipes
+  - _Requirements: 12_
+
 ### Phase 4 — features
 
 - [ ] 6. Google (Gemini Live) adapter (D22)

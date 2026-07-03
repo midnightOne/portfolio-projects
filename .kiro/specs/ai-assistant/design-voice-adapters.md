@@ -58,7 +58,27 @@ Showcase framing: native S2S vs cascade behind one interface, switchable in admi
 4. Mode switches (text↔voice) reuse the session (`sendMessage` vs audio); no server thread exists.
 5. Disconnect (user, cap, or error) → final log flush; admin replay available immediately.
 
-## 4. Known implementation gaps (tracked in tasks.md)
+## 4. Session continuity & resume (D49)
+
+```
+AIConversation (logical conversation — one visitor interaction)
+ ├─ leg 1: {provider, modelAlias, startedAt, endedAt, endReason}
+ ├─ messages/turns + tool traces (leg-tagged)
+ ├─ [session_disruption]  {issueType: network|provider_error|token_expiry|watchdog|reload, diagnostics}
+ ├─ [session_resumed]     {new leg, provider/model, briefing summary}
+ ├─ leg 2: {…possibly a different provider…}
+ └─ latest-state snapshot {instructions, active tools, model alias, (later) D47 node}
+```
+
+Resume flow: disruption detected (adapter connection-state events or heartbeat) → marker written → client requests resume for the conversation ID → gateway re-validates tier/budget → new leg minted (same or different provider — the choice is config/trigger, not architecture) → harness **briefs** the new session from ground truth: state snapshot + a bounded recap of recent turns (the conversation store is authoritative; provider-side memory from leg 1 is gone and never assumed) → `session_resumed` marker → history continues in the same conversation.
+
+Design consequences:
+- **One code path, three triggers:** connection recovery, deliberate provider/model switch, and (later) D47 fork-with-model-swap are the same resume operation. Test it as one thing (verification disconnect/resume drill).
+- The latest-state snapshot is updated on every `updateSession` and significant turn — cheap writes, and it is exactly what the D47 engine will store its node pointer in.
+- Admin replay renders markers inline; a conversation with three legs across two providers reads as one timeline.
+- Serverless-honest (D43): all continuity state in Postgres; any instance can resume any conversation.
+
+## 5. Known implementation gaps (tracked in tasks.md)
 
 - `localhost:3000` fallbacks in `voice-config.ts` / `BackendToolService.ts` — replace with env-derived origin.
 - `connectionDiagnostics.ts` is a support utility, not a public surface.

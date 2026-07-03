@@ -52,6 +52,7 @@
   - [ ] 7.1 `livefire:semantic` (real ingestion of fixture, budget-capped, report)
   - [ ] 7.2 `livefire:chat` (real `default-cheap` grounding question; asserts ledger row + retrieval trace)
   - [ ] 7.3 Voice live-fire recipe (scripted setup + transcript/tool-trace evaluation from persisted logs); cascade shared-brain check added with D45
+  - [ ] 7.3b Disconnect/resume drill (D49): kill the connection mid-conversation → resume (same and cross-provider) → assert markers in history, coherent continuation, single admin-replay timeline
   - [ ] 7.4 `check:models` joins the wave here (Phase 3.4 dependency)
   - _Requirements: 7_
 

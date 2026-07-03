@@ -116,6 +116,17 @@ Overview: [`../00-overview/README.md`](../00-overview/README.md)
 2. Every cost-incurring route consumed by this spec SHALL be gateway-wrapped (`access-and-cost`); tool allowlists per access tier are enforced server-side at execution, not in the client.
 3. Voice session tokens SHALL carry server-enforced duration caps at mint time.
 
+## Requirement 12 — Session continuity and recovery (D49)
+
+**User story:** As a visitor, I want the conversation to survive connection issues; as the owner, I want every disruption debuggable after the fact.
+
+1. A logical conversation (`AIConversation`) MAY span multiple provider sessions (**legs**); each leg records provider, model alias, start/end, and end reason.
+2. THE canonical store SHALL be sufficient to resume and to review post-hoc: full turn history, tool-call traces (args + results), injected-context state, and a latest-state snapshot (active instructions, tool set, model alias; later the D47 node ID).
+3. WHEN a session is disrupted (network drop, provider error, token expiry, watchdog trip, page reload) THEN a `session_disruption` marker SHALL be written into the conversation history at that point, carrying the issue type and diagnostics.
+4. WHEN the client reconnects THEN the system SHALL resume the **existing** conversation: mint a new leg (same or different provider/model), brief it from the harness's ground truth (recent turns + state snapshot — never from provider-side memory), write a `session_resumed` marker, and continue appending to the same history.
+5. WHEN the owner replays a conversation in admin THEN disruption/resume markers SHALL render inline in the timeline, making recovered conversations debuggable without the owner having been present.
+6. Deliberate mid-conversation provider or model switches SHALL use the same resume path (different trigger, same machinery) — this is the tested foundation the D47 engine's model-switching forks stand on.
+
 ## Open design exploration (D41 — deliberately not a requirement)
 
 Voice ↔ reasoning orchestration — **narrowed by D45**: the cascade family resolves this for its own path (the reasoning model *is* the agent there; no watchdog needed). Remaining open scope is the **native S2S path only**: (a) reasoning model in-loop for deep tools (already allowed by D39); (b) side-by-side watchdog reasoning LLM feeding grounded context to a weak-tool-calling realtime model (mainly Gemini Live); (c) tool-harness hardening. Keep the D39 seam (unified server tools) so any option layers on without endpoint changes. Prototype in roadmap Phase 4.5; record findings here.
