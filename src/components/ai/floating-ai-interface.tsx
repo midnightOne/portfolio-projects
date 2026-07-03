@@ -149,6 +149,18 @@ export function FloatingAIInterface({
   const containerRef = useRef<HTMLDivElement>(null);
   const aiPanelRef = useRef<HTMLDivElement>(null);
   const responseRef = useRef<HTMLDivElement>(null);
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
+
+  // Minimal chat log: the conversational turns (user text/speech + AI replies).
+  // Tool calls/results and system messages are kept out of the visitor view.
+  const chatMessages = transcript.filter(
+    (t) => t.type === 'user_speech' || t.type === 'ai_response'
+  );
+
+  // Auto-scroll the transcript to the latest message
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [chatMessages.length]);
   
   // Animation timeline refs for proper cleanup
   const edgeEffectsTimelineRef = useRef<GSAPTimeline | null>(null);
@@ -488,9 +500,11 @@ export function FloatingAIInterface({
 
         setInputValue('');
         setHasInteracted(true);
-        
-        if (expandOnFocus && mode === 'expanded') {
-          onModeChange?.('pill');
+
+        // Stay expanded so the transcript (and the incoming reply) stays visible.
+        // Previously the pill collapsed right after sending, hiding the answer.
+        if (mode !== 'expanded') {
+          onModeChange?.('expanded');
         }
       } catch (error) {
         console.error('Failed to send message:', error);
@@ -959,6 +973,37 @@ export function FloatingAIInterface({
               )}
             </div>
             
+            {/* Minimal chat transcript — visible whenever there are conversational turns */}
+            {chatMessages.length > 0 && (
+              <div
+                className="mx-4 mt-3 mb-1 max-h-64 overflow-y-auto flex flex-col gap-2 px-2"
+                data-testid="chat-transcript"
+              >
+                {chatMessages.map((msg) => {
+                  const isUser = msg.type === 'user_speech';
+                  return (
+                    <div
+                      key={msg.id}
+                      className={cn('flex', isUser ? 'justify-end' : 'justify-start')}
+                      data-testid={isUser ? 'chat-msg-user' : 'chat-msg-ai'}
+                    >
+                      <div
+                        className={cn(
+                          'max-w-[80%] rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap break-words',
+                          isUser
+                            ? 'bg-primary text-primary-foreground rounded-br-sm'
+                            : 'bg-muted text-foreground rounded-bl-sm'
+                        )}
+                      >
+                        {msg.content}
+                      </div>
+                    </div>
+                  );
+                })}
+                <div ref={transcriptEndRef} />
+              </div>
+            )}
+
             {/* Microphone permission prompt (voice requested without mic access) */}
             {micPrompt && (
               <div
