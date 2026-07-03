@@ -34,7 +34,8 @@
 - [ ] 4. Test doubles — *with Phase 2 (reasoning fake) and Phase 3 (voice fake)*
   - [ ] 4.1 `FakeReasoningAdapter` behind the D39 factory; `AI_FAKE_MODE` env selection + production guard
   - [ ] 4.2 Fake embedding provider (content-hash vectors) behind `default-embedding`
-  - [ ] 4.3 `FakeVoiceAdapter` behind the adapter registry (post-D21 single provider)
+  - [ ] 4.3 `FakeVoiceAdapter` behind the adapter registry (post-D21 single provider) — bypasses the provider entirely (deterministic transcripts/tool round-trips, no network)
+  - [ ] 4.4 **Synthesized-audio input driver (D53) — dev-only voice e2e:** feed TTS-generated speech into an **emulated microphone track** so an automated agent (no human mic) exercises the *real* provider native-voice path (mic track → STT → model → TTS out). Distinct from 4.3: this drives the real provider, not a fake. Gated to dev/test via `AI_FAKE_MODE`/env, never production. Pairs with the mic-less text path (D52) to give full text-**and**-voice e2e coverage without a human; validates the D51 mode state machine. — *lands with the voice work (ai-assistant task 5c / 6 / 9)*
   - _Requirements: 3_
 
 - [ ] 5. Telemetry read formalization — *with Phase 3 (D26 consolidation)*

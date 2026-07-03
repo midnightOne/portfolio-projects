@@ -57,6 +57,14 @@ T0–T3 heading-bounded generation with contextual prefixes and section hashes; 
   - [ ] 5.2 Acceptance: keyword-exact queries (project names, tech terms) rank correctly in `content_search`
   - _Requirements: 5.2_
 
+### Hygiene — DB (cross-cutting, no dependencies; do when convenient)
+
+- [ ] 7. Collapse migrations to a single fresh `init` (D54)
+  - [ ] 7.1 Reset `prisma/migrations` to one `init` migration generated from `schema.prisma`; **hand-add** `CREATE EXTENSION IF NOT EXISTS vector;` and the HNSW index DDL (`USING hnsw (embedding_vector vector_cosine_ops) WITH (m=16, ef_construction=64)`) — Prisma expresses neither (this is why Phase 0 needed a hand-written catch-up migration)
+  - [ ] 7.2 Recreate the local dev DB from the new init; `db:seed` + `seed:fixture`; `prisma migrate diff` shows zero drift; `check:semantic` still passes
+  - [ ] 7.3 Acceptance: single migration folder; fresh clone → `migrate deploy` → seed works first try. Rationale: all data is mock, no prod DB to migrate from; retires the ordering / `db push`-drift bug class found in Phase 0.
+  - _Requirements: registry D54_
+
 ## Backlog
 
 Multi-embedding-model A/B (model-comparison endpoint exists; keep frozen); cross-project T0 variants; per-audience summaries (reflink personalization) — needs a registry decision.

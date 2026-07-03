@@ -20,6 +20,7 @@ Local PostgreSQL 16 + pgvector 0.6 runs inside **WSL Ubuntu-24.04**; `DATABASE_U
   # postgres auto-starts with the distro (systemd service)
   ```
 - Fresh rebuild: drop/recreate `portfolio_dev` in WSL, then `npx prisma migrate deploy` (full history replays cleanly, includes pgvector + HNSW), then `npm run db:seed && npm run seed:fixture`.
+- **If the app suddenly 500s with "Failed to fetch projects / tags":** WSL idled out and dropped Postgres. Recover: `Start-Process -WindowStyle Hidden wsl -ArgumentList '-d','Ubuntu-24.04','--','sleep','infinity'` then `wsl -d Ubuntu-24.04 -u root -- service postgresql start`. (Migration squash D54 won't fix this — it's a WSL-lifecycle issue, not a schema one.)
 - Alternative path (not chosen; Docker not installed): Docker Compose with `pgvector/pgvector:pg16`. A cloud dev branch (Neon/Supabase) is the deploy-time option.
 
 ## Commands

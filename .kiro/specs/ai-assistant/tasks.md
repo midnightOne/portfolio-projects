@@ -50,6 +50,14 @@ OpenAI Realtime + ElevenLabs adapters behind `IConversationalAgentAdapter` with 
   - [ ] 5b.5 Verification: forced-disconnect drill (kill connection mid-conversation → resume → markers present, context coherent) — joins `verification` live-fire recipes
   - _Requirements: 12_
 
+- [ ] 5c. Conversation-mode intent + mic-less sessions (D51/D52)
+  - [x] 5c.1 **Mic-less session start (D52, done 2026-07-03):** `IConversationalAgentAdapter.connect(ConnectOptions)`; OpenAI adapter starts text-only via a silent WebRTC input track (no `getUserMedia`); `startAudioInput()` upgrades text→mic by reconnecting (permission probed first). ElevenLabs rejects text-only. Verified: text-only session connects with no mic, model responds.
+  - [x] 5c.2 **Permission UX (D52, done 2026-07-03):** pill offers enable-mic / stay-text-only on a voice request without mic; browser-denied → text-only with retry; text-only indicator chip; typing while disconnected opens a text-only session.
+  - [ ] 5c.3 **Mode-intent state machine (D51):** track the visitor's *desired* mode (voice/text) explicitly, decoupled from mic capability. Honor a text-only choice even when mic is granted; when the user wants voice, drive the permission flow. Fixes the 2026-07-03 bug where a typed message produced a spoken realtime answer (intent was inferred, not tracked). — *pill state work, do with 5c.4*
+  - [ ] 5c.4 **Text-only routes to the reasoning model, not realtime (D51; depends on `ai-admin` task 4 / D39 adapters):** replace the interim realtime-model text path with the reasoning/chat adapter (or cascade brain, D45). No audio output in text mode. Same grounded answer as voice (shares the D39 server-tool chain).
+  - [ ] 5c.5 **Spike — in-session mic toggle (D52 open question):** determine whether a single native realtime session can attach/detach a live mic track *without* reconnecting (start mic-less, stream text via the voice endpoint, later add mic in the same session). If yes, drop the reconnect-based upgrade in 5c.1 and support seamless mode switching; if no, keep "allow mic → open a voice session" (D51(b)). Record findings here.
+  - _Requirements: 3.2; registry D51, D52_
+
 ### Phase 4 — features
 
 - [ ] 6. Google (Gemini Live) adapter (D22)
