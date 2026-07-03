@@ -13,10 +13,10 @@
 
 ## Open tasks
 
-- [ ] 1. Dev database + fixture — *with Phase 0*
-  - [ ] 1.1 Decide + implement: Docker Compose Postgres+pgvector **or** Neon dev branch; document both paths in CLAUDE.md
-  - [ ] 1.2 `seed:fixture`: fixture project (authored Tiptap JSON, 4 sections, blocks), dev admin user, known reflink, public tier on; `fixtures/expected-semantic.json`
-  - [ ] 1.3 `check:semantic` asserting fixture expectations post-ingestion
+- [x] 1. Dev database + fixture — *done with Phase 0, 2026-07-03*
+  - [x] 1.1 **Decision (owner): local Postgres** — project is out of deployment, iterate locally. Implemented as PostgreSQL 16 + pgvector 0.6 in WSL Ubuntu-24.04 (Docker not installed on the dev machine); documented in CLAUDE.md §Dev database incl. the WSL keepalive and 127.0.0.1 gotchas. Full migration history now replays on a fresh DB (misordered/missing migrations repaired: renamed `20241228_*`→`20250923040000_*`, timestamped `add_batch_embedding_jobs`, new `20260703193019_semantic_pipeline_catchup` with real HNSW DDL).
+  - [x] 1.2 `npm run seed:fixture` (scripts/seed-fixture.ts): fixture project `verification-fixture-kiln` (deterministic markdown+Tiptap, 4 H2 sections, distinctive vocabulary), reflink `fixture-verify`; admin auth is env-based so no DB user. **Caveat: "public tier on" is impossible today — `publicAIAccess` is hardcoded `'disabled'` (placeholder load/save in PublicAccessManager); unblocks with access-and-cost Phase 2 (D31).** `fixtures/expected-semantic.json` written from a verified-good run.
+  - [x] 1.3 `npm run check:semantic` (scripts/check-semantic.ts): 14 assertions — tier counts, embeddings, linkage, T3 title derivation, no-T4, plus a live canonical retrieval query through `ContentSearchService` (`--no-live` to skip). Passing as of 2026-07-03.
   - _Requirements: 2_
 
 - [ ] 2. Check scripts, first wave — *with Phase 2*

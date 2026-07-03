@@ -15,12 +15,20 @@ T0–T3 heading-bounded generation with contextual prefixes and section hashes; 
 
 ### Phase 0 — end-to-end verification (closes semantic-system-fixes)
 
-- [ ] 1. Verify the four historical failure modes on current code (roadmap task 0.5)
-  - [ ] 1.1 Ingest one full project through all four stages: T0–T3 chunks persisted with embeddings, valid linkage
-  - [ ] 1.2 SSE progress survives a 10-minute operation (reconnect/backoff path exercised)
-  - [ ] 1.3 Queue panel reflects active + completed operations
-  - [ ] 1.4 Chunks still present after completion (no premature cleanup); T3 titles derived correctly
-  - [ ] 1.5 Close out: mark verified here; if anything fails, file targeted fix tasks in this ledger
+- [x] 1. Verify the four historical failure modes on current code (roadmap task 0.5) — **run 2026-07-03 on the local dev DB (fixture project, all four stages immediate, real OpenAI). Evidence: `npm run check:semantic` (14/14 assertions).**
+  - [x] 1.1 Ingest one full project through all four stages: 12 chunks (1×T0, 1×T1, 5×T2, 5×T3) persisted with embeddings, valid parent/root linkage. *Required fixing a real bug found during this run — see task 6.1.*
+  - [x] 1.2 SSE progress verified functionally (`?sse=true`): open → staged progress events → auto-reconnect exercised → completion event. **Caveat: a true 10-minute operation could not be manufactured at fixture scale; long-run survival unproven.**
+  - [x] 1.3 Queue endpoint reflects completed/failed/queued operations (admin-gated). *Bug found — see task 6.3.*
+  - [x] 1.4 Chunks present after completion and after idempotent re-ingestion; T3 titles derive from parent T2 section titles.
+  - [x] 1.5 Closed out; failures found during verification filed as task 6 below.
+
+### Phase 0 follow-ups — defects found by task 1 (2026-07-03)
+
+- [x] 6.1 ~~Parent-resolution heuristic corrupts hierarchy~~ **FIXED**: `StageBasedProcessingService` treated any `parentChunkId` starting with 'c' and ≥20 chars as a DB cuid, so slug-like logical IDs (e.g. `chrono-kiln-controller`) failed FK resolution and aborted chunking. Both `batchStoreChunks` and `storeValidatedChunk` now resolve map/DB-first with a strict cuid-pattern fallback.
+- [ ] 6.2 **`scope: 'all'` processing is structurally broken**: every stage assumes a single project (`projects[0]`, `request.projectId` undefined → `projectAIIndex.upsert` crash in chunking; `executeSummariesStage` comments "Assuming single project for now"; chunks from all projects accumulate into one flat checkpoint persisted against one entity). Fix = per-project persistence loop (or per-project sub-operations). Until then the dashboard's "process all" bulk action fails.
+- [ ] 6.3 **Queue entry status never updates without an SSE subscriber**: a completed operation stays `queued` in `JobQueueManager` unless a `?sse=true` subscription was attached (status transitions appear to ride the progress-subscription callback). Decouple queue status from SSE subscription.
+- [ ] 6.4 **Unauthenticated cost-incurring route**: `POST /api/admin/semantic/processing/start` (and the start of stage operations generally) has no session check while sibling routes (`processing/queue`) do — anyone who can reach the dev/staging server can trigger OpenAI spend. Gateway (Phase 2, D33) is the systemic fix; an interim `getServerSession` guard is cheap and worth it.
+- [ ] 6.5 `prisma/seed.ts` still ingests via the **legacy T0–T4 pipeline** (`ContentIngestionPipeline`) and `project-indexer`, producing tier-4 chunks (32 such rows existed in the old Neon dev DB). Swap seed to the stage-based pipeline or drop auto-ingestion from seed (goes with D27/D37 in Phase 3).
 
 ### Phase 2 — cost unification
 

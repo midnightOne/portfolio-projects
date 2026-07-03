@@ -593,13 +593,13 @@ export function ChunkingConfig() {
                     <p className="text-muted-foreground mb-1">Quality</p>
                     <div className="flex gap-1">
                       {selectedSummaryConfig.preventHallucination && (
-                        <CheckCircle className="h-3 w-3 text-green-600" title="Anti-Hallucination" />
+                        <span title="Anti-Hallucination"><CheckCircle className="h-3 w-3 text-green-600" /></span>
                       )}
                       {selectedSummaryConfig.preserveKeywords && (
-                        <CheckCircle className="h-3 w-3 text-blue-600" title="Preserve Keywords" />
+                        <span title="Preserve Keywords"><CheckCircle className="h-3 w-3 text-blue-600" /></span>
                       )}
                       {selectedSummaryConfig.requireFactualAccuracy && (
-                        <CheckCircle className="h-3 w-3 text-purple-600" title="Factual Accuracy" />
+                        <span title="Factual Accuracy"><CheckCircle className="h-3 w-3 text-purple-600" /></span>
                       )}
                     </div>
                   </div>

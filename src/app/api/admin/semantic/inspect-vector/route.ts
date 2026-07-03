@@ -117,7 +117,7 @@ export async function GET(request: NextRequest) {
         analysis.hasNaN ? '❌ CORRUPTED: Contains NaN values!' :
         analysis.hasInfinity ? '❌ CORRUPTED: Contains infinity values!' :
         analysis.dimensions !== 1536 ? `❌ WRONG DIMENSIONS: Expected 1536, got ${analysis.dimensions}` :
-        analysis.stats && Math.abs(analysis.stats.mean) < 0.001 && analysis.nonZeroCount < 100 ? 
+        analysis.stats && Math.abs(analysis.stats.mean) < 0.001 && analysis.stats.nonZeroCount < 100 ?
           '⚠️ SUSPICIOUS: Very few non-zero values, may be corrupted' :
         '✅ VALID: Vector looks healthy'
       ) : '❌ NO VECTOR: Embedding vector is NULL'

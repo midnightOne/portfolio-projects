@@ -1,0 +1,24 @@
+{
+  "description": "Expected semantic output for the verification fixture project (scripts/seed-fixture.ts). Asserted by `npm run check:semantic` after ingestion through the stage-based pipeline. Counts pinned from a verified-good run on 2026-07-03 (local dev DB, all four stages immediate).",
+  "fixtureSlug": "verification-fixture-kiln",
+  "tiers": {
+    "t0Count": 1,
+    "t1Count": 1,
+    "t2Count": 5,
+    "t3Count": 5,
+    "t3Tolerance": 2
+  },
+  "t2SectionGroups": [
+    "chrono-kiln-controller",
+    "thermal-control-system",
+    "firmware-architecture",
+    "glaze-chemistry-database",
+    "results-and-lessons"
+  ],
+  "t1MinContentLength": 100,
+  "canonicalQuery": {
+    "query": "How does the kiln regulate temperature?",
+    "expectedTopSlug": "verification-fixture-kiln",
+    "expectedSectionGroup": "thermal-control-system"
+  }
+}
