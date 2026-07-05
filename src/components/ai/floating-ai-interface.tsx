@@ -151,11 +151,18 @@ export function FloatingAIInterface({
   const responseRef = useRef<HTMLDivElement>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
+  // Public text tier (D31): anonymous visitors chat via /api/ai/chat (gateway-fronted,
+  // default-cheap reasoning model) — the realtime voice session never opens for them.
+  const isPublicTextTier = accessLevel === 'basic' || accessLevel === 'limited';
+  const [publicMessages, setPublicMessages] = useState<Array<{ id: string; type: 'user_speech' | 'ai_response'; content: string }>>([]);
+  const [publicBusy, setPublicBusy] = useState(false);
+
   // Minimal chat log: the conversational turns (user text/speech + AI replies).
   // Tool calls/results and system messages are kept out of the visitor view.
-  const chatMessages = transcript.filter(
+  const agentChatMessages = transcript.filter(
     (t) => t.type === 'user_speech' || t.type === 'ai_response'
   );
+  const chatMessages = isPublicTextTier ? publicMessages : agentChatMessages;
 
   // Auto-scroll the transcript to the latest message
   useEffect(() => {
@@ -479,14 +486,52 @@ export function FloatingAIInterface({
     }
   }, [mode, animationState, expandContainer, contractContainer]);
 
+  // Public tier: send through the gateway-fronted text endpoint
+  const sendPublicMessage = async (text: string) => {
+    const { sendPublicChatMessage } = await import('@/lib/ai/public-chat-client');
+    const userMsg = { id: `pub_u_${Date.now()}`, type: 'user_speech' as const, content: text };
+    const history = publicMessages.map((m) => ({
+      role: m.type === 'user_speech' ? ('user' as const) : ('assistant' as const),
+      content: m.content,
+    }));
+    setPublicMessages((prev) => [...prev, userMsg]);
+    setPublicBusy(true);
+    try {
+      const result = await sendPublicChatMessage(text, history);
+      let reply: string;
+      if (result.ok === true) {
+        reply = result.reply;
+      } else {
+        reply = result.error;
+      }
+      setPublicMessages((prev) => [...prev, { id: `pub_a_${Date.now()}`, type: 'ai_response', content: reply }]);
+    } finally {
+      setPublicBusy(false);
+    }
+  };
+
   // Handle form submission with real voice system
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (inputValue.trim() && !isProcessing) {
+    if (inputValue.trim() && !isProcessing && !publicBusy) {
       try {
         // Check access level for text input
         if (!isFeatureEnabled('chat_interface')) {
           setShowAccessMessage(true);
+          return;
+        }
+
+        const text = inputValue.trim();
+
+        if (isPublicTextTier) {
+          // Anonymous text tier never opens a realtime session (D31)
+          setInputValue('');
+          setHasInteracted(true);
+          if (mode !== 'expanded') {
+            onModeChange?.('expanded');
+          }
+          await sendPublicMessage(text);
+          onTextSubmit?.(text);
           return;
         }
 
@@ -495,8 +540,8 @@ export function FloatingAIInterface({
           console.log('Not connected - establishing text-only session for typed message...');
           await connect({ audioInput: false });
         }
-        await sendMessage(inputValue.trim());
-        onTextSubmit?.(inputValue.trim());
+        await sendMessage(text);
+        onTextSubmit?.(text);
 
         setInputValue('');
         setHasInteracted(true);

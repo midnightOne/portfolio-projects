@@ -161,16 +161,12 @@ function AIInterfaceContent({
 }: AIInterfaceContentProps) {
   const { session, accessLevel, isLoading } = useReflinkSession();
 
-  // Show interface when reflink is valid
+  // The pill is visible to everyone with any access (D31): reflink holders get the
+  // full feature set; anonymous visitors get the public text-chat tier. Only
+  // 'no_access' (public tier disabled or settings unreadable) hides it.
   useEffect(() => {
     if (!isLoading) {
-      // Show interface if there's a valid reflink session
-      if (session?.reflink && accessLevel !== 'no_access') {
-        setIsVisible(true);
-      } else {
-        // Keep hidden for public access
-        setIsVisible(false);
-      }
+      setIsVisible(accessLevel !== 'no_access');
     }
   }, [session, accessLevel, isLoading, setIsVisible]);
 

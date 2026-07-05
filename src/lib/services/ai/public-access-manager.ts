@@ -259,39 +259,38 @@ export class PublicAccessManager {
   }
 
   /**
-   * Load settings from database (placeholder implementation)
+   * Load settings from the DB-backed AIPublicAccessSettings row (D31 — replaces the
+   * old JSON-config placeholder). `text_chat` maps to the legacy 'basic_only' shape
+   * this manager's consumers understand: chat only, no voice/job-analysis/uploads.
    */
   private async loadSettingsFromDatabase(): Promise<Partial<PublicAccessSettings>> {
-    try {
-      // For now, we'll use a simple approach
-      // In the future, this could be stored in a dedicated settings table
-      const generalSettings = await prisma.aIGeneralSettings.findFirst();
-      
-      if (generalSettings) {
-        // Extract public access settings from general settings if they exist
-        // This is a placeholder - in production we'd have a dedicated table
-        return {};
-      }
-      
-      return {};
-    } catch (error) {
-      console.error('Failed to load settings from database:', error);
-      return {};
+    const row = await prisma.aIPublicAccessSettings.findUnique({ where: { id: 'public' } });
+    if (!row) {
+      // Fail closed: without the settings row the public tier stays disabled.
+      console.error('AIPublicAccessSettings row missing — public AI disabled (run the seed)');
+      return { publicAIAccess: 'disabled' };
     }
+    return {
+      publicAIAccess: row.publicTier === 'text_chat' ? 'basic_only' : 'disabled',
+      basicAccessDailyLimit: row.messagesPerDay,
+    };
   }
 
   /**
-   * Save settings to database (placeholder implementation)
+   * Save settings to the AIPublicAccessSettings row. Only the fields this legacy
+   * interface knows about are persisted; the Access & Spend panel edits the row
+   * directly via /api/admin/ai/public-access-settings.
    */
   private async saveSettingsToDatabase(settings: Partial<PublicAccessSettings>): Promise<void> {
-    try {
-      // For now, this is a placeholder
-      // In production, we'd save to a dedicated settings table
-      console.log('Saving public access settings:', settings);
-    } catch (error) {
-      console.error('Failed to save settings to database:', error);
-      throw error;
+    const data: Record<string, unknown> = {};
+    if (settings.publicAIAccess !== undefined) {
+      data.publicTier = settings.publicAIAccess === 'disabled' ? 'disabled' : 'text_chat';
     }
+    if (typeof settings.basicAccessDailyLimit === 'number') {
+      data.messagesPerDay = settings.basicAccessDailyLimit;
+    }
+    if (Object.keys(data).length === 0) return;
+    await prisma.aIPublicAccessSettings.update({ where: { id: 'public' }, data });
   }
 }
 

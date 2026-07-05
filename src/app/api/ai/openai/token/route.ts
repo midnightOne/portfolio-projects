@@ -1,6 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server';
+/**
+ * Legacy OpenAI Realtime token mint used by the admin voice-test page.
+ * Duplicate of /api/ai/openai/session — scheduled for hard deletion in Phase 3.3
+ * (D42); until then it is gateway-wrapped so no unauthenticated mint exists (D33).
+ */
 
-export async function POST(request: NextRequest) {
+import { NextRequest, NextResponse } from 'next/server';
+import { withAIGateway, type GatewayContext } from '@/lib/ai/gateway';
+
+async function handlePOST(request: NextRequest, ctx: GatewayContext) {
   try {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
@@ -22,15 +29,7 @@ export async function POST(request: NextRequest) {
           session: {
             type: 'realtime',
             model: 'gpt-realtime',
-            tools: [
-              // Add MCP tools here if needed
-              // {
-              //   type: 'mcp',
-              //   server_label: 'deepwiki',
-              //   server_url: 'https://mcp.deepwiki.com/sse',
-              //   require_approval: 'always',
-              // },
-            ],
+            tools: [],
           },
         }),
       },
@@ -45,8 +44,8 @@ export async function POST(request: NextRequest) {
         detail = await response.text();
       }
       return NextResponse.json(
-        { 
-          error: `Failed to create ephemeral client secret: ${response.status} ${response.statusText}${detail ? ` - ${detail}` : ''}` 
+        {
+          error: `Failed to create ephemeral client secret: ${response.status} ${response.statusText}${detail ? ` - ${detail}` : ''}`
         },
         { status: response.status }
       );
@@ -58,6 +57,13 @@ export async function POST(request: NextRequest) {
       session: Record<string, unknown>;
     } = await response.json();
 
+    await ctx.meter({
+      usageType: 'voice_session_mint',
+      provider: 'openai',
+      costUsd: 0,
+      metadata: { route: 'legacy-token' },
+    });
+
     return NextResponse.json({ token: clientSecret.value });
   } catch (error) {
     console.error('Error creating client secret:', error);
@@ -67,3 +73,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const POST = withAIGateway({ feature: 'voice', publicAllowed: false }, handlePOST);
