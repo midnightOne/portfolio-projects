@@ -82,6 +82,36 @@
 7. **Fallback-first risk management.** `main` untouched, staging on a branch, kill switches that fail closed, watchdog with manual re-enable only.
 8. **Security as showcase.** The MCP hardening checklist that is simultaneously the test plan and the About-page copy.
 
+---
+
+# Session 2026-07-03 — Phase 0 execution & voice/text UX decisions
+
+## 12. Conversation mode is what the user wants, not what the device allows (D51)
+
+**💡 The trigger observation:** watching an automated test, the owner saw a *typed* question get answered *out loud* by the realtime voice model — and immediately generalized: "we definitely have to state manage to understand what the user actually wants and what mode of conversation to use." The rule set: user wants text → text, **even if the mic is available and permitted**; user wants voice → help them with permissions; text-only runs on the reasoning model, not the realtime model. *Angle: mode is intent state, not capability detection — most voice products get this wrong by treating "mic available" as "voice wanted."*
+
+**💡 Graceful degradation ladder for mic permissions:** prompt with a real choice (enable mic / stay text-only) → browser-denied fallback with retry → if a mid-session upgrade turns out impossible, be honest and tell the user to allow the mic and start a voice session. Plus the engineering question asked precisely: *can* one realtime session start mic-less, stream text through the voice endpoints, and attach a live mic later without restarting? Filed as a spike (D52) rather than assumed either way.
+
+## 13. The agent as a voice user: TTS through an emulated microphone (D53)
+
+**💡** "You are definitely not going to talk with the model over microphone" — so give the AI collaborator a dev-only adapter that feeds TTS-generated audio into an emulated mic track, exercising the **real** provider voice path (STT → model → TTS) end-to-end, not a mock. *Angle: extends the D46 "AI as user persona" principle from text to voice — the test harness speaks so the human doesn't have to.*
+
+## 14. Migrations: knowing when history is worthless (D54)
+
+**💡** "All of the current data is mock data so we can collapse all of the migrations into a fresh seed because there is no production database and there is nothing to migrate from." And the operational follow-through: the DDL that Prisma can't express (pgvector, HNSW) must be **automated, not documented** — "we might clear and re-seed the db a lot during development." *Angle: migration history is a liability ledger, not an asset, until there's production data; and any manual step in a loop you'll run daily is a bug.*
+
+## 15. The unified passive-context pipeline (D55) — fragmentation caught early
+
+**💡 The owner's analysis, in sequence:** (1) an inline watchdog LLM adds latency; (2) a parallel watchdog misses the race — the voice model may answer before the passive content arrives; (3) passive context provision is about to exist in three places (per graph state, per UI state, per user query) "and it's starting to get fragmented"; (4) therefore unify **on the pipeline level rather than the function level** — an async buffer that collects the most recent context from all sources and injects/updates the voice model's context at turn end. *Angle: spotting an architecture smell (N context providers, each with its own injection path) before the third instance exists, and choosing bus-style unification over yet another abstraction function.*
+
+**🤝 Assistant judgment layered on (owner asked for it):** accept the race as a *contract* — reactive sources are one turn behind by design, and the fix is making sources *predictive* (graph-state entry pushes content before the question) rather than making reactive sources synchronous; the watchdog is dominated as a retrieval mechanism by the cheaper classifier and the deterministic graph, and its durable role is supervision/QA writing into the same buffer; the buffer's mechanics are a generalization of the already-proven NAV_CONTEXT replace-don't-append pattern; and every buffer flush becomes a D49 history event so admin replay shows what the model knew, and when it learned it.
+
+## 16. Grounding failure diagnosed before being architected around (task 5d)
+
+**💡 The hypotheses, stated as competing:** "maybe the lightweight model is even dumber than I thought... or maybe the pipeline is broken and the system prompt is not getting to it... but also maybe the context injection system is not working." And the design intuition stated before the diagnosis confirmed it: "for a fresh chat there already should be some context injected — the summary about the owner, summaries of all the projects, a short list of categories and tools — so that the model knows to ground itself." **The live experiment proved the intuition exactly:** tool guidance reaches the model and it calls `content_search` correctly on portfolio-scoped questions; the mint route's context injection is a TODO stub, so the model simply doesn't know the content exists. *Angle: the owner held three hypotheses simultaneously and asked for evidence instead of building the fix for the wrong one — the cheap fix (inject the frame) beat both proposed heavy fixes (watchdog, classifier), which were demoted to hedges.*
+
+**💡 Context pushed on state entry, not pulled by the model.** The connection to the D47 graph, in the owner's words: "if this is just the start of conversation, we provide the summaries; but if we are getting into some niche territory, the passive context system might provide proper niche content automatically upon entering that state without relying on the model to ask." *Angle: don't trust a weak model's judgment about when to look things up — make lookup a property of conversation state.*
+
 ## Appendix: decision → registry map for citations
 
 | Owner idea (this session) | Registry | Spec home |
@@ -101,3 +131,9 @@
 | Resumable conversations, markers | D49 | ai-assistant |
 | Pre-recorded voice clips | D50 | ai-assistant |
 | Staging-not-merge | D1 (amended) | 00-overview |
+| Mode = user intent, text on reasoning model | D51 | ai-assistant (task 5c) |
+| Mic-less sessions + permission UX ladder | D52 | ai-assistant (task 5c) |
+| Agent voice e2e via TTS→emulated mic | D53 | verification (task 4.4) |
+| Fresh-init migrations, automated DDL | D54 | semantic-content (task 7) |
+| Unified passive-context pipeline (buffer, turn-end) | D55 | ai-assistant |
+| Start-frame grounding (owner+projects summaries) | task 5d | ai-assistant |

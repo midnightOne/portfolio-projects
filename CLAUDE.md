@@ -58,6 +58,10 @@ Planned (verification spec, land with their phases): `check:gateway|models|specs
 
 Until the harness items exist (they land with Phases 0–3), approximate: seed data, drive the UI via preview tooling, read `/admin/ai/debug` + semantic dashboard, and say explicitly what could not be verified.
 
+## Owner judgment log (article source)
+
+[docs/article-notes-design-judgment.md](docs/article-notes-design-judgment.md) records the owner's design/UX decisions and intuitions as raw material for the portfolio article. **When the owner expresses a design judgment, UX decision, or architectural intuition in a session, append it there** — follow the file's conventions (💡 owner / 🤝 collaborative attribution, lightly cleaned quotes, an *Angle:* note for the article, registry pointer, per-session sections). It is also useful *input*: read it when a task involves judgment calls the owner has already reasoned about — it encodes their intuition. Not a spec; never normative.
+
 ## Conventions
 
 - Spec files carry status headers; task ledgers list only open work; update `Last verified against code` when you re-verify a spec.
