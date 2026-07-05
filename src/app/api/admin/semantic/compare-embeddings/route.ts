@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { withAIGateway } from '@/lib/ai/gateway';
 import { prisma } from '@/lib/prisma';
 import OpenAI from 'openai';
 
@@ -6,7 +7,7 @@ import OpenAI from 'openai';
  * Compare freshly generated embedding vs stored embedding for a chunk
  * GET /api/admin/semantic/compare-embeddings?chunkId=cmgga9oyh001kw5r88btz0ksl
  */
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const chunkId = searchParams.get('chunkId');
@@ -195,3 +196,6 @@ export async function GET(request: NextRequest) {
 }
 
 
+
+// Cost-incurring semantic operation start: gateway-wrapped (D33), admin-tier via route auth.
+export const GET = withAIGateway({ feature: 'semantic', publicAllowed: false }, handleGET);

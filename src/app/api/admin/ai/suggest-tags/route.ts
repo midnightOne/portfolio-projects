@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AIServiceManager, AITagSuggestionRequest } from '@/lib/ai/service-manager';
+import { withAIGateway, type GatewayContext } from '@/lib/ai/gateway';
 
 /**
  * POST /api/admin/ai/suggest-tags
@@ -12,7 +13,7 @@ import { AIServiceManager, AITagSuggestionRequest } from '@/lib/ai/service-manag
  * 
  * Requirements: 6.1, 6.2, 6.3, 8.1, 8.2
  */
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest, ctx: GatewayContext) {
   try {
     const body = await request.json();
     
@@ -70,7 +71,14 @@ export async function POST(request: NextRequest) {
     
     // Get tag suggestions
     const result = await aiService.suggestTags(tagRequest);
-    
+
+    await ctx.meter({
+      usageType: 'suggest_tags',
+      modelId: result.model,
+      inputTokens: result.tokensUsed,
+      costUsd: result.cost,
+    });
+
     if (result.success) {
       return NextResponse.json({
         success: true,
@@ -176,3 +184,5 @@ export async function DELETE() {
     }
   }, { status: 405 });
 }
+// Admin editing AI is cost-incurring: gateway-wrapped (D33), never anonymous.
+export const POST = withAIGateway({ feature: 'admin-edit', publicAllowed: false }, handlePOST);

@@ -14,8 +14,7 @@ import { unifiedToolRegistry } from '@/lib/ai/tools/UnifiedToolRegistry';
 import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 import { contextInjector } from '@/lib/services/ai/context-injector';
 import { BackendToolService } from '@/lib/ai/tools/BackendToolService';
-
-// BackendToolService is imported from @/lib/ai/tools/BackendToolService
+import { withAIGateway, type GatewayContext } from '@/lib/ai/gateway';
 
 /**
  * Unified tool execution request interface
@@ -66,7 +65,7 @@ interface UnifiedToolExecuteResponse {
   };
 }
 
-export async function POST(request: NextRequest): Promise<NextResponse<UnifiedToolExecuteResponse>> {
+async function handlePOST(request: NextRequest, ctx: GatewayContext): Promise<NextResponse<UnifiedToolExecuteResponse>> {
   const startTime = Date.now();
   let toolCallId: string | undefined;
   let sessionId: string | undefined;
@@ -135,6 +134,21 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
       reflinkId,
       timestamp: new Date()
     }, 'unified-tools-api', toolCorrelationId, sessionId, toolCallId);
+
+    // Public tool allowlist (access-and-cost Req 2.1) — re-checked here at dispatch
+    if (ctx.allowedTools && !ctx.allowedTools.includes(toolName)) {
+      return NextResponse.json({
+        success: false,
+        error: `Tool '${toolName}' is not available at this access tier.`,
+        metadata: {
+          timestamp: Date.now(),
+          source: 'unified-tools-api',
+          sessionId,
+          toolCallId,
+          executionTime: Date.now() - startTime
+        }
+      }, { status: 403 });
+    }
 
     // Validate tool exists and is server-side
     const toolDef = unifiedToolRegistry.getToolDefinition(toolName);
@@ -261,12 +275,26 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
       timestamp: new Date()
     }, 'unified-tools-api', successCorrelationId, sessionId, toolCallId);
 
-    // TODO: Implement cost tracking and budget deduction for reflinks
-    const costTracking = reflinkId ? {
-      reflinkId,
-      estimatedCost: 0.001, // Placeholder cost estimation
-      remainingBudget: undefined // Will be implemented with reflink manager integration
-    } : undefined;
+    // Meter the execution into the unified ledger (D32). Tool dispatch itself has no
+    // direct model tokens — model spend inside tools (e.g. query embeddings in
+    // content_search) is recorded at its own call site; this row records the event
+    // and attributes it to session/reflink/IP for rate and budget accounting.
+    const meterResult = await ctx.meter({
+      usageType: 'tool_execution',
+      costUsd: 0,
+      metadata: { toolName, success: toolResult.success, executionTime }
+    });
+
+    let costTracking: UnifiedToolExecuteResponse['metadata']['costTracking'];
+    if (ctx.reflink) {
+      const { reflinkManager } = await import('@/lib/services/ai/reflink-manager');
+      const budget = await reflinkManager.getRemainingBudget(ctx.reflink.id).catch(() => null);
+      costTracking = {
+        reflinkId: ctx.reflink.id,
+        estimatedCost: meterResult.costUsd,
+        remainingBudget: budget?.spendRemaining === Infinity ? undefined : budget?.spendRemaining
+      };
+    }
 
     const response: UnifiedToolExecuteResponse = {
       success: toolResult.success,
@@ -330,6 +358,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<UnifiedTo
     return NextResponse.json(response, { status: 500 });
   }
 }
+
+export const POST = withAIGateway({ feature: 'tools', publicAllowed: true }, handlePOST);
 
 /**
  * GET endpoint to retrieve available server-side tools

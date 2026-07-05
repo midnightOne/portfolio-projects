@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AIServiceManager } from '@/lib/ai/service-manager';
 import { AIErrorHandler, AIErrorType } from '@/lib/ai/error-handler';
+import { withAIGateway, type GatewayContext } from '@/lib/ai/gateway';
 
 /**
  * POST /api/admin/ai/process-prompt
@@ -11,7 +12,7 @@ import { AIErrorHandler, AIErrorType } from '@/lib/ai/error-handler';
  * 
  * Requirements: 6.3, 6.4, 6.8, 9.6
  */
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest, ctx: GatewayContext) {
   let body: any;
   
   try {
@@ -90,6 +91,13 @@ export async function POST(request: NextRequest) {
       temperature: body.temperature
     });
     
+    await ctx.meter({
+      usageType: 'custom_prompt',
+      modelId: result.model,
+      inputTokens: result.tokensUsed,
+      costUsd: result.cost,
+    });
+
     if (result.success) {
       return NextResponse.json({
         success: true,
@@ -191,3 +199,5 @@ export async function DELETE() {
     }
   }, { status: 405 });
 }
+// Admin editing AI is cost-incurring: gateway-wrapped (D33), never anonymous.
+export const POST = withAIGateway({ feature: 'admin-edit', publicAllowed: false }, handlePOST);

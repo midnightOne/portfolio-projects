@@ -6,12 +6,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { withAIGateway } from '@/lib/ai/gateway';
 import { getSession } from '@/lib/auth-utils';
 import { ProcessingRequest, StageConfig } from '@/lib/content/StageBasedProcessingService';
 import { getProcessingService } from '@/lib/content/StageBasedProcessingServiceSingleton';
 import { getJobQueueManager, QueuedJob } from '@/lib/content/JobQueueManager';
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   try {
     // Check authentication — this route triggers OpenAI spend (chunk summaries/embeddings)
     const session = await getSession();
@@ -131,3 +132,5 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+// Cost-incurring semantic operation start: gateway-wrapped (D33), admin-tier via route auth.
+export const POST = withAIGateway({ feature: 'semantic', publicAllowed: false }, handlePOST);

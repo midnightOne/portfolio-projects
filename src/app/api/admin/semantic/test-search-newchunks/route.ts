@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { withAIGateway } from '@/lib/ai/gateway';
 import { prisma } from '@/lib/prisma';
 import OpenAI from 'openai';
 
@@ -6,7 +7,7 @@ import OpenAI from 'openai';
  * Test if new chunks appear in vector search results
  * GET /api/admin/semantic/test-search-newchunks?query=VR%20experience
  */
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const query = searchParams.get('query') || 'VR experience that would enable users to play with different materials';
@@ -121,3 +122,6 @@ export async function GET(request: NextRequest) {
 
 
 
+
+// Cost-incurring semantic operation start: gateway-wrapped (D33), admin-tier via route auth.
+export const GET = withAIGateway({ feature: 'semantic', publicAllowed: false }, handleGET);

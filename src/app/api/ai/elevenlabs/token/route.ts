@@ -14,6 +14,7 @@ import { contextInjector } from '@/lib/services/ai/context-injector';
 import { getEnvironmentVariable } from '@/types/voice-config';
 import type { ElevenLabsConfig } from '@/types/voice-config';
 import { unifiedToolRegistry } from '@/lib/ai/tools/UnifiedToolRegistry';
+import { withAIGateway, type GatewayContext } from '@/lib/ai/gateway';
 
 interface ElevenLabsTokenRequest {
   contextId?: string;
@@ -49,7 +50,7 @@ interface ToolDefinition {
 
 // Tool definitions are now managed by UnifiedToolRegistry - no duplicates needed
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest, ctx: GatewayContext) {
   try {
     // Get request parameters
     const { searchParams } = new URL(request.url);
@@ -215,6 +216,14 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Ledger row for the mint event (D32); per-leg voice spend meters in Phase 4.
+    await ctx.meter({
+      usageType: 'voice_session_mint',
+      provider: 'elevenlabs',
+      costUsd: 0,
+      metadata: { sessionId, agentId },
+    });
+
     // Generate signed URL using the correct ElevenLabs API endpoint
     try {
       // Use the correct signed URL endpoint as per ElevenLabs documentation
@@ -300,7 +309,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest, ctx: GatewayContext) {
   try {
     const body: ElevenLabsTokenRequest = await request.json();
     
@@ -415,6 +424,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Ledger row for the mint event (D32); per-leg voice spend meters in Phase 4.
+    await ctx.meter({
+      usageType: 'voice_session_mint',
+      provider: 'elevenlabs',
+      costUsd: 0,
+      metadata: { sessionId, agentId },
+    });
+
     // Generate signed URL using the correct ElevenLabs API endpoint
     try {
       // Use the correct signed URL endpoint as per ElevenLabs documentation
@@ -488,3 +505,6 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+// Voice token mints are never public (D31 Req 2.4) - reflink or admin only.
+export const GET = withAIGateway({ feature: 'voice', publicAllowed: false }, handleGET);
+export const POST = withAIGateway({ feature: 'voice', publicAllowed: false }, handlePOST);

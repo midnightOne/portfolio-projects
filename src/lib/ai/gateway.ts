@@ -113,12 +113,23 @@ async function isAdminSession(): Promise<boolean> {
   }
 }
 
-function getReflinkCode(req: NextRequest): string | undefined {
-  return (
+async function getReflinkCode(req: NextRequest): Promise<string | undefined> {
+  const direct =
     req.nextUrl.searchParams.get('reflink') ??
-    req.headers.get('x-reflink') ??
-    undefined
-  );
+    req.nextUrl.searchParams.get('reflinkId') ??
+    req.headers.get('x-reflink');
+  if (direct) return direct;
+  // Existing clients (voice tool calls) send reflinkId/reflinkCode in the JSON body.
+  if (req.method === 'POST' && (req.headers.get('content-type') ?? '').includes('application/json')) {
+    try {
+      const body = await req.clone().json();
+      const candidate = body?.reflinkId ?? body?.reflinkCode ?? body?.reflink;
+      if (typeof candidate === 'string' && candidate.length > 0) return candidate;
+    } catch {
+      // no/invalid body — fall through
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -203,9 +214,9 @@ async function attachDebug(
 
 export function withAIGateway(
   opts: GatewayOptions,
-  handler: (req: NextRequest, ctx: GatewayContext) => Promise<NextResponse>
-): (req: NextRequest) => Promise<NextResponse> {
-  return async (req: NextRequest): Promise<NextResponse> => {
+  handler: (req: NextRequest, ctx: GatewayContext, routeContext?: any) => Promise<NextResponse>
+): (req: NextRequest, routeContext?: any) => Promise<NextResponse> {
+  return async (req: NextRequest, routeContext?: any): Promise<NextResponse> => {
     const startedAt = Date.now();
     const requestId = randomUUID();
     const rawIp = getClientIp(req);
@@ -263,7 +274,7 @@ export function withAIGateway(
       ctx.tier = 'admin';
       ctx.allowedTools = null;
     } else {
-      const reflinkCode = getReflinkCode(req);
+      const reflinkCode = await getReflinkCode(req);
       if (reflinkCode) {
         try {
           const { reflinkManager } = await import('@/lib/services/ai/reflink-manager');
@@ -376,7 +387,7 @@ export function withAIGateway(
 
     // ---- Steps 5–6: execute (handler meters via ctx.meter) ----
     try {
-      const res = await handler(req, ctx);
+      const res = await handler(req, ctx, routeContext);
       return await attachDebug(res, ctx, startedAt);
     } catch (error) {
       console.error(`[gateway] handler error (${req.nextUrl.pathname}):`, error);

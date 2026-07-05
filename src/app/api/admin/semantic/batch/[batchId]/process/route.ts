@@ -11,11 +11,13 @@ import { authOptions } from '@/lib/auth';
 import { getBatchEmbeddingService } from '@/lib/content/BatchEmbeddingService';
 import { PrismaClient } from '@prisma/client';
 import VectorOperations from '@/lib/content/VectorOperations';
+import { withAIGateway, type GatewayContext } from '@/lib/ai/gateway';
 
 const prisma = new PrismaClient();
 
-export async function POST(
+async function handlePOST(
   request: NextRequest,
+  _ctx: GatewayContext,
   { params }: { params: Promise<{ batchId: string }> }
 ) {
   try {
@@ -96,3 +98,6 @@ export async function POST(
     );
   }
 }
+
+// Cost-incurring semantic operation start: gateway-wrapped (D33), admin-tier via route auth.
+export const POST = withAIGateway({ feature: 'semantic', publicAllowed: false }, handlePOST);

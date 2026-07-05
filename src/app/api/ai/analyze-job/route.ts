@@ -6,6 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { withAIGateway, type GatewayContext } from '@/lib/ai/gateway';
 
 interface JobAnalysisRequest {
   jobDescription: string;
@@ -39,8 +40,17 @@ interface JobAnalysisResponse {
   };
 }
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest, ctx: GatewayContext) {
   try {
+    // Job analysis is a reflink feature (D31): the gateway rejects anonymous callers
+    // (publicAllowed: false); reflinks additionally need the feature enabled.
+    if (ctx.tier === 'reflink' && ctx.reflink && !ctx.reflink.enableJobAnalysis) {
+      return NextResponse.json(
+        { error: 'Job analysis is not enabled for this invitation.', code: 'FEATURE_DISABLED' },
+        { status: 403 }
+      );
+    }
+
     const body: JobAnalysisRequest = await request.json();
     const { jobDescription, focusAreas = [], reflinkId, accessLevel = 'basic' } = body;
 
@@ -122,8 +132,16 @@ export async function POST(request: NextRequest) {
       }
     };
 
-    // TODO: Store analysis in database for admin review
+    // TODO: Store analysis in database for admin review (Phase 4.4 productization)
     console.log(`Job analysis completed: ${analysisId} (${processingTime})`);
+
+    // Mock analysis makes no model call today — $0 ledger row records the event
+    // (real reasoning-model spend meters here when Phase 4.4 lands).
+    await ctx.meter({
+      usageType: 'job_analysis',
+      costUsd: 0,
+      metadata: { analysisId, mock: true },
+    });
 
     return NextResponse.json(response);
 
@@ -135,3 +153,6 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// Reflink/admin only (D31) — anonymous visitors have no job-analysis access.
+export const POST = withAIGateway({ feature: 'tools', publicAllowed: false }, handlePOST);

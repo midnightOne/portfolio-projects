@@ -12,6 +12,7 @@ import { getClientAIModelManager } from '../../../../../lib/voice/ClientAIModelM
 import { OpenAIRealtimeConfig } from '../../../../../types/voice-config';
 import { unifiedToolRegistry } from '../../../../../lib/ai/tools/UnifiedToolRegistry';
 import { reflinkManager } from '../../../../../lib/services/ai/reflink-manager';
+import { withAIGateway, type GatewayContext } from '@/lib/ai/gateway';
 
 interface OpenAISessionRequest {
   contextId?: string;
@@ -28,7 +29,7 @@ interface OpenAISessionResponse {
   voice: string;
 }
 
-export async function GET(request: NextRequest) {
+async function handleGET(request: NextRequest, ctx: GatewayContext) {
   try {
     // Get request parameters
     const { searchParams } = new URL(request.url);
@@ -365,8 +366,14 @@ Always be helpful, professional, and accurate. If you don't know something, say 
     // Calculate expiration (OpenAI sessions typically expire in 15 minutes)
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
-    // TODO: Store session metadata in database for analytics
-    // TODO: Track usage for cost monitoring
+    // Ledger row for the mint event (D32). Realtime session spend is metered
+    // per-leg when voice telemetry lands (Phase 4 / D49); the mint itself is $0.
+    await ctx.meter({
+      usageType: 'voice_session_mint',
+      provider: 'openai',
+      costUsd: 0,
+      metadata: { sessionId, model: defaultConfig.model },
+    });
 
     const response: OpenAISessionResponse = {
       client_secret: sessionData.value,
@@ -390,7 +397,7 @@ Always be helpful, professional, and accurate. If you don't know something, say 
   }
 }
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest, ctx: GatewayContext) {
   try {
     const body: OpenAISessionRequest = await request.json();
 
@@ -701,6 +708,13 @@ Always be helpful, professional, and accurate. If you don't know something, say 
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
+    await ctx.meter({
+      usageType: 'voice_session_mint',
+      provider: 'openai',
+      costUsd: 0,
+      metadata: { sessionId, model: defaultConfig.model },
+    });
+
     const response: OpenAISessionResponse = {
       client_secret: sessionData.value,
       session_id: sessionId,
@@ -719,3 +733,7 @@ Always be helpful, professional, and accurate. If you don't know something, say 
     );
   }
 }
+
+// Voice token mints are never public (D31 Req 2.4) - reflink or admin only.
+export const GET = withAIGateway({ feature: 'voice', publicAllowed: false }, handleGET);
+export const POST = withAIGateway({ feature: 'voice', publicAllowed: false }, handlePOST);

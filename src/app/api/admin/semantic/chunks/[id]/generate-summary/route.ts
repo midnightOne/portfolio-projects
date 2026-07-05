@@ -9,9 +9,11 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { getSummaryGenerationService } from '@/lib/content/SummaryGenerationService';
+import { withAIGateway, type GatewayContext } from '@/lib/ai/gateway';
 
-export async function POST(
+async function handlePOST(
   request: NextRequest,
+  _ctx: GatewayContext,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
@@ -159,3 +161,6 @@ export async function POST(
   }
 }
 
+
+// Cost-incurring semantic operation start: gateway-wrapped (D33), admin-tier via route auth.
+export const POST = withAIGateway({ feature: 'semantic', publicAllowed: false }, handlePOST);

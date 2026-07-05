@@ -6,13 +6,14 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { withAIGateway } from '@/lib/ai/gateway';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { BulkOperationsService } from '@/lib/content/BulkOperationsService';
 
 const bulkOps = new BulkOperationsService();
 
-export async function POST(request: NextRequest) {
+async function handlePOST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
@@ -52,3 +53,6 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// Cost-incurring semantic operation start: gateway-wrapped (D33), admin-tier via route auth.
+export const POST = withAIGateway({ feature: 'semantic', publicAllowed: false }, handlePOST);

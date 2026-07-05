@@ -902,11 +902,15 @@ export class StageBasedProcessingService extends EventEmitter {
         }
       }));
 
+      const { resolveModelAlias } = await import('@/lib/ai/model-registry');
+      const { estimateCost } = await import('@/lib/ai/pricing');
+      const embeddingModel = await resolveModelAlias('default-embedding');
+      const totalBatchTokens = allChunks.reduce((sum, chunk) => sum + chunk.tokenCount, 0);
       const batchConfig = {
-        model: 'text-embedding-3-small',
+        model: embeddingModel.modelId,
         priority: 'normal' as const,
-        estimatedTokens: allChunks.reduce((sum, chunk) => sum + chunk.tokenCount, 0),
-        estimatedCost: this.calculateEmbeddingCost(allChunks.reduce((sum, chunk) => sum + chunk.tokenCount, 0)),
+        estimatedTokens: totalBatchTokens,
+        estimatedCost: await estimateCost(embeddingModel.modelId, { inputTokens: totalBatchTokens }),
         projectIds: request.projectId ? [request.projectId] : []
       };
 
@@ -926,17 +930,16 @@ export class StageBasedProcessingService extends EventEmitter {
         try {
           console.log(`[EmbeddingsStage] Generating embedding for chunk ${chunk.chunkId} (${stageProgress.itemsProcessed + 1}/${allChunks.length})`);
           
-          // Generate embedding using OpenAI directly since VectorOperations doesn't have this method
-          const embedding = await this.generateEmbedding(chunk.content);
+          // Generate embedding through the shared provider (alias + fake-mode aware)
+          const { embedding, costUsd: cost } = await this.generateEmbedding(chunk.content);
           chunk.embedding = embedding;
 
           checkpoint.embeddingsGenerated.push({
             chunkId: chunk.chunkId,
             embedding,
-            cost: this.calculateEmbeddingCost(chunk.tokenCount)
+            cost
           });
 
-          const cost = this.calculateEmbeddingCost(chunk.tokenCount);
           progress.costAccumulated += cost;
 
           stageProgress.itemsProcessed++;
@@ -1694,32 +1697,30 @@ export class StageBasedProcessingService extends EventEmitter {
   }
 
   /**
-   * Generate embedding using OpenAI
+   * Generate one embedding via the shared provider (default-embedding alias, D4;
+   * AI_FAKE_MODE-aware) and mirror the actual spend to the unified ledger (D32).
    */
-  private async generateEmbedding(content: string): Promise<number[]> {
-    if (!this.openai) {
-      throw new Error('OpenAI client not initialized - cannot generate embeddings. Please check OPENAI_API_KEY environment variable.');
-    }
-    
+  private async generateEmbedding(content: string): Promise<{ embedding: number[]; tokensUsed: number; costUsd: number }> {
     try {
-      const response = await this.openai.embeddings.create({
-        model: 'text-embedding-3-small',
-        input: content,
-        dimensions: 1536
+      const { generateEmbedding: sharedGenerateEmbedding } = await import('@/lib/ai/embeddings');
+      const { estimateCost } = await import('@/lib/ai/pricing');
+      const { recordUsage } = await import('@/lib/ai/ledger');
+
+      const result = await sharedGenerateEmbedding(content);
+      const costUsd = await estimateCost(result.modelId, { inputTokens: result.tokensUsed });
+      await recordUsage({
+        feature: 'semantic',
+        usageType: 'embedding',
+        provider: result.provider,
+        modelId: result.modelId,
+        inputTokens: result.tokensUsed,
+        costUsd,
       });
-      
-      return response.data[0].embedding;
+      return { embedding: result.vector, tokensUsed: result.tokensUsed, costUsd };
     } catch (error) {
       console.error('[StageBasedProcessingService] Failed to generate embedding:', error);
       throw new Error(`Embedding generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  }
-
-  /**
-   * Calculate embedding cost
-   */
-  private calculateEmbeddingCost(tokenCount: number): number {
-    return (tokenCount / 1000) * 0.00002; // text-embedding-3-small cost
   }
 
   /**

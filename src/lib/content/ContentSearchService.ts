@@ -20,6 +20,10 @@ import { debugEventEmitter } from '../debug/debugEventEmitter';
 import OpenAI from 'openai';
 import { ContentProvider, SemanticSection, NavigationContext } from '../navigation/UIManager';
 import { embeddingCache } from './EmbeddingCache';
+import { generateEmbedding as sharedGenerateEmbedding } from '@/lib/ai/embeddings';
+import { isFakeMode } from '@/lib/ai/fake-mode';
+import { estimateCost } from '@/lib/ai/pricing';
+import { recordUsage } from '@/lib/ai/ledger';
 
 const prisma = new PrismaClient();
 
@@ -197,11 +201,14 @@ export class ContentSearchService implements ContentProvider {
       console.log(`[ContentSearch] Starting search for query: "${query}"`);
       console.log(`[ContentSearch] OpenAI client available: ${!!this.openai}`);
 
-      if (this.openai && query.trim()) {
+      if (query.trim()) {
         try {
+          // Cache key must distinguish fake-mode vectors from real ones
+          const effectiveModel = isFakeMode('embeddings') ? 'fake-embedding' : this.embeddingModel;
+
           // Check cache first
           const cacheCheckStart = Date.now();
-          const cachedEmbedding = embeddingCache.get(query, this.embeddingModel);
+          const cachedEmbedding = embeddingCache.get(query, effectiveModel);
           embeddingTimings.cacheCheck = Date.now() - cacheCheckStart;
 
           if (cachedEmbedding) {
@@ -209,22 +216,26 @@ export class ContentSearchService implements ContentProvider {
             cacheHit = true;
             embeddingTimings.cacheRetrieval = Date.now() - cacheCheckStart;
           } else {
-            // Generate new embedding
+            // Generate new embedding via the shared provider (alias + fake-mode aware)
             const apiCallStart = Date.now();
-            const response = await this.openai.embeddings.create({
-              model: this.embeddingModel,
-              input: query,
-              dimensions: this.embeddingDimensions
-            });
+            const embeddingResult = await sharedGenerateEmbedding(query);
             embeddingTimings.openaiApiCall = Date.now() - apiCallStart;
+            queryEmbedding = embeddingResult.vector;
 
-            const extractionStart = Date.now();
-            queryEmbedding = response.data[0].embedding;
-            embeddingTimings.dataExtraction = Date.now() - extractionStart;
+            // Mirror the actual spend to the unified ledger (D32)
+            await recordUsage({
+              feature: 'semantic',
+              usageType: 'query_embedding',
+              provider: embeddingResult.provider,
+              modelId: embeddingResult.modelId,
+              inputTokens: embeddingResult.tokensUsed,
+              costUsd: await estimateCost(embeddingResult.modelId, { inputTokens: embeddingResult.tokensUsed }),
+              metadata: { queryLength: query.length },
+            });
 
             // Cache the result
             const cacheStoreStart = Date.now();
-            embeddingCache.set(query, queryEmbedding, this.embeddingModel);
+            embeddingCache.set(query, queryEmbedding, effectiveModel);
             embeddingTimings.cacheStore = Date.now() - cacheStoreStart;
           }
         } catch (error) {
@@ -669,16 +680,21 @@ export class ContentSearchService implements ContentProvider {
     query: string,
     maxTier: number = 3
   ): Promise<InternalSearchResult[]> {
-    // Generate query embedding
+    // Generate query embedding via the shared provider (alias + fake-mode aware)
     let queryEmbedding: number[] = [];
-    if (this.openai && query.trim()) {
+    if (query.trim()) {
       try {
-        const response = await this.openai.embeddings.create({
-          model: this.embeddingModel,
-          input: query,
-          dimensions: this.embeddingDimensions
+        const embeddingResult = await sharedGenerateEmbedding(query);
+        queryEmbedding = embeddingResult.vector;
+        await recordUsage({
+          feature: 'semantic',
+          usageType: 'query_embedding',
+          provider: embeddingResult.provider,
+          modelId: embeddingResult.modelId,
+          inputTokens: embeddingResult.tokensUsed,
+          costUsd: await estimateCost(embeddingResult.modelId, { inputTokens: embeddingResult.tokensUsed }),
+          metadata: { queryLength: query.length },
         });
-        queryEmbedding = response.data[0].embedding;
       } catch (error) {
         console.error('Failed to generate query embedding:', error);
       }
