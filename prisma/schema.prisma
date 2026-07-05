@@ -363,7 +363,9 @@ model AIReflink {
   recipientEmail           String?          @map("recipient_email") @db.VarChar(255)
   recipientName            String?          @map("recipient_name") @db.VarChar(255)
   spendLimit               Decimal?         @map("spend_limit") @db.Decimal(10, 2)
-  spendUsed                Decimal          @default(0.00) @map("spend_used") @db.Decimal(10, 2)
+  // 6-decimal precision: per-call costs are sub-cent; 2 decimals silently rounded
+  // every increment to zero and budgets never accumulated (found in Phase 2 e2e).
+  spendUsed                Decimal          @default(0.00) @map("spend_used") @db.Decimal(12, 6)
   tokenLimit               Int?             @map("token_limit")
   tokensUsed               Int              @default(0) @map("tokens_used")
   conversations            AIConversation[]

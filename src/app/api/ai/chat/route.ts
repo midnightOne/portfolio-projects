@@ -120,14 +120,16 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
       const ms = Date.now() - toolStart;
       ctx.debug.toolCalls.push({ name: call.name, args: parsedArgs, ok: toolResult.success, ms, error: toolResult.error });
       if (call.name === 'content_search' && toolResult.success && toolResult.data) {
-        const results = (toolResult.data as { results?: Array<Record<string, unknown>> }).results;
-        if (Array.isArray(results)) {
-          for (const r of results.slice(0, 10)) {
+        // ContentSearchService returns hits under `items` (see BackendToolService)
+        const items = (toolResult.data as { items?: Array<Record<string, unknown>> }).items;
+        if (Array.isArray(items)) {
+          for (const r of items.slice(0, 10)) {
             ctx.debug.retrieval.push({
               chunkId: r.id ?? r.chunkId,
-              tier: r.tier,
-              score: r.score ?? r.similarity,
+              tier: (r.facets as { tier?: number } | undefined)?.tier ?? r.tier,
+              score: r.score,
               title: r.title,
+              project: r.project,
             });
           }
         }
