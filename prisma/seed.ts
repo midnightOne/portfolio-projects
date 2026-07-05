@@ -733,6 +733,56 @@ The platform has processed over $2M in transactions in its first year, with 99.9
     },
   });
 
+  // --- access-and-cost Phase 2: watchdog, public access, model aliases, pricing (D31/D32/D38) ---
+  await prisma.aIGlobalLimits.upsert({
+    where: { id: 'global' },
+    update: {},
+    create: { id: 'global' }, // schema defaults: $5/day, $50/month, active, public enabled
+  });
+
+  await prisma.aIPublicAccessSettings.upsert({
+    where: { id: 'public' },
+    update: {},
+    create: {
+      id: 'public',
+      publicTier: 'text_chat', // D31: default moves from 'disabled' to text-chat
+      turnstileEnabled: true,  // dev uses Cloudflare test keys (see CLAUDE.md); swap keys at deploy
+    },
+  });
+
+  const modelAliases: Array<{ alias: string; provider: string; modelId: string }> = [
+    { alias: 'default-chat', provider: 'openai', modelId: 'gpt-4o' },
+    { alias: 'default-cheap', provider: 'openai', modelId: 'gpt-4o-mini' },
+    { alias: 'default-reasoning', provider: 'openai', modelId: 'gpt-4o' },
+    { alias: 'default-embedding', provider: 'openai', modelId: 'text-embedding-3-small' },
+    { alias: 'default-realtime', provider: 'openai', modelId: 'gpt-realtime' },
+  ];
+  for (const a of modelAliases) {
+    await prisma.aIModelAlias.upsert({
+      where: { alias: a.alias },
+      update: {},
+      create: a,
+    });
+  }
+
+  const modelPricing: Array<{ modelId: string; provider: string; inputPerMTokUsd: number; outputPerMTokUsd: number; notes?: string }> = [
+    { modelId: 'gpt-4o', provider: 'openai', inputPerMTokUsd: 2.5, outputPerMTokUsd: 10 },
+    { modelId: 'gpt-4o-mini', provider: 'openai', inputPerMTokUsd: 0.15, outputPerMTokUsd: 0.6 },
+    { modelId: 'gpt-3.5-turbo', provider: 'openai', inputPerMTokUsd: 0.5, outputPerMTokUsd: 1.5 },
+    { modelId: 'text-embedding-3-small', provider: 'openai', inputPerMTokUsd: 0.02, outputPerMTokUsd: 0 },
+    { modelId: 'text-embedding-3-large', provider: 'openai', inputPerMTokUsd: 0.13, outputPerMTokUsd: 0 },
+    { modelId: 'gpt-realtime', provider: 'openai', inputPerMTokUsd: 4, outputPerMTokUsd: 16, notes: 'text tokens only; audio token pricing lands with voice metering (Phase 4)' },
+    { modelId: 'fake-reasoning', provider: 'fake', inputPerMTokUsd: 0, outputPerMTokUsd: 0, notes: 'AI_FAKE_MODE test double' },
+    { modelId: 'fake-embedding', provider: 'fake', inputPerMTokUsd: 0, outputPerMTokUsd: 0, notes: 'AI_FAKE_MODE test double' },
+  ];
+  for (const p of modelPricing) {
+    await prisma.aIModelPricing.upsert({
+      where: { modelId: p.modelId },
+      update: {},
+      create: p,
+    });
+  }
+
   // Create voice AI configurations using the serialization system
   try {
     const { getSerializerForProvider } = await import('../src/lib/voice/config-serializers');

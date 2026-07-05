@@ -421,8 +421,14 @@ model AIUsageLog {
   reflinkId  String?    @map("reflink_id")
   sessionId  String?    @map("session_id")
   usageType  String     @map("usage_type")
+  feature    String?
+  hashedIp   String?    @map("hashed_ip")
+  requestId  String?    @map("request_id")
+  provider   String?
+  inputTokens  Int?     @map("input_tokens")
+  outputTokens Int?     @map("output_tokens")
   tokensUsed Int?       @map("tokens_used")
-  costUsd    Decimal    @map("cost_usd") @db.Decimal(10, 4)
+  costUsd    Decimal    @map("cost_usd") @db.Decimal(10, 6)
   modelUsed  String?    @map("model_used")
   endpoint   String?
   metadata   Json       @default("{}")
@@ -432,7 +438,69 @@ model AIUsageLog {
   @@index([reflinkId])
   @@index([timestamp])
   @@index([usageType])
+  @@index([feature])
+  @@index([hashedIp])
+  @@index([requestId])
   @@map("ai_usage_logs")
+}
+
+/// Single-row global spend watchdog state (access-and-cost Req 6). Row id is always "global".
+model AIGlobalLimits {
+  id                    String    @id @default("global")
+  dailySpendCapUsd      Decimal   @default(5.00) @map("daily_spend_cap_usd") @db.Decimal(10, 2)
+  monthlySpendCapUsd    Decimal   @default(50.00) @map("monthly_spend_cap_usd") @db.Decimal(10, 2)
+  daySpendUsd           Decimal   @default(0) @map("day_spend_usd") @db.Decimal(12, 6)
+  monthSpendUsd         Decimal   @default(0) @map("month_spend_usd") @db.Decimal(12, 6)
+  dayKey                String    @default("") @map("day_key")
+  monthKey              String    @default("") @map("month_key")
+  status                String    @default("active") // active | tripped
+  trippedAt             DateTime? @map("tripped_at")
+  tripReason            String?   @map("trip_reason")
+  tripHistory           Json      @default("[]") @map("trip_history")
+  publicAIEnabled       Boolean   @default(true) @map("public_ai_enabled")
+  disableReflinksOnTrip Boolean   @default(false) @map("disable_reflinks_on_trip")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  @@map("ai_global_limits")
+}
+
+/// Single-row public access settings (access-and-cost Req 2/3, D31). Row id is always "public".
+/// Replaces the JSON-config PublicAccessManager placeholder.
+model AIPublicAccessSettings {
+  id                       String   @id @default("public")
+  publicTier               String   @default("text_chat") // disabled | text_chat
+  turnstileEnabled         Boolean  @default(false) @map("turnstile_enabled")
+  sessionTtlMinutes        Int      @default(30) @map("session_ttl_minutes")
+  sessionsPerIpPerHour     Int      @default(10) @map("sessions_per_ip_per_hour")
+  messagesPerMinute        Int      @default(6) @map("messages_per_minute")
+  messagesPerDay           Int      @default(60) @map("messages_per_day")
+  tokensPerDay             Int      @default(150000) @map("tokens_per_day")
+  maxHistoryMessages       Int      @default(12) @map("max_history_messages")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  @@map("ai_public_access_settings")
+}
+
+/// Role alias → concrete model mapping (D4 seed; full registry lands Phase 3.4).
+model AIModelAlias {
+  alias     String   @id // default-chat | default-cheap | default-realtime | default-embedding | default-reasoning
+  provider  String
+  modelId   String   @map("model_id")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("ai_model_aliases")
+}
+
+/// Pricing-as-data (D38): one row per model, consumed only via estimateCost().
+model AIModelPricing {
+  modelId          String   @id @map("model_id")
+  provider         String
+  inputPerMTokUsd  Decimal  @default(0) @map("input_per_mtok_usd") @db.Decimal(10, 4)
+  outputPerMTokUsd Decimal  @default(0) @map("output_per_mtok_usd") @db.Decimal(10, 4)
+  notes            String?
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("ai_model_pricing")
 }
 
 model AIConversation {
