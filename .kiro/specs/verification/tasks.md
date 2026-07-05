@@ -62,4 +62,6 @@
 
 ## Backlog
 
+**Dev DB → Docker Compose (owner, 2026-07-03 — postponed, do when WSL drops become annoying):** replace the WSL Postgres with `pgvector/pgvector:pg16` via `docker-compose.yml` (requires installing Docker Desktop — not present on the dev machine). Kills the WSL idle-shutdown failure class (VM reaps Postgres when the keepalive dies → app 500s "Failed to fetch projects"; recovery in CLAUDE.md); industry-standard, matches future CI. `DATABASE_URL` stays `127.0.0.1:5432`, migrations/seed unchanged.
+
 Production synthetic probes; visual regression; load tests — all out of scope per design §8. `check:modularity` (import-boundary lint enforcing D48 dependency direction: core libs never import from `src/app/**`) — build when D48 extraction gets scheduled, or earlier if boundary violations start appearing in review.

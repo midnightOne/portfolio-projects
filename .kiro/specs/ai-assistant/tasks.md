@@ -59,6 +59,12 @@ OpenAI Realtime + ElevenLabs adapters behind `IConversationalAgentAdapter` with 
   - [x] 5c.6 **Minimal chat transcript in the pill (done 2026-07-03, stopgap):** renders `user_speech`/`ai_response` turns as a scrollable message list (`data-testid="chat-transcript"`), auto-scrolls to latest; pill stays expanded after a text submit instead of collapsing (was hiding replies). Deliberately minimal — full chat surface (streaming render, tool-call/citation display, history scrollback, markdown) to be re-iterated with 5c.4 (text-via-reasoning). Note observed here: realtime model answers typed questions from its own knowledge, not `content_search` grounding — a retrieval-wiring issue for 5c.4, not the UI.
   - _Requirements: 3.2; registry D51, D52_
 
+- [ ] 5d. Initial grounding frame at session mint — *fixes the 2026-07-03 ungrounded-answers finding; cheap and high-yield, do early*
+  - [ ] 5d.1 Replace the `TODO: Inject actual context from ContextProviderService` in `/api/ai/openai/session` (and the ElevenLabs token route) with a real **start frame**: owner summary, per-project T1 summaries, combined technology/category list — assembled in ONE server-side place (D47 seam (a); `ContextFrameManager` already exists for F-I-D frames, budget ≤ 400 tokens per D25). The dangling `Context ID: <id>` literal goes away.
+  - [ ] 5d.2 Acceptance: a fresh session asked an *ambient* question about portfolio content (e.g. "how does the kiln regulate temperature?" with no mention of the portfolio) answers from portfolio facts or searches — not from world knowledge. **Diagnosis evidence (2026-07-03):** tool guidance reaches the model and it calls `content_search` correctly when the question is explicitly portfolio-scoped (verified: grounded FreeRTOS/ESP32 answer via `/api/ai/tools/execute`); with no frame it cannot know a kiln project exists, so it answers generically. Pipeline works — the frame is the missing piece.
+  - [ ] 5d.3 When the D47 engine lands, this static frame becomes the conversation-start node's context set (see `_backlog/conversation-engine.md` §1b) — keep the assembly behind one function so the engine can replace it.
+  - _Requirements: 5, 6; registry D25, D41(d), D47(a)_
+
 ### Phase 4 — features
 
 - [ ] 6. Google (Gemini Live) adapter (D22)
