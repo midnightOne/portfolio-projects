@@ -120,6 +120,14 @@
 
 **💡 Scope discipline, again:** recognizing this as "a substantial task … connected to our later graph-based conversation feature and the in-depth context provision system" and directing that, if now is not the time, the insight be recorded as added context on the owning tasks rather than half-built. The cheap immediate slice (persona framing + start-frame grounding so broad queries get portfolio-level answers) ships now; state-dependent disambiguation waits for D47/D55. *Angle: the same ask-then-autonomy pattern applied mid-phase — triage the insight into "fix the prompt now" vs. "feed the graph later."*
 
+## 18. The pill: voice-first minimalism, and the chat that was an afterthought — 2026-07-05/06 session
+
+**💡 The origin story, owner's account:** the pill was designed when chat sidebars were spreading and "it felt like a gimmick" — so the bet was the opposite: voice as the driving force, a deliberately minimal UI, "I did not want to make the chat interface everyone is making." The end state: hide even the pill while the user talks and show "the colorful edge light gradient shader, as if the portfolio itself is talking to the user rather than one of its elements." And the showcase target: "when the portfolio navigates itself over voice commands while conversing with the user like a human, it should feel like magic."
+
+**💡 The honest self-assessment:** chat sidebars persisted, "so they are probably still good UX" — and "the current chat interface inside of the pill is definitely an afterthought." Users without a working microphone (situationally or at all) deserve a first-class text experience too. *Angle: a designer holding two truths at once — the differentiated voice-first vision is right AND the fallback modality was neglected; the fix is not to abandon the vision but to give each modality the surface its physics demand (voice → ambient glow + captions + self-navigating site; text → a real conversational surface that still makes the SITE do the showing). Connects to D45's one-brain-two-renderings and D51's explicit mode intent.*
+
+**💡 Access dedup as a first principle (same exchange):** on bot protection — "we definitely want to de-duplicate the bots and the users; that's why previously I was only thinking of providing AI access only with reflinks." And the sharper requirement: "even with the reflinks we definitely need to secure and de-duplicate, so that if the reflink gets leaked it does not allow the whole internet to use it." *Angle: invitation links treated as leakable credentials from day one — per-link budgets bound the damage, but binding a link to its first users is the real containment.*
+
 ## Appendix: decision → registry map for citations
 
 | Owner idea (this session) | Registry | Spec home |

@@ -77,3 +77,5 @@ Postgres-backed rate-limit tables + engine (`rate-limiter.ts`) — **built but u
 ## Backlog
 
 Optional bearer keys for MCP (if abuse warrants — `mcp-server` backlog mirrors this); anomaly-detection heuristics beyond current abuse detection; per-country blocks.
+
+**Reflink leak containment / dedup (owner, 2026-07-06):** a leaked reflink must not open premium access to the whole internet — today the bound is only the per-reflink budget + global watchdog. Candidate measures, in rough order of value: (a) bind each reflink to its first N distinct hashed IPs (small allowlist written on first use; excess IPs rejected + owner notified); (b) per-IP sub-limits *within* a reflink (reuse the existing hashed-IP windows keyed `reflinkId:hashedIp`); (c) Turnstile challenge on reflink session start, not just the public tier; (d) owner notification on multi-IP usage spikes via security-notifier. Raw IPs stay unstored (Req 9). Sizing: (a)+(b) are small — schema column + gateway step-4 extension. Do with Phase 4 voice caps (task 8) or earlier if reflinks get distributed while the public tier is live.
