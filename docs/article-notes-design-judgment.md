@@ -112,6 +112,14 @@
 
 **💡 Context pushed on state entry, not pulled by the model.** The connection to the D47 graph, in the owner's words: "if this is just the start of conversation, we provide the summaries; but if we are getting into some niche territory, the passive context system might provide proper niche content automatically upon entering that state without relying on the model to ask." *Angle: don't trust a weak model's judgment about when to look things up — make lookup a property of conversation state.*
 
+## 17. The portfolio speaks in first person (public chat voice + lazy queries) — 2026-07-05 session
+
+**💡 The observed failure, owner's account:** asked the public text tier "what can you tell me?" and then "overview", and got "I found an overview for a project titled Task Management App" — one arbitrary project, presented like a search result. "It looks weird because it feels like the AI should be the extension of the portfolio itself speaking from its perspective." The expected answer to both lazy openers is the same: *the owner has done this work, these projects, these technologies — what are you interested in?*
+
+**💡 Lazy queries carry state-dependent intent.** The owner's decomposition: "overview" at conversation start on the homepage means the whole portfolio; the same word while a specific project is open (with no prior conversation) means *that project*; and after a real conversation the agent may need to ask which one is meant. "You should be ready for the users to pose lazy questions and understand the proper intent." *Angle: ambiguous one-word queries aren't a prompt problem, they're a conversation-state problem — the same insight that motivates the D47 node graph (state determines context and framing) and D55 (predictive context pushed on state entry), now confirmed by a real public-tier transcript.*
+
+**💡 Scope discipline, again:** recognizing this as "a substantial task … connected to our later graph-based conversation feature and the in-depth context provision system" and directing that, if now is not the time, the insight be recorded as added context on the owning tasks rather than half-built. The cheap immediate slice (persona framing + start-frame grounding so broad queries get portfolio-level answers) ships now; state-dependent disambiguation waits for D47/D55. *Angle: the same ask-then-autonomy pattern applied mid-phase — triage the insight into "fix the prompt now" vs. "feed the graph later."*
+
 ## Appendix: decision → registry map for citations
 
 | Owner idea (this session) | Registry | Spec home |
@@ -137,3 +145,4 @@
 | Fresh-init migrations, automated DDL | D54 | semantic-content (task 7) |
 | Unified passive-context pipeline (buffer, turn-end) | D55 | ai-assistant |
 | Start-frame grounding (owner+projects summaries) | task 5d | ai-assistant |
+| Portfolio speaks first-person; lazy-query intent is conversation state | task 5d / D47 / D55 | ai-assistant |

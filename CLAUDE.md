@@ -37,13 +37,20 @@ npm run db:seed        # base seed
 npm run db:setup-pgvector
 npm run seed:fixture   # verification fixture project + reflink (scripts/seed-fixture.ts)
 npm run check:semantic # assert fixture semantic state vs fixtures/expected-semantic.json (--no-live skips the OpenAI query)
+npm run check:gateway  # static: no cost-incurring route ships without withAIGateway (D33)
+npm run check:specs    # spec hygiene: status headers, duplicate Requirement N, prescriptive T4
+npm run verify         # umbrella: type-check + check:gateway + check:specs + check:semantic --no-live
 ```
 
-Planned (verification spec, land with their phases): `check:gateway|models|specs`, `verify`, `livefire:semantic|chat`.
+**Fixture needs ingestion to get embeddings.** `npm run seed:fixture` creates the fixture *project* but not its chunk embeddings — those come from the ingestion pipeline. After a fresh `db:reset`/`seed:fixture`, ingest the fixture per-project (POST `/api/admin/semantic/processing/start` with `scope:'project'`, `projectId`, all four stages `immediate`) before `check:semantic`'s live query will pass. `scope:'all'` currently throws (pre-existing `ProjectAIIndex` bug, resolves with D37 Phase 3.6) — use per-project.
+
+Planned (verification spec, land with their phases): `check:models`, `livefire:semantic|chat`.
 
 ## Environment
 
-`.env` needs: `DATABASE_URL` (Postgres with pgvector), `NEXTAUTH_SECRET`/`NEXTAUTH_URL`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY` (voice), later `GOOGLE_API_KEY`, `TURNSTILE_*` (Phase 2). API keys live in env only — never DB (D3). Dev-only flags: `DEV_VERIFICATION=true` (debug envelope), `AI_FAKE_MODE=reasoning,voice,embeddings` (test doubles) — both refuse production.
+`.env` needs: `DATABASE_URL` (Postgres with pgvector), `NEXTAUTH_SECRET`/`NEXTAUTH_URL`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY` (voice), later `GOOGLE_API_KEY`. API keys live in env only — never DB (D3). Dev-only flags: `DEV_VERIFICATION=true` (debug envelope), `AI_FAKE_MODE=reasoning,voice,embeddings` (test doubles) — both refuse production. Optional `AI_SESSION_SECRET` for public chat JWTs (falls back to `NEXTAUTH_SECRET`).
+
+**Turnstile (Phase 2, D31):** dev uses Cloudflare's official always-pass **test keys** — `NEXT_PUBLIC_TURNSTILE_SITE_KEY=1x00000000000000000000AA`, `TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA`. The secret accepts any response token, so the client sends a placeholder without rendering the widget. **Deploy-time swap:** set real Turnstile keys AND render the Turnstile widget in the pill to produce genuine tokens. The admin Access & Spend panel toggles the challenge on/off. Session mint fails closed if Turnstile is enabled but the secret is unconfigured.
 
 ## Verification (D46 — definition of done)
 
