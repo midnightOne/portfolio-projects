@@ -7,7 +7,8 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CheckCircle, XCircle, RefreshCw, TestTube } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { ConversationalAgentProvider, useConversationalAgent } from '@/contexts/ConversationalAgentContext';
+import { ConversationalAgentProvider, useConversationalAgent } from '@/components/providers/conversational-agent-provider';
+import { ReflinkSessionProvider } from '@/components/providers/reflink-session-wrapper';
 import { ContextMonitor } from './ContextMonitor';
 import { ToolCallMonitor } from './ToolCallMonitor';
 import { ConversationStateInspector } from './ConversationStateInspector';
@@ -239,13 +240,10 @@ function AdminDebugTestContent() {
 
 export function AdminDebugTest() {
   return (
-    <ConversationalAgentProvider
-      defaultProvider="openai"
-      autoConnect={false}
-      contextId="admin-debug-test"
-      accessLevel="premium"
-    >
-      <AdminDebugTestContent />
-    </ConversationalAgentProvider>
+    <ReflinkSessionProvider>
+      <ConversationalAgentProvider defaultProvider="openai">
+        <AdminDebugTestContent />
+      </ConversationalAgentProvider>
+    </ReflinkSessionProvider>
   );
 }

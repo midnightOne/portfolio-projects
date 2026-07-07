@@ -1,27 +1,20 @@
 /**
  * Conversation Cleanup API Endpoint
  * ADMIN ONLY - Cleans up old conversations and manages storage
+ * (re-pointed at conversation-history-manager, Phase 3 task 2.1)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { conversationManager } from '@/lib/services/ai/conversation-manager';
+import { conversationHistoryManager } from '@/lib/services/ai/conversation-history-manager';
 
 export async function DELETE(request: NextRequest) {
   try {
-    // Check admin authentication
     const session = await getServerSession(authOptions);
-    
     if (!session || (session.user as any)?.role !== 'admin') {
       return NextResponse.json(
-        { 
-          success: false,
-          error: { 
-            code: 'UNAUTHORIZED',
-            message: 'Admin access required' 
-          }
-        },
+        { success: false, error: { code: 'UNAUTHORIZED', message: 'Admin access required' } },
         { status: 403 }
       );
     }
@@ -32,9 +25,15 @@ export async function DELETE(request: NextRequest) {
     const olderThanDays = searchParams.get('olderThanDays');
 
     if (action === 'single' && sessionId) {
-      // Delete single conversation
-      await conversationManager.deleteConversation(sessionId);
-      
+      const conversation = await conversationHistoryManager.getConversationBySessionId(sessionId);
+      if (!conversation) {
+        return NextResponse.json(
+          { success: false, error: { code: 'NOT_FOUND', message: 'Conversation not found' } },
+          { status: 404 }
+        );
+      }
+      await conversationHistoryManager.deleteConversation(conversation.id);
+
       return NextResponse.json({
         success: true,
         message: 'Conversation deleted successfully'
@@ -42,23 +41,16 @@ export async function DELETE(request: NextRequest) {
     }
 
     if (action === 'cleanup' && olderThanDays) {
-      // Cleanup old conversations
       const days = parseInt(olderThanDays);
       if (isNaN(days) || days < 1) {
         return NextResponse.json(
-          { 
-            success: false,
-            error: { 
-              code: 'VALIDATION_ERROR',
-              message: 'Invalid olderThanDays parameter' 
-            }
-          },
+          { success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid olderThanDays parameter' } },
           { status: 400 }
         );
       }
 
-      const deletedCount = await conversationManager.cleanupOldConversations(days);
-      
+      const deletedCount = await conversationHistoryManager.clearOldConversations(days);
+
       return NextResponse.json({
         success: true,
         data: {
@@ -69,21 +61,13 @@ export async function DELETE(request: NextRequest) {
     }
 
     return NextResponse.json(
-      { 
-        success: false,
-        error: { 
-          code: 'VALIDATION_ERROR',
-          message: 'Invalid action or missing parameters' 
-        }
-      },
+      { success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid action or missing parameters' } },
       { status: 400 }
     );
-
   } catch (error) {
     console.error('Conversation cleanup API error:', error);
-    
     return NextResponse.json(
-      { 
+      {
         success: false,
         error: {
           code: 'CLEANUP_ERROR',

@@ -1,10 +1,17 @@
+/**
+ * Conversation Analytics API Endpoint
+ * ADMIN ONLY - Real aggregates from persisted conversation history
+ * (mock data removed per D26; re-pointed at conversation-history-manager, Phase 3 task 2.1)
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { prisma } from '@/lib/prisma';
+import { conversationHistoryManager } from '@/lib/services/ai/conversation-history-manager';
 
 export async function GET(request: NextRequest) {
   try {
-    // Check authentication
     const session = await getServerSession(authOptions);
     if (!session?.user || (session.user as any)?.role !== 'admin') {
       return NextResponse.json(
@@ -14,52 +21,51 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const provider = searchParams.get('provider');
     const dateFrom = searchParams.get('dateFrom');
     const dateTo = searchParams.get('dateTo');
+    const dateRange = dateFrom && dateTo
+      ? { start: new Date(dateFrom), end: new Date(dateTo) }
+      : undefined;
 
-    // Mock analytics data
-    const analytics = {
-      totalSessions: 156,
-      totalMessages: 1247,
-      averageSessionDuration: 4.2 * 60 * 1000, // 4.2 minutes in milliseconds
-      providerBreakdown: {
-        openai: 89,
-        elevenlabs: 67
-      },
-      dailyActivity: [
-        { date: '2025-01-01', sessions: 23, messages: 184 },
-        { date: '2025-01-02', sessions: 31, messages: 248 },
-        { date: '2025-01-03', sessions: 28, messages: 221 },
-        { date: '2025-01-04', sessions: 35, messages: 279 },
-        { date: '2025-01-05', sessions: 25, messages: 198 },
-        { date: '2025-01-06', sessions: 14, messages: 117 }
-      ],
-      topErrors: [
-        { error: 'Connection timeout', count: 8 },
-        { error: 'Microphone permission denied', count: 5 },
-        { error: 'WebRTC connection failed', count: 3 }
-      ],
-      responseTimeStats: {
-        average: 1850,
-        median: 1650,
-        p95: 3200,
-        p99: 4800
-      }
-    };
+    const now = Date.now();
+    const [stats, last24Hours, last7Days, last30Days, reflinkStats] = await Promise.all([
+      conversationHistoryManager.getConversationStats(dateRange),
+      prisma.aIConversation.count({ where: { startedAt: { gte: new Date(now - 24 * 60 * 60 * 1000) } } }),
+      prisma.aIConversation.count({ where: { startedAt: { gte: new Date(now - 7 * 24 * 60 * 60 * 1000) } } }),
+      prisma.aIConversation.count({ where: { startedAt: { gte: new Date(now - 30 * 24 * 60 * 60 * 1000) } } }),
+      prisma.aIConversation.groupBy({
+        by: ['reflinkId'],
+        _count: true,
+        where: { reflinkId: { not: null } },
+      }),
+    ]);
 
+    const reflinkUsage: Record<string, number> = {};
+    for (const row of reflinkStats) {
+      if (row.reflinkId) reflinkUsage[row.reflinkId] = row._count;
+    }
+
+    // Shape matches the admin conversation-management UI's ConversationAnalytics
     return NextResponse.json({
       success: true,
-      data: analytics
+      data: {
+        totalConversations: stats.totalConversations,
+        totalMessages: stats.totalMessages,
+        totalTokensUsed: stats.totalTokensUsed,
+        totalCost: stats.totalCost,
+        averageMessagesPerConversation: stats.averageMessagesPerConversation,
+        averageResponseTime: stats.averageResponseTime,
+        errorRate: stats.errorRate,
+        modeBreakdown: stats.transportModeBreakdown,
+        modelUsage: stats.modelUsageBreakdown,
+        reflinkUsage,
+        timeRangeStats: { last24Hours, last7Days, last30Days },
+      },
     });
-
   } catch (error) {
     console.error('Conversation analytics API error:', error);
     return NextResponse.json(
-      { 
-        success: false, 
-        error: 'Internal server error' 
-      },
+      { success: false, error: 'Internal server error' },
       { status: 500 }
     );
   }

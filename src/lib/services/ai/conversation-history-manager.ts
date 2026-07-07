@@ -13,7 +13,37 @@
  */
 
 import { prisma } from '@/lib/prisma';
-import { type ConversationMessage, type ConversationInput, type ConversationOptions } from './unified-conversation-manager';
+
+// Message shape accepted by addMessage (salvaged from the deleted Gen-1
+// unified-conversation-manager, Phase 3 task 2.4a)
+export interface NavigationCommand {
+    type: 'navigate' | 'highlight' | 'scroll' | 'modal';
+    target: string;
+    parameters: Record<string, any>;
+    timing: 'immediate' | 'delayed' | 'synchronized';
+    duration?: number;
+}
+
+export interface ConversationMessage {
+    id: string;
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    timestamp: Date;
+    inputMode: 'text' | 'voice' | 'hybrid';
+    metadata?: {
+        tokensUsed?: number;
+        cost?: number;
+        model?: string;
+        processingTime?: number;
+        voiceData?: {
+            duration?: number;
+            audioUrl?: string;
+            transcription?: string;
+        };
+        contextUsed?: string[];
+        navigationCommands?: NavigationCommand[];
+    };
+}
 
 // Core conversation history types
 export interface ConversationRecord {

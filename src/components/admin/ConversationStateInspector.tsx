@@ -24,7 +24,7 @@ import {
   Eye
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { useConversationalAgent } from '@/contexts/ConversationalAgentContext';
+import { useConversationalAgent } from '@/components/providers/conversational-agent-provider';
 
 interface ConversationMetadata {
   conversationId: string;
@@ -48,9 +48,9 @@ export function ConversationStateInspector({ conversationId, onStateUpdate }: Co
   const {
     state,
     isConnected,
-    isRecording,
-    getLastError
+    lastError
   } = useConversationalAgent();
+  const isRecording = state.audioState.isRecording;
 
   const [metadata, setMetadata] = useState<ConversationMetadata>({
     conversationId,
@@ -123,7 +123,7 @@ export function ConversationStateInspector({ conversationId, onStateUpdate }: Co
       lastConnected: connectionState.lastConnected,
       reconnectAttempts: connectionState.reconnectAttempts,
       maxReconnectAttempts: connectionState.maxReconnectAttempts,
-      isConnected: isConnected(),
+      isConnected: isConnected,
       provider: state.activeProvider
     };
   };
@@ -149,7 +149,7 @@ export function ConversationStateInspector({ conversationId, onStateUpdate }: Co
       isPlaying: audioState.isPlaying,
       volume: audioState.volume,
       config: audioState.config,
-      microphoneActive: isRecording(),
+      microphoneActive: isRecording,
       speakerActive: audioState.isPlaying
     };
   };
@@ -161,7 +161,7 @@ export function ConversationStateInspector({ conversationId, onStateUpdate }: Co
       lastMessage: state.transcript[0],
       conversationMetadata: state.conversationMetadata,
       errorCount: state.errorCount,
-      lastError: getLastError(),
+      lastError: lastError,
       duration: metadata.duration
     };
   };

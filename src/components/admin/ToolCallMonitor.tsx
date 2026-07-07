@@ -20,7 +20,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { useConversationalAgent } from '@/contexts/ConversationalAgentContext';
+import { useConversationalAgent } from '@/components/providers/conversational-agent-provider';
 import { debugEventEmitter, DebugEvent } from '@/lib/debug/debugEventEmitter';
 import { unifiedConversationLogger } from '@/lib/debug/UnifiedConversationLogger';
 

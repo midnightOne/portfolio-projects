@@ -60,6 +60,10 @@ export interface GatewayDebugState {
   modelMs: number;
   usage?: { inputTokens?: number; outputTokens?: number; costUsd: number; ledgerId: string };
   rateLimit?: { remainingMinute?: number; remainingDay?: number };
+  /** Assembled system prompt for this turn (ai-assistant task 2.4b debug parity). */
+  systemPrompt?: string;
+  /** Context string injected this turn (start frame today; D47 node context later). */
+  contextString?: string;
 }
 
 export interface GatewayContext {
@@ -205,6 +209,8 @@ async function attachDebug(
     retrieval: ctx.debug.retrieval,
     toolCalls: ctx.debug.toolCalls,
     usage: ctx.debug.usage,
+    systemPrompt: ctx.debug.systemPrompt,
+    contextString: ctx.debug.contextString,
     timings: { totalMs: Date.now() - startedAt, modelMs: ctx.debug.modelMs || undefined },
   };
   const headers = new Headers(res.headers);

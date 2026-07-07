@@ -1,42 +1,62 @@
 'use client';
 
+/**
+ * Admin AI Debug & Test Panel (Phase 3 task 1.3 / D21)
+ *
+ * Left: conversation tester driving the PRODUCTION public text path
+ * (/api/ai/chat via the gateway). Admin sessions are debug-authorized, so every
+ * response carries the `_debug` envelope (system prompt, context string, model,
+ * retrieval trace, tool trace, usage, timings) — the same envelope the
+ * verification flow asserts against.
+ *
+ * Right: debug inspector for the selected turn, plus a browser over persisted
+ * conversation logs (conversation-history-manager). Voice debugging lives at
+ * /admin/ai/voice-debug; replay at /admin/ai/conversations.
+ */
+
 import React, { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { AdminLayout } from '@/components/admin/admin-layout';
 import { AdminPageLayout } from '@/components/admin/admin-page-layout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Separator } from '@/components/ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { ChevronDown, ChevronRight, Bug, Copy, RefreshCw, AlertCircle } from 'lucide-react';
+import { Bug, Copy, RefreshCw, AlertCircle } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
-import { useUnifiedConversation, type ConversationMessage } from '@/hooks/use-unified-conversation';
 
-interface DebugData {
+interface ChatDebugEnvelope {
+  requestId: string;
+  tier: string;
+  rateLimit?: { remainingMinute?: number; remainingDay?: number };
+  model?: { alias?: string; resolved?: string };
+  retrieval?: Array<Record<string, unknown>>;
+  toolCalls?: Array<{ name: string; args?: unknown; ms?: number; ok: boolean; error?: string }>;
+  usage?: { inputTokens?: number; outputTokens?: number; costUsd: number; ledgerId: string };
+  systemPrompt?: string;
+  contextString?: string;
+  timings?: { totalMs: number; modelMs?: number };
+}
+
+interface TesterMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+  debug?: ChatDebugEnvelope;
+  error?: string;
+}
+
+interface PersistedDebugData {
   sessionId: string;
   timestamp: string;
-  input: {
-    content: string;
-    mode: string;
-    metadata?: any;
-  };
+  input: { content: string; mode: string };
   systemPrompt: string;
   contextString: string;
-  aiRequest: {
-    model: string;
-    temperature: number;
-    messages: any[];
-  };
-  aiResponse?: {
-    content: string;
-    tokensUsed?: number;
-    cost?: number;
-  };
+  aiRequest: { model: string; temperature?: number; messages: unknown[] };
+  aiResponse?: { content: string; tokensUsed?: number; cost?: number };
   error?: string;
 }
 
@@ -44,163 +64,112 @@ function AIDebugContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const toast = useToast();
-  
-  // Debug panel state
-  const [debugData, setDebugData] = useState<DebugData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['request-info']));
-  const [recentSessions, setRecentSessions] = useState<Array<{sessionId: string, timestamp: string, lastInput: string}>>([]);
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
-  const [autoSync, setAutoSync] = useState<boolean>(true);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
-  // Conversation tester state
+  // Conversation tester state (production /api/ai/chat)
+  const [messages, setMessages] = useState<TesterMessage[]>([]);
   const [inputText, setInputText] = useState('');
-  const [selectedMode, setSelectedMode] = useState<'text' | 'voice' | 'hybrid'>('text');
-  const [selectedModel, setSelectedModel] = useState<string>('gpt-4o');
-  const [availableModels, setAvailableModels] = useState<Array<{id: string, name: string, provider: string}>>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedDebug, setSelectedDebug] = useState<ChatDebugEnvelope | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Persisted-log browser state
+  const [recentSessions, setRecentSessions] = useState<Array<{ sessionId: string; timestamp: string; lastInput: string }>>([]);
+  const [selectedSessionId, setSelectedSessionId] = useState<string>('');
+  const [persistedDebug, setPersistedDebug] = useState<PersistedDebugData | null>(null);
+  const [loadingPersisted, setLoadingPersisted] = useState(false);
 
   useEffect(() => {
     if (status === 'loading') return;
     if (!session?.user || (session.user as any)?.role !== 'admin') {
       router.push('/admin/login');
-      return;
     }
   }, [session, status, router]);
 
-  // Load available models and recent sessions
   useEffect(() => {
-    const loadModels = async () => {
-      if (!session) return;
-      
-      try {
-        const response = await fetch('/api/admin/ai/available-models');
-        const data = await response.json();
-        
-        if (data.success && data.data.unified) {
-          setAvailableModels(data.data.unified);
-        }
-      } catch (error) {
-        console.error('Failed to load models:', error);
-      }
-    };
-
-    const loadRecentSessions = async () => {
-      if (!session) return;
-      
-      try {
-        const response = await fetch('/api/admin/ai/conversation/debug?action=recent-sessions');
-        const data = await response.json();
-        
-        if (data.success) {
-          setRecentSessions(data.data || []);
-        }
-      } catch (error) {
-        console.error('Failed to load recent sessions:', error);
-      }
-    };
-
-    loadModels();
-    loadRecentSessions();
+    if (session) loadRecentSessions();
   }, [session]);
-
-  // Unified conversation hook
-  const {
-    messages,
-    isProcessing,
-    currentMode,
-    currentModel,
-    sessionId,
-    isConnected,
-    transportState,
-    activeTransport,
-    error: conversationError,
-    sendMessage,
-    switchMode,
-    switchTransport,
-    switchModel,
-    clearHistory,
-    clearError
-  } = useUnifiedConversation({
-    initialMode: 'text',
-    autoConnect: true,
-    defaultTransport: 'http',
-    defaultModel: selectedModel
-  });
-
-  // Update selected session when conversation tester session changes
-  useEffect(() => {
-    if (autoSync && sessionId && sessionId !== selectedSessionId) {
-      setSelectedSessionId(sessionId);
-      // Auto-load debug data for the new session
-      loadDebugData(sessionId);
-    }
-  }, [sessionId, selectedSessionId, autoSync]);
-
-  // Auto-refresh debug data when auto-sync is enabled and we have a current session
-  useEffect(() => {
-    if (!autoSync || !sessionId) return;
-
-    const interval = setInterval(() => {
-      // Only refresh if we're looking at the current session
-      if (selectedSessionId === sessionId) {
-        loadDebugData(sessionId);
-      }
-    }, 5000); // Refresh every 5 seconds
-
-    return () => clearInterval(interval);
-  }, [autoSync, sessionId, selectedSessionId]);
-
-  const loadDebugData = async (targetSessionId?: string) => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      // Use the provided session ID, selected session ID, or conversation tester session ID
-      const useSessionId = targetSessionId || selectedSessionId || sessionId;
-      const url = useSessionId 
-        ? `/api/admin/ai/conversation/debug?sessionId=${encodeURIComponent(useSessionId)}`
-        : '/api/admin/ai/conversation/debug';
-      
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        setDebugData(data.data);
-        setLastUpdated(new Date());
-        if (data.data) {
-          toast.success('Debug data loaded', `Debug data for session ${useSessionId ? useSessionId.slice(-8) : 'latest'} retrieved successfully`);
-        } else {
-          toast.info('No debug data', `No debug data available for session ${useSessionId ? useSessionId.slice(-8) : 'latest'}`);
-        }
-      } else {
-        throw new Error(data.error?.message || 'Failed to load debug data');
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to load debug data';
-      setError(errorMessage);
-      toast.error('Failed to load debug data', errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const loadRecentSessions = async () => {
     try {
       const response = await fetch('/api/admin/ai/conversation/debug?action=recent-sessions');
       const data = await response.json();
-      
-      if (data.success) {
-        setRecentSessions(data.data || []);
+      if (data.success) setRecentSessions(data.data || []);
+    } catch (err) {
+      console.error('Failed to load recent sessions:', err);
+    }
+  };
+
+  const loadPersistedDebug = async (sessionId: string) => {
+    setLoadingPersisted(true);
+    try {
+      const response = await fetch(`/api/admin/ai/conversation/debug?sessionId=${encodeURIComponent(sessionId)}`);
+      const data = await response.json();
+      if (data.success && data.data) {
+        setPersistedDebug(data.data);
+        toast.success('Debug data loaded', `Persisted debug data for session ${sessionId.slice(-8)}`);
+      } else {
+        setPersistedDebug(null);
+        toast.info('No debug data', 'No persisted debug data for this session');
       }
-    } catch (error) {
-      console.error('Failed to load recent sessions:', error);
+    } catch (err) {
+      toast.error('Failed to load', err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setLoadingPersisted(false);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    const message = inputText.trim();
+    if (!message || isProcessing) return;
+
+    setIsProcessing(true);
+    setError(null);
+    setInputText('');
+
+    const userMessage: TesterMessage = {
+      id: `user_${Date.now()}`,
+      role: 'user',
+      content: message,
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, userMessage]);
+
+    try {
+      // Bounded history rides in the request (D43 — stateless server)
+      const history = messages.map((m) => ({ role: m.role, content: m.content }));
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, history }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+
+      const assistantMessage: TesterMessage = {
+        id: `assistant_${Date.now()}`,
+        role: 'assistant',
+        content: data.reply ?? '',
+        timestamp: new Date(),
+        debug: data._debug,
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+      if (data._debug) {
+        setSelectedDebug(data._debug);
+      } else {
+        toast.info('No _debug envelope', 'Response carried no debug envelope — check DEV_VERIFICATION / admin session');
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Request failed';
+      setError(errorMessage);
+      setMessages((prev) => [
+        ...prev,
+        { id: `error_${Date.now()}`, role: 'assistant', content: '', timestamp: new Date(), error: errorMessage },
+      ]);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -208,86 +177,12 @@ function AIDebugContent() {
     try {
       await navigator.clipboard.writeText(text);
       toast.success('Copied to clipboard', `${label} copied successfully`);
-    } catch (error) {
+    } catch {
       toast.error('Copy failed', 'Failed to copy to clipboard');
     }
   };
 
-  const toggleSection = (sectionId: string) => {
-    setExpandedSections(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(sectionId)) {
-        newSet.delete(sectionId);
-      } else {
-        newSet.add(sectionId);
-      }
-      return newSet;
-    });
-  };
-
-  const formatTimestamp = (timestamp: string | Date) => {
-    return new Date(timestamp).toLocaleString();
-  };
-
-  const getModeColor = (mode: string) => {
-    switch (mode) {
-      case 'text': return 'bg-blue-100 text-blue-800';
-      case 'voice': return 'bg-green-100 text-green-800';
-      case 'hybrid': return 'bg-purple-100 text-purple-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  // Conversation handlers
-  const handleSendMessage = async () => {
-    if (!inputText.trim()) return;
-
-    try {
-      await sendMessage(inputText, selectedMode, selectedModel);
-      setInputText('');
-      // Auto-load debug data after sending message (wait a bit for processing)
-      setTimeout(() => {
-        // Use the current session ID from the conversation hook
-        if (sessionId) {
-          if (autoSync) {
-            setSelectedSessionId(sessionId);
-          }
-          loadDebugData(sessionId);
-          toast.info('Debug data updated', `Loaded debug data for session ${sessionId.slice(-8)}`);
-        } else {
-          loadDebugData();
-        }
-        loadRecentSessions();
-      }, 1500);
-    } catch (error) {
-      console.error('Failed to send message:', error);
-    }
-  };
-
-  const handleModeSwitch = async (mode: 'text' | 'voice' | 'hybrid') => {
-    try {
-      await switchMode(mode);
-      setSelectedMode(mode);
-    } catch (error) {
-      console.error('Failed to switch mode:', error);
-    }
-  };
-
-  const handleTransportSwitch = async (transport: 'http' | 'websocket' | 'webrtc') => {
-    try {
-      await switchTransport(transport);
-    } catch (error) {
-      console.error('Failed to switch transport:', error);
-    }
-  };
-
-  const handleClearHistory = async () => {
-    try {
-      await clearHistory();
-    } catch (error) {
-      console.error('Failed to clear history:', error);
-    }
-  };
+  const formatTimestamp = (timestamp: string | Date) => new Date(timestamp).toLocaleString();
 
   if (status === 'loading') {
     return (
@@ -306,131 +201,24 @@ function AIDebugContent() {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
-      {/* Left Side - Conversation Tester */}
+      {/* Left Side - Production Chat Tester */}
       <div className="space-y-4">
         <div className="flex items-center gap-2 mb-4">
           <Bug className="h-5 w-5" />
-          <h2 className="text-lg font-semibold">Conversation Tester</h2>
+          <h2 className="text-lg font-semibold">Production Chat Tester</h2>
+          <Badge variant="outline" className="text-xs">/api/ai/chat</Badge>
         </div>
 
-        {/* Connection Status */}
-        <div className="bg-muted/50 rounded-lg p-4 space-y-3">
-          <h3 className="font-medium text-sm">Connection Status</h3>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="flex items-center justify-between">
-              <span>Session:</span>
-              <Badge variant="outline" className="font-mono text-xs">
-                {sessionId ? sessionId.slice(-8) : 'None'}
-              </Badge>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>Connected:</span>
-              <Badge variant={isConnected ? "default" : "destructive"}>
-                {isConnected ? 'Yes' : 'No'}
-              </Badge>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>Transport:</span>
-              <Badge variant="secondary">{activeTransport || 'None'}</Badge>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>Mode:</span>
-              <Badge className={getModeColor(currentMode)}>{currentMode}</Badge>
-            </div>
-          </div>
-        </div>
-
-        {/* Error Display */}
-        {(error || conversationError) && (
+        {error && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertDescription className="flex items-center justify-between">
-              <span>{error || conversationError?.message}</span>
-              <Button variant="outline" size="sm" onClick={() => {
-                setError(null);
-                clearError();
-              }}>
-                Clear
-              </Button>
+              <span>{error}</span>
+              <Button variant="outline" size="sm" onClick={() => setError(null)}>Clear</Button>
             </AlertDescription>
           </Alert>
         )}
 
-        {/* Controls */}
-        <div className="space-y-4">
-          {/* Mode Selection */}
-          <div>
-            <label className="text-sm font-medium mb-2 block">Mode</label>
-            <div className="flex gap-2">
-              {(['text', 'voice', 'hybrid'] as const).map((mode) => (
-                <Button
-                  key={mode}
-                  variant={selectedMode === mode ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => handleModeSwitch(mode)}
-                  disabled={isProcessing}
-                >
-                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                </Button>
-              ))}
-            </div>
-          </div>
-
-          {/* Model Selection */}
-          <div>
-            <label className="text-sm font-medium mb-2 block">Model</label>
-            <Select 
-              value={selectedModel} 
-              onValueChange={(value) => {
-                setSelectedModel(value);
-                switchModel(value);
-              }}
-              disabled={isProcessing}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select a model" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableModels.length > 0 ? (
-                  availableModels.map((model) => (
-                    <SelectItem key={model.id} value={model.id}>
-                      <div className="flex items-center gap-2">
-                        <span>{model.name}</span>
-                        <Badge variant="outline" className="text-xs">
-                          {model.provider}
-                        </Badge>
-                      </div>
-                    </SelectItem>
-                  ))
-                ) : (
-                  <SelectItem value="gpt-4o" disabled>
-                    Loading models...
-                  </SelectItem>
-                )}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Transport Selection */}
-          <div>
-            <label className="text-sm font-medium mb-2 block">Transport</label>
-            <div className="flex gap-2">
-              {(['http', 'websocket', 'webrtc'] as const).map((transport) => (
-                <Button
-                  key={transport}
-                  variant={activeTransport === transport ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => handleTransportSwitch(transport)}
-                  disabled={isProcessing}
-                >
-                  {transport.toUpperCase()}
-                </Button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Message Input */}
         <div className="space-y-2">
           <label className="text-sm font-medium">Send Message</label>
           <div className="flex gap-2">
@@ -438,7 +226,7 @@ function AIDebugContent() {
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               placeholder="Type your message..."
-              disabled={isProcessing || !isConnected}
+              disabled={isProcessing}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
@@ -446,43 +234,28 @@ function AIDebugContent() {
                 }
               }}
             />
-            <Button
-              onClick={handleSendMessage}
-              disabled={isProcessing || !isConnected || !inputText.trim()}
-            >
+            <Button onClick={handleSendMessage} disabled={isProcessing || !inputText.trim()}>
               {isProcessing ? 'Processing...' : 'Send'}
             </Button>
           </div>
-          <div className="flex gap-2">
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={handleClearHistory}
-              disabled={isProcessing || messages.length === 0}
-            >
-              Clear History
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => loadDebugData()}
-              disabled={loading}
-            >
-              <RefreshCw className={`h-3 w-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
-              Refresh Current
-            </Button>
-          </div>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => { setMessages([]); setSelectedDebug(null); }}
+            disabled={isProcessing || messages.length === 0}
+          >
+            Clear History
+          </Button>
         </div>
 
-        {/* Test Suggestions */}
         <div>
           <label className="text-sm font-medium mb-2 block">Quick Tests</label>
           <div className="grid grid-cols-1 gap-2">
             {[
               'Tell me about your projects',
               'What technologies do you work with?',
-              'Show me your experience',
-              'Navigate to project details'
+              'overview',
+              'How does the kiln regulate temperature?',
             ].map((suggestion) => (
               <Button
                 key={suggestion}
@@ -498,11 +271,8 @@ function AIDebugContent() {
           </div>
         </div>
 
-        {/* Conversation History */}
         <div className="space-y-2">
-          <h3 className="font-medium text-sm">
-            Conversation History ({messages.length} messages)
-          </h3>
+          <h3 className="font-medium text-sm">Conversation ({messages.length} messages)</h3>
           <div className="bg-muted/30 rounded-lg p-3 max-h-96 overflow-y-auto">
             {messages.length === 0 ? (
               <p className="text-muted-foreground text-center py-8 text-sm">
@@ -510,46 +280,47 @@ function AIDebugContent() {
               </p>
             ) : (
               <div className="space-y-3">
-                {messages.map((message, index) => (
-                  <div key={message.id} className="space-y-1">
-                    <div className={`p-2 rounded text-sm ${
-                      message.role === 'user' 
-                        ? 'bg-blue-50 border-l-2 border-blue-400' 
+                {messages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`p-2 rounded text-sm ${
+                      message.role === 'user'
+                        ? 'bg-blue-50 border-l-2 border-blue-400'
                         : 'bg-gray-50 border-l-2 border-gray-400'
-                    }`}>
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-1">
-                          <Badge variant={message.role === 'user' ? 'default' : 'secondary'} className="text-xs">
-                            {message.role}
-                          </Badge>
-                          <Badge className={`${getModeColor(message.inputMode)} text-xs`}>
-                            {message.inputMode}
-                          </Badge>
-                        </div>
-                        <span className="text-xs text-muted-foreground">
-                          {formatTimestamp(message.timestamp)}
-                        </span>
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-1">
+                        <Badge variant={message.role === 'user' ? 'default' : 'secondary'} className="text-xs">
+                          {message.role}
+                        </Badge>
+                        {message.debug && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-5 text-xs px-1"
+                            onClick={() => setSelectedDebug(message.debug!)}
+                          >
+                            <Bug className="h-3 w-3 mr-1" />
+                            debug
+                          </Button>
+                        )}
                       </div>
-                      <p className="text-xs whitespace-pre-wrap">{message.content}</p>
-                      
-                      {/* Message Metadata */}
-                      {message.metadata && (
-                        <div className="mt-1 pt-1 border-t border-gray-200">
-                          <div className="text-xs text-muted-foreground flex gap-3">
-                            {message.metadata.tokensUsed && (
-                              <span>Tokens: {message.metadata.tokensUsed}</span>
-                            )}
-                            {message.metadata.cost && (
-                              <span>Cost: ${message.metadata.cost.toFixed(4)}</span>
-                            )}
-                            {message.metadata.processingTime && (
-                              <span>Time: {message.metadata.processingTime}ms</span>
-                            )}
-                          </div>
-                        </div>
-                      )}
+                      <span className="text-xs text-muted-foreground">{formatTimestamp(message.timestamp)}</span>
                     </div>
-                    {index < messages.length - 1 && <Separator className="my-1" />}
+                    {message.error ? (
+                      <p className="text-xs text-destructive">{message.error}</p>
+                    ) : (
+                      <p className="text-xs whitespace-pre-wrap">{message.content}</p>
+                    )}
+                    {message.debug?.usage && (
+                      <div className="mt-1 pt-1 border-t border-gray-200 text-xs text-muted-foreground flex gap-3">
+                        <span>In: {message.debug.usage.inputTokens}</span>
+                        <span>Out: {message.debug.usage.outputTokens}</span>
+                        <span>${message.debug.usage.costUsd.toFixed(5)}</span>
+                        {message.debug.timings && <span>{message.debug.timings.totalMs}ms</span>}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -558,365 +329,196 @@ function AIDebugContent() {
         </div>
       </div>
 
-      {/* Right Side - Debug Information */}
+      {/* Right Side - Debug Inspector */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Copy className="h-5 w-5" />
-            <h2 className="text-lg font-semibold">Debug Information</h2>
-          </div>
-          {sessionId && (
-            <div className="text-xs text-muted-foreground">
-              Current Session: <span className="font-mono">{sessionId.slice(-8)}</span>
-            </div>
-          )}
+        <div className="flex items-center gap-2 mb-4">
+          <Copy className="h-5 w-5" />
+          <h2 className="text-lg font-semibold">_debug Envelope</h2>
         </div>
 
-        {/* Session Sync Status */}
-        {sessionId && selectedSessionId && sessionId !== selectedSessionId && !autoSync && (
-          <Alert>
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription className="flex items-center justify-between">
-              <div>
-                <div className="font-medium">Session Mismatch</div>
-                <div className="text-xs text-muted-foreground">
-                  Debug: {selectedSessionId.slice(-8)} | Tester: {sessionId.slice(-8)}
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setSelectedSessionId(sessionId);
-                    loadDebugData(sessionId);
-                  }}
-                >
-                  Sync Sessions
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setAutoSync(true)}
-                >
-                  Enable Auto-sync
-                </Button>
-              </div>
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* Conversation Selector */}
-        <div className="bg-muted/50 rounded-lg p-3">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-medium text-sm">Select Conversation</h3>
-            <div className="flex items-center gap-2">
-              {sessionId && selectedSessionId === sessionId && (
-                <Badge variant="default" className="text-xs">Synced</Badge>
-              )}
-              {lastUpdated && (
-                <span className="text-xs text-muted-foreground">
-                  Updated {lastUpdated.toLocaleTimeString()}
-                </span>
-              )}
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={loadRecentSessions}
-              >
-                <RefreshCw className="h-3 w-3" />
-              </Button>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Select 
-              value={selectedSessionId || ''} 
-              onValueChange={(value) => {
-                setSelectedSessionId(value);
-                if (value) {
-                  loadDebugData(value);
-                }
-              }}
-            >
-              <SelectTrigger className="text-xs">
-                <SelectValue placeholder="Select a conversation to debug" />
-              </SelectTrigger>
-              <SelectContent>
-                {sessionId && (
-                  <SelectItem value={sessionId}>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="default" className="text-xs">Current</Badge>
-                      <span className="font-mono text-xs">{sessionId.slice(-8)}</span>
-                    </div>
-                  </SelectItem>
-                )}
-                {recentSessions
-                  .filter(session => session.sessionId !== sessionId)
-                  .map((session) => (
-                    <SelectItem key={session.sessionId} value={session.sessionId}>
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs">{session.sessionId.slice(-8)}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {formatTimestamp(session.timestamp)}
-                          </span>
-                        </div>
-                        <div className="text-xs text-muted-foreground truncate max-w-48">
-                          {session.lastInput}
-                        </div>
-                      </div>
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
-            <div className="space-y-2">
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    // If we have a selected session, load that; otherwise load current session or latest
-                    const targetSessionId = selectedSessionId || sessionId;
-                    loadDebugData(targetSessionId);
-                  }}
-                  disabled={loading}
-                  className="flex-1"
-                >
-                  <RefreshCw className={`h-3 w-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
-                  {selectedSessionId ? 'Reload Selected' : 'Load Latest'}
-                </Button>
-                {selectedSessionId && selectedSessionId !== sessionId && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setSelectedSessionId(sessionId);
-                      if (sessionId) {
-                        loadDebugData(sessionId);
-                      }
-                    }}
-                  >
-                    Back to Current
-                  </Button>
-                )}
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="auto-sync"
-                    checked={autoSync}
-                    onChange={(e) => setAutoSync(e.target.checked)}
-                    className="rounded"
-                  />
-                  <label htmlFor="auto-sync" className="text-xs text-muted-foreground">
-                    Auto-sync with conversation tester
-                  </label>
-                </div>
-                {autoSync && selectedSessionId === sessionId && (
-                  <Badge variant="secondary" className="text-xs">
-                    <RefreshCw className="h-2 w-2 mr-1 animate-spin" />
-                    Live
-                  </Badge>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {debugData ? (
+        {selectedDebug ? (
           <div className="space-y-3">
-            {/* Request Information */}
             <div className="bg-muted/50 rounded-lg p-3">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-medium text-sm">Request Information</h3>
-                <Badge variant="outline" className="text-xs">
-                  {formatTimestamp(debugData.timestamp)}
-                </Badge>
-              </div>
+              <h3 className="font-medium text-sm mb-2">Request</h3>
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div>
-                  <span className="font-medium">Session ID:</span>
-                  <div className={`font-mono bg-background p-1 rounded mt-1 break-all flex items-center gap-2 ${
-                    debugData.sessionId === sessionId ? 'border border-green-200 bg-green-50' : 
-                    debugData.sessionId === selectedSessionId ? 'border border-blue-200 bg-blue-50' : ''
-                  }`}>
-                    <span>{debugData.sessionId}</span>
-                    {debugData.sessionId === sessionId && (
-                      <Badge variant="outline" className="text-xs bg-green-100 text-green-700 border-green-300">
-                        Current
-                      </Badge>
-                    )}
-                    {debugData.sessionId === selectedSessionId && debugData.sessionId !== sessionId && (
-                      <Badge variant="outline" className="text-xs bg-blue-100 text-blue-700 border-blue-300">
-                        Selected
-                      </Badge>
-                    )}
-                  </div>
+                  <span className="font-medium">Request ID:</span>
+                  <div className="font-mono bg-background p-1 rounded mt-1 break-all">{selectedDebug.requestId}</div>
                 </div>
                 <div>
-                  <span className="font-medium">Mode:</span>
-                  <Badge className="ml-1 text-xs">{debugData.input.mode}</Badge>
+                  <span className="font-medium">Tier:</span>
+                  <Badge className="ml-1 text-xs">{selectedDebug.tier}</Badge>
                 </div>
                 <div>
                   <span className="font-medium">Model:</span>
-                  <div className="font-mono">{debugData.aiRequest.model}</div>
+                  <div className="font-mono">{selectedDebug.model?.alias} → {selectedDebug.model?.resolved}</div>
                 </div>
                 <div>
-                  <span className="font-medium">Temperature:</span>
-                  <div className="font-mono">{debugData.aiRequest.temperature}</div>
+                  <span className="font-medium">Timings:</span>
+                  <div className="font-mono">
+                    total {selectedDebug.timings?.totalMs}ms / model {selectedDebug.timings?.modelMs ?? '—'}ms
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* User Input */}
-            <div className="bg-muted/50 rounded-lg p-3">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-medium text-sm">User Input</h3>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => copyToClipboard(debugData.input.content, 'User input')}
-                >
-                  <Copy className="h-3 w-3" />
-                </Button>
-              </div>
-              <pre className="text-xs bg-background p-2 rounded overflow-x-auto whitespace-pre-wrap">
-                {debugData.input.content}
-              </pre>
-            </div>
-
-            {/* System Prompt */}
             <div className="bg-muted/50 rounded-lg p-3">
               <div className="flex items-center justify-between mb-2">
                 <h3 className="font-medium text-sm">System Prompt</h3>
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => copyToClipboard(debugData.systemPrompt, 'System prompt')}
+                  onClick={() => copyToClipboard(selectedDebug.systemPrompt ?? '', 'System prompt')}
                 >
                   <Copy className="h-3 w-3" />
                 </Button>
               </div>
               <pre className="text-xs bg-background p-2 rounded overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">
-                {debugData.systemPrompt}
+                {selectedDebug.systemPrompt || 'Not exposed'}
               </pre>
             </div>
 
-            {/* Context String */}
             <div className="bg-muted/50 rounded-lg p-3">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="font-medium text-sm">Context String</h3>
+                <h3 className="font-medium text-sm">Context String (start frame)</h3>
                 <div className="flex items-center gap-2">
                   <Badge variant="outline" className="text-xs">
-                    {debugData.contextString.length} chars
+                    {(selectedDebug.contextString ?? '').length} chars
                   </Badge>
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => copyToClipboard(debugData.contextString, 'Context string')}
+                    onClick={() => copyToClipboard(selectedDebug.contextString ?? '', 'Context string')}
                   >
                     <Copy className="h-3 w-3" />
                   </Button>
                 </div>
               </div>
-              {debugData.contextString ? (
+              {selectedDebug.contextString ? (
                 <pre className="text-xs bg-background p-2 rounded overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">
-                  {debugData.contextString}
+                  {selectedDebug.contextString}
                 </pre>
               ) : (
                 <p className="text-xs text-muted-foreground italic">No context provided</p>
               )}
             </div>
 
-            {/* Full AI Request */}
             <div className="bg-muted/50 rounded-lg p-3">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-medium text-sm">Full AI Request</h3>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-xs">
-                    {debugData.aiRequest.messages.length} messages
-                  </Badge>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => copyToClipboard(JSON.stringify(debugData.aiRequest, null, 2), 'AI request')}
-                  >
-                    <Copy className="h-3 w-3" />
-                  </Button>
-                </div>
-              </div>
-              <pre className="text-xs bg-background p-2 rounded overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">
-                {JSON.stringify(debugData.aiRequest, null, 2)}
-              </pre>
+              <h3 className="font-medium text-sm mb-2">
+                Retrieval Trace ({selectedDebug.retrieval?.length ?? 0} chunks)
+              </h3>
+              {selectedDebug.retrieval && selectedDebug.retrieval.length > 0 ? (
+                <pre className="text-xs bg-background p-2 rounded overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">
+                  {JSON.stringify(selectedDebug.retrieval, null, 2)}
+                </pre>
+              ) : (
+                <p className="text-xs text-muted-foreground italic">No retrieval this turn</p>
+              )}
             </div>
 
-            {/* AI Response */}
-            {debugData.aiResponse && (
+            <div className="bg-muted/50 rounded-lg p-3">
+              <h3 className="font-medium text-sm mb-2">
+                Tool Calls ({selectedDebug.toolCalls?.length ?? 0})
+              </h3>
+              {selectedDebug.toolCalls && selectedDebug.toolCalls.length > 0 ? (
+                <div className="space-y-1">
+                  {selectedDebug.toolCalls.map((call, i) => (
+                    <div key={i} className="text-xs bg-background p-2 rounded flex items-center gap-2">
+                      <Badge variant={call.ok ? 'default' : 'destructive'} className="text-xs">
+                        {call.ok ? 'ok' : 'fail'}
+                      </Badge>
+                      <span className="font-mono">{call.name}</span>
+                      <span className="text-muted-foreground">{call.ms}ms</span>
+                      {call.error && <span className="text-destructive">{call.error}</span>}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground italic">No tool calls this turn</p>
+              )}
+            </div>
+
+            {selectedDebug.usage && (
               <div className="bg-muted/50 rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-medium text-sm">AI Response</h3>
-                  <div className="flex items-center gap-2">
-                    {debugData.aiResponse.tokensUsed && (
-                      <Badge variant="outline" className="text-xs">
-                        {debugData.aiResponse.tokensUsed} tokens
-                      </Badge>
-                    )}
-                    {debugData.aiResponse.cost && (
-                      <Badge variant="outline" className="text-xs">
-                        ${debugData.aiResponse.cost.toFixed(4)}
-                      </Badge>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => copyToClipboard(debugData.aiResponse!.content, 'AI response')}
-                    >
-                      <Copy className="h-3 w-3" />
-                    </Button>
+                <h3 className="font-medium text-sm mb-2">Usage & Ledger</h3>
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div><span className="font-medium">Input tokens:</span> {selectedDebug.usage.inputTokens}</div>
+                  <div><span className="font-medium">Output tokens:</span> {selectedDebug.usage.outputTokens}</div>
+                  <div><span className="font-medium">Cost:</span> ${selectedDebug.usage.costUsd.toFixed(6)}</div>
+                  <div>
+                    <span className="font-medium">Ledger ID:</span>
+                    <div className="font-mono break-all">{selectedDebug.usage.ledgerId}</div>
                   </div>
                 </div>
-                <pre className="text-xs bg-background p-2 rounded overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">
-                  {debugData.aiResponse.content}
-                </pre>
-              </div>
-            )}
-
-            {/* Error */}
-            {debugData.error && (
-              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="font-medium text-sm text-destructive flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    Error
-                  </h3>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => copyToClipboard(debugData.error!, 'Error details')}
-                  >
-                    <Copy className="h-3 w-3" />
-                  </Button>
-                </div>
-                <pre className="text-xs bg-background p-2 rounded overflow-x-auto whitespace-pre-wrap text-destructive">
-                  {debugData.error}
-                </pre>
               </div>
             )}
           </div>
         ) : (
-          <div className="text-center py-12">
+          <div className="text-center py-8 bg-muted/30 rounded-lg">
             <Copy className="h-8 w-8 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="font-medium mb-2">No Debug Data Available</h3>
-            <p className="text-muted-foreground text-sm mb-4">
-              Send a message using the conversation tester to generate debug data.
+            <h3 className="font-medium mb-2">No Debug Data Selected</h3>
+            <p className="text-muted-foreground text-sm">
+              Send a message with the tester to inspect its _debug envelope.
             </p>
-            <Button onClick={() => loadDebugData()} disabled={loading} size="sm">
-              <RefreshCw className={`h-3 w-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
-              Load Debug Data
-            </Button>
           </div>
         )}
+
+        {/* Persisted conversation browser */}
+        <div className="bg-muted/50 rounded-lg p-3">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-medium text-sm">Persisted Conversations</h3>
+            <Button size="sm" variant="ghost" onClick={loadRecentSessions}>
+              <RefreshCw className="h-3 w-3" />
+            </Button>
+          </div>
+          <Select
+            value={selectedSessionId}
+            onValueChange={(value) => {
+              setSelectedSessionId(value);
+              if (value) loadPersistedDebug(value);
+            }}
+          >
+            <SelectTrigger className="text-xs">
+              <SelectValue placeholder="Select a persisted conversation" />
+            </SelectTrigger>
+            <SelectContent>
+              {recentSessions.map((s) => (
+                <SelectItem key={s.sessionId} value={s.sessionId}>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs">{s.sessionId.slice(-8)}</span>
+                    <span className="text-xs text-muted-foreground">{formatTimestamp(s.timestamp)}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {loadingPersisted && (
+            <div className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+              <RefreshCw className="h-3 w-3 animate-spin" /> Loading persisted debug data…
+            </div>
+          )}
+          {persistedDebug && (
+            <div className="mt-3 space-y-2">
+              <div className="text-xs">
+                <span className="font-medium">Last input:</span> {persistedDebug.input.content}
+              </div>
+              <pre className="text-xs bg-background p-2 rounded overflow-x-auto whitespace-pre-wrap max-h-40 overflow-y-auto">
+                {persistedDebug.systemPrompt}
+              </pre>
+              {persistedDebug.aiResponse && (
+                <pre className="text-xs bg-background p-2 rounded overflow-x-auto whitespace-pre-wrap max-h-40 overflow-y-auto">
+                  {persistedDebug.aiResponse.content}
+                </pre>
+              )}
+              {persistedDebug.error && (
+                <p className="text-xs text-destructive">{persistedDebug.error}</p>
+              )}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground mt-2">
+            Full replay lives at <a className="underline" href="/admin/ai/conversations">/admin/ai/conversations</a>.
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -927,7 +529,7 @@ export default function AIDebugPage() {
     <AdminLayout>
       <AdminPageLayout
         title="AI Debug & Test Panel"
-        description="Test AI conversations and debug system prompts, context data, and requests"
+        description="Test the production chat path and inspect the _debug envelope (system prompt, context, retrieval, tools, usage)"
         breadcrumbs={[
           { label: 'AI Assistant', href: '/admin/ai' },
           { label: 'Debug Panel', href: '/admin/ai/debug' }

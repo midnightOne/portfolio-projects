@@ -18,7 +18,7 @@ import {
   Info
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { useConversationalAgent } from '@/contexts/ConversationalAgentContext';
+import { useConversationalAgent } from '@/components/providers/conversational-agent-provider';
 import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 
 interface ContextSource {

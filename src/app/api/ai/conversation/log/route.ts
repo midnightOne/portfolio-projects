@@ -7,6 +7,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 
 interface ConversationLogRequest {
@@ -391,28 +393,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }, { status: 400 });
     }
 
-    // TODO: Implement admin authentication check
-    // const session = await getServerSession(authOptions);
-    // if (!session || session.user.role !== 'admin') {
-    //   return NextResponse.json({
-    //     success: false,
-    //     error: 'Admin access required.'
-    //   }, { status: 403 });
-    // }
+    const session = await getServerSession(authOptions);
+    if (!session || (session.user as any)?.role !== 'admin') {
+      return NextResponse.json({
+        success: false,
+        error: 'Admin access required.'
+      }, { status: 403 });
+    }
 
-    // TODO: Retrieve conversation log from database
-    // const conversationLog = await prisma.conversationLog.findUnique({
-    //   where: { sessionId }
-    // });
+    // Read the persisted conversation (Phase 3 task 2.1 — placeholder replaced with
+    // conversation-history-manager; voice-leg persistence itself lands with D49 5b)
+    const { conversationHistoryManager } = await import('@/lib/services/ai/conversation-history-manager');
+    const conversation = await conversationHistoryManager.getConversationBySessionId(sessionId);
 
-    // For now, return placeholder data
     return NextResponse.json({
       success: true,
-      data: {
-        sessionId,
-        message: 'Conversation log retrieval not yet implemented',
-        // Will include actual conversation data from database
-      },
+      data: conversation,
       metadata: {
         timestamp: Date.now(),
         source: 'conversation-log-api'

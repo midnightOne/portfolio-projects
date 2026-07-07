@@ -496,17 +496,6 @@ export function AdminSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/ai/voice-analytics')}
-                >
-                  <Link href="/admin/ai/voice-analytics" className="flex items-center gap-2">
-                    <BarChart3 className="size-4" />
-                    <span>Voice Analytics</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

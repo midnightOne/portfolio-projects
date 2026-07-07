@@ -25,7 +25,8 @@ import {
   Eye
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { ConversationalAgentProvider, useConversationalAgent } from '@/contexts/ConversationalAgentContext';
+import { ConversationalAgentProvider, useConversationalAgent } from '@/components/providers/conversational-agent-provider';
+import { ReflinkSessionProvider } from '@/components/providers/reflink-session-wrapper';
 import { ContextMonitor } from './ContextMonitor';
 import { ToolCallMonitor } from './ToolCallMonitor';
 import { IntegrationValidator } from './IntegrationValidator';
@@ -40,8 +41,8 @@ function VoiceDebugContent() {
     switchProvider,
     connect,
     disconnect,
-    startVoiceInput,
-    stopVoiceInput,
+    startAudioInput,
+    stopAudioInput,
     mute,
     unmute,
     setVolume,
@@ -50,10 +51,10 @@ function VoiceDebugContent() {
     clearTranscript,
     exportTranscript,
     isConnected,
-    isRecording,
-    getLastError,
+    lastError,
     clearErrors
   } = useConversationalAgent();
+  const isRecording = state.audioState.isRecording;
 
   // Debug: Log state changes
   useEffect(() => {
@@ -159,7 +160,7 @@ function VoiceDebugContent() {
 
   const handleStartVoice = useCallback(async () => {
     try {
-      await startVoiceInput();
+      await startAudioInput();
       toast({
         title: 'Voice input started',
         description: 'Microphone is now active',
@@ -171,11 +172,11 @@ function VoiceDebugContent() {
         variant: 'destructive',
       });
     }
-  }, [startVoiceInput, toast]);
+  }, [startAudioInput, toast]);
 
   const handleStopVoice = useCallback(async () => {
     try {
-      await stopVoiceInput();
+      await stopAudioInput();
       toast({
         title: 'Voice input stopped',
         description: 'Microphone is now inactive',
@@ -187,7 +188,7 @@ function VoiceDebugContent() {
         variant: 'destructive',
       });
     }
-  }, [stopVoiceInput, toast]);
+  }, [stopAudioInput, toast]);
 
   const handleSendMessage = useCallback(async () => {
     if (!textInput.trim()) return;
@@ -409,16 +410,16 @@ function VoiceDebugContent() {
   return (
     <div className="space-y-4">
       {/* Error Display */}
-      {getLastError() && (
+      {lastError && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription className="flex items-center justify-between">
             <div className="flex-1 mr-4">
               <div className="font-medium mb-1">Voice Connection Error:</div>
               <div className="text-sm bg-red-50 p-3 rounded border border-red-200">
-                {getLastError()}
+                {lastError}
               </div>
-              {getLastError()?.includes('session.type') && (
+              {lastError?.includes('session.type') && (
                 <div className="text-xs text-red-600 mt-2">
                   <strong>Note:</strong> This is a known issue with the OpenAI Realtime SDK v0.1.0.
                   Voice functionality may still work despite this error.
@@ -448,7 +449,7 @@ function VoiceDebugContent() {
           <div className="flex items-center gap-2">
             <Mic className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm">
-              {isRecording() ? 'Recording' : 'Idle'}
+              {isRecording ? 'Recording' : 'Idle'}
             </span>
           </div>
         </div>
@@ -476,7 +477,7 @@ function VoiceDebugContent() {
                 <Button
                   variant={selectedProvider === 'openai' ? 'default' : 'outline'}
                   onClick={() => handleProviderSwitch('openai')}
-                  disabled={isConnecting || isConnected()}
+                  disabled={isConnecting || isConnected}
                   size="sm"
                   className="flex flex-col items-center gap-1 h-auto py-2"
                 >
@@ -486,7 +487,7 @@ function VoiceDebugContent() {
                 <Button
                   variant={selectedProvider === 'elevenlabs' ? 'default' : 'outline'}
                   onClick={() => handleProviderSwitch('elevenlabs')}
-                  disabled={isConnecting || isConnected()}
+                  disabled={isConnecting || isConnected}
                   size="sm"
                   className="flex flex-col items-center gap-1 h-auto py-2"
                 >
@@ -495,7 +496,7 @@ function VoiceDebugContent() {
                 </Button>
               </div>
 
-              {!isConnected() ? (
+              {!isConnected ? (
                 <Button
                   onClick={handleConnect}
                   disabled={isConnecting}
@@ -538,10 +539,10 @@ function VoiceDebugContent() {
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex gap-2">
-                {!isRecording() ? (
+                {!isRecording ? (
                   <Button
                     onClick={handleStartVoice}
-                    disabled={!isConnected()}
+                    disabled={!isConnected}
                     className="flex-1"
                     size="sm"
                   >
@@ -563,7 +564,7 @@ function VoiceDebugContent() {
                 <Button
                   onClick={handleMute}
                   variant="outline"
-                  disabled={!isConnected()}
+                  disabled={!isConnected}
                   size="sm"
                 >
                   {state.audioState.isRecording ? (
@@ -584,14 +585,14 @@ function VoiceDebugContent() {
                   value={volume}
                   onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
                   className="w-full"
-                  disabled={!isConnected()}
+                  disabled={!isConnected}
                 />
               </div>
 
               <Button
                 onClick={handleInterrupt}
                 variant="outline"
-                disabled={!isConnected() || state.sessionState.status !== 'speaking'}
+                disabled={!isConnected || state.sessionState.status !== 'speaking'}
                 className="w-full"
                 size="sm"
               >
@@ -615,7 +616,7 @@ function VoiceDebugContent() {
                   value={textInput}
                   onChange={(e) => setTextInput(e.target.value)}
                   placeholder="Type a message..."
-                  disabled={!isConnected()}
+                  disabled={!isConnected}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
@@ -625,7 +626,7 @@ function VoiceDebugContent() {
                 />
                 <Button
                   onClick={handleSendMessage}
-                  disabled={!isConnected() || !textInput.trim()}
+                  disabled={!isConnected || !textInput.trim()}
                   size="sm"
                 >
                   Send
@@ -644,7 +645,7 @@ function VoiceDebugContent() {
                     variant="outline"
                     size="sm"
                     onClick={() => setTextInput(suggestion)}
-                    disabled={!isConnected()}
+                    disabled={!isConnected}
                     className="text-xs text-left justify-start h-auto py-1"
                   >
                     {suggestion}
@@ -961,7 +962,7 @@ function VoiceDebugContent() {
                     variant="outline"
                     size="sm"
                     onClick={handlePushNavContext}
-                    disabled={!isConnected() || selectedProvider !== 'openai'}
+                    disabled={!isConnected || selectedProvider !== 'openai'}
                     className="text-xs"
                   >
                     📤 Push Random Context
@@ -970,7 +971,7 @@ function VoiceDebugContent() {
                     variant="outline"
                     size="sm"
                     onClick={handlePushFIDContext}
-                    disabled={!isConnected() || selectedProvider !== 'openai'}
+                    disabled={!isConnected || selectedProvider !== 'openai'}
                     className="text-xs"
                   >
                     📋 Push F-I-D Context
@@ -979,7 +980,7 @@ function VoiceDebugContent() {
                     variant="outline"
                     size="sm"
                     onClick={handleDeleteAllNavContexts}
-                    disabled={!isConnected() || selectedProvider !== 'openai'}
+                    disabled={!isConnected || selectedProvider !== 'openai'}
                     className="text-xs"
                   >
                     🗑️ Delete All NAV_CONTEXT
@@ -995,7 +996,7 @@ function VoiceDebugContent() {
                 <Button
                   onClick={() => {
                     console.log('Manual debug log - Full state:', state);
-                    console.log('Manual debug log - Last error:', getLastError());
+                    console.log('Manual debug log - Last error:', lastError);
                   }}
                   variant="outline"
                   size="sm"
@@ -1083,7 +1084,7 @@ function VoiceDebugContent() {
           {expandedPanels.has('context') && (
             <CardContent>
               <ContextMonitor
-                conversationId={state.conversationMetadata?.sessionId || (isConnected() ? `live-session-${selectedProvider}-${Date.now()}` : '')}
+                conversationId={state.conversationMetadata?.sessionId || (isConnected ? `live-session-${selectedProvider}-${Date.now()}` : '')}
                 activeProvider={selectedProvider}
                 onContextUpdate={(update) => {
                   console.log('Context update:', update);
@@ -1112,7 +1113,7 @@ function VoiceDebugContent() {
           {expandedPanels.has('tools') && (
             <CardContent>
               <ToolCallMonitor
-                conversationId={state.conversationMetadata?.sessionId || (isConnected() ? `live-session-${selectedProvider}-${Date.now()}` : '')}
+                conversationId={state.conversationMetadata?.sessionId || (isConnected ? `live-session-${selectedProvider}-${Date.now()}` : '')}
                 activeProvider={selectedProvider}
                 onToolCallUpdate={(toolCall) => {
                   console.log('Tool call update:', toolCall);
@@ -1141,7 +1142,7 @@ function VoiceDebugContent() {
           {expandedPanels.has('state') && (
             <CardContent>
               <ConversationStateInspector
-                conversationId={state.conversationMetadata?.sessionId || (isConnected() ? `live-session-${selectedProvider}-${Date.now()}` : '')}
+                conversationId={state.conversationMetadata?.sessionId || (isConnected ? `live-session-${selectedProvider}-${Date.now()}` : '')}
                 onStateUpdate={(state) => {
                   console.log('State update:', state);
                 }}
@@ -1188,12 +1189,10 @@ function VoiceDebugContent() {
 
 export function VoiceDebugInterface(_props: VoiceDebugInterfaceProps) {
   return (
-    <ConversationalAgentProvider
-      defaultProvider="openai"
-      autoConnect={false}
-      accessLevel="premium"
-    >
-      <VoiceDebugContent />
-    </ConversationalAgentProvider>
+    <ReflinkSessionProvider>
+      <ConversationalAgentProvider defaultProvider="openai">
+        <VoiceDebugContent />
+      </ConversationalAgentProvider>
+    </ReflinkSessionProvider>
   );
 }
