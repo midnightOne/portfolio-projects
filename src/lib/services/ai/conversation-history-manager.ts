@@ -42,6 +42,10 @@ export interface ConversationMessage {
         };
         contextUsed?: string[];
         navigationCommands?: NavigationCommand[];
+        /** Adapter-side transcript item id (voice path) — dedupe key for /api/ai/conversation/log retries. */
+        transcriptItemId?: string;
+        /** Gateway request id (text path) — cross-reference to the AIUsageLog ledger row. */
+        requestId?: string;
     };
 }
 
@@ -286,6 +290,8 @@ export class ConversationHistoryManager {
                             processingTime: message.metadata?.processingTime,
                             voiceData: message.metadata?.voiceData,
                             contextUsed: message.metadata?.contextUsed,
+                            transcriptItemId: message.metadata?.transcriptItemId,
+                            requestId: message.metadata?.requestId,
                             navigationCommands: message.metadata?.navigationCommands ? JSON.stringify(message.metadata.navigationCommands) : undefined,
                             performanceMetrics: {
                                 totalProcessingTime: message.metadata?.processingTime
@@ -402,6 +408,40 @@ export class ConversationHistoryManager {
     /**
      * Get conversation by session ID (client access)
      */
+    /**
+     * Idempotency check for the voice log route: has this adapter transcript
+     * item already been persisted into the conversation?
+     */
+    async hasTranscriptItem(conversationId: string, transcriptItemId: string): Promise<boolean> {
+        const row = await prisma.aIConversationMessage.findFirst({
+            where: {
+                conversationId,
+                metadata: { path: ['transcriptItemId'], equals: transcriptItemId }
+            },
+            select: { id: true }
+        });
+        return row !== null;
+    }
+
+    /**
+     * Get the conversation id for a session, creating the conversation when it
+     * does not exist yet — without loading the full message history (write-path
+     * helper for task 2b; addMessage maintains the counters).
+     */
+    async getOrCreateConversationId(
+        sessionId: string,
+        reflinkId?: string,
+        metadata: Partial<ConversationMetadata> = {}
+    ): Promise<string> {
+        const existing = await prisma.aIConversation.findFirst({
+            where: { sessionId },
+            select: { id: true }
+        });
+        if (existing) return existing.id;
+        const created = await this.createConversation(sessionId, reflinkId, metadata);
+        return created.id;
+    }
+
     async getConversationBySessionId(sessionId: string): Promise<ConversationRecord | null> {
         try {
             const conversation = await prisma.aIConversation.findFirst({

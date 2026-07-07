@@ -66,6 +66,9 @@ function AIDebugContent() {
   const toast = useToast();
 
   // Conversation tester state (production /api/ai/chat)
+  const newTesterSessionId = () =>
+    `debug_${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID().replace(/-/g, '').slice(0, 24) : Math.random().toString(36).slice(2, 14)}`;
+  const [testerSessionId, setTesterSessionId] = useState<string>(newTesterSessionId);
   const [messages, setMessages] = useState<TesterMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -137,10 +140,12 @@ function AIDebugContent() {
     try {
       // Bounded history rides in the request (D43 — stateless server)
       const history = messages.map((m) => ({ role: m.role, content: m.content }));
+      // sessionId keys persistence (task 2b) — the tester's turns land in the
+      // same conversation store the production paths write to (D56).
       const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, history }),
+        body: JSON.stringify({ message, history, sessionId: testerSessionId }),
       });
       const data = await response.json();
 
@@ -161,6 +166,8 @@ function AIDebugContent() {
       } else {
         toast.info('No _debug envelope', 'Response carried no debug envelope — check DEV_VERIFICATION / admin session');
       }
+      // The turn is now persisted — refresh the persisted-conversation browser
+      loadRecentSessions();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Request failed';
       setError(errorMessage);
@@ -207,6 +214,7 @@ function AIDebugContent() {
           <Bug className="h-5 w-5" />
           <h2 className="text-lg font-semibold">Production Chat Tester</h2>
           <Badge variant="outline" className="text-xs">/api/ai/chat</Badge>
+          <Badge variant="secondary" className="text-xs font-mono">{testerSessionId.slice(-8)}</Badge>
         </div>
 
         {error && (
@@ -241,10 +249,10 @@ function AIDebugContent() {
           <Button
             variant="destructive"
             size="sm"
-            onClick={() => { setMessages([]); setSelectedDebug(null); }}
+            onClick={() => { setMessages([]); setSelectedDebug(null); setTesterSessionId(newTesterSessionId()); }}
             disabled={isProcessing || messages.length === 0}
           >
-            Clear History
+            New Conversation
           </Button>
         </div>
 

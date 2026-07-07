@@ -359,6 +359,10 @@ portfolio-projects/.kiro/specs/
 
 Each phase is one focused agent session ending in a verifiable state. **Phase 1 (specs) ran first by owner decision**; ledgers were written against branch head `e2d75b4`, which is the identical tree Phase 0 merges into `main`. Every code phase ends with `npm run type-check && npm run build && npm test` green plus a manual smoke of the floating AI + semantic dashboard.
 
+**Standing rules for every phase (owner, 2026-07-07):**
+- **Any found mock is removed, documented, and replaced with proper functionality (D57).** Discovery of a mock/stub/fabricated-data path — in any phase, any spec's territory — triggers removal + a documented finding + either an immediate real implementation or an explicit prioritized task with a NOT-IMPLEMENTED annotation on the affected requirement. Nothing ships or silently survives on fabricated data.
+- **Debug surfaces run the production code path (D56).** Admin debug/test tooling exercises the same pipeline, providers, and persistence as the live experience — a debug surface that debugs a parallel system is a defect.
+
 ### Phase 0 — Merge & stabilize (the branch becomes main)
 
 | # | Task | Acceptance criteria |

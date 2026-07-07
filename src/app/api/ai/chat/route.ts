@@ -13,6 +13,7 @@ import { unifiedToolRegistry } from '@/lib/ai/tools/UnifiedToolRegistry';
 import { BackendToolService } from '@/lib/ai/tools/BackendToolService';
 import { getPublicAccessSettings } from '@/lib/ai/public-access';
 import { assembleStartFrame } from '@/lib/ai/start-frame';
+import { conversationHistoryManager } from '@/lib/services/ai/conversation-history-manager';
 
 const MAX_MESSAGE_CHARS = 2000;
 const MAX_TOOL_ROUNDS = 3;
@@ -42,6 +43,9 @@ async function buildSystemPrompt(): Promise<{ prompt: string; frame: string }> {
 interface ChatRequestBody {
   message?: string;
   history?: Array<{ role?: string; content?: string }>;
+  /** Conversation key for persistence — honored for admin/reflink tiers only;
+   *  the public tier is always keyed by its gateway session sid (no spoofing). */
+  sessionId?: string;
 }
 
 async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextResponse> {
@@ -165,6 +169,69 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
     inputTokens: totalInputTokens,
     outputTokens: totalOutputTokens,
   });
+
+  // Persist the turn (task 2b.1, Req 9.1/D58): same store as the voice path,
+  // per-message 'text' modality labels, _debug-parity debugInfo on the assistant
+  // message, ledger requestId cross-reference. Failures never fail the chat.
+  try {
+    const persistSessionId =
+      ctx.tier === 'public'
+        ? ctx.sessionId ?? `req_${ctx.requestId}`
+        : typeof body.sessionId === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(body.sessionId)
+          ? body.sessionId
+          : `req_${ctx.requestId}`;
+
+    const conversationId = await conversationHistoryManager.getOrCreateConversationId(
+      persistSessionId,
+      ctx.reflink?.id,
+      { conversationMode: 'text', accessLevel: ctx.tier === 'public' ? 'basic' : 'premium' }
+    );
+
+    await conversationHistoryManager.addMessage(conversationId, {
+      id: `user_${ctx.requestId}`,
+      role: 'user',
+      content: message,
+      timestamp: new Date(),
+      inputMode: 'text',
+      metadata: { requestId: ctx.requestId },
+    });
+
+    await conversationHistoryManager.addMessage(
+      conversationId,
+      {
+        id: `assistant_${ctx.requestId}`,
+        role: 'assistant',
+        content: reply ?? '',
+        timestamp: new Date(),
+        inputMode: 'text',
+        metadata: {
+          requestId: ctx.requestId,
+          tokensUsed: totalInputTokens + totalOutputTokens,
+          cost: ctx.debug.usage?.costUsd,
+          model: `${adapter.provider}/${adapter.modelId}`,
+        },
+      },
+      {
+        systemPrompt,
+        contextString,
+        aiRequest: {
+          requestId: ctx.requestId,
+          alias: 'default-cheap',
+          model: `${adapter.provider}/${adapter.modelId}`,
+          toolCalls: ctx.debug.toolCalls,
+          retrieval: ctx.debug.retrieval,
+          ledgerId: ctx.debug.usage?.ledgerId,
+        },
+        aiResponse: {
+          content: reply ?? '',
+          inputTokens: totalInputTokens,
+          outputTokens: totalOutputTokens,
+        },
+      }
+    );
+  } catch (persistError) {
+    console.error('[chat] conversation persistence failed (response unaffected):', persistError);
+  }
 
   return NextResponse.json({ reply: reply ?? '', requestId: ctx.requestId });
 }

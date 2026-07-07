@@ -31,7 +31,7 @@ Principles:
 - **One provider component** (`src/components/providers/conversational-agent-provider.tsx`, D21) drives both the public pill and admin debug.
 - **One tool chain**: registry → `/api/ai/tools/execute` → `BackendToolService` — shared with the future MCP server (D39).
 - **Passive context first, tools second** (F-I-D): the model is told where the user is; it searches only for what it can't see.
-- **One persistence path** (D26): voice adapters log via `/api/ai/conversation/log`, the text tier writes server-side in `/api/ai/chat`, both into `conversation-history-manager`; debug replays the log. *(Write side currently unimplemented — the `/log` POST is a stub and chat doesn't persist; restoration = tasks 2b, found 2026-07-07.)*
+- **One persistence path** (D26/D58): voice adapters log via `/api/ai/conversation/log`, the text tier writes server-side in `/api/ai/chat`, both into `conversation-history-manager` — one text pipeline regardless of modality, per-message `voice`/`text` labels, audio never stored (debug audio would be a separate `media` file). Implemented + verified 2026-07-07 (task 2b).
 
 ## 2. Module map (code truth)
 
@@ -43,7 +43,7 @@ Principles:
 | Tool registry + tools | `src/lib/ai/tools/UnifiedToolRegistry.ts`, `client-tools.ts`, `server-tools.ts`, `BackendToolService.ts` |
 | Declarative navigation | `src/lib/navigation/UIManager.ts`, `SemanticIDRegistry.ts` |
 | F-I-D | `src/lib/ai/PassiveFIDManager.ts` (client), `src/lib/ai/ContextFrameManager.ts` (server), `/api/ai/context/fid` |
-| Persistence | `src/lib/services/ai/conversation-history-manager.ts` + read routes (history/replay/analytics — real, verified); **writers pending task 2b** (`/api/ai/chat` server-side + a real `/api/ai/conversation/log` POST) |
+| Persistence | `src/lib/services/ai/conversation-history-manager.ts` + read routes (history/replay/analytics); writers: `/api/ai/chat` (text turns, server-side) + `/api/ai/conversation/log` POST (voice transcripts + tool events, idempotent) — task 2b, 2026-07-07 |
 | Voice session config | `VoiceProviderConfig` (Prisma), `/api/admin/ai/voice-config*` |
 
 ## 3. Deletions this design assumes (Phase 3)

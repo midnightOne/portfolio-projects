@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
+import { conversationHistoryManager } from '@/lib/services/ai/conversation-history-manager';
 
 interface ConversationLogRequest {
   sessionId: string;
@@ -87,6 +88,81 @@ interface ConversationLogResponse {
  * 
  * Accepts conversation logs from client-side voice agents
  */
+/**
+ * Persist voice-leg entries into the unified conversation store (task 2b.2,
+ * Req 9.1 / D58): ONE text pipeline regardless of modality — voice
+ * transcriptions land as messages labeled `transportMode: 'voice'` (user and
+ * assistant alike), tool events as 'system' rows carrying debugInfo. Audio is
+ * never stored here. Idempotent per adapter item id (retries are safe).
+ */
+type PersistableEntry =
+  | { kind: 'transcript'; id?: string; type?: string; content?: string; timestamp?: string | Date; duration?: number }
+  | { kind: 'tool'; id?: string; toolName?: string; args?: unknown; result?: unknown; success?: boolean; executionTime?: number; timestamp?: string | Date };
+
+async function persistVoiceEntries(
+  sessionId: string,
+  reflinkId: string | undefined,
+  entries: PersistableEntry[]
+): Promise<number> {
+  let persisted = 0;
+  const conversationId = await conversationHistoryManager.getOrCreateConversationId(
+    sessionId,
+    reflinkId,
+    { conversationMode: 'voice' }
+  );
+
+  for (const entry of entries) {
+    try {
+      const itemId = entry.id || `${entry.kind}_${sessionId}_${new Date(entry.timestamp ?? Date.now()).getTime()}`;
+      if (await conversationHistoryManager.hasTranscriptItem(conversationId, itemId)) continue;
+
+      if (entry.kind === 'transcript') {
+        const role = entry.type === 'user_speech' ? 'user'
+          : entry.type === 'ai_response' ? 'assistant'
+          : null;
+        if (!role || !entry.content || !entry.content.trim()) continue;
+
+        await conversationHistoryManager.addMessage(conversationId, {
+          id: itemId,
+          role,
+          content: entry.content,
+          timestamp: entry.timestamp ? new Date(entry.timestamp) : new Date(),
+          inputMode: 'voice', // D58: every voice transcription is labeled 'voice'
+          metadata: {
+            transcriptItemId: itemId,
+            voiceData: entry.duration ? { duration: entry.duration } : undefined,
+          },
+        });
+        persisted++;
+      } else {
+        if (!entry.toolName) continue;
+        await conversationHistoryManager.addMessage(
+          conversationId,
+          {
+            id: itemId,
+            role: 'system',
+            content: `[tool:${entry.toolName}] ${entry.success === false ? 'failed' : 'ok'}`,
+            timestamp: entry.timestamp ? new Date(entry.timestamp) : new Date(),
+            inputMode: 'voice',
+            metadata: {
+              transcriptItemId: itemId,
+              processingTime: entry.executionTime,
+            },
+          },
+          {
+            aiRequest: { toolName: entry.toolName, args: entry.args },
+            aiResponse: { result: JSON.stringify(entry.result ?? null).slice(0, 8000), success: entry.success !== false },
+          }
+        );
+        persisted++;
+      }
+    } catch (entryError) {
+      console.error('[conversation/log] failed to persist entry (continuing):', entryError);
+    }
+  }
+  return persisted;
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse<ConversationLogResponse>> {
   const startTime = Date.now();
   let sessionId: string | undefined;
@@ -162,11 +238,19 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           }
         };
         
-        // Process the converted data
+        // Persist into the unified store (task 2b.2 / D58)
+        const stored = await persistVoiceEntries(sessionId, reflinkId, [{
+          kind: 'transcript',
+          id: transcriptItem.id,
+          type: transcriptItem.type,
+          content: transcriptItem.content,
+          timestamp: transcriptItem.timestamp || body.timestamp,
+          duration: transcriptItem.metadata?.duration,
+        }]);
         console.log(`Individual transcript item received for session ${sessionId}:`, {
           provider,
           itemType: transcriptItem.type,
-          content: transcriptItem.content?.substring(0, 100) + (transcriptItem.content?.length > 100 ? '...' : '')
+          persisted: stored
         });
 
         return NextResponse.json({
@@ -190,6 +274,15 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           metadata: body.metadata
         };
         
+        await persistVoiceEntries(sessionId, reflinkId, [{
+          kind: 'tool',
+          id: (body.metadata as any)?.toolCallId,
+          toolName: body.toolName,
+          args: body.toolArgs,
+          success: (body.metadata as any)?.success,
+          executionTime: (body.metadata as any)?.executionTime,
+          timestamp: body.timestamp,
+        }]);
         console.log(`Individual tool call received for session ${sessionId}:`, {
           provider,
           toolName: body.toolName,
@@ -244,8 +337,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
       reflinkId
     }, 'conversation-log-api', undefined, sessionId);
 
-    // TODO: Store conversation data in database
-    // For now, we'll just log it and emit debug events
     console.log(`Conversation log received for session ${sessionId}:`, {
       provider,
       entriesCount,
@@ -314,20 +405,34 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
       }
     });
 
-    // TODO: Implement database storage
-    // const storedConversation = await prisma.conversationLog.create({
-    //   data: {
-    //     sessionId,
-    //     provider,
-    //     startTime: new Date(conversationData.startTime),
-    //     endTime: conversationData.endTime ? new Date(conversationData.endTime) : null,
-    //     entriesJson: JSON.stringify(conversationData.entries),
-    //     toolCallSummaryJson: JSON.stringify(conversationData.toolCallSummary),
-    //     conversationMetricsJson: JSON.stringify(conversationData.conversationMetrics),
-    //     reflinkId,
-    //     metadata: metadata ? JSON.stringify(metadata) : null
-    //   }
-    // });
+    // Persist batch entries into the unified store (task 2b.2 / D58)
+    const persistable: PersistableEntry[] = [];
+    for (const entry of conversationData.entries) {
+      if (entry.type === 'transcript_item' && entry.data) {
+        persistable.push({
+          kind: 'transcript',
+          id: entry.data.id || entry.id,
+          type: entry.data.type,
+          content: entry.data.content,
+          timestamp: entry.data.timestamp || entry.timestamp,
+          duration: entry.data.metadata?.duration,
+        });
+      } else if (entry.type === 'tool_call' && entry.data?.phase === 'complete') {
+        persistable.push({
+          kind: 'tool',
+          id: entry.toolCallId || entry.id,
+          toolName: entry.data.toolName,
+          args: entry.data.parameters,
+          result: entry.data.result,
+          success: entry.metadata?.success,
+          executionTime: entry.metadata?.executionTime,
+          timestamp: entry.timestamp,
+        });
+      }
+      // connection_event markers belong to D49 5b.2, not here
+    }
+    const persistedCount = await persistVoiceEntries(sessionId, reflinkId, persistable);
+    console.log(`[conversation/log] persisted ${persistedCount}/${persistable.length} entries for session ${sessionId}`);
 
     const response: ConversationLogResponse = {
       success: true,
