@@ -57,6 +57,12 @@ T0–T3 heading-bounded generation with contextual prefixes and section hashes; 
   - [x] 5.2 Acceptance verified live: "glaze chemistry" → Glaze Chemistry Database, "ESP32"/"FreeRTOS" → Firmware Architecture, project name → fixture project; canonical natural-language query still 14/14
   - _Requirements: 5.2_
 
+### Phase 4 — retrieval visibility (added 2026-07-07)
+
+- [x] 8. SQL-level `publicOnly` visibility filtering (with mcp-server Req 3.2) — **done 2026-07-07 (Phase 4 Block B)**
+  - [x] 8.1 `ContentSearchParams.publicOnly`/`ContentGetParams.publicOnly`: PUBLIC-project predicate in the vector search (`VectorOperations.semanticSearch`), the full-text half, the metadata fallback, and `getContent` id filtering; non-project entities (BIO/SKILLS/…) always public. Threaded from `BackendToolService` (`accessLevel==='basic'` → publicOnly; caches visibility-scoped). **This closed a live leak: the public chat tier could retrieve PRIVATE-project chunks** (manifest Phase 4 surprise #11). Verified live: fixture PRIVATE → 9→0 search results; canonical `check:semantic` still green.
+  - _Requirements: 5; mcp-server Req 3.2/3.6_
+
 ### Hygiene — DB (cross-cutting, no dependencies; do when convenient)
 
 - [x] 7. Collapse migrations to a single fresh `init` (D54) — **done 2026-07-03**

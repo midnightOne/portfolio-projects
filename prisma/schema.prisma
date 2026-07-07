@@ -463,6 +463,10 @@ model AIPublicAccessSettings {
   messagesPerDay           Int      @default(60) @map("messages_per_day")
   tokensPerDay             Int      @default(150000) @map("tokens_per_day")
   maxHistoryMessages       Int      @default(12) @map("max_history_messages")
+  // MCP server bucket (mcp-server Req 3.1, D30): own knobs, stricter than pill traffic
+  mcpEnabled               Boolean  @default(true) @map("mcp_enabled")
+  mcpRequestsPerMinute     Int      @default(10) @map("mcp_requests_per_minute")
+  mcpRequestsPerDay        Int      @default(200) @map("mcp_requests_per_day")
   updatedAt                DateTime @updatedAt @map("updated_at")
 
   @@map("ai_public_access_settings")

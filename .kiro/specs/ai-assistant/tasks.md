@@ -97,8 +97,8 @@ OpenAI Realtime + ElevenLabs adapters behind `IConversationalAgentAdapter` with 
   - [ ] 7.2 Persist contact-form submissions; real file processing for reflink uploads
   - _Requirements: 8, Req 1.2_
 
-- [ ] 8. Job-analysis productization (with `ai-admin` D39 adapters)
-  - [ ] 8.1 Analysis via `default-reasoning` alias; persist `AIJobAnalysis`; admin review view
+- [x] 8. Job-analysis productization (with `ai-admin` D39 adapters) — **done 2026-07-07 (Phase 4 Block B; D57 mock removed)**
+  - [x] 8.1 `/api/ai/analyze-job` rewritten real: `default-reasoning` adapter (first concrete D39 deep tool), grounded in the semantic store (start frame + `content_search` k=8 over the job spec — same chain as the assistant), strict-JSON analysis with company/position extraction, 20k-char spec cap; persisted to `AIJobAnalysis` (reflink attribution, tokens, cost, ledger cross-ref; persistence failure never fails the response); metered with real usage (ledger prices via estimateCost). Admin review: `/admin/ai/job-analysis` page + `GET /api/admin/ai/job-analyses` (requireAdmin + middleware) + sidebar link. **Verified live 2026-07-07:** anonymous → 403; reflink without `enableJobAnalysis` → 403 FEATURE_DISABLED; enabled reflink → real gpt-4o analysis of a fixture-matched job spec (overallMatch 0.7, PID/thermocouple skills cited at 1.0 with fixture evidence, honest 0.0 for ungrounded Postgres), row persisted with reflinkId + $0.0061, ledger row `usageType='job_analysis'` reflink-attributed; admin API serves it, unauthenticated access redirected by middleware.
   - _Requirements: 8.1_
 
 - [ ] 9. Cascade voice adapter (D45) — *after ai-admin task 4 (reasoning adapters)*

@@ -15,6 +15,10 @@ export interface PublicAccessSettingsState {
   messagesPerDay: number;
   tokensPerDay: number;
   maxHistoryMessages: number;
+  /** MCP server bucket (mcp-server Req 3.1): own on/off + per-IP limits. */
+  mcpEnabled: boolean;
+  mcpRequestsPerMinute: number;
+  mcpRequestsPerDay: number;
 }
 
 const CACHE_TTL_MS = 30_000;
@@ -34,6 +38,9 @@ export async function getPublicAccessSettings(opts?: { fresh?: boolean }): Promi
     messagesPerDay: row.messagesPerDay,
     tokensPerDay: row.tokensPerDay,
     maxHistoryMessages: row.maxHistoryMessages,
+    mcpEnabled: row.mcpEnabled,
+    mcpRequestsPerMinute: row.mcpRequestsPerMinute,
+    mcpRequestsPerDay: row.mcpRequestsPerDay,
   };
   cache = { at: now, state };
   return state;

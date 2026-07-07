@@ -47,6 +47,12 @@ export interface ContentSearchParams {
     };
     minImportance?: number;            // Minimum importance score (0-1)
   };
+  /**
+   * Restrict results to PUBLIC-visibility projects, enforced in SQL (mcp-server
+   * Req 3.2/3.6; also the public chat tier). Non-project entities (BIO, SKILLS, …)
+   * are always public.
+   */
+  publicOnly?: boolean;
 }
 
 export interface ContentSearchResult {
@@ -90,6 +96,8 @@ export interface ContentGetParams {
   ids: string[];                        // Specific content IDs to fetch
   maxTokens?: number;                   // Token budget for response (default: 900)
   includeTiers?: number[];              // Which tiers to include (default: [1,2,3])
+  /** Restrict to PUBLIC-visibility projects, enforced in SQL (see ContentSearchParams.publicOnly). */
+  publicOnly?: boolean;
 }
 
 export interface ContentGetResult {
@@ -178,7 +186,8 @@ export class ContentSearchService implements ContentProvider {
       k = 5,
       maxTier = 3,
       diversifyBy = 'project',
-      filters = {}
+      filters = {},
+      publicOnly = false
     } = params;
 
     debugEventEmitter.emit('content-search-start', {
@@ -257,7 +266,8 @@ export class ContentSearchService implements ContentProvider {
         scope,
         maxTier,
         filters,
-        k * 3 // Get more results for diversification
+        k * 3, // Get more results for diversification
+        publicOnly
       );
       timings.hybridSearchTime = Date.now() - hybridSearchStartTime;
       console.log(`[ContentSearch] Hybrid search returned ${searchResults.length} results`);
@@ -388,7 +398,8 @@ export class ContentSearchService implements ContentProvider {
     const {
       ids,
       maxTokens = 900,
-      includeTiers = [1, 2, 3]
+      includeTiers = [1, 2, 3],
+      publicOnly = false
     } = params;
 
     console.log(`[ContentSearchService] getContent called with:`, { ids, maxTokens, includeTiers });
@@ -429,12 +440,30 @@ export class ContentSearchService implements ContentProvider {
         ]
       });
 
+      // PUBLIC-visibility enforcement in SQL (mcp-server Req 3.2/3.6): keep only
+      // chunk ids the visibility query returns — never post-hoc trust of the fetch.
+      let visibleChunks = chunks;
+      if (publicOnly && chunks.length > 0) {
+        const candidateIds = chunks.map(c => c.id);
+        const allowedRows = await prisma.$queryRaw<Array<{ id: string }>>`
+          SELECT c.id
+          FROM context_chunks c
+          JOIN content_entities e ON c.entity_id = e.id
+          WHERE c.id = ANY(${candidateIds})
+            AND (e."entityType" <> 'PROJECT' OR EXISTS (
+              SELECT 1 FROM projects p WHERE p.slug = e.slug AND p.visibility = 'PUBLIC'
+            ))
+        `;
+        const allowed = new Set(allowedRows.map(r => r.id));
+        visibleChunks = chunks.filter(c => allowed.has(c.id));
+      }
+
       // Apply token budget management
       const results: ContentGetResult['items'] = [];
       let totalTokens = 0;
       let truncated = false;
 
-      for (const chunk of chunks) {
+      for (const chunk of visibleChunks) {
         const estimatedTokens = chunk.tokenCount || this._estimateTokenCount(chunk.content);
 
         if (totalTokens + estimatedTokens > maxTokens) {
@@ -804,7 +833,8 @@ export class ContentSearchService implements ContentProvider {
     scope: ContentSearchParams['scope'] = {},
     maxTier: number,
     filters: ContentSearchParams['filters'] = {},
-    limit: number
+    limit: number,
+    publicOnly = false
   ): Promise<InternalSearchResult[]> {
 
     const hybridTimings: Record<string, number> = {};
@@ -818,7 +848,8 @@ export class ContentSearchService implements ContentProvider {
         const semanticResults = await this.vectorOps.semanticSearch(
           queryEmbedding,
           limit,
-          maxTier
+          maxTier,
+          publicOnly
         );
         hybridTimings.vectorSearchTime = Date.now() - vectorSearchStart;
 
@@ -887,6 +918,13 @@ export class ContentSearchService implements ContentProvider {
         FROM context_chunks c
         WHERE c.search_vector @@ websearch_to_tsquery('english', ${query})
           AND c.tier <= ${maxTier}
+          AND (${publicOnly}::boolean = false OR EXISTS (
+            SELECT 1 FROM content_entities e
+            WHERE e.id = c.entity_id
+              AND (e."entityType" <> 'PROJECT' OR EXISTS (
+                SELECT 1 FROM projects p WHERE p.slug = e.slug AND p.visibility = 'PUBLIC'
+              ))
+          ))
         ORDER BY rank DESC
         LIMIT ${limit}
       `;
@@ -966,7 +1004,8 @@ export class ContentSearchService implements ContentProvider {
           scope,
           maxTier,
           filters,
-          limit
+          limit,
+          publicOnly
         );
         hybridTimings.metadataSearchTime = Date.now() - metadataSearchStart;
         for (const result of metadataResults) {
@@ -1015,16 +1054,17 @@ export class ContentSearchService implements ContentProvider {
     scope: ContentSearchParams['scope'] = {},
     maxTier: number,
     filters: ContentSearchParams['filters'] = {},
-    limit: number
+    limit: number,
+    publicOnly = false
   ): Promise<InternalSearchResult[]> {
 
     // Build the base SQL query
     let sql = `
-      SELECT 
+      SELECT
         c.id,
         c.entity_id as "entityId",
         c.tier,
-        c.chunk_id as "chunkId", 
+        c.chunk_id as "chunkId",
         c.title,
         c.content,
         c.token_count as "tokenCount",
@@ -1040,6 +1080,13 @@ export class ContentSearchService implements ContentProvider {
       JOIN content_entities e ON c.entity_id = e.id
       WHERE c.tier <= $1
     `;
+
+    if (publicOnly) {
+      // PUBLIC-visibility enforcement in SQL (mcp-server Req 3.2/3.6)
+      sql += ` AND (e."entityType" <> 'PROJECT' OR EXISTS (
+        SELECT 1 FROM projects p WHERE p.slug = e.slug AND p.visibility = 'PUBLIC'
+      ))`;
+    }
 
     const params: any[] = [maxTier];
     let paramIndex = 2;

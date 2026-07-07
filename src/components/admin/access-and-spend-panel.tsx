@@ -37,6 +37,9 @@ interface PublicSettings {
   messagesPerDay: number;
   tokensPerDay: number;
   maxHistoryMessages: number;
+  mcpEnabled: boolean;
+  mcpRequestsPerMinute: number;
+  mcpRequestsPerDay: number;
 }
 
 interface UsageSummary {
@@ -244,6 +247,33 @@ export function AccessAndSpendPanel() {
               ['sessionsPerIpPerHour', 'Sessions / hour (IP)'],
               ['sessionTtlMinutes', 'Session TTL (minutes)'],
               ['maxHistoryMessages', 'Max history messages'],
+            ] as const).map(([key, label]) => (
+              <div key={key}>
+                <Label htmlFor={key}>{label}</Label>
+                <Input id={key} type="number" min="1" defaultValue={settings[key]}
+                  onBlur={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v > 0 && v !== settings[key]) saveSettings({ [key]: v }); }} />
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* MCP server bucket (mcp-server Req 3.1 — own knobs, stricter than pill traffic) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>MCP Server</CardTitle>
+          <CardDescription>Public /api/mcp endpoint — dedicated rate bucket, ledger feature &lsquo;mcp&rsquo; (D30)</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Switch checked={settings.mcpEnabled} disabled={saving}
+              onCheckedChange={(v) => saveSettings({ mcpEnabled: v })} id="mcpEnabled" />
+            <Label htmlFor="mcpEnabled">MCP endpoint enabled</Label>
+          </div>
+          <div className="grid gap-4 md:grid-cols-3">
+            {([
+              ['mcpRequestsPerMinute', 'Requests / minute (IP)'],
+              ['mcpRequestsPerDay', 'Requests / day (IP)'],
             ] as const).map(([key, label]) => (
               <div key={key}>
                 <Label htmlFor={key}>{label}</Label>

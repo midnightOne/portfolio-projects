@@ -37,7 +37,7 @@ const REQUIRED_WRAPPED = [
   'src/app/api/admin/semantic/batch/[batchId]/process/route.ts',
   'src/app/api/admin/semantic/chunks/[id]/generate-summary/route.ts',
   'src/app/api/admin/semantic/chunks/[id]/ai-edit/route.ts',
-  // MCP joins in Phase 4 (mcp-server spec)
+  'src/app/api/mcp/route.ts',
 ];
 
 // Routes the heuristic flags that are NOT cost-incurring — each entry needs a

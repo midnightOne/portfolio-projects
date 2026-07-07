@@ -135,6 +135,28 @@ Findings from the Phase 3 session that the manifest/ledgers did not predict:
     123 files — but most of the tool's original 124 were in files already
     hard-deleted by waves 1–4.
 
+### Phase 4 execution surprises (appended 2026-07-07, Blocks A–B)
+
+11. **The retrieval path had NO visibility filtering — public chat could surface
+    PRIVATE-project chunks.** Found implementing mcp-server Req 3.2 ("publicOnly
+    enforced in SQL"): `ContentSearchService`/`VectorOperations` never joined
+    `projects.visibility`; `ContentEntity` doesn't even carry visibility. Any
+    anonymous pill session calling `content_search`/`content_get` retrieved
+    chunks of PRIVATE projects since the semantic system's creation. Fixed
+    2026-07-07: SQL `publicOnly` predicate (`entityType <> 'PROJECT' OR EXISTS
+    (… projects.visibility='PUBLIC')`) across vector, full-text, and metadata
+    queries + `getContent` id filtering, threaded from `accessLevel==='basic'`
+    in `BackendToolService` (cache keys made visibility-scoped). Verified live:
+    fixture flipped PRIVATE → search drops 9→0 results. Reflink/admin tiers
+    unchanged (full access).
+12. **The gateway `_debug` envelope corrupts strict protocol responses.** With
+    `DEV_VERIFICATION=true`, `attachDebug` injected `_debug` into MCP JSON-RPC
+    frames; the official SDK client rejects unknown top-level keys with a Zod
+    parse error. Gateway now skips debug attachment for `bucket: 'mcp'`.
+13. **`Project` has `@@map("projects")`** — raw-SQL predicates written against
+    `"Project"` fail with 42P01 at runtime only (Prisma template SQL is not
+    schema-checked). Caught by the live MCP client returning empty search.
+
 **HOLDs still standing (do not delete before their named tasks):**
 `connectionDiagnostics.ts` (ai-assistant 5b.3) ·
 `conversation-replay.tsx` (5b.2) · `reflink-status-indicator.tsx` (access-and-cost 8) ·

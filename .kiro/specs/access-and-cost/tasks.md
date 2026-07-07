@@ -18,7 +18,7 @@ Postgres-backed rate-limit tables + engine (`rate-limiter.ts`) — **built but u
 
 - [x] 2. Gateway — *done 2026-07-05*
   - [x] 2.1 `withAIGateway` 6-step chain in `src/lib/ai/gateway.ts`, fail-closed for public on any limits/settings read failure
-  - [x] 2.2 Wired: `/api/ai/chat`, `/api/ai/chat/session`, `/api/ai/openai/session`, `/api/ai/openai/token` (legacy), `/api/ai/elevenlabs/token`, `/api/ai/tools/execute`, `/api/ai/analyze-job`, admin editing AI (4 routes), semantic starts (9 routes). MCP joins Phase 4.
+  - [x] 2.2 Wired: `/api/ai/chat`, `/api/ai/chat/session`, `/api/ai/openai/session`, `/api/ai/openai/token` (legacy), `/api/ai/elevenlabs/token`, `/api/ai/tools/execute`, `/api/ai/analyze-job`, admin editing AI (4 routes), semantic starts (9 routes). **MCP joined 2026-07-07 (Phase 4 Block B):** `/api/mcp` via new gateway `bucket:'mcp'` option — cookie-less public tier, `mcpEnabled` knob + own `mcp_minute`/`mcp_day` per-IP windows (`AIPublicAccessSettings` + Access & Spend panel card); `_debug` never attaches to MCP JSON-RPC frames; live drills verified 429 + kill-switch 503 (mcp-server task 3.2).
   - [x] 2.3 `check:gateway` (explicit list + heuristic scan + justified allowlist) proves no unguarded route. Unit tests deferred to verification task 6 (Playwright); acceptance is the e2e HTTP suite (15 assertions, all passing).
   - [x] 2.4 Deleted `withRateLimit` middleware (`src/lib/middleware/rate-limiting.ts`)
   - [x] 2.5 `resolveDebugAuth` + `_debug` envelope (verification task 3); negative test confirms envelope absent when unauthorized

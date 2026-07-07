@@ -1024,6 +1024,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         maxTier,
         diversifyBy,
         filters,
+        accessLevel: context.accessLevel, // visibility-scoped cache (publicOnly)
         uiContext: {
           route: uiState?.currentRoute,
           project: uiState?.currentProject
@@ -1051,7 +1052,10 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
       const enhancedFilters = this._enhanceFiltersWithUIState(filters, uiState);
       backendTimings.filterEnhancement = Date.now() - filterEnhanceStart;
 
-      // Perform content search using ContentSearchService
+      // Perform content search using ContentSearchService.
+      // Public (basic) sessions only ever see PUBLIC-visibility projects —
+      // enforced in SQL by the service (mcp-server Req 3.2/3.6, shared chain D39).
+      const publicOnly = context.accessLevel === 'basic';
       const contentSearchStart = Date.now();
       const searchResult = await this.contentSearchService.searchContent({
         query,
@@ -1059,7 +1063,8 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         k: Math.min(k + 3, k * 1.5), // Get slightly more results for UI state-aware ranking
         maxTier,
         diversifyBy,
-        filters: enhancedFilters
+        filters: enhancedFilters,
+        publicOnly
       });
       backendTimings.contentSearchService = Date.now() - contentSearchStart;
 
@@ -1174,6 +1179,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         ids: ids.sort(), // Sort for consistent caching
         maxTokens,
         includeTiers,
+        accessLevel: context.accessLevel, // visibility-scoped cache (publicOnly)
         uiContext: {
           route: uiState?.currentRoute,
           project: uiState?.currentProject
@@ -1190,11 +1196,13 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
       // Get F-I-D context for enhanced content retrieval
       const fidContext = await this.getFIDContext(uiState);
 
-      // Retrieve content using ContentSearchService
+      // Retrieve content using ContentSearchService (publicOnly for basic sessions —
+      // SQL-level visibility enforcement, mcp-server Req 3.2/3.6)
       const getResult = await this.contentSearchService.getContent({
         ids,
         maxTokens,
-        includeTiers
+        includeTiers,
+        publicOnly: context.accessLevel === 'basic'
       });
 
       // Enhance results with navigation targets compatible with current UI state

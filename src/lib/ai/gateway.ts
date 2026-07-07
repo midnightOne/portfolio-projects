@@ -90,6 +90,12 @@ export interface GatewayOptions {
   requirePublicSession?: boolean;
   /** 'mint' = session-issuance route: steps 1 + 4 only (no session requirement). */
   mode?: 'full' | 'mint';
+  /**
+   * Rate bucket. 'mcp' (mcp-server Req 3.1): anonymous clients with no cookie
+   * session — gated by settings.mcpEnabled + its own per-IP windows instead of
+   * the chat-session limits. Kill switch, blacklist, ledger identical.
+   */
+  bucket?: 'mcp';
 }
 
 function friendlyPause(): NextResponse {
@@ -308,7 +314,12 @@ export function withAIGateway(
           console.error('[gateway] public access settings read failed (fail closed):', error);
           return friendlyPause();
         }
-        if (!opts.publicAllowed || ctx.settings.publicTier === 'disabled') {
+        if (opts.bucket === 'mcp') {
+          // MCP has its own on/off knob — independent of the pill's publicTier
+          if (!ctx.settings.mcpEnabled) {
+            return reject(403, 'MCP_DISABLED', 'The MCP endpoint is currently disabled.');
+          }
+        } else if (!opts.publicAllowed || ctx.settings.publicTier === 'disabled') {
           return reject(403, 'PUBLIC_ACCESS_DISABLED', 'This feature requires an invitation link.');
         }
       }
@@ -322,7 +333,9 @@ export function withAIGateway(
     }
 
     // ---- Step 3: public session validation (before any model call) ----
-    if (ctx.tier === 'public' && opts.mode !== 'mint' && (opts.requirePublicSession ?? true)) {
+    // MCP clients are cookie-less by design: their bucket substitutes stricter
+    // per-IP windows (step 4) for the chat-session JWT.
+    if (ctx.tier === 'public' && opts.bucket !== 'mcp' && opts.mode !== 'mint' && (opts.requirePublicSession ?? true)) {
       const token = req.cookies.get(SESSION_COOKIE_NAME)?.value;
       const verification = verifySessionToken(token, hashedIp);
       if (verification.valid !== true) {
@@ -342,7 +355,22 @@ export function withAIGateway(
         if (!settings) return friendlyPause();
         ctx.settings = settings;
 
-        if (opts.mode === 'mint') {
+        if (opts.bucket === 'mcp') {
+          // Own bucket (mcp-server Req 3.1): per-IP minute + day windows, admin-tunable
+          const minute = await bumpWindow(hashedIp, 'mcp_minute', 60 * 1000, settings.mcpRequestsPerMinute);
+          if (!minute.allowed) {
+            return reject(429, 'RATE_LIMITED', 'Too many MCP requests — slow down.', {
+              retryAfterSeconds: minute.retryAfterSeconds,
+            });
+          }
+          const day = await bumpWindow(hashedIp, 'mcp_day', 24 * 60 * 60 * 1000, settings.mcpRequestsPerDay);
+          if (!day.allowed) {
+            return reject(429, 'RATE_LIMITED', 'Daily MCP limit reached — come back tomorrow.', {
+              retryAfterSeconds: day.retryAfterSeconds,
+            });
+          }
+          ctx.debug.rateLimit = { remainingMinute: minute.remaining, remainingDay: day.remaining };
+        } else if (opts.mode === 'mint') {
           const mint = await bumpWindow(hashedIp, 'session_mint', 60 * 60 * 1000, settings.sessionsPerIpPerHour);
           if (!mint.allowed) {
             return reject(429, 'RATE_LIMITED', 'Too many sessions — try again later.', {
@@ -394,6 +422,9 @@ export function withAIGateway(
     // ---- Steps 5–6: execute (handler meters via ctx.meter) ----
     try {
       const res = await handler(req, ctx, routeContext);
+      // MCP responses are JSON-RPC protocol frames — never mutate them (Req 1.3);
+      // strict clients reject unknown top-level keys like _debug.
+      if (opts.bucket === 'mcp') return res;
       return await attachDebug(res, ctx, startedAt);
     } catch (error) {
       console.error(`[gateway] handler error (${req.nextUrl.pathname}):`, error);

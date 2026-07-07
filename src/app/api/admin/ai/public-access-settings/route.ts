@@ -24,6 +24,8 @@ const INT_FIELDS = [
   'messagesPerDay',
   'tokensPerDay',
   'maxHistoryMessages',
+  'mcpRequestsPerMinute',
+  'mcpRequestsPerDay',
 ] as const;
 
 export async function PUT(request: NextRequest) {
@@ -34,6 +36,7 @@ export async function PUT(request: NextRequest) {
   const data: Record<string, unknown> = {};
   if (body.publicTier === 'disabled' || body.publicTier === 'text_chat') data.publicTier = body.publicTier;
   if (typeof body.turnstileEnabled === 'boolean') data.turnstileEnabled = body.turnstileEnabled;
+  if (typeof body.mcpEnabled === 'boolean') data.mcpEnabled = body.mcpEnabled;
   for (const f of INT_FIELDS) {
     if (typeof body[f] === 'number' && Number.isInteger(body[f]) && body[f] > 0) data[f] = body[f];
   }

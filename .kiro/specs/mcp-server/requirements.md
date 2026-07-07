@@ -1,6 +1,6 @@
 # mcp-server — Requirements
 
-**Status:** current — **unimplemented** (Phase 4 build; spec precedes code by design)
+**Status:** current — implemented + hardening-verified 2026-07-07 (Phase 4 Block B); Req 5 (discoverability) lands with roadmap 4.6
 **Owner domain:** the public external MCP server: transport, tools, discovery, and its security posture
 **Last verified against code:** 2026-07-02 (`e2d75b4`)
 **Registry decisions applied:** D20 (name reserved for this), D30, D39 (shared chain), D43

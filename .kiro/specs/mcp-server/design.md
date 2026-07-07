@@ -1,8 +1,8 @@
 # mcp-server — Design
 
-**Status:** current — target design (Phase 4 build)
+**Status:** current — implemented 2026-07-07 (Phase 4 Block B); §4 client-experience docs land with roadmap 4.6
 **Owner domain:** external MCP server
-**Last verified against code:** 2026-07-02 (`e2d75b4`)
+**Last verified against code:** 2026-07-07 (Phase 4 session — Block B)
 
 ---
 

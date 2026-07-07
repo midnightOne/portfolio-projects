@@ -177,9 +177,10 @@ export class VectorOperations {
    * Perform semantic search using cosine similarity
    */
   async semanticSearch(
-    embedding: number[], 
+    embedding: number[],
     limit: number = 10,
-    tierFilter?: number
+    tierFilter?: number,
+    publicOnly = false
   ): Promise<VectorSearchResult[]> {
     const startTime = Date.now();
     
@@ -205,9 +206,16 @@ export class VectorOperations {
       JOIN content_entities e ON c.entity_id = e.id
       WHERE c.embedding_vector IS NOT NULL
     `;
-    
+
+    if (publicOnly) {
+      // PUBLIC-visibility enforcement in SQL (mcp-server Req 3.2/3.6)
+      query += ` AND (e."entityType" <> 'PROJECT' OR EXISTS (
+        SELECT 1 FROM projects p WHERE p.slug = e.slug AND p.visibility = 'PUBLIC'
+      ))`;
+    }
+
     const params: any[] = [embeddingString];
-    
+
     if (tierFilter !== undefined) {
       query += ` AND c.tier <= $2`;
       params.push(tierFilter);

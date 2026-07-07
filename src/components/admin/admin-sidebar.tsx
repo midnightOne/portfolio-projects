@@ -416,6 +416,17 @@ export function AdminSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
+                  isActive={isItemActive('/admin/ai/job-analysis')}
+                >
+                  <Link href="/admin/ai/job-analysis" className="flex items-center gap-2">
+                    <BarChart3 className="size-4" />
+                    <span>Job Analyses</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
                   isActive={isItemActive('/admin/ai/security')}
                 >
                   <Link href="/admin/ai/security" className="flex items-center gap-2">
