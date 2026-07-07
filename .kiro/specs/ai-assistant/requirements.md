@@ -98,7 +98,8 @@ Overview: [`../00-overview/README.md`](../00-overview/README.md)
 
 **User story:** As the owner, I want every conversation durably logged through one path, so that debugging and analytics read reality.
 
-1. WHEN conversation events occur (messages, tool calls, mode switches) THEN adapters SHALL log via `/api/ai/conversation/log` into `conversation-history-manager` — the **canonical and only** persistence path (D26). The Gen-1 managers (`conversation-manager`, `unified-conversation-manager`, `conversation-transport`) are deleted.
+1. WHEN conversation events occur (messages, tool calls, mode switches) THEN they SHALL persist into `conversation-history-manager` — the **canonical and only** persistence path (D26): voice adapters via `/api/ai/conversation/log`, the text tier server-side inside `/api/ai/chat`. The Gen-1 managers (`conversation-manager`, `unified-conversation-manager`, `conversation-transport`) are deleted.
+   > **Status (2026-07-07): NOT IMPLEMENTED on production paths.** Phase 3 execution found the `/log` POST has been a non-persisting stub since creation and `/api/ai/chat` never wrote; the deleted Gen-1 pipeline was the last writer. Read/replay infrastructure is real and verified; the write side is restored by **task 2b** (before Phase 4). D49 (Req 12) leg tagging builds on those writes.
 2. WHEN admin views history THEN read-only routes (history, transcript, replay) SHALL serve from the persisted log; all mock analytics/transcript endpoints are deleted, not implemented (D26).
 
 ## Requirement 10 — Debug & monitoring

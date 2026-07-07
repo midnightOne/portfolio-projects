@@ -97,7 +97,9 @@ Findings from the Phase 3 session that the manifest/ledgers did not predict:
    POST (a non-persisting stub — console + debug events only, TODO since creation)
    write nothing. Replay/analytics UIs therefore show only historical rows until
    D49 task 5b lands leg-aware persistence. Deliberately NOT patched here — 5b.1
-   owns the schema design.
+   owns the schema design. **Owner decision 2026-07-07: persistence restoration is
+   now its own task, ai-assistant 2b (text: /api/ai/chat writes server-side; voice:
+   /log stub replaced), scheduled before Phase 4; 5b legs/markers build on it.**
 2. **The admin conversation analytics UI never matched its mock.** The UI's
    `ConversationAnalytics` interface matched `conversationHistoryManager.getConversationStats()`
    almost exactly, not the mock's shape — the tab was silently broken. Re-pointing
