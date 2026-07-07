@@ -102,15 +102,29 @@ OpenAI Realtime + ElevenLabs adapters behind `IConversationalAgentAdapter` with 
         `gemini-live-*-preview` ids from Google's docs 404 here); both tools executed through the shared
         `UnifiedToolRegistry` pipeline and persisted leg-tagged, transcript items accumulate correctly across Gemini's
         chunked input/output transcription.
-  - [x] 6.3 Tool-calling gaps documented in `design-voice-adapters.md` §2c (feeds D41): `ui_intent` argument-shape drift
-        (`{route:'projects'}` vs the documented `{type:'route',id:'projects'}`, executes as a silent no-op rather than
-        erroring); native-audio "thinking" narration leaking into the spoken/transcribed response instead of a direct
-        answer; Gemini's `enum` schema field is string-only regardless of the property's declared type (fixed in the
-        shared `stripUnsupportedSchemaKeys` sanitizer, also closing a latent bug for two registry tools).
-        Cross-provider resume onto/from Gemini NOT run (5b.4 precedent: OpenAI↔OpenAI covered the mechanics; Gemini's
-        disruption-watcher/auto-reconnect wasn't built — out of this task's scope). Audio quality needs a human ear;
-        turn mechanics are fully covered by the C0 driver.
+  - [x] 6.3 Tool-calling gaps documented in `design-voice-adapters.md` §2c (feeds D41). **Two owner-reported bugs found
+        by actually listening to audio and driving the live homepage (neither reproduced in admin-only testing) were
+        root-caused and fixed, superseding the first-pass findings below:** (a) no audio output — the playback
+        `AudioContext` was created lazily outside any user-gesture call stack, left `'suspended'` by autoplay policy;
+        now created synchronously at the top of `connect()`. (b) reasoning leaking into the visible answer — Gemini's
+        `thought:true` parts were captured by the fallback text path; now routed to `metadata.reasoning`, collapsed by
+        default, gated by new `GoogleLiveConfig.enableReasoning` (default false → `thinkingBudget:0` at mint).
+        (c) **the "argument-shape drift" first suspected as a Gemini weakness was actually caused by our own schema**:
+        `ui_intent`'s `oneOf` target union crashed the Live API server-side (WS close 1011) the instant the model tried
+        to use it — fixed by flattening `oneOf`/`anyOf` into one permissive merged schema in `stripUnsupportedSchemaKeys`;
+        once fixed, the model emitted the exact correct argument shape with no further drift. Gemini's `enum` schema
+        field is still genuinely string-only regardless of the property's declared type (separate, real fix, same
+        sanitizer). Cross-provider resume onto/from Gemini NOT run (5b.4 precedent: OpenAI↔OpenAI covered the
+        mechanics; Gemini's disruption-watcher/auto-reconnect wasn't built — out of this task's scope). Audio quality
+        was owner-verified by listening; turn mechanics are fully covered by the C0 driver, now also mounted on the
+        live homepage (admin-gated) so navigation tools exercise real UI state instead of only the isolated debug page.
   - _Requirements: 3.2, 3.3_
+
+- [x] 6.4 (added, owner) Conversation debugging/replay depth: navigation and error events persist as labeled rows
+      distinct from raw tool JSON (shared `_logEvent()` in `BaseConversationalAgentAdapter`, so all three providers
+      get it free); the admin conversation-replay popup rebuilt from a static `window.open()` HTML dump into an
+      interactive `ConversationReplayViewer` with Previous/Next stepping (+ arrow keys) through the full timeline.
+      Admin conversation list already existed at `/admin/ai/conversations` (flat, unpaginated, limit 50 — untouched).
 
 - [ ] 7. `BackendToolService` de-stubbing
   - [ ] 7.1 Real profile/contact data from DB (remove hardcoded profile)
