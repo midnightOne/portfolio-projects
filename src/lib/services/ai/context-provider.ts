@@ -2,9 +2,14 @@
  * Context Provider System
  * Secure context injection and management for AI agents
  * Integrates with reflink access control and caching systems
+ *
+ * Phase 3 Wave 3: the Gen-1 context-manager was deleted — base context now comes
+ * from contentSourceManager (search) directly; the thin context-injector wrapper
+ * was folded in below (token generation, system-prompt injection, reflink
+ * validation, ElevenLabs prompt assembly).
  */
 
-import { contextManager, ContextSource, RelevantContent } from './context-manager';
+import { contentSourceManager, ContextSource, RelevantContent } from './content-source-manager';
 import { reflinkManager } from './reflink-manager';
 import { ReflinkInfo, BudgetStatus } from '@/lib/types/rate-limiting';
 
@@ -210,25 +215,18 @@ export class ContextProvider {
     // Adjust config based on access level
     const adjustedConfig = this.adjustConfigForAccessLevel(config, filter.accessLevel);
 
-    // Build base context using context manager
+    // Build base context from the content-source system (Gen-1 context-manager removed)
     const sources: ContextSource[] = [];
     const query = request.query || 'general information';
-    
-    const baseContext = await contextManager.buildContext(sources, query, {
-      maxTokens: adjustedConfig.maxTokens,
-      includeProjects: adjustedConfig.includeProjects,
-      includeAbout: adjustedConfig.includeAbout,
-      includeResume: adjustedConfig.includeResume,
-      prioritizeRecent: adjustedConfig.prioritizeRecent,
+
+    await contentSourceManager.autoDiscoverSources();
+    const relevantContent = await contentSourceManager.searchContent(query, {
+      maxResults: 50,
       minRelevanceScore: adjustedConfig.minRelevanceScore,
+      sortBy: 'relevance',
     });
 
-    const relevantContent = await contextManager.searchRelevantContent(query, {
-      includeProjects: adjustedConfig.includeProjects,
-      includeAbout: adjustedConfig.includeAbout,
-      includeResume: adjustedConfig.includeResume,
-      minRelevanceScore: adjustedConfig.minRelevanceScore,
-    });
+    const baseContext = this.buildContextString(relevantContent, adjustedConfig.maxTokens);
 
     // Generate system prompt based on access level and permissions
     const systemPrompt = this.generateSystemPrompt(filter, adjustedConfig);
@@ -557,7 +555,7 @@ ACCESS LEVEL: Premium
    */
   getCacheStats(): { size: number; keys: string[]; totalTokens: number } {
     let totalTokens = 0;
-    
+
     for (const cached of this.contextCache.values()) {
       totalTokens += cached.context.tokenCount;
     }
@@ -568,6 +566,296 @@ ACCESS LEVEL: Premium
       totalTokens,
     };
   }
+
+  /**
+   * Build a bounded context string from search results
+   * (ported from the deleted Gen-1 context-manager)
+   */
+  private buildContextString(content: RelevantContent[], maxTokens: number): string {
+    const contextParts: string[] = ['=== PORTFOLIO CONTEXT ===\n'];
+    let currentTokens = this.estimateTokens(contextParts[0]);
+
+    for (const item of content) {
+      const sectionParts = [
+        `## ${item.title} (${item.type.toUpperCase()})`,
+        '',
+      ];
+      if (item.summary && item.summary !== item.content) {
+        sectionParts.push(`Summary: ${item.summary}`, '');
+      }
+      sectionParts.push(`Content: ${item.content}`);
+      if (item.keywords.length > 0) {
+        sectionParts.push(`Keywords: ${item.keywords.join(', ')}`);
+      }
+      sectionParts.push('---', '');
+      const section = sectionParts.join('\n');
+
+      const sectionTokens = this.estimateTokens(section);
+      if (currentTokens + sectionTokens > maxTokens) {
+        break;
+      }
+      contextParts.push(section);
+      currentTokens += sectionTokens;
+    }
+
+    return contextParts.join('\n');
+  }
+
+  private estimateTokens(text: string): number {
+    return Math.ceil(text.length / 4);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Folded context-injector surface (Phase 3 task 2.2) — the thin wrapper that
+  // token/session routes consume: reflink validation, ephemeral session tokens,
+  // and provider prompt assembly.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Generate ephemeral token with injected context for voice providers
+   */
+  async generateSessionToken(request: TokenGenerationRequest): Promise<TokenGenerationResult> {
+    try {
+      const result = await this.injectContext({
+        sessionId: request.sessionId,
+        query: request.query,
+        reflinkCode: request.reflinkCode,
+        provider: request.provider,
+        contextConfig: request.contextConfig,
+      });
+
+      if (!result.success) {
+        return { success: false, error: result.error || 'Context injection failed' };
+      }
+
+      const welcomeMessage = await this.generateWelcomeMessage(request.reflinkCode);
+
+      let budgetStatus;
+      if (request.reflinkCode) {
+        const validation = await reflinkManager.validateReflinkWithBudget(request.reflinkCode);
+        budgetStatus = validation.budgetStatus;
+      }
+
+      return {
+        success: true,
+        ephemeralToken: result.ephemeralToken,
+        publicContext: result.context.publicContext,
+        welcomeMessage,
+        accessLevel: result.context.accessLevel,
+        budgetStatus,
+      };
+    } catch (error) {
+      console.error('Token generation failed:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
+   * Validate and filter context based on reflink permissions
+   */
+  async validateAndFilterContext(
+    sessionId: string,
+    reflinkCode?: string
+  ): Promise<{
+    valid: boolean;
+    accessLevel: string;
+    capabilities: { voiceAI: boolean; jobAnalysis: boolean; advancedNavigation: boolean };
+    welcomeMessage?: string;
+    error?: string;
+  }> {
+    const noCapabilities = { voiceAI: false, jobAnalysis: false, advancedNavigation: false };
+    try {
+      if (!reflinkCode) {
+        return { valid: true, accessLevel: 'basic', capabilities: noCapabilities };
+      }
+
+      const validation = await reflinkManager.validateReflinkWithBudget(reflinkCode);
+
+      if (!validation.valid) {
+        return {
+          valid: false,
+          accessLevel: 'no_access',
+          capabilities: noCapabilities,
+          error: this.getValidationErrorMessage(validation.reason),
+        };
+      }
+
+      const reflink = validation.reflink!;
+      return {
+        valid: true,
+        accessLevel: 'premium',
+        capabilities: {
+          voiceAI: reflink.enableVoiceAI,
+          jobAnalysis: reflink.enableJobAnalysis,
+          advancedNavigation: reflink.enableAdvancedNavigation,
+        },
+        welcomeMessage: validation.welcomeMessage,
+      };
+    } catch (error) {
+      console.error('Context validation failed:', error);
+      return {
+        valid: false,
+        accessLevel: 'no_access',
+        capabilities: noCapabilities,
+        error: 'Validation failed',
+      };
+    }
+  }
+
+  /**
+   * Generate ElevenLabs prompt with dynamic context injection
+   */
+  async generateElevenLabsPrompt(
+    sessionId: string,
+    reflinkCode?: string,
+    query?: string
+  ): Promise<{
+    agent_prompt: string;
+    first_message: string;
+    language: string;
+    capabilities: { voiceAI: boolean; jobAnalysis: boolean; advancedNavigation: boolean };
+    welcomeMessage?: string;
+  }> {
+    try {
+      const result = await this.injectContext({
+        sessionId,
+        query: query || 'Initial conversation setup',
+        reflinkCode,
+        provider: 'elevenlabs',
+      });
+
+      if (!result.success) {
+        throw new Error(result.error || 'Context injection failed');
+      }
+
+      const context = result.context;
+      const capabilities = await this.determineCapabilities(reflinkCode);
+      const welcomeMessage = await this.generateWelcomeMessage(reflinkCode);
+
+      const agent_prompt = `You are a helpful AI assistant for a portfolio website.
+You can help visitors learn about the portfolio owner's background, projects, and experience.
+You have access to navigation tools to show relevant content and guide users through the portfolio.
+
+${context.systemPrompt}
+
+${context.hiddenContext ? `\nAdditional Context:\n${context.hiddenContext}` : ''}
+
+Key capabilities:
+- Answer questions about projects and experience using server tools (loadProjectContext, searchProjects)
+- Navigate users to relevant portfolio sections using declarative navigation tools
+- Highlight important content and provide visual guidance
+- Provide technical explanations with contextual demonstrations
+${capabilities.jobAnalysis ? '- Analyze job requirements against the portfolio owner\'s background' : ''}
+${capabilities.advancedNavigation ? '- Provide advanced navigation and content discovery' : ''}
+
+Navigation Tools Usage:
+- Use ui_describe to understand current UI state and available navigation options
+- Use ui_intent for goal-based navigation (e.g., show specific projects, scroll to sections)
+- Use highlightText and scrollIntoView for visual emphasis and guidance
+
+Always be helpful, professional, and accurate. If you don't know something, say so rather than guessing.
+
+When guiding users through content:
+1. First use ui_describe to understand the current state
+2. Use ui_intent for complex navigation goals (opening projects, navigating to sections)
+3. Use highlighting tools to draw attention to relevant content
+4. Provide context and explanations while navigating
+
+${context.initialContext ? `\nCurrent Context:\n${context.initialContext}` : ''}`;
+
+      const first_message = welcomeMessage ||
+        "Hello! I'm here to help you learn about this portfolio. I can answer questions about projects, experience, and background. I can also guide you through relevant sections using interactive navigation. What would you like to know?";
+
+      return { agent_prompt, first_message, language: 'en', capabilities, welcomeMessage };
+    } catch (error) {
+      console.error('ElevenLabs prompt generation failed:', error);
+      return {
+        agent_prompt: `You are a helpful AI assistant for a portfolio website.
+You can help visitors learn about the portfolio owner's background, projects, and experience.
+Always be helpful, professional, and accurate. If you don't know something, say so rather than guessing.`,
+        first_message: "Hello! I'm here to help you learn about this portfolio. What would you like to know?",
+        language: 'en',
+        capabilities: { voiceAI: false, jobAnalysis: false, advancedNavigation: false },
+      };
+    }
+  }
+
+  private async generateWelcomeMessage(reflinkCode?: string): Promise<string> {
+    const fallback = 'Welcome! You can ask me questions about the portfolio owner\'s background and projects.';
+    if (!reflinkCode) return fallback;
+
+    try {
+      const validation = await reflinkManager.validateReflinkWithBudget(reflinkCode);
+      if (validation.valid && validation.welcomeMessage) {
+        return validation.welcomeMessage;
+      }
+      return 'Welcome! You have access to enhanced AI features.';
+    } catch (error) {
+      console.error('Welcome message generation failed:', error);
+      return fallback;
+    }
+  }
+
+  private async determineCapabilities(reflinkCode?: string): Promise<{
+    voiceAI: boolean;
+    jobAnalysis: boolean;
+    advancedNavigation: boolean;
+  }> {
+    const none = { voiceAI: false, jobAnalysis: false, advancedNavigation: false };
+    if (!reflinkCode) return none;
+
+    try {
+      const validation = await reflinkManager.validateReflinkWithBudget(reflinkCode);
+      if (validation.valid && validation.reflink) {
+        return {
+          voiceAI: validation.reflink.enableVoiceAI,
+          jobAnalysis: validation.reflink.enableJobAnalysis,
+          advancedNavigation: validation.reflink.enableAdvancedNavigation,
+        };
+      }
+      return none;
+    } catch (error) {
+      console.error('Capability determination failed:', error);
+      return none;
+    }
+  }
+
+  private getValidationErrorMessage(reason?: string): string {
+    switch (reason) {
+      case 'not_found':
+        return 'Invalid reflink code';
+      case 'expired':
+        return 'Reflink has expired. Please contact the portfolio owner for a new one.';
+      case 'budget_exhausted':
+        return 'Reflink budget has been exhausted. Please contact the portfolio owner.';
+      case 'inactive':
+        return 'Reflink is inactive';
+      default:
+        return 'Reflink validation failed';
+    }
+  }
+}
+
+// Folded context-injector request/result types (Phase 3 task 2.2)
+export interface TokenGenerationRequest {
+  sessionId: string;
+  provider: 'openai' | 'elevenlabs';
+  reflinkCode?: string;
+  query?: string;
+  contextConfig?: Partial<ContextProviderConfig>;
+}
+
+export interface TokenGenerationResult {
+  success: boolean;
+  ephemeralToken?: string;
+  publicContext?: string;
+  welcomeMessage?: string;
+  accessLevel?: string;
+  budgetStatus?: unknown;
+  error?: string;
 }
 
 // Export singleton instance

@@ -111,15 +111,15 @@ export function IntegrationValidator({ onValidationComplete }: IntegrationValida
 
     try {
       const startTime = Date.now();
-      const response = await fetch('/api/ai/context', {
+      // The Gen-1 /api/ai/context mock was deleted (Phase 3, D26) — validate the
+      // real retrieval surface instead.
+      const response = await fetch('/api/ai/tools/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sessionId: 'test-session',
-          query: 'integration test',
-          sources: [],
-          options: { includeSystemPrompt: true },
-          useCache: false
+          toolName: 'content_search',
+          parameters: { query: 'integration test' },
+          sessionId: 'test-session'
         }),
       });
 
@@ -129,11 +129,11 @@ export function IntegrationValidator({ onValidationComplete }: IntegrationValida
         const data = await response.json();
         updateValidationResult('contextProvider', {
           status: 'healthy',
-          message: 'Context Provider Service is working correctly',
+          message: 'Content retrieval surface is working correctly',
           details: [
             `Response time: ${responseTime}ms`,
-            `Context loaded: ${data.success ? 'Yes' : 'No'}`,
-            `Token count: ${data.data?.tokenCount || 'N/A'}`
+            `Search succeeded: ${data.success ? 'Yes' : 'No'}`,
+            `Results: ${data.data?.items?.length ?? 'N/A'}`
           ],
           responseTime
         });
@@ -267,7 +267,7 @@ export function IntegrationValidator({ onValidationComplete }: IntegrationValida
 
     try {
       const endpoints = [
-        { name: 'Context API', url: '/api/ai/context', method: 'POST' },
+        { name: 'Tool Execute API', url: '/api/ai/tools/execute', method: 'POST' },
         { name: 'OpenAI Session', url: '/api/ai/openai/session', method: 'GET' },
         { name: 'ElevenLabs Token', url: '/api/ai/elevenlabs/token', method: 'GET' },
         { name: 'Conversation Log', url: '/api/ai/conversation/log', method: 'POST' }

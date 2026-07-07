@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { contextInjector, TokenGenerationRequest } from '@/lib/services/ai/context-injector';
+import { contextProvider, TokenGenerationRequest } from '@/lib/services/ai/context-provider';
 import { createApiError, createApiSuccess } from '@/lib/types/api';
 import { handleApiError, addCorsHeaders } from '@/lib/utils/api-utils';
 import { withPerformanceTracking } from '@/lib/utils/performance';
@@ -64,7 +64,7 @@ async function voiceSessionInitHandler(request: NextRequest) {
     const startTime = Date.now();
 
     // First validate access and capabilities
-    const validation = await contextInjector.validateAndFilterContext(sessionId, reflinkCode);
+    const validation = await contextProvider.validateAndFilterContext(sessionId, reflinkCode);
 
     if (!validation.valid) {
       return NextResponse.json(
@@ -107,7 +107,7 @@ async function voiceSessionInitHandler(request: NextRequest) {
       contextConfig,
     };
 
-    const tokenResult = await contextInjector.generateEphemeralToken(tokenRequest);
+    const tokenResult = await contextProvider.generateSessionToken(tokenRequest);
 
     if (!tokenResult.success) {
       return NextResponse.json(

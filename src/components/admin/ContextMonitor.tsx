@@ -107,109 +107,74 @@ export function ContextMonitor({ conversationId, activeProvider, onContextUpdate
     if (!conversationId) return;
 
     try {
-      const response = await fetch('/api/ai/context', {
+      // Real retrieval preview via the production tool surface (the Gen-1
+      // /api/ai/context mock was deleted in Phase 3 — D26)
+      const response = await fetch('/api/ai/tools/execute', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          sessionId: conversationId,
-          query: query || 'debug_context_inspection',
-          sources: ['projects', 'profile', 'system'],
-          options: {
-            includeSystemPrompt: true,
-            includeFilteringDetails: true,
-            includeSourceBreakdown: true
-          },
-          useCache: false
+          toolName: 'content_search',
+          parameters: { query: query || 'debug_context_inspection' },
+          sessionId: conversationId
         }),
       });
 
       if (!response.ok) {
-        throw new Error(`Context API error: ${response.status}`);
+        throw new Error(`Tool execute API error: ${response.status}`);
       }
 
       const result = await response.json();
-      
-      if (result.success) {
-        // Create realistic context data based on the actual API response
-        const contextSources: ContextSource[] = [
-          {
-            id: 'system-prompt',
-            name: 'System Instructions',
-            type: 'system',
-            size: 500,
-            included: true,
-            reason: 'Always included for AI behavior'
-          },
-          {
-            id: 'portfolio-profile',
-            name: 'Portfolio Owner Profile',
-            type: 'profile',
-            size: 800,
-            included: true,
-            reason: 'Public profile information'
-          },
-          {
-            id: 'projects-context',
-            name: 'Project Summaries',
-            type: 'project',
-            size: result.data.context?.length || 1200,
-            included: true,
-            reason: 'Relevant to user query'
-          }
-        ];
 
-        if (state.reflinkId) {
-          contextSources.push({
-            id: 'reflink-context',
-            name: 'Personalized Context',
-            type: 'reflink',
-            size: 300,
-            included: true,
-            reason: 'Premium reflink access'
-          });
-        }
+      if (result.success) {
+        const items: Array<{ id?: string; title?: string; content?: string; score?: number }> =
+          result.data?.items ?? [];
+
+        const contextSources: ContextSource[] = items.slice(0, 10).map((item, i) => ({
+          id: String(item.id ?? `hit-${i}`),
+          name: item.title || `Result ${i + 1}`,
+          type: 'project',
+          size: (item.content || '').length,
+          included: true,
+          reason: `content_search hit (score ${typeof item.score === 'number' ? item.score.toFixed(3) : 'n/a'})`
+        }));
+
+        const injectedContext = items
+          .map((item) => `## ${item.title ?? 'Untitled'}\n${item.content ?? ''}`)
+          .join('\n\n') || 'No content retrieved for this query.';
 
         const realContextData: ContextData = {
-          systemPrompt: `[This is a mock] You are a helpful AI assistant for a portfolio website. You should:
-- Present yourself as the portfolio owner's assistant, not as the owner
-- Provide accurate information based only on available portfolio content
-- Maintain a professional, helpful tone
-- Clearly state limitations rather than hallucinating information
-- Guide users through relevant portfolio sections when appropriate
-
-Current context includes: ${contextSources.filter(s => s.included).map(s => s.name).join(', ')}`,
-          injectedContext: typeof result.data.context === 'string' ? result.data.context : JSON.stringify(result.data.context, null, 2) || 'No specific context loaded for this query.',
+          systemPrompt: 'Live per-turn system prompts are visible in the _debug envelope (admin /api/ai/chat) — see /admin/ai/debug. This panel previews real content_search retrieval for the query.',
+          injectedContext,
           contextSources,
           filteringResults: {
             totalSources: contextSources.length,
-            includedSources: contextSources.filter(s => s.included).length,
-            excludedSources: contextSources.filter(s => !s.included).length,
+            includedSources: contextSources.length,
+            excludedSources: 0,
             accessLevel: (state.accessLevel || 'premium') as 'basic' | 'limited' | 'premium',
             reflinkId: state.reflinkId,
-            filteringReason: state.reflinkId 
+            filteringReason: state.reflinkId
               ? ['Premium access via reflink', 'All content sources available']
               : ['Basic access level', 'Limited to public content']
           },
-          totalTokens: result.data.tokenCount || Math.ceil((result.data.context?.length || 0) / 4),
+          totalTokens: Math.ceil(injectedContext.length / 4),
           lastUpdated: new Date()
         };
 
         setContextData(realContextData);
-        setRealTimeContext(typeof result.data.context === 'string' ? result.data.context : JSON.stringify(result.data.context, null, 2));
+        setRealTimeContext(injectedContext);
 
         // Add context update
         const update: ContextUpdate = {
           id: `context-load-${Date.now()}`,
           timestamp: new Date(),
           type: 'update',
-          source: 'context-api',
+          source: 'content_search',
           data: {
             query,
-            tokenCount: result.data.tokenCount,
-            processingTime: result.data.processingTime,
-            fromCache: result.data.fromCache,
+            tokenCount: realContextData.totalTokens,
+            resultCount: items.length,
             sourcesLoaded: contextSources.length
           }
         };

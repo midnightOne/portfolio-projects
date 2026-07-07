@@ -17,7 +17,6 @@
 
 import { PrismaClient } from '@prisma/client';
 import { ProjectIndexer } from '../services/project-indexer';
-import { ContextManager } from '../services/ai/context-manager';
 import { debugEventEmitter } from '../debug/debugEventEmitter';
 import VectorOperations from './VectorOperations';
 import { IndexMaintenanceService } from '../database/IndexMaintenanceService';
@@ -95,7 +94,6 @@ export interface ContentIngestionEvents {
 
 export class ContentIngestionService extends EventEmitter {
   private projectIndexer: ProjectIndexer;
-  private contextManager: ContextManager;
   private vectorOps: VectorOperations;
   private indexMaintenance: IndexMaintenanceService;
   private smartGenerator: SmartContentGenerator;
@@ -113,7 +111,6 @@ export class ContentIngestionService extends EventEmitter {
   constructor() {
     super();
     this.projectIndexer = ProjectIndexer.getInstance();
-    this.contextManager = new ContextManager();
     this.vectorOps = new VectorOperations(prisma);
     this.smartGenerator = new SmartContentGenerator();
     this.indexMaintenance = IndexMaintenanceService.getInstance(prisma, {

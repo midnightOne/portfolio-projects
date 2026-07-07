@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { unifiedToolRegistry } from '@/lib/ai/tools/UnifiedToolRegistry';
 import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
-import { contextInjector } from '@/lib/services/ai/context-injector';
+import { contextProvider } from '@/lib/services/ai/context-provider';
 import { BackendToolService } from '@/lib/ai/tools/BackendToolService';
 import { withAIGateway, type GatewayContext } from '@/lib/ai/gateway';
 
@@ -212,8 +212,8 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext): Promise<Ne
       }, { status: 400 });
     }
 
-    // Validate reflink and access control using contextInjector
-    const validation = await contextInjector.validateAndFilterContext(sessionId, reflinkId);
+    // Validate reflink and access control using contextProvider
+    const validation = await contextProvider.validateAndFilterContext(sessionId, reflinkId);
     if (!validation.valid) {
       const error = validation.error || 'Access denied.';
       const accessDeniedCorrelationId = `server_tool_${toolCallId}`;

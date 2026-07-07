@@ -3,14 +3,14 @@
  * 
  * Generates ElevenLabs conversation tokens for signed URL conversations.
  * Manages agents and provides secure token generation with context injection.
- * Updated to use ClientAIModelManager and contextInjector for dynamic configuration.
+ * Updated to use ClientAIModelManager and contextProvider for dynamic configuration.
  * Uses UnifiedToolRegistry for consistent tool definitions without duplicates.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import { getClientAIModelManager } from '@/lib/voice/ClientAIModelManager';
-import { contextInjector } from '@/lib/services/ai/context-injector';
+import { contextProvider } from '@/lib/services/ai/context-provider';
 import { getEnvironmentVariable } from '@/types/voice-config';
 import type { ElevenLabsConfig } from '@/types/voice-config';
 import { unifiedToolRegistry } from '@/lib/ai/tools/UnifiedToolRegistry';
@@ -94,7 +94,7 @@ async function handleGET(request: NextRequest, ctx: GatewayContext) {
     const sessionId = contextId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     // Generate ElevenLabs prompt with dynamic context injection
-    const promptData = await contextInjector.generateElevenLabsPrompt(
+    const promptData = await contextProvider.generateElevenLabsPrompt(
       sessionId,
       reflinkId || undefined,
       'Initial conversation setup'
@@ -342,7 +342,7 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext) {
     const sessionId = body.contextId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     // Generate ElevenLabs prompt with dynamic context injection
-    const promptData = await contextInjector.generateElevenLabsPrompt(
+    const promptData = await contextProvider.generateElevenLabsPrompt(
       sessionId,
       body.reflinkId || undefined,
       'Custom conversation setup'

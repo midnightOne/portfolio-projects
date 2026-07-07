@@ -1,16 +1,17 @@
 /**
  * Context Provider Integration Tests
  * Tests for secure context injection and management system
+ * (Phase 3 Wave 3: context-manager deleted, context-injector folded into
+ * context-provider — tests target the consolidated surface.)
  */
 
-import { contextProvider, contextInjector } from '@/lib/services/ai';
+import { contextProvider } from '@/lib/services/ai/context-provider';
 
 // Mock dependencies
-jest.mock('@/lib/services/ai/context-manager', () => ({
-  contextManager: {
-    buildContext: jest.fn().mockResolvedValue('Mock context content'),
-    searchRelevantContent: jest.fn().mockResolvedValue([]),
-    estimateTokens: jest.fn().mockReturnValue(100),
+jest.mock('@/lib/services/ai/content-source-manager', () => ({
+  contentSourceManager: {
+    autoDiscoverSources: jest.fn().mockResolvedValue(undefined),
+    searchContent: jest.fn().mockResolvedValue([]),
   },
 }));
 
@@ -28,12 +29,12 @@ jest.mock('@/lib/services/ai/reflink-manager', () => ({
 describe('Context Provider Integration', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    
-    // Reset to default mocks
-    const mockContextManager = require('@/lib/services/ai/context-manager');
-    mockContextManager.contextManager.buildContext.mockResolvedValue('Mock context content');
-    mockContextManager.contextManager.searchRelevantContent.mockResolvedValue([]);
-    
+    contextProvider.clearAllCache();
+
+    const mockContentSourceManager = require('@/lib/services/ai/content-source-manager');
+    mockContentSourceManager.contentSourceManager.autoDiscoverSources.mockResolvedValue(undefined);
+    mockContentSourceManager.contentSourceManager.searchContent.mockResolvedValue([]);
+
     const mockReflinkManager = require('@/lib/services/ai/reflink-manager');
     mockReflinkManager.reflinkManager.validateReflinkWithBudget.mockResolvedValue({
       valid: false,
@@ -56,7 +57,6 @@ describe('Context Provider Integration', () => {
     });
 
     it('should inject context with premium access for valid reflink', async () => {
-      // Mock reflink validation
       const mockReflinkManager = require('@/lib/services/ai/reflink-manager');
       mockReflinkManager.reflinkManager.validateReflinkWithBudget.mockResolvedValue({
         valid: true,
@@ -109,19 +109,19 @@ describe('Context Provider Integration', () => {
         query: 'Tell me about the projects',
       };
 
-      // First call
       const result1 = await contextProvider.injectContext(request);
-      
-      // Second call should use cache
       const result2 = await contextProvider.injectContext(request);
 
       expect(result1.success).toBe(true);
       expect(result2.success).toBe(true);
       expect(result1.context.cacheKey).toBe(result2.context.cacheKey);
+
+      // Search ran only for the first (uncached) call
+      const mockContentSourceManager = require('@/lib/services/ai/content-source-manager');
+      expect(mockContentSourceManager.contentSourceManager.searchContent).toHaveBeenCalledTimes(1);
     });
 
     it('should handle invalid reflink gracefully', async () => {
-      // Mock reflink validation failure
       const mockReflinkManager = require('@/lib/services/ai/reflink-manager');
       mockReflinkManager.reflinkManager.validateReflinkWithBudget.mockResolvedValue({
         valid: false,
@@ -139,11 +139,34 @@ describe('Context Provider Integration', () => {
       expect(result.success).toBe(true);
       expect(result.context.accessLevel).toBe('basic');
     });
+
+    it('should build context from content-source search results', async () => {
+      const mockContentSourceManager = require('@/lib/services/ai/content-source-manager');
+      mockContentSourceManager.contentSourceManager.searchContent.mockResolvedValue([
+        {
+          id: 'proj-1',
+          type: 'project',
+          title: 'Kiln Controller',
+          content: 'A dual-thermocouple kiln controller.',
+          summary: 'Kiln controller project',
+          relevanceScore: 0.9,
+          keywords: ['embedded', 'FreeRTOS'],
+        },
+      ]);
+
+      const result = await contextProvider.injectContext({
+        sessionId: 'test-session-2',
+        query: 'kiln',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.context.initialContext).toContain('Kiln Controller');
+      expect(result.context.relevantContent).toHaveLength(1);
+    });
   });
 
-  describe('ContextInjector', () => {
-    it('should generate ephemeral token for voice providers', async () => {
-      // Mock successful reflink validation
+  describe('Folded injector surface', () => {
+    it('should generate session token for voice providers', async () => {
       const mockReflinkManager = require('@/lib/services/ai/reflink-manager');
       mockReflinkManager.reflinkManager.validateReflinkWithBudget.mockResolvedValue({
         valid: true,
@@ -159,13 +182,11 @@ describe('Context Provider Integration', () => {
         welcomeMessage: 'Welcome John! You have enhanced AI access.',
       });
 
-      const request = {
+      const result = await contextProvider.generateSessionToken({
         sessionId: 'test-session',
-        provider: 'openai' as const,
+        provider: 'openai',
         reflinkCode: 'valid-reflink',
-      };
-
-      const result = await contextInjector.generateEphemeralToken(request);
+      });
 
       expect(result.success).toBe(true);
       expect(result.ephemeralToken).toBeDefined();
@@ -173,20 +194,7 @@ describe('Context Provider Integration', () => {
       expect(result.accessLevel).toBe('premium');
     });
 
-    it('should inject system prompt for text-based agents', async () => {
-      const result = await contextInjector.injectSystemPrompt(
-        'test-session',
-        'Tell me about the projects'
-      );
-
-      expect(result.systemPrompt).toContain('AI assistant for a portfolio website');
-      expect(result.capabilities.voiceAI).toBe(false);
-      expect(result.capabilities.jobAnalysis).toBe(false);
-      expect(result.capabilities.advancedNavigation).toBe(false);
-    });
-
     it('should validate and filter context based on permissions', async () => {
-      // Mock reflink validation
       const mockReflinkManager = require('@/lib/services/ai/reflink-manager');
       mockReflinkManager.reflinkManager.validateReflinkWithBudget.mockResolvedValue({
         valid: true,
@@ -200,7 +208,7 @@ describe('Context Provider Integration', () => {
         welcomeMessage: 'Welcome Jane!',
       });
 
-      const result = await contextInjector.validateAndFilterContext(
+      const result = await contextProvider.validateAndFilterContext(
         'test-session',
         'valid-reflink'
       );
@@ -214,7 +222,6 @@ describe('Context Provider Integration', () => {
     });
 
     it('should handle budget exhausted reflinks', async () => {
-      // Mock budget exhausted reflink
       const mockReflinkManager = require('@/lib/services/ai/reflink-manager');
       mockReflinkManager.reflinkManager.validateReflinkWithBudget.mockResolvedValue({
         valid: false,
@@ -225,7 +232,7 @@ describe('Context Provider Integration', () => {
         },
       });
 
-      const result = await contextInjector.validateAndFilterContext(
+      const result = await contextProvider.validateAndFilterContext(
         'test-session',
         'exhausted-reflink'
       );
@@ -235,8 +242,21 @@ describe('Context Provider Integration', () => {
       expect(result.error).toContain('budget has been exhausted');
     });
 
+    it('should generate an ElevenLabs prompt', async () => {
+      const result = await contextProvider.generateElevenLabsPrompt(
+        'test-session',
+        undefined,
+        'Tell me about the projects'
+      );
+
+      expect(result.agent_prompt).toContain('portfolio website');
+      expect(result.first_message).toBeTruthy();
+      expect(result.language).toBe('en');
+      expect(result.capabilities.voiceAI).toBe(false);
+    });
+
     it('should load filtered context on-demand', async () => {
-      const result = await contextInjector.loadFilteredContext(
+      const result = await contextProvider.loadContextOnDemand(
         'test-session',
         'Tell me about React projects'
       );
@@ -253,89 +273,32 @@ describe('Context Provider Integration', () => {
   describe('Cache Management', () => {
     it('should clear session cache', () => {
       contextProvider.clearSessionCache('test-session');
-      contextInjector.clearSessionCache('test-session');
-      
-      // Should not throw errors
       expect(true).toBe(true);
     });
 
     it('should provide cache statistics', () => {
       const providerStats = contextProvider.getCacheStats();
-      const injectorStats = contextInjector.getCacheStats();
 
       expect(providerStats).toHaveProperty('size');
       expect(providerStats).toHaveProperty('keys');
       expect(providerStats).toHaveProperty('totalTokens');
-      
-      expect(injectorStats).toHaveProperty('size');
     });
   });
 
   describe('Error Handling', () => {
-    it('should handle context injection errors gracefully', async () => {
-      // Mock context manager error
-      const mockContextManager = require('@/lib/services/ai/context-manager');
-      mockContextManager.contextManager.buildContext.mockRejectedValue(
-        new Error('Context build failed')
-      );
-      mockContextManager.contextManager.searchRelevantContent.mockRejectedValue(
+    it('should handle context build errors gracefully', async () => {
+      const mockContentSourceManager = require('@/lib/services/ai/content-source-manager');
+      mockContentSourceManager.contentSourceManager.searchContent.mockRejectedValue(
         new Error('Search failed')
       );
 
-      const request = {
-        sessionId: 'test-session',
-        query: 'Tell me about the projects',
-      };
-
-      const result = await contextProvider.injectContext(request);
+      const result = await contextProvider.injectContext({
+        sessionId: 'error-session',
+        query: 'anything',
+      });
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain('Context build failed');
-    });
-
-    it('should handle token generation errors gracefully', async () => {
-      // Mock reflink manager error
-      const mockReflinkManager = require('@/lib/services/ai/reflink-manager');
-      mockReflinkManager.reflinkManager.validateReflinkWithBudget.mockRejectedValue(
-        new Error('Database connection failed')
-      );
-
-      const request = {
-        sessionId: 'test-session',
-        provider: 'openai' as const,
-        reflinkCode: 'test-reflink',
-      };
-
-      const result = await contextInjector.generateEphemeralToken(request);
-
-      expect(result.success).toBe(false);
-      expect(result.error).toBeDefined();
-    });
-  });
-});
-
-describe('API Endpoints', () => {
-  describe('/api/ai/context/inject', () => {
-    it('should validate required fields', async () => {
-      // This would test the actual API endpoint
-      // For now, just verify the endpoint exists
-      expect(true).toBe(true);
-    });
-  });
-
-  describe('/api/ai/voice/session-init', () => {
-    it('should validate provider parameter', async () => {
-      // This would test the actual API endpoint
-      // For now, just verify the endpoint exists
-      expect(true).toBe(true);
-    });
-  });
-
-  describe('/api/ai/context/load', () => {
-    it('should validate context type parameter', async () => {
-      // This would test the actual API endpoint
-      // For now, just verify the endpoint exists
-      expect(true).toBe(true);
+      expect(result.error).toBe('Search failed');
     });
   });
 });

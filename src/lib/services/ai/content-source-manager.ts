@@ -4,7 +4,30 @@
  * Supports automatic discovery and enable/disable toggles for content sources
  */
 
-import { ContextSource, RelevantContent } from './context-manager';
+// These types moved here from the deleted Gen-1 context-manager (Phase 3 Wave 3):
+// content-source-manager is their real owner — its providers produce RelevantContent
+// and its source registry produces ContextSource entries.
+export interface ContextSource {
+  id: string;
+  type: 'project' | 'about' | 'resume' | 'custom';
+  title: string;
+  enabled: boolean;
+  summary: string;
+  lastUpdated: Date;
+  priority: number; // 0-1, higher = more important
+}
+
+export interface RelevantContent {
+  id: string;
+  type: 'project' | 'about' | 'resume' | 'experience' | 'skills' | 'custom';
+  title: string;
+  content: string;
+  summary: string;
+  relevanceScore: number; // 0-1
+  keywords: string[];
+  projectId?: string;
+  sectionId?: string;
+}
 
 export interface ContentSourceProvider {
   id: string;

@@ -828,23 +828,23 @@ function VoiceDebugContent() {
                   size="sm"
                   onClick={async () => {
                     try {
-                      const response = await fetch('/api/ai/context', {
+                      // Gen-1 /api/ai/context mock deleted (Phase 3, D26) — exercise
+                      // the real retrieval surface instead.
+                      const response = await fetch('/api/ai/tools/execute', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
-                          sessionId: state.conversationMetadata?.sessionId || `debug-session-${selectedProvider}`,
-                          query: 'Tell me about your React projects and experience',
-                          sources: ['projects', 'profile'],
-                          options: { includeSystemPrompt: true },
-                          useCache: false
+                          toolName: 'content_search',
+                          parameters: { query: 'Tell me about your React projects and experience' },
+                          sessionId: state.conversationMetadata?.sessionId || `debug-session-${selectedProvider}`
                         }),
                       });
 
                       if (response.ok) {
                         const result = await response.json();
                         toast({
-                          title: 'Context loaded',
-                          description: `Loaded ${result.data?.tokenCount || 0} tokens`,
+                          title: 'Content search executed',
+                          description: `Retrieved ${result.data?.items?.length ?? 0} results`,
                         });
                       }
                     } catch (error) {
@@ -857,7 +857,7 @@ function VoiceDebugContent() {
                   }}
                   className="text-xs"
                 >
-                  Test Context Load
+                  Test Content Search
                 </Button>
                 <Button
                   variant="outline"
