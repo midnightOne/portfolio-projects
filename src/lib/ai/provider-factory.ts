@@ -78,8 +78,8 @@ export class ProviderFactory {
       }
     }
 
-    // Check for Google API key
-    const googleKey = process.env.GOOGLE_API_KEY;
+    // Check for Google API key (GEMINI_API_KEY is Google's documented name)
+    const googleKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
     if (googleKey) {
       const googleProvider = this.createProvider('google', googleKey);
       if (googleProvider) {

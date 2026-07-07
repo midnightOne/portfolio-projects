@@ -30,6 +30,14 @@ const PROVIDER_ENV_KEYS = {
 
 type ProviderName = keyof typeof PROVIDER_ENV_KEYS;
 
+/** GEMINI_API_KEY is Google's documented name — accepted as a fallback everywhere. */
+function readProviderKey(envKey: string): string | undefined {
+  const value = process.env[envKey];
+  if (value) return value;
+  if (envKey === 'GOOGLE_API_KEY') return process.env.GEMINI_API_KEY;
+  return undefined;
+}
+
 export class EnvironmentValidator {
   /**
    * Validates AI configuration from environment variables
@@ -37,9 +45,10 @@ export class EnvironmentValidator {
   static validateAIConfig(): AIConfigStatus {
     const status = {} as AIConfigStatus;
     for (const [provider, envKey] of Object.entries(PROVIDER_ENV_KEYS)) {
+      const key = readProviderKey(envKey);
       status[provider as ProviderName] = {
-        configured: !!process.env[envKey],
-        keyPreview: this.maskApiKey(process.env[envKey]),
+        configured: !!key,
+        keyPreview: this.maskApiKey(key),
       };
     }
     return status;
@@ -58,7 +67,7 @@ export class EnvironmentValidator {
    * Checks if at least one AI provider is configured
    */
   static hasAnyAIProvider(): boolean {
-    return Object.values(PROVIDER_ENV_KEYS).some((envKey) => !!process.env[envKey]);
+    return Object.values(PROVIDER_ENV_KEYS).some((envKey) => !!readProviderKey(envKey));
   }
 
   /**
@@ -66,7 +75,7 @@ export class EnvironmentValidator {
    */
   static getConfiguredProviders(): ProviderName[] {
     return (Object.entries(PROVIDER_ENV_KEYS) as Array<[ProviderName, string]>)
-      .filter(([, envKey]) => !!process.env[envKey])
+      .filter(([, envKey]) => !!readProviderKey(envKey))
       .map(([provider]) => provider);
   }
 

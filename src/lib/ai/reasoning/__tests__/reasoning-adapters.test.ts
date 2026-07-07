@@ -179,10 +179,11 @@ describe('GoogleReasoningAdapter', () => {
     expect(toolTurn.parts[0].functionResponse.name).toBe('content_search');
   });
 
-  it('fails closed without GOOGLE_API_KEY', async () => {
+  it('fails closed without GOOGLE_API_KEY/GEMINI_API_KEY', async () => {
     delete process.env.GOOGLE_API_KEY;
+    delete process.env.GEMINI_API_KEY;
     const adapter = new GoogleReasoningAdapter('gemini-test');
-    await expect(adapter.chat(MESSAGES)).rejects.toThrow('GOOGLE_API_KEY is not configured');
+    await expect(adapter.chat(MESSAGES)).rejects.toThrow('GOOGLE_API_KEY/GEMINI_API_KEY is not configured');
   });
 });
 

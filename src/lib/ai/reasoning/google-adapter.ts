@@ -17,9 +17,10 @@ export class GoogleReasoningAdapter implements ReasoningAdapter {
   constructor(readonly modelId: string) {}
 
   async chat(messages: ReasoningMessage[], options?: ReasoningChatOptions): Promise<ReasoningResult> {
-    const apiKey = process.env.GOOGLE_API_KEY;
+    // Google's docs use GEMINI_API_KEY; GOOGLE_API_KEY kept as the spec'd name (D3)
+    const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      throw new Error('GOOGLE_API_KEY is not configured');
+      throw new Error('GOOGLE_API_KEY/GEMINI_API_KEY is not configured');
     }
 
     const systemText = messages
