@@ -18,8 +18,8 @@ Light/dark theme system with tokens, persistence, and flicker-free switching; cu
   - [x] 1.2 Nothing folded — every subsystem already has its D16 admin playground: wave hero → admin wave config panel with live preview; voice → `/admin/ai/voice-debug`; chat → `/admin/ai/debug`. Theme/animation testbeds judged not worth an admin page (theme switching is exercised by the real UI).
   - _Requirements: Cancelled section; registry D16_
 
-- [ ] 2. Reduced-motion audit — *Phase 3 verification*
-  - [ ] 2.1 Verify `prefers-reduced-motion` collapses guided-navigation sequences and wave animation intensity
+- [x] 2. Reduced-motion audit — **code-audited 2026-07-07: three enforcement layers confirmed**
+  - [x] 2.1 Wave: `prefers-reduced-motion` → performance 'low' → static fallback render (no Three.js animation at all — stronger than intensity reduction). Guided navigation: GSAP `globalTimeline.timeScale(0.01)` under reduce (with a live change listener) collapses every orchestrated sequence; `globals.css` disables highlight/spotlight transitions/animations under the media query. A browser drill with the OS-level toggle is noted for the verification spec's live checklist (preview tooling cannot emulate the media query).
   - _Requirements: 3.2_
 
 ## Backlog

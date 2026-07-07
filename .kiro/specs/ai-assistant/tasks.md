@@ -52,7 +52,7 @@ OpenAI Realtime + ElevenLabs adapters behind `IConversationalAgentAdapter` with 
 - [ ] 5. Config hygiene — *5.1 agent-ID half done 2026-07-07*
   - [x] 5.1a Hardcoded ElevenLabs fallback agent ID removed (adapter reads `NEXT_PUBLIC_ELEVENLABS_AGENT_ID` or fails closed; server-side agent resolution was already dynamic)
   - [ ] 5.1b `localhost:3000` fallbacks: remaining 5 sites are env-first (`NEXTAUTH_URL`/`NEXT_PUBLIC_APP_URL`) with dev-only literal defaults — full removal rides the fetch-self cleanup
-  - [ ] 5.2 Model references resolve via registry aliases (with `ai-admin` task set, D4)
+  - [x] 5.2 Model references resolve via registry aliases — done 2026-07-07 with `ai-admin` task 1 (run-path fully alias/config-resolved; residual config-layer defaults itemized in ai-admin 1.2)
   - _Requirements: 3.2_
 
 - [ ] 5b. Conversation continuity (D49) — *design lands with the Phase 3 persistence consolidation (task 2); full resume in Phase 4 alongside adapter work. **Depends on task 2b: the leg schema (5b.1) and markers (5b.2) extend the restored production write path — there is nothing to tag until 2b writes turns.***

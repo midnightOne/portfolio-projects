@@ -52,9 +52,9 @@ T0–T3 heading-bounded generation with contextual prefixes and section hashes; 
 
 ### Phase 3 — retrieval quality
 
-- [ ] 5. Hybrid retrieval (D29)
-  - [ ] 5.1 Fuse pgvector similarity with tsvector full-text (reciprocal-rank fusion or weighted union) in `ContentSearchService`
-  - [ ] 5.2 Acceptance: keyword-exact queries (project names, tech terms) rank correctly in `content_search`
+- [x] 5. Hybrid retrieval (D29) — **done 2026-07-07**
+  - [x] 5.1 Generated tsvector + GIN index on `context_chunks` (migration `20260707040000_chunk_fulltext`, zero drift); the full-text half always runs beside pgvector in `ContentSearchService`; fusion is a **weighted union** — semantic hits keep their cosine spread, full-text-only hits inject at a ts_rank-derived 0.55–0.90 similarity, both-halves agreement gets +0.05. (Plain RRF was tried first and rejected: rank-flattened scores broke the canonical query's tier≥2 ranking — caught by check:semantic.)
+  - [x] 5.2 Acceptance verified live: "glaze chemistry" → Glaze Chemistry Database, "ESP32"/"FreeRTOS" → Firmware Architecture, project name → fixture project; canonical natural-language query still 14/14
   - _Requirements: 5.2_
 
 ### Hygiene — DB (cross-cutting, no dependencies; do when convenient)

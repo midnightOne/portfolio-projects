@@ -29,8 +29,8 @@ Projects browser with grid/list/timeline views, real-time tag filtering, search 
   - [x] 3.2 Both deleted
   - _Requirements: design §3; registry D37_
 
-- [ ] 4. Sitemap/SEO audit after hygiene deletions — *Phase 3 tail; premise corrected 2026-07-06*
-  - [ ] 4.1 **Finding: no sitemap implementation exists in the app** (no `sitemap.ts`/`sitemap.xml` anywhere) — the "sitemap" claim in Already-implemented above is inaccurate. Task becomes: add a real `app/sitemap.ts` covering public pages + PUBLIC projects (no test routes exist anymore to exclude)
+- [x] 4. Sitemap/SEO audit after hygiene deletions — **done 2026-07-07**
+  - [x] 4.1 `app/sitemap.ts` created (none existed — the "sitemap" claim in the old Already-implemented was inaccurate): static public pages + every PUBLIC project's canonical deep link (`/projects?project=<slug>`), env-derived base URL, fail-soft on DB error. Verified live: sitemap.xml serves all public projects; no test routes remain to exclude (D16/D42).
   - _Requirements: 12.3_
 
 ## Backlog (not scheduled)
