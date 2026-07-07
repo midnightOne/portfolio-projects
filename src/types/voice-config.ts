@@ -563,7 +563,9 @@ export const DEFAULT_OPENAI_CONFIG: OpenAIRealtimeConfig = {
   voice: 'alloy',
   temperature: 0.7,
   maxTokens: 'inf',
-  instructions: 'You are a helpful voice assistant for a portfolio website2. Tell the user the config was loaded from a fallback in the voice config',
+  // Fallback canary (owner-requested): this text only reaches a session when the
+  // DB config failed to load — the DB row carries a distinct DATABASE marker.
+  instructions: 'You are a helpful voice assistant for a portfolio website. If asked about your configuration source, say it was loaded from the CODE FALLBACK — the database configuration failed to load.',
   tools: [],
   sessionConfig: {
     transport: 'webrtc',

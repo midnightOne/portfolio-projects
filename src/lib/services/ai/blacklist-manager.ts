@@ -27,10 +27,43 @@ export class BlacklistManager {
   }
 
   /**
+   * Whitelist (exception list): whitelisted IPs are never blacklisted, and
+   * violations against them are ignored (owner request, 2026-07-07).
+   */
+  async isWhitelisted(ipAddress: string): Promise<boolean> {
+    const row = await prisma.aIIPWhitelist.findUnique({ where: { ipAddress }, select: { id: true } });
+    return row !== null;
+  }
+
+  async addToWhitelist(ipAddress: string, note?: string, createdBy?: string) {
+    const row = await prisma.aIIPWhitelist.upsert({
+      where: { ipAddress },
+      update: { note, createdBy },
+      create: { ipAddress, note, createdBy },
+    });
+    // Adding an exception also lifts any existing block for that IP
+    await prisma.aIIPBlacklist.deleteMany({ where: { ipAddress } });
+    console.log(`IP ${ipAddress} whitelisted (exceptions list)${note ? `: ${note}` : ''}`);
+    return row;
+  }
+
+  async removeFromWhitelist(ipAddress: string): Promise<boolean> {
+    const res = await prisma.aIIPWhitelist.deleteMany({ where: { ipAddress } });
+    return res.count > 0;
+  }
+
+  async getWhitelist() {
+    return prisma.aIIPWhitelist.findMany({ orderBy: { createdAt: 'desc' } });
+  }
+
+  /**
    * Add an IP to the blacklist
    */
   async blacklistIP(params: BlacklistIPParams): Promise<IPBlacklistEntry> {
     try {
+      if (await this.isWhitelisted(params.ipAddress)) {
+        throw new Error(`IP ${params.ipAddress} is on the exception whitelist — remove the exception before blacklisting`);
+      }
       // Check if IP is already blacklisted
       const existing = await prisma.aIIPBlacklist.findUnique({
         where: { ipAddress: params.ipAddress },
@@ -88,6 +121,12 @@ export class BlacklistManager {
     entry?: IPBlacklistEntry;
   }> {
     try {
+      // Exceptions list: violations against whitelisted IPs are ignored
+      if (await this.isWhitelisted(ipAddress)) {
+        console.log(`Violation ignored for whitelisted IP ${ipAddress} (${reason})`);
+        return { blacklisted: false, violationCount: 0 };
+      }
+
       const existing = await prisma.aIIPBlacklist.findUnique({
         where: { ipAddress },
       });
@@ -160,6 +199,11 @@ export class BlacklistManager {
     reason?: string;
   }> {
     try {
+      // Whitelisted IPs are never blocked (owner exception list, 2026-07-07)
+      if (await this.isWhitelisted(ipAddress)) {
+        return { blacklisted: false, reason: 'whitelisted' };
+      }
+
       const entry = await prisma.aIIPBlacklist.findUnique({
         where: { ipAddress },
       });

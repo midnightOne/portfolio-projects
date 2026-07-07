@@ -2,7 +2,10 @@
  * Tests for rate limiting system
  */
 
-import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
+// NOTE: do NOT import `jest` from '@jest/globals' in suites that use jest.mock —
+// the imported binding defeats babel hoisting and the REAL module loads first
+// (this is exactly how these tests wrote real blacklist rows; found 2026-07-07).
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { RateLimiter } from '@/lib/services/ai/rate-limiter';
 import { ReflinkManager } from '@/lib/services/ai/reflink-manager';
 import { BlacklistManager } from '@/lib/services/ai/blacklist-manager';

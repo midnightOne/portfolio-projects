@@ -55,6 +55,10 @@ Postgres-backed rate-limit tables + engine (`rate-limiter.ts`) — **built but u
   - [ ] 8.1 Duration caps enforced at token mint for all voice providers
   - _Requirements: 2.4_
 
+## Shipped additions
+
+- **IP exception whitelist (owner request, shipped 2026-07-07):** `AIIPWhitelist` table (migration `20260707070000_ip_whitelist`) + `blacklist-manager` enforcement — whitelisted IPs are never blacklisted, violations against them are ignored, manual blacklisting is refused, and `isBlacklisted()` (the gateway's step-4 check) short-circuits to allowed. Admin: `/api/admin/ai/whitelist` (GET/POST/DELETE) + an "IP Exceptions" card on /admin/ai/security with per-blacklist-row "Add exception" (adding an exception also lifts an existing block). Verified through the admin UI end-to-end (add → listed → violations ignored → manual blacklist refused → remove). Origin story: jest suites were writing REAL blacklist rows (the `@jest/globals` jest-import defeats `jest.mock` hoisting — fixed; suites now hermetic and 16/16 green).
+
 ## Follow-ups filed during the Phase 2 build (2026-07-05)
 
 - **Pill anonymous text mode is wired but unverified in-browser.** `floating-ai-interface.tsx`

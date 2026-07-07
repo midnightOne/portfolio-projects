@@ -399,6 +399,19 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 execute: async (parameters: any) => {
                     console.log(`OpenAI tool execution started: ${toolDef.name}`, parameters);
 
+                    // A tool that never settles stalls the whole conversation: the
+                    // model waits forever for function output and goes silent while
+                    // the session stays "connected" (observed 2026-07-07). Hard
+                    // timeout converts any hang into an error string the model can
+                    // recover from conversationally.
+                    const TOOL_TIMEOUT_MS = 20000;
+                    const timeoutGuard = new Promise<string>((resolve) =>
+                        setTimeout(() => resolve(
+                            `Tool ${toolDef.name} timed out after ${TOOL_TIMEOUT_MS / 1000}s — tell the user the action did not complete and offer to retry.`
+                        ), TOOL_TIMEOUT_MS)
+                    );
+
+                    const run = async (): Promise<string> => {
                     try {
                         let result: string;
 
@@ -468,6 +481,9 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                         const errorMessage = `Failed to execute ${toolDef.name}: ${error instanceof Error ? error.message : String(error)}`;
                         return errorMessage;
                     }
+                    };
+
+                    return Promise.race([run(), timeoutGuard]);
                 },
             });
         });

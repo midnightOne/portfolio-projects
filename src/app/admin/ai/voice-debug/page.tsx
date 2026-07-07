@@ -7,6 +7,7 @@ import { AdminLayout } from '@/components/admin/admin-layout';
 import { AdminPageLayout } from '@/components/admin/admin-page-layout';
 import { VoiceDebugInterface } from '@/components/admin/VoiceDebugInterface';
 import { AdminDebugTest } from '@/components/admin/AdminDebugTest';
+import { ReflinkTestPanel } from '@/components/admin/ReflinkTestPanel';
 
 export default function VoiceDebugPage() {
   const { data: session, status } = useSession();
@@ -59,6 +60,7 @@ export default function VoiceDebugPage() {
         ]}
       >
         <div className="space-y-8">
+          <ReflinkTestPanel />
           <AdminDebugTest />
           <VoiceDebugInterface />
         </div>

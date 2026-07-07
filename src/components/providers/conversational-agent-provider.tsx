@@ -75,7 +75,7 @@ export function ConversationalAgentProvider({
   defaultProvider = 'openai',
   audioElement 
 }: ConversationalAgentProviderProps) {
-  const { session, accessLevel, isFeatureEnabled, budgetStatus } = useReflinkSession();
+  const { session, accessLevel, isFeatureEnabled, budgetStatus, isLoading: sessionLoading } = useReflinkSession();
   
   // State management
   const [isInitialized, setIsInitialized] = useState(false);
@@ -142,6 +142,7 @@ export function ConversationalAgentProvider({
     if (process.env.NODE_ENV === 'development') {
       console.log('ConversationalAgentProvider initialization check:', {
         isInitialized,
+        sessionLoading,
         session: session !== null,
         voiceAIEnabled: isFeatureEnabled('voice_ai'),
         accessLevel,
@@ -150,12 +151,16 @@ export function ConversationalAgentProvider({
       });
     }
     
-    // Only initialize if we don't already have an adapter and conditions are met
-    if (!isInitialized && !currentAdapter && session !== null && isFeatureEnabled('voice_ai')) {
+    // Only initialize if we don't already have an adapter and conditions are met.
+    // Gate on session RESOLUTION (not presence): admin and anonymous sessions have
+    // no reflink object, and requiring one left the adapter uninitialized until a
+    // provider toggle forced it (the /admin/ai/voice-debug connect-on-load bug,
+    // fixed 2026-07-07).
+    if (!isInitialized && !currentAdapter && !sessionLoading && isFeatureEnabled('voice_ai')) {
       console.log('Initializing voice provider (no auto-connect):', defaultProvider);
       initializeProvider(defaultProvider);
     }
-  }, [session, isFeatureEnabled, defaultProvider, isInitialized, currentAdapter]); // Removed accessLevel to reduce re-renders
+  }, [session, sessionLoading, isFeatureEnabled, defaultProvider, isInitialized, currentAdapter]); // Removed accessLevel to reduce re-renders
 
   // Cleanup on unmount
   useEffect(() => {

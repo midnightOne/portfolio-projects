@@ -63,7 +63,50 @@ export function SecurityManager() {
     violationCount: '1',
   });
   const [reinstateReason, setReinstateReason] = useState('');
+  const [whitelist, setWhitelist] = useState<Array<{ id: string; ipAddress: string; note?: string | null; createdAt: string }>>([]);
+  const [whitelistIP, setWhitelistIP] = useState('');
+  const [whitelistNote, setWhitelistNote] = useState('');
   const { toast } = useToast();
+
+  const fetchWhitelist = async () => {
+    try {
+      const response = await fetch('/api/admin/ai/whitelist');
+      const data = await response.json();
+      if (data.success) setWhitelist(data.data);
+    } catch (error) {
+      console.error('Failed to fetch whitelist:', error);
+    }
+  };
+
+  const addException = async (ipAddress: string, note?: string) => {
+    try {
+      const response = await fetch('/api/admin/ai/whitelist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ipAddress, note }),
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error || 'Failed to add exception');
+      toast({ title: 'Exception added', description: `${ipAddress} is whitelisted and unblocked` });
+      setWhitelistIP('');
+      setWhitelistNote('');
+      await Promise.all([fetchWhitelist(), fetchBlacklistEntries()]);
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    }
+  };
+
+  const removeException = async (ipAddress: string) => {
+    try {
+      const response = await fetch(`/api/admin/ai/whitelist?ipAddress=${encodeURIComponent(ipAddress)}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error || 'Failed to remove exception');
+      toast({ title: 'Exception removed', description: ipAddress });
+      await fetchWhitelist();
+    } catch (error: any) {
+      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+    }
+  };
 
   const fetchBlacklistEntries = async () => {
     try {
@@ -234,6 +277,7 @@ export function SecurityManager() {
   useEffect(() => {
     fetchBlacklistEntries();
     fetchAnalytics();
+    fetchWhitelist();
   }, []);
 
   const getViolationBadgeVariant = (count: number) => {
@@ -482,7 +526,78 @@ export function SecurityManager() {
                             >
                               Remove
                             </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => addException(entry.ipAddress, 'Exception added from blacklist row')}
+                              title="Whitelist this IP: lifts the block and ignores future violations"
+                            >
+                              Add exception
+                            </Button>
                           </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>IP Exceptions (Whitelist)</CardTitle>
+              <CardDescription>
+                Whitelisted IPs are never blacklisted; violations against them are ignored.
+                Adding an exception also lifts any existing block.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  value={whitelistIP}
+                  onChange={(e) => setWhitelistIP(e.target.value)}
+                  placeholder="IP address (e.g. 203.0.113.7)"
+                  className="w-56 h-9 font-mono text-sm"
+                />
+                <Input
+                  value={whitelistNote}
+                  onChange={(e) => setWhitelistNote(e.target.value)}
+                  placeholder="Note (optional)"
+                  className="w-64 h-9 text-sm"
+                />
+                <Button
+                  size="sm"
+                  disabled={!whitelistIP.trim()}
+                  onClick={() => addException(whitelistIP.trim(), whitelistNote.trim() || undefined)}
+                >
+                  Add exception
+                </Button>
+              </div>
+              {whitelist.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No exceptions configured.</p>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>IP Address</TableHead>
+                      <TableHead>Note</TableHead>
+                      <TableHead>Added</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {whitelist.map((w) => (
+                      <TableRow key={w.id}>
+                        <TableCell>
+                          <code className="bg-muted px-2 py-1 rounded text-sm">{w.ipAddress}</code>
+                        </TableCell>
+                        <TableCell className="text-sm">{w.note || '—'}</TableCell>
+                        <TableCell className="text-sm">{new Date(w.createdAt).toLocaleString()}</TableCell>
+                        <TableCell>
+                          <Button variant="ghost" size="sm" onClick={() => removeException(w.ipAddress)}>
+                            Remove
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}

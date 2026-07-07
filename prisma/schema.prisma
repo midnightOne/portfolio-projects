@@ -355,6 +355,16 @@ model AIReflink {
   @@map("ai_reflinks")
 }
 
+model AIIPWhitelist {
+  id        String   @id @default(cuid())
+  ipAddress String   @unique @map("ip_address")
+  note      String?
+  createdBy String?  @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("ai_ip_whitelist")
+}
+
 model AIIPBlacklist {
   id               String    @id @default(cuid())
   ipAddress        String    @unique @map("ip_address")
