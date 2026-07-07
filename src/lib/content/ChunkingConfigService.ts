@@ -6,6 +6,7 @@
  */
 
 import { prisma } from '@/lib/prisma';
+import { estimateCost, getPreflightRates } from '@/lib/ai/pricing';
 
 export interface ChunkingSettings {
   id: string;
@@ -322,16 +323,17 @@ export class ChunkingConfigService {
     let summarizationCostChange = 0;
     let affectedProjects = 0;
     let regenerationRequired = false;
+    const rates = await getPreflightRates();
 
     // Check if embedding model changed
     if (newConfig.embeddingModel && newConfig.embeddingModel !== currentConfig.embeddingModel) {
       regenerationRequired = true;
       affectedProjects = projects.length;
 
-      // Calculate embedding cost difference
-      const oldCost = currentConfig.embeddingModel === 'text-embedding-3-small' ? 0.00002 : 0.00013;
-      const newCost = newConfig.embeddingModel === 'text-embedding-3-small' ? 0.00002 : 0.00013;
-      
+      // Calculate embedding cost difference (per-1K rates from AIModelPricing, D38)
+      const oldCost = await estimateCost(currentConfig.embeddingModel, { inputTokens: 1000 });
+      const newCost = await estimateCost(newConfig.embeddingModel, { inputTokens: 1000 });
+
       for (const project of projects) {
         const totalTokens = project.contentChunks.reduce((sum, chunk) => sum + chunk.tokenCount, 0);
         embeddingCostChange += (newCost - oldCost) * totalTokens / 1000;
@@ -358,8 +360,8 @@ export class ChunkingConfigService {
         const t1Change = newConfig.t1MaxLength ? (newConfig.t1MaxLength - currentConfig.t1MaxLength) : 0;
         const t2Change = newConfig.t2MaxLength ? (newConfig.t2MaxLength - currentConfig.t2MaxLength) : 0;
         
-        // Rough estimate: $0.00015 per 1K tokens for gpt-4o-mini
-        summarizationCostChange += (t1Chunks * t1Change + t2Chunks * t2Change) * 0.00015 / 1000;
+        // Rough estimate at the default-cheap summarization rate
+        summarizationCostChange += (t1Chunks * t1Change + t2Chunks * t2Change) * rates.summarizationInputPer1kUsd / 1000;
       }
     }
 
@@ -368,10 +370,13 @@ export class ChunkingConfigService {
     // Estimate regeneration cost if needed
     let estimatedRegenerationCost = 0;
     if (regenerationRequired) {
+      const regenEmbeddingPer1k = newConfig.embeddingModel
+        ? await estimateCost(newConfig.embeddingModel, { inputTokens: 1000 })
+        : rates.embeddingPer1kUsd;
       for (const project of projects) {
         const totalTokens = project.contentChunks.reduce((sum, chunk) => sum + chunk.tokenCount, 0);
-        const embeddingCost = (newConfig.embeddingModel === 'text-embedding-3-large' ? 0.00013 : 0.00002) * totalTokens / 1000;
-        const summarizationCost = 0.00015 * totalTokens / 1000; // Rough estimate
+        const embeddingCost = regenEmbeddingPer1k * totalTokens / 1000;
+        const summarizationCost = rates.summarizationInputPer1kUsd * totalTokens / 1000; // Rough estimate
         estimatedRegenerationCost += embeddingCost + summarizationCost;
       }
     }

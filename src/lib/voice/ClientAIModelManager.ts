@@ -81,6 +81,7 @@ export class ClientAIModelManagerError extends Error {
 
 export class ClientAIModelManager {
   private prisma: PrismaClient;
+  private ownsPrisma: boolean;
   private cache: Map<string, CacheEntry> = new Map();
   private options: Required<ClientAIModelManagerOptions>;
   private reloadTimer?: NodeJS.Timeout;
@@ -102,6 +103,7 @@ export class ClientAIModelManager {
     prisma?: PrismaClient,
     options: ClientAIModelManagerOptions = {}
   ) {
+    this.ownsPrisma = !prisma;
     this.prisma = prisma || new PrismaClient();
     this.options = { ...ClientAIModelManager.DEFAULT_OPTIONS, ...options };
     
@@ -648,9 +650,15 @@ export class ClientAIModelManager {
     }
     
     this.cache.clear();
-    
-    // Proper Prisma client disconnection
-    await this.prisma.$disconnect();
+
+    // Disconnect only a client we created ourselves — never a shared/injected one
+    if (this.ownsPrisma && typeof this.prisma.$disconnect === 'function') {
+      try {
+        await this.prisma.$disconnect();
+      } catch (error) {
+        console.warn('ClientAIModelManager: Prisma disconnect failed during destroy:', error);
+      }
+    }
   }
 
   // Private helper methods
@@ -786,7 +794,9 @@ export function getClientAIModelManager(
  */
 export function resetClientAIModelManager(): void {
   if (clientAIModelManagerInstance) {
-    clientAIModelManagerInstance.destroy();
+    void clientAIModelManagerInstance.destroy().catch(error => {
+      console.warn('ClientAIModelManager: destroy failed during reset:', error);
+    });
     clientAIModelManagerInstance = null;
   }
 }

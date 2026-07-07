@@ -14,6 +14,7 @@ import OpenAI from 'openai';
 import { getSummaryGenerationService } from './SummaryGenerationService';
 import { T3HeadingBoundedChunking } from './T3HeadingBoundedChunking';
 import ChunkingConfigService from './ChunkingConfigService';
+import { getPreflightRates } from '@/lib/ai/pricing';
 
 const prisma = new PrismaClient();
 
@@ -61,12 +62,6 @@ export class SmartContentGenerator {
   private embeddingModel = '';
   private embeddingDimensions = 1536;
 
-  // Cost tracking (approximate costs in USD)
-  // Pre-flight estimate constants only (real spend rides the ledger + pricing.ts, D38);
-  // consolidation into estimateCost() is semantic-content task 2.2.
-  private readonly EMBEDDING_COST_PER_1K_TOKENS = 0.00002;
-  private readonly GPT4_MINI_COST_PER_1K_TOKENS = 0.00015;
-
   constructor(chunkingConfig?: { targetChunkSize?: number; maxSectionSize?: number; minSectionSize?: number; sectionBoundaryOverlap?: number; splitStrategy?: 'paragraph' | 'sentence' | 'token' }) {
     this.contentParser = HierarchicalContentParser.getInstance();
     
@@ -96,6 +91,7 @@ export class SmartContentGenerator {
     let tokensSkipped = 0;
     let sectionsSkipped = 0;
     let estimatedCostSaved = 0;
+    const rates = await getPreflightRates();
 
     // T0: Always regenerate (lightweight metadata, no AI, no manual edit)
     tiers.push(await this.generateT0Metadata(project));
@@ -109,7 +105,7 @@ export class SmartContentGenerator {
         tiers.push(existingT1);
         tokensSkipped += existingT1.tokenCount;
         sectionsSkipped += 1;
-        estimatedCostSaved += this.GPT4_MINI_COST_PER_1K_TOKENS * (existingT1.tokenCount / 1000);
+        estimatedCostSaved += rates.summarizationInputPer1kUsd * (existingT1.tokenCount / 1000);
       } else {
         tiers.push(await this.generateT1Summary(project, enhancedIndex));
       }
@@ -129,7 +125,7 @@ export class SmartContentGenerator {
           tiers.push(existing);
           tokensSkipped += existing.tokenCount;
           sectionsSkipped += 1;
-          estimatedCostSaved += this.GPT4_MINI_COST_PER_1K_TOKENS * (existing.tokenCount / 1000);
+          estimatedCostSaved += rates.summarizationInputPer1kUsd * (existing.tokenCount / 1000);
         }
       }
     }

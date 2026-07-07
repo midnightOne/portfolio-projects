@@ -23,6 +23,7 @@ import { IndexMaintenanceService } from '../database/IndexMaintenanceService';
 import { SmartContentGenerator } from './SmartContentGenerator';
 import OpenAI from 'openai';
 import { EventEmitter } from 'events';
+import { getPreflightRates } from '@/lib/ai/pricing';
 
 const prisma = new PrismaClient();
 
@@ -100,12 +101,6 @@ export class ContentIngestionService extends EventEmitter {
   private openai: OpenAI;
   private embeddingModel: string | null = null; // resolved via 'default-embedding' alias (D4)
   private embeddingDimensions = 1536;
-  
-  // Cost tracking (approximate costs in USD)
-  // Pre-flight estimate constants only (real spend rides the ledger + pricing.ts, D38);
-  // consolidation into estimateCost() is semantic-content task 2.2.
-  private readonly EMBEDDING_COST_PER_1K_TOKENS = 0.00002; // $0.02 per 1M tokens
-  private readonly GPT4_MINI_COST_PER_1K_TOKENS = 0.00015; // $0.15 per 1M input tokens
   
   // Chunking configuration (now handled by SmartContentGenerator for T3 tier)
   // T3 chunks are heading-bounded and use intelligent splitting
@@ -279,7 +274,7 @@ export class ContentIngestionService extends EventEmitter {
           const embedding = await this.generateEmbedding(tierContent.content);
           tierContent.embedding = embedding;
           embeddingsGenerated++;
-          totalCost += this.calculateEmbeddingCost(tierContent.tokenCount);
+          totalCost += (tierContent.tokenCount / 1000) * (await getPreflightRates()).embeddingPer1kUsd;
         }
       }
 
@@ -424,6 +419,7 @@ export class ContentIngestionService extends EventEmitter {
   private async generateProjectTiersHybrid(project: any, userMarkers: UserDefinedTierMarkers): Promise<TierContent[]> {
     const tiers: TierContent[] = [];
     let autoGenerationCost = 0;
+    const rates = await getPreflightRates();
 
     // Get project index for structured content
     const projectIndex = await this.contentParser.indexProject(project.id);
@@ -468,7 +464,7 @@ export class ContentIngestionService extends EventEmitter {
       t1Content = await this.generateT1Summary(project) || 
                   [project.description, project.briefOverview].filter(Boolean).join('\n\n');
       if (t1Content !== [project.description, project.briefOverview].filter(Boolean).join('\n\n')) {
-        autoGenerationCost += this.GPT4_MINI_COST_PER_1K_TOKENS * 2; // Estimate 2k tokens for generation
+        autoGenerationCost += rates.summarizationInputPer1kUsd * 2; // Estimate 2k tokens for generation
       }
     }
 
@@ -548,7 +544,7 @@ export class ContentIngestionService extends EventEmitter {
               }
             });
           });
-          autoGenerationCost += this.GPT4_MINI_COST_PER_1K_TOKENS * 2;
+          autoGenerationCost += rates.summarizationInputPer1kUsd * 2;
         } else {
           keySections.forEach((section, index) => {
             const chunkId = `key-section-${index}`;
@@ -656,7 +652,7 @@ export class ContentIngestionService extends EventEmitter {
               derivationPath: 'T0→T1→T3'
             }
           });
-          autoGenerationCost += this.GPT4_MINI_COST_PER_1K_TOKENS * 3;
+          autoGenerationCost += rates.summarizationInputPer1kUsd * 3;
         }
       }
     }
@@ -998,29 +994,22 @@ Include: technical architecture, key features, implementation details, technolog
    */
   private async estimateTotalCost(projects: any[]): Promise<number> {
     let totalCost = 0;
-    
+    const rates = await getPreflightRates();
+
     for (const project of projects) {
-      const contentLength = (project.articleContent?.content || '').length;
       const estimatedTokens = this.estimateTokenCount(project.articleContent?.content || '');
-      
+
       // Embedding costs (all tiers)
-      totalCost += this.calculateEmbeddingCost(estimatedTokens);
-      
+      totalCost += (estimatedTokens / 1000) * rates.embeddingPer1kUsd;
+
       // Auto-generation costs (if no user markers)
       const userMarkers = this.parseUserDefinedTierMarkers(project.articleContent?.content || '');
-      if (!userMarkers.T1) totalCost += this.GPT4_MINI_COST_PER_1K_TOKENS * 2;
-      if (!userMarkers.T2) totalCost += this.GPT4_MINI_COST_PER_1K_TOKENS * 2;
-      if (!userMarkers.T3) totalCost += this.GPT4_MINI_COST_PER_1K_TOKENS * 3;
+      if (!userMarkers.T1) totalCost += rates.summarizationInputPer1kUsd * 2;
+      if (!userMarkers.T2) totalCost += rates.summarizationInputPer1kUsd * 2;
+      if (!userMarkers.T3) totalCost += rates.summarizationInputPer1kUsd * 3;
     }
-    
-    return totalCost;
-  }
 
-  /**
-   * Calculate embedding cost for given token count
-   */
-  private calculateEmbeddingCost(tokenCount: number): number {
-    return (tokenCount / 1000) * this.EMBEDDING_COST_PER_1K_TOKENS;
+    return totalCost;
   }
 
   /**

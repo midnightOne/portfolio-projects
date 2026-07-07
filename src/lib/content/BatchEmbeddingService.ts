@@ -15,6 +15,8 @@
 import OpenAI from 'openai';
 import { PrismaClient } from '@prisma/client';
 import { semanticBudgetManager } from './SemanticBudgetManager';
+import { estimateCost, getPreflightRates } from '@/lib/ai/pricing';
+import { recordUsage } from '@/lib/ai/ledger';
 import * as fs from 'fs/promises';
 import { createReadStream } from 'fs';
 import * as path from 'path';
@@ -66,9 +68,9 @@ export interface BatchOperationAnalytics {
 
 export class BatchEmbeddingService {
   private openai: OpenAI;
-  private readonly BATCH_COST_MULTIPLIER = 0.5; // 50% discount
-  private readonly STANDARD_EMBEDDING_COST = 0.00002; // $0.02 per 1M tokens
-  private readonly BATCH_EMBEDDING_COST = 0.00001; // $0.01 per 1M tokens
+  // Provider policy, not a price: OpenAI Batch API bills 50% of the standard rate.
+  // Standard rates come from AIModelPricing via pricing.ts (D38).
+  private readonly BATCH_COST_MULTIPLIER = 0.5;
   private readonly MAX_BATCH_SIZE = 50000; // OpenAI limit
   private readonly POLL_INTERVAL = 60000; // 1 minute
 
@@ -300,9 +302,11 @@ export class BatchEmbeddingService {
       }
     }
 
-    // Calculate actual cost
-    const actualCost = (totalTokens / 1000) * this.BATCH_EMBEDDING_COST;
-    const standardCost = (totalTokens / 1000) * this.STANDARD_EMBEDDING_COST;
+    // Calculate actual cost from provider usage at registry rates (D38); batch = 50% of standard
+    const job = await (prisma as any).batchEmbeddingJob.findUnique({ where: { batchId } });
+    const model: string = job?.model ?? 'unknown-batch-embedding-model'; // unknown → conservative rate
+    const standardCost = await estimateCost(model, { inputTokens: totalTokens });
+    const actualCost = standardCost * this.BATCH_COST_MULTIPLIER;
     const actualSavings = standardCost - actualCost;
 
     // Update database with actual costs
@@ -315,12 +319,24 @@ export class BatchEmbeddingService {
       }
     });
 
+    // Actuals land in the unified ledger (D32); the budget deduction below stays as the
+    // semantic pipeline's pre-flight gate accounting.
+    await recordUsage({
+      feature: 'semantic',
+      usageType: 'embedding_batch',
+      provider: 'openai',
+      modelId: model,
+      inputTokens: totalTokens,
+      costUsd: actualCost,
+      metadata: { batchId, batchMode: true, chunksProcessed: embeddings.length }
+    });
+
     // Deduct cost from budget
     await semanticBudgetManager.deductCost({
       operationType: 'embedding',
       tokensUsed: totalTokens,
       cost: actualCost,
-      model: 'text-embedding-3-small-batch',
+      model,
       chunksProcessed: embeddings.length,
       tiersAffected: Array.from(new Set(embeddings.map(e => e.tier))),
       metadata: {
@@ -427,14 +443,15 @@ export class BatchEmbeddingService {
   /**
    * Estimate cost comparison between standard and batch
    */
-  estimateCostComparison(tokenCount: number): {
+  async estimateCostComparison(tokenCount: number): Promise<{
     standardCost: number;
     batchCost: number;
     savings: number;
     savingsPercentage: number;
-  } {
-    const standardCost = (tokenCount / 1000) * this.STANDARD_EMBEDDING_COST;
-    const batchCost = (tokenCount / 1000) * this.BATCH_EMBEDDING_COST;
+  }> {
+    const rates = await getPreflightRates();
+    const standardCost = (tokenCount / 1000) * rates.embeddingPer1kUsd;
+    const batchCost = standardCost * this.BATCH_COST_MULTIPLIER;
     const savings = standardCost - batchCost;
 
     return {

@@ -14,6 +14,7 @@
  */
 
 import { prisma } from '@/lib/database/connection';
+import { getPreflightRates } from '@/lib/ai/pricing';
 import { HierarchicalContentParser } from './HierarchicalContentParser';
 import crypto from 'crypto';
 
@@ -100,10 +101,6 @@ export class ContentChangeDetector {
   private contentParser: HierarchicalContentParser;
   private config: ChangeDetectionConfig;
 
-  // Cost estimation constants (approximate costs in USD)
-  private readonly EMBEDDING_COST_PER_1K_TOKENS = 0.00002; // text-embedding-3-small
-  private readonly GPT4_MINI_COST_PER_1K_TOKENS = 0.00015; // gpt-4o-mini input tokens
-
   constructor(config?: Partial<ChangeDetectionConfig>) {
     this.contentParser = HierarchicalContentParser.getInstance();
     this.config = {
@@ -111,7 +108,8 @@ export class ContentChangeDetector {
       minorChangeThreshold: 2,          // ≤2 sections = minor
       characterChangeThreshold: 0.05,   // 5% character change = moderate
       headingMatchThreshold: 0.7,       // 70% similarity for heading match
-      costPerToken: this.GPT4_MINI_COST_PER_1K_TOKENS,
+      // Config seed only — actual estimation math resolves rates via getPreflightRates() (D38)
+      costPerToken: 0.00015,
       ...config
     };
   }
@@ -446,7 +444,7 @@ export class ContentChangeDetector {
         affectedT3ChunkIds: newHeading.t3ChunkIds,
         regenerationRequired: true,
         estimatedTokens,
-        estimatedCost: this.calculateSectionCost(estimatedTokens)
+        estimatedCost: await this.calculateSectionCost(estimatedTokens)
       };
     }
 
@@ -482,7 +480,7 @@ export class ContentChangeDetector {
         affectedT3ChunkIds: contentChanged ? newHeading.t3ChunkIds : [],
         regenerationRequired: contentChanged,
         estimatedTokens,
-        estimatedCost: this.calculateSectionCost(estimatedTokens)
+        estimatedCost: await this.calculateSectionCost(estimatedTokens)
       };
     }
 
@@ -865,10 +863,11 @@ export class ContentChangeDetector {
     return Math.ceil(text.length / 4);
   }
 
-  private calculateSectionCost(tokens: number): number {
-    // Cost for both embedding and summarization
-    const embeddingCost = (tokens / 1000) * this.EMBEDDING_COST_PER_1K_TOKENS;
-    const summarizationCost = (tokens / 1000) * this.GPT4_MINI_COST_PER_1K_TOKENS;
+  private async calculateSectionCost(tokens: number): Promise<number> {
+    // Cost for both embedding and summarization (rates from AIModelPricing, D38)
+    const rates = await getPreflightRates();
+    const embeddingCost = (tokens / 1000) * rates.embeddingPer1kUsd;
+    const summarizationCost = (tokens / 1000) * rates.summarizationInputPer1kUsd;
     return embeddingCost + summarizationCost;
   }
 

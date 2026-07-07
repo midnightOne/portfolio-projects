@@ -20,6 +20,7 @@ import { SmartContentGenerator, TierContent } from './SmartContentGenerator';
 import { ContentChangeDetector, SectionChangeDetection } from './ContentChangeDetector';
 import { HierarchicalContentParser } from './HierarchicalContentParser';
 import OpenAI from 'openai';
+import { getPreflightRates } from '@/lib/ai/pricing';
 
 // Regeneration scope types
 export type RegenerationScope = 'all' | 'project' | 'section';
@@ -95,9 +96,14 @@ export interface RegenerationError {
   retryCount: number;
 }
 
-// Cost constants (approximate costs in USD)
-const EMBEDDING_COST_PER_1K_TOKENS = 0.00002; // text-embedding-3-small
-const GPT4_MINI_COST_PER_1K_TOKENS = 0.00015; // gpt-4o-mini input tokens
+// Pre-flight estimate: combined embedding + summarization cost for `tokens`
+// at the registry-resolved default models (D38 — rates come from AIModelPricing).
+async function estimateCombinedSectionCost(tokens: number): Promise<{ embeddingCost: number; summarizationCost: number; totalCost: number }> {
+  const rates = await getPreflightRates();
+  const embeddingCost = (tokens / 1000) * rates.embeddingPer1kUsd;
+  const summarizationCost = (tokens / 1000) * rates.summarizationInputPer1kUsd;
+  return { embeddingCost, summarizationCost, totalCost: embeddingCost + summarizationCost };
+}
 
 /**
  * Main SelectiveSectionRegenerator class
@@ -190,9 +196,7 @@ export class SelectiveSectionRegenerator {
       totalRegenerated += estimate.regeneratedSections;
     }
 
-    const embeddingCost = (totalTokens / 1000) * EMBEDDING_COST_PER_1K_TOKENS;
-    const summarizationCost = (totalTokens / 1000) * GPT4_MINI_COST_PER_1K_TOKENS;
-    const totalCost = embeddingCost + summarizationCost;
+    const { embeddingCost, summarizationCost, totalCost } = await estimateCombinedSectionCost(totalTokens);
 
     return {
       scope: 'all',
@@ -259,9 +263,7 @@ export class SelectiveSectionRegenerator {
       }
     }
 
-    const embeddingCost = (estimatedTokens / 1000) * EMBEDDING_COST_PER_1K_TOKENS;
-    const summarizationCost = (estimatedTokens / 1000) * GPT4_MINI_COST_PER_1K_TOKENS;
-    const totalCost = embeddingCost + summarizationCost;
+    const { embeddingCost, summarizationCost, totalCost } = await estimateCombinedSectionCost(estimatedTokens);
 
     return {
       scope: 'project',
@@ -330,9 +332,7 @@ export class SelectiveSectionRegenerator {
     const estimatedTokens = this.estimateTokenCount(section.content);
     const chunksAffected = Math.ceil(estimatedTokens / 300) + 1; // T3 chunks + T2
 
-    const embeddingCost = (estimatedTokens / 1000) * EMBEDDING_COST_PER_1K_TOKENS;
-    const summarizationCost = (estimatedTokens / 1000) * GPT4_MINI_COST_PER_1K_TOKENS;
-    const totalCost = embeddingCost + summarizationCost;
+    const { embeddingCost, summarizationCost, totalCost } = await estimateCombinedSectionCost(estimatedTokens);
 
     return {
       scope: 'section',
@@ -605,7 +605,7 @@ export class SelectiveSectionRegenerator {
       estimatedCost: 0
     };
 
-    sectionChange.estimatedCost = this.calculateSectionCost(sectionChange.estimatedTokens);
+    sectionChange.estimatedCost = await this.calculateSectionCost(sectionChange.estimatedTokens);
 
     progress.currentSection = sectionChange.headingText;
     this.notifyProgress(operationId, progress);
@@ -853,10 +853,8 @@ export class SelectiveSectionRegenerator {
   /**
    * Calculate section cost
    */
-  private calculateSectionCost(tokens: number): number {
-    const embeddingCost = (tokens / 1000) * EMBEDDING_COST_PER_1K_TOKENS;
-    const summarizationCost = (tokens / 1000) * GPT4_MINI_COST_PER_1K_TOKENS;
-    return embeddingCost + summarizationCost;
+  private async calculateSectionCost(tokens: number): Promise<number> {
+    return (await estimateCombinedSectionCost(tokens)).totalCost;
   }
 }
 

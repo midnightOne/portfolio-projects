@@ -10,6 +10,7 @@
  */
 
 import { prisma } from '@/lib/prisma';
+import { getPreflightRates } from '@/lib/ai/pricing';
 import JSZip from 'jszip';
 
 export interface OrphanedChunk {
@@ -406,8 +407,8 @@ export class BulkOperationsService {
       sum + p.contentChunks.reduce((s, c) => s + c.tokenCount, 0), 0
     );
 
-    // Estimate costs (text-embedding-3-small: $0.00002 per 1K tokens)
-    const standardCost = (totalTokens / 1000) * 0.00002;
+    // Estimate costs at the registry-resolved default-embedding rate (D38)
+    const standardCost = (totalTokens / 1000) * (await getPreflightRates()).embeddingPer1kUsd;
     const batchCost = standardCost * 0.5; // 50% savings with batch mode
     const savings = standardCost - batchCost;
 

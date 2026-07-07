@@ -16,7 +16,7 @@ async function testBatchAPI() {
   // Test 1: Cost Comparison
   console.log('📊 Test 1: Cost Comparison');
   const testTokens = 10000;
-  const comparison = batchService.estimateCostComparison(testTokens);
+  const comparison = await batchService.estimateCostComparison(testTokens);
   console.log(`  Tokens: ${testTokens}`);
   console.log(`  Standard Cost: $${comparison.standardCost.toFixed(4)}`);
   console.log(`  Batch Cost: $${comparison.batchCost.toFixed(4)}`);
@@ -50,7 +50,7 @@ async function testBatchAPI() {
     (sum, req) => sum + Math.ceil(req.content.length / 4),
     0
   );
-  const costEstimate = batchService.estimateCostComparison(estimatedTokens);
+  const costEstimate = await batchService.estimateCostComparison(estimatedTokens);
 
   console.log(`  Sample Requests: ${sampleRequests.length}`);
   console.log(`  Estimated Tokens: ${estimatedTokens}`);

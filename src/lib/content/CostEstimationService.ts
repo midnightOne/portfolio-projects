@@ -11,6 +11,8 @@
 
 import { prisma } from '@/lib/prisma';
 import { semanticBudgetManager } from './SemanticBudgetManager';
+import { estimateCost, listEmbeddingPricing } from '@/lib/ai/pricing';
+import { resolveAliasOrModelId } from '@/lib/ai/model-registry';
 
 export interface RegenerationCostEstimate {
   totalCost: number;
@@ -111,27 +113,6 @@ export interface OperationSummaryReport {
 }
 
 export class CostEstimationService {
-  // Cost constants (USD per 1K tokens)
-  private readonly EMBEDDING_COSTS = {
-    'text-embedding-3-small': 0.00002,
-    'text-embedding-3-large': 0.00013,
-    'text-embedding-ada-002': 0.0001,
-  };
-
-  private readonly SUMMARIZATION_INPUT_COSTS = {
-    'gpt-4o-mini': 0.00015,
-    'gpt-4o': 0.0025,
-    'gpt-4.1-mini': 0.0004,
-    'gpt-5-mini': 0.00025,
-  };
-
-  private readonly SUMMARIZATION_OUTPUT_COSTS = {
-    'gpt-4o-mini': 0.0006,
-    'gpt-4o': 0.01,
-    'gpt-4.1-mini': 0.0016,
-    'gpt-5-mini': 0.002,
-  };
-
   /**
    * Estimate cost for regeneration operation before execution
    */
@@ -142,8 +123,10 @@ export class CostEstimationService {
     embeddingModel?: string;
     summarizationModel?: string;
   }): Promise<RegenerationCostEstimate> {
-    const embeddingModel = options.embeddingModel || 'text-embedding-3-small';
-    const summarizationModel = options.summarizationModel || 'gpt-4o-mini';
+    const embeddingModel = options.embeddingModel
+      || (await resolveAliasOrModelId('default-embedding')).modelId;
+    const summarizationModel = options.summarizationModel
+      || (await resolveAliasOrModelId('default-cheap')).modelId;
 
     let projectIds: string[] = [];
     
@@ -164,13 +147,13 @@ export class CostEstimationService {
     );
 
     // Calculate summarization costs
-    const t1SummaryCost = this.calculateSummarizationCost(
+    const t1SummaryCost = await this.calculateSummarizationCost(
       summarizationModel,
       estimate.t1.inputTokens,
       estimate.t1.outputTokens
     );
 
-    const t2SummaryCost = this.calculateSummarizationCost(
+    const t2SummaryCost = await this.calculateSummarizationCost(
       summarizationModel,
       estimate.t2.inputTokens,
       estimate.t2.outputTokens
@@ -181,9 +164,9 @@ export class CostEstimationService {
                                estimate.t2.inputTokens + estimate.t2.outputTokens;
 
     // Calculate embedding costs
-    const t1EmbeddingCost = this.calculateEmbeddingCost(embeddingModel, estimate.t1.embeddingTokens);
-    const t2EmbeddingCost = this.calculateEmbeddingCost(embeddingModel, estimate.t2.embeddingTokens);
-    const t3EmbeddingCost = this.calculateEmbeddingCost(embeddingModel, estimate.t3.embeddingTokens);
+    const t1EmbeddingCost = await this.calculateEmbeddingCost(embeddingModel, estimate.t1.embeddingTokens);
+    const t2EmbeddingCost = await this.calculateEmbeddingCost(embeddingModel, estimate.t2.embeddingTokens);
+    const t3EmbeddingCost = await this.calculateEmbeddingCost(embeddingModel, estimate.t3.embeddingTokens);
 
     const totalEmbeddingCost = t1EmbeddingCost + t2EmbeddingCost + t3EmbeddingCost;
     const totalEmbeddingTokens = estimate.t1.embeddingTokens + 
@@ -254,44 +237,48 @@ export class CostEstimationService {
     estimatedTokens: number;
     currentModel?: string;
   }): Promise<ModelCostComparison[]> {
-    const defaultModel = options.currentModel || 'text-embedding-3-small';
+    const defaultModel = options.currentModel
+      || (await resolveAliasOrModelId('default-embedding')).modelId;
+    const rows = await listEmbeddingPricing();
+    const defaultRow = rows.find(r => r.modelId === defaultModel);
+    const defaultCost = defaultRow
+      ? (options.estimatedTokens / 1000) * (defaultRow.inputPerMTokUsd / 1000)
+      : undefined;
     const comparisons: ModelCostComparison[] = [];
 
-    for (const [model, costPer1K] of Object.entries(this.EMBEDDING_COSTS)) {
-      const costPer1M = costPer1K * 1000;
+    for (const row of rows) {
+      const costPer1K = row.inputPerMTokUsd / 1000;
+      const costPer1M = row.inputPerMTokUsd;
       const estimatedCost = (options.estimatedTokens / 1000) * costPer1K;
-      
-      const defaultCost = (options.estimatedTokens / 1000) * 
-                         this.EMBEDDING_COSTS[defaultModel as keyof typeof this.EMBEDDING_COSTS];
-      
-      const savings = defaultCost - estimatedCost;
-      const savingsPercent = defaultCost > 0 ? (savings / defaultCost) * 100 : 0;
 
-      // Quality and speed ratings
+      const savings = defaultCost !== undefined ? defaultCost - estimatedCost : 0;
+      const savingsPercent = defaultCost ? (savings / defaultCost) * 100 : 0;
+
+      // Quality and speed ratings (heuristic labels, not pricing data)
       let qualityRating: 'high' | 'medium' | 'low' = 'medium';
       let speedRating: 'fast' | 'medium' | 'slow' = 'medium';
 
-      if (model === 'text-embedding-3-large') {
+      if (row.modelId.includes('large')) {
         qualityRating = 'high';
         speedRating = 'slow';
-      } else if (model === 'text-embedding-3-small') {
+      } else if (row.modelId.includes('small')) {
         qualityRating = 'medium';
         speedRating = 'fast';
-      } else if (model === 'text-embedding-ada-002') {
+      } else if (row.modelId.includes('ada')) {
         qualityRating = 'low';
         speedRating = 'fast';
       }
 
       comparisons.push({
-        model,
+        model: row.modelId,
         costPer1KTokens: costPer1K,
         costPer1MTokens: costPer1M,
         estimatedCostForOperation: estimatedCost,
-        savingsVsDefault: model !== defaultModel ? savings : undefined,
-        savingsPercent: model !== defaultModel ? savingsPercent : undefined,
+        savingsVsDefault: row.modelId !== defaultModel ? savings : undefined,
+        savingsPercent: row.modelId !== defaultModel ? savingsPercent : undefined,
         qualityRating,
         speedRating,
-        recommended: model === 'text-embedding-3-small' // Best cost/performance
+        recommended: row.modelId === defaultModel
       });
     }
 
@@ -673,19 +660,15 @@ export class CostEstimationService {
   /**
    * Helper: Calculate summarization cost
    */
-  private calculateSummarizationCost(model: string, inputTokens: number, outputTokens: number): number {
-    const inputCostPer1K = this.SUMMARIZATION_INPUT_COSTS[model as keyof typeof this.SUMMARIZATION_INPUT_COSTS] || 0.00015;
-    const outputCostPer1K = this.SUMMARIZATION_OUTPUT_COSTS[model as keyof typeof this.SUMMARIZATION_OUTPUT_COSTS] || 0.0006;
-    
-    return (inputTokens / 1000) * inputCostPer1K + (outputTokens / 1000) * outputCostPer1K;
+  private calculateSummarizationCost(model: string, inputTokens: number, outputTokens: number): Promise<number> {
+    return estimateCost(model, { inputTokens, outputTokens });
   }
 
   /**
    * Helper: Calculate embedding cost
    */
-  private calculateEmbeddingCost(model: string, tokens: number): number {
-    const costPer1K = this.EMBEDDING_COSTS[model as keyof typeof this.EMBEDDING_COSTS] || 0.00002;
-    return (tokens / 1000) * costPer1K;
+  private calculateEmbeddingCost(model: string, tokens: number): Promise<number> {
+    return estimateCost(model, { inputTokens: tokens });
   }
 
   /**

@@ -2,7 +2,7 @@
 
 **Status:** current
 **Owner domain:** T0–T3 semantic pipeline, search, budgets, dashboard
-**Last verified against code:** 2026-07-07 (Phase 3 consolidation session)
+**Last verified against code:** 2026-07-07 (Phase 4 session — preflight)
 **Ledger regenerated per D36 (the old spec's duplicate "Task 15" is gone by regeneration). The semantic-system-fixes spec is archived; its unresolved items live here as verification tasks — branch commits (`2c4add4` "all stages work properly", `146dc21` HNSW reindexing, `5fa3417` duplicate-content fix) claim to have fixed most of them, unverified.**
 
 ---
@@ -32,9 +32,9 @@ T0–T3 heading-bounded generation with contextual prefixes and section hashes; 
 
 ### Phase 2 — cost unification
 
-- [ ] 2. Write actuals to the unified ledger (D32)
-  - [ ] 2.1 Embedding/summary calls record tokens + cost to `AIUsageLog` (feature tag `semantic`), via the shared pricing module (D38)
-  - [ ] 2.2 `SemanticBudget` remains pre-flight only; simplify estimation ceremony where it duplicates the ledger
+- [x] 2. Write actuals to the unified ledger (D32) — **done 2026-07-07 (Phase 4 preflight)**
+  - [x] 2.1 Embedding/summary actuals already flowed to `AIUsageLog` (feature `semantic`) from `BudgetAwareAIOperations`, `StageBasedProcessingService`, `ContentSearchService` (landed with Phase 2, never ticked). Last gap closed this session: `BatchEmbeddingService.processBatchResults` now prices actuals via `estimateCost(job.model, usage)` (batch = 0.5× standard, provider-policy constant) and writes a `usageType: 'embedding_batch'` ledger row; budget `deductCost` stays as the pre-flight gate's accounting.
+  - [x] 2.2 Estimation ceremony consolidated onto the pricing module: all per-file rate tables deleted (`CostEstimationService` 3 tables, `SelectiveSectionRegenerator`, `ContentChangeDetector`, `SmartContentGenerator`, `ContentIngestionService`, `ChunkingConfigService` inline literals, `BatchEmbeddingService`, `BulkOperationsService`). Pre-flight estimates now resolve `default-embedding`/`default-cheap` through the registry via new `getPreflightRates()` (+ `listEmbeddingPricing()` for the frozen model-comparison endpoint, fake-provider rows excluded) in `src/lib/ai/pricing.ts` — a registry/pricing edit changes estimates with no deploy. Verified live: `getPreflightRates()` returns seeded rates; `estimateRegenerationCost({scope:'all'})` and `compareEmbeddingModels` produce real numbers from the dev DB. Residual (documented, deliberate): `costPerToken` config field (ChangeDetectionConfig + ChangeDetectionConfigService seed) is stored/roundtripped but unused in any math — vestigial knob, remove with a future change-detection panel touch.
   - _Requirements: 6_
 
 ### Phase 3 — one index, hygiene
