@@ -17,7 +17,6 @@ import type {
   ModalOptions
 } from './types';
 import {
-  executeNavigationCommand,
   executeHighlight,
   removeHighlight,
   isAnimating

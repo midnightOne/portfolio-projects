@@ -17,17 +17,13 @@
 
 import { gsap } from 'gsap';
 import type { 
-  AnimationPlugin, 
-  AnimationDefinition, 
-  CustomAnimationOptions,
-  AnimationDebugInfo 
+  CustomAnimationOptions 
 } from './custom-animations';
 import { 
   getAnimationDebugInfo,
   getAvailableAnimations,
   getAvailablePlugins,
-  executeCustomAnimation,
-  composeCustomAnimations 
+  executeCustomAnimation 
 } from './custom-animations';
 
 // Animation Development Tool Types

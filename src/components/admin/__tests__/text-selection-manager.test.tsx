@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { 
   TextSelectionManager, 
   TextareaAdapter, 
@@ -8,7 +8,6 @@ import {
   applyTextChangeWithPosition,
   findTextPosition,
   detectTextSelection,
-  TextSelection,
   TextChange
 } from '../text-selection-manager';
 

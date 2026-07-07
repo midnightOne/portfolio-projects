@@ -17,9 +17,7 @@ import {
 import { 
   ElevenLabsConfig,
   ElevenLabsConfigSchema,
-  DEFAULT_ELEVENLABS_CONFIG,
-  ConfigValidationResult,
-  EnvValidationResult
+  DEFAULT_ELEVENLABS_CONFIG
 } from '../../../types/voice-config';
 import { VoiceProvider } from '../../../types/voice-agent';
 

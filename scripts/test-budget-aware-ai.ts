@@ -5,7 +5,6 @@
  */
 
 import { getBudgetAwareAI } from '../src/lib/content/BudgetAwareAIOperations';
-import { semanticBudgetManager } from '../src/lib/content/SemanticBudgetManager';
 
 async function testBudgetAwareAI() {
   console.log('🧪 Testing Budget-Aware AI Operations\n');

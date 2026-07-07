@@ -9,8 +9,6 @@
 
 import { PrismaClient } from '@prisma/client';
 import {
-  VoiceConfigSerializer,
-  BaseVoiceProviderConfig,
   getSerializerForProvider,
   ConfigSerializationError,
   ConfigValidationError,

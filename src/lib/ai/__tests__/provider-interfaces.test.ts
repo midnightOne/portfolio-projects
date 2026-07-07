@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeEach } from '@jest/globals';
 import { ProviderFactory } from '../provider-factory';
 import { BaseProvider } from '../providers/base-provider';
-import { AIProvider, ProviderChatRequest, ProviderChatResponse, AIProviderType } from '../types';
+import { ProviderChatRequest, ProviderChatResponse, AIProviderType } from '../types';
 
 // Mock provider for testing
 class MockProvider extends BaseProvider {

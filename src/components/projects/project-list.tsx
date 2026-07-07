@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { motion, AnimatePresence, useReducedMotion, type Variants } from 'framer-motion';
-import { Calendar, Eye, Download, ExternalLink, Clock } from 'lucide-react';
+import { Calendar, Eye, Download, ExternalLink } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';

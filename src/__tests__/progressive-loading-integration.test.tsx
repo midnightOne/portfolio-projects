@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { NavigationBar } from '../components/layout/navigation-bar';
 import { ProjectGrid } from '../components/projects/project-grid';
 

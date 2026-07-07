@@ -9,10 +9,9 @@ import {
   AIProviderType,
   AIProviderStatus,
   ConnectionTestResult,
-  ProviderChatRequest,
-  ProviderChatResponse
+  ProviderChatRequest
 } from './types';
-import { AIErrorHandler, AIError, AIErrorType } from './error-handler';
+import { AIErrorHandler } from './error-handler';
 import { AIStatusCache } from './status-cache';
 
 const prisma = new PrismaClient();

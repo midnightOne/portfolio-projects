@@ -11,9 +11,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible';
 import { 
   Play, 
   Pause, 
@@ -35,7 +34,7 @@ import {
   Download
 } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
-import { type ConversationRecord, type ConversationMessageRecord } from '@/lib/services/ai/conversation-history-manager';
+import { type ConversationRecord } from '@/lib/services/ai/conversation-history-manager';
 
 export interface ConversationReplayProps {
   conversation: ConversationRecord;

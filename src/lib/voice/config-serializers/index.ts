@@ -11,11 +11,7 @@
 
 import { VoiceProvider } from '../../../types/voice-agent';
 import { 
-  BaseVoiceProviderConfig,
-  VoiceProviderConfig,
-  ConfigValidationResult,
-  OpenAIRealtimeConfig,
-  ElevenLabsConfig
+  BaseVoiceProviderConfig
 } from '../../../types/voice-config';
 
 // Base interface for all voice configuration serializers

@@ -17,7 +17,6 @@ import {
   CheckCircle, 
   Plus,
   RefreshCw,
-  Calendar,
   Activity,
   TrendingUp,
   Settings

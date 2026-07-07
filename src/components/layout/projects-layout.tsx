@@ -3,7 +3,7 @@
 import React from 'react';
 import { NavigationBar, type SortOption, type ViewMode, type TimelineGroupBy } from './navigation-bar';
 import type { Tag } from '@/lib/types/project';
-import { CONTAINERS, SPACING, COMPONENTS } from '@/lib/constants';
+import { CONTAINERS, SPACING } from '@/lib/constants';
 
 interface ProjectsLayoutProps {
   children: React.ReactNode;

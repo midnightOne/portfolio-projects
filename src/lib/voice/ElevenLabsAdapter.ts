@@ -9,17 +9,12 @@
 import { v4 as uuidv4 } from 'uuid';
 import { Conversation, type PartialOptions } from '@elevenlabs/client';
 import {
-  VoiceProvider,
   AdapterInitOptions,
   TranscriptItem,
-  ToolCall,
-  ToolResult,
   ProviderMetadata,
   VoiceAgentError,
   ConnectionError,
-  AudioError,
-  ToolError,
-  ElevenLabsConversationConfig
+  AudioError
 } from '@/types/voice-agent';
 import { BaseConversationalAgentAdapter } from './IConversationalAgentAdapter';
 import { getClientAIModelManager } from './ClientAIModelManager';

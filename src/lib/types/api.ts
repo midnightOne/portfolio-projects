@@ -3,7 +3,7 @@
  */
 
 import { z } from 'zod';
-import { ProjectVisibilitySchema, MediaTypeSchema } from './project';
+import { ProjectVisibilitySchema } from './project';
 
 // ============================================================================
 // API REQUEST SCHEMAS

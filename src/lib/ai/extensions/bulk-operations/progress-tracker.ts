@@ -2,7 +2,7 @@
  * Progress Tracker - Real-time progress tracking for bulk operations
  */
 
-import { BulkOperationProgress, BulkEditOperation } from './types';
+import { BulkOperationProgress } from './types';
 
 export interface ProgressSubscription {
   operationId: string;

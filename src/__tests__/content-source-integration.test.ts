@@ -3,7 +3,7 @@
  * Tests for the flexible content source system integration
  */
 
-import { describe, it, expect, beforeEach, jest } from '@jest/globals';
+import { describe, it, expect } from '@jest/globals';
 
 describe('Content Source System Integration', () => {
   describe('Flexible Content Source Architecture', () => {

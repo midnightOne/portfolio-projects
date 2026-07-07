@@ -3,7 +3,7 @@
 import React from 'react';
 import { motion, useReducedMotion, type Variants } from 'framer-motion';
 import { Calendar, Eye, Download, ExternalLink } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { HighlightedText, SearchExcerpt } from '@/components/ui/highlighted-text';

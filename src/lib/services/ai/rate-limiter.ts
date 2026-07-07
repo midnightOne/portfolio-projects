@@ -10,7 +10,6 @@ import {
   RateLimitCheckParams,
   RateLimitTier,
   IdentifierType,
-  RATE_LIMIT_TIERS,
   RateLimitError,
   RateLimitConfig,
   RateLimitAnalytics,

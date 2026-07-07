@@ -23,18 +23,15 @@ import {
   Play,
   Pause,
   Square,
-  RotateCcw,
   CheckCircle2,
   XCircle,
   Clock,
   Loader2,
   Package,
-  Zap,
   Activity,
   Database,
   FileText,
   Hash,
-  Layers,
   AlertTriangle,
   Trash2
 } from 'lucide-react';

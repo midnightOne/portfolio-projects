@@ -9,15 +9,14 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { AlertCircle, CheckCircle, Brain, ExternalLink, Loader2, Database, MessageSquare, SlidersHorizontal, BarChart3, FileText } from 'lucide-react';
+import { AlertCircle, ExternalLink, Loader2, Database, MessageSquare, SlidersHorizontal, BarChart3, FileText } from 'lucide-react';
 import { AdminLayout } from '@/components/admin/admin-layout';
 import { AdminPageLayout } from '@/components/admin/admin-page-layout';
 import { AIStatusIndicator } from '@/components/admin/ai-status-indicator';
 import { useToast } from '@/components/ui/toast';
-import { StatusBadge, ConnectionStatus, ConfigurationStatus } from '@/components/ui/status-badge';
-import { HelpText, DocumentationLink, HelpSection } from '@/components/ui/help-text';
-import { AsyncOperationIndicator, ButtonLoadingState } from '@/components/ui/loading-indicator';
+import { ConnectionStatus, ConfigurationStatus } from '@/components/ui/status-badge';
+import { HelpText, HelpSection } from '@/components/ui/help-text';
+import { ButtonLoadingState } from '@/components/ui/loading-indicator';
 
 interface EnvironmentStatus {
   openai: {

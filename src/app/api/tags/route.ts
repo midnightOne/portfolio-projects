@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/database/connection';
-import { createApiError, createApiSuccess } from '@/lib/types/api';
+import { createApiSuccess } from '@/lib/types/api';
 import { handleApiError, addCorsHeaders } from '@/lib/utils/api-utils';
 import { withPerformanceTracking } from '@/lib/utils/performance';
 

@@ -11,7 +11,6 @@
 
 import { contentSourceManager, ContextSource, RelevantContent } from './content-source-manager';
 import { reflinkManager } from './reflink-manager';
-import { ReflinkInfo, BudgetStatus } from '@/lib/types/rate-limiting';
 
 export interface ContextProviderConfig {
   maxTokens: number;

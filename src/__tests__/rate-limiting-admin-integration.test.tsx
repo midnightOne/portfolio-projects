@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect } from '@jest/globals';
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { RateLimitingDashboard } from '@/components/admin/rate-limiting-dashboard';
 import { ReflinksManager } from '@/components/admin/reflinks-manager';
 import { SecurityManager } from '@/components/admin/security-manager';

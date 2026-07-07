@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,8 +18,6 @@ import {
   AlertCircle, 
   ArrowLeft,
   Trash2,
-  Edit,
-  Download,
   Eye,
   Grid,
   List

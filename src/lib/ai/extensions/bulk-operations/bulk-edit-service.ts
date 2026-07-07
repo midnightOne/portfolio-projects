@@ -4,7 +4,6 @@
 
 import { 
   BulkEditOperation, 
-  BulkEditOperationItem, 
   BulkOperationProgress,
   BulkOperationConfig,
   BulkOperationStats,

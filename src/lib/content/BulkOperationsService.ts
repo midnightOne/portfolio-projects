@@ -10,10 +10,6 @@
  */
 
 import { prisma } from '@/lib/prisma';
-import { BatchEmbeddingService } from './BatchEmbeddingService';
-import { CostEstimationService } from './CostEstimationService';
-import { SmartContentGenerator } from './SmartContentGenerator';
-import { VectorOperations } from './VectorOperations';
 import JSZip from 'jszip';
 
 export interface OrphanedChunk {

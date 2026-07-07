@@ -18,8 +18,6 @@ import {
 } from '@/components/ui/enhanced-dialog';
 import { Badge } from '@/components/ui/badge';
 import { EnhancedButton } from '@/components/ui/enhanced-button';
-import { EnhancedCard, EnhancedCardContent, EnhancedCardHeader } from '@/components/ui/enhanced-card';
-import { cn } from '@/lib/utils';
 import type { ProjectWithRelations } from '@/lib/types/project';
 import type { AIControlProps, NavigationCommand, HighlightOptions } from '@/lib/ui/types';
 import { TiptapDisplayRenderer } from '@/components/tiptap/tiptap-display-renderer';

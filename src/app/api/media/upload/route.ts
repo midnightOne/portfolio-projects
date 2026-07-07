@@ -3,7 +3,6 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { getMediaProvider, validateFile, getValidationForMediaType, detectMediaType, sanitizeFilename } from '@/lib/media';
 import { prisma } from '@/lib/prisma';
-import { MediaType } from '@/lib/types/project';
 import { z } from 'zod';
 
 // Upload request validation schema

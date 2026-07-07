@@ -6,14 +6,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
-  BarChart3, 
   Shield, 
   Users, 
-  AlertTriangle, 
-  TrendingUp,
+  AlertTriangle,
   RefreshCw,
-  Activity,
-  Clock
+  Activity
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 

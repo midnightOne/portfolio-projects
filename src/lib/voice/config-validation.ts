@@ -13,14 +13,10 @@ import {
   OpenAIRealtimeConfig,
   ElevenLabsConfig,
   ValidationResult,
-  ConfigValidationResult,
   EnvValidationResult,
   validateEnvironmentVariable,
   validateEnvironmentVariables,
-  getEnvironmentVariable,
-  OpenAIRealtimeConfigSchema,
-  ElevenLabsConfigSchema,
-  VoiceProviderConfigSchema
+  getEnvironmentVariable
 } from '../../types/voice-config';
 import { getSerializerForProvider } from './config-serializers';
 

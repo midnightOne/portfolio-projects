@@ -6,7 +6,7 @@ import { ArrowRight, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { WaveBackground } from '@/components/ui/wave-background/wave-background';
 import { cn } from '@/lib/utils';
-import { CONTAINERS, SPACING, FLEX } from '@/lib/constants/layout';
+import { CONTAINERS, FLEX } from '@/lib/constants/layout';
 
 // ============================================================================
 // TYPES AND INTERFACES

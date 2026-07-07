@@ -17,7 +17,6 @@ import {
   getAnimationQueueDebugInfo,
   forceAnimationCleanup,
 } from '@/lib/ui/animation';
-import type { AnimationCommand } from '@/lib/ui/animation';
 
 export default function TestAnimationSystemPage() {
   const [debugInfo, setDebugInfo] = useState<any>(null);

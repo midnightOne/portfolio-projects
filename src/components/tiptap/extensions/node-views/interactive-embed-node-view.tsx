@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useCallback, useRef } from 'react';
-import { NodeViewWrapper, NodeViewProps } from '@tiptap/react';
+import { NodeViewWrapper } from '@tiptap/react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { 

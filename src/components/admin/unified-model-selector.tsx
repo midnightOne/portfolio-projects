@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Loader2, AlertCircle, CheckCircle, RefreshCw } from 'lucide-react';
 import { AIAvailabilityChecker } from '@/lib/ai/availability-checker';
 import { useToast } from '@/components/ui/toast';
-import { StatusBadge } from '@/components/ui/status-badge';
 import { useSession } from 'next-auth/react';
 
 interface ModelOption {

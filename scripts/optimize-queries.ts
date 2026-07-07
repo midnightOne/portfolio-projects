@@ -5,7 +5,6 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import { profiler } from '../src/lib/utils/performance';
 
 const prisma = new PrismaClient({
   log: [

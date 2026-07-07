@@ -15,16 +15,13 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
   MessageSquare, 
-  BarChart3, 
   Download, 
   Trash2, 
   Search, 
   RefreshCw,
-  Clock,
   DollarSign,
   Users,
   Zap,
-  AlertTriangle,
   Play
 } from 'lucide-react';
 

@@ -9,8 +9,6 @@ import { JSDOM } from 'jsdom';
 import {
   AnimationDevTools,
   type AnimationPreviewOptions,
-  type AnimationPerformanceMetrics,
-  type AnimationTestResult,
 } from '../animation-dev-tools';
 
 // Mock GSAP

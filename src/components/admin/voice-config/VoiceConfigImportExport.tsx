@@ -27,7 +27,6 @@ import {
   Info
 } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
-import { ButtonLoadingState } from '@/components/ui/loading-indicator';
 
 interface VoiceConfigRecord {
   id: string;

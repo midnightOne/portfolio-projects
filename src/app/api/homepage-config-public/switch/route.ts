@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import type { HomepageConfig } from '@/components/homepage/section-renderer';
 
 // Simple in-memory storage for testing (in production this would be in database)

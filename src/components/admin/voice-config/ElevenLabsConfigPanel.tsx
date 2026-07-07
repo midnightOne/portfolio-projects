@@ -11,14 +11,12 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Separator } from '@/components/ui/separator';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
   AlertCircle, 
   CheckCircle, 
   Info, 
   Settings, 
-  Mic, 
   Volume2, 
   MessageSquare,
   TestTube,

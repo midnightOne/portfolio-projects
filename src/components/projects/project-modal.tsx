@@ -13,14 +13,13 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { cn } from '@/lib/utils';
 import type { ProjectWithRelations } from '@/lib/types/project';
 import { TiptapDisplayRenderer } from '@/components/tiptap/tiptap-display-renderer';
 import { ImageCarousel } from '@/components/media/image-carousel';
 import { ImageLightbox } from '@/components/media/image-lightbox';
 import DownloadButton from '@/components/media/download-button';
 import { ExternalLinks } from '@/components/media/external-links';
-import { MODAL, SPACING, COMPONENTS, FLEX } from '@/lib/constants';
+import { SPACING, COMPONENTS, FLEX } from '@/lib/constants';
 
 interface ProjectModalProps {
   project: ProjectWithRelations | null;

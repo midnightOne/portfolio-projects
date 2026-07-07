@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import { resolve } from 'path';
 import { prisma } from '@/lib/database';
 import { getMediaProvider } from '@/lib/media';
-import { createWriteStream, createReadStream, unlinkSync } from 'fs';
+import { createWriteStream, unlinkSync } from 'fs';
 import { mkdir } from 'fs/promises';
 import { pipeline } from 'stream/promises';
 

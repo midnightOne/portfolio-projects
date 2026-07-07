@@ -1,16 +1,14 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
-import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, Loader2, Calendar, Tag as TagIcon, Save, Bot } from 'lucide-react';
+import { ArrowLeft, Loader2, Calendar, Tag as TagIcon, Bot } from 'lucide-react';
 import { ProjectWithRelations } from '@/lib/types/project';
-import { CONTAINERS, SPACING, COMPONENTS, FLEX, MAX_WIDTHS } from '@/lib/constants';
+import { CONTAINERS, SPACING, COMPONENTS, MAX_WIDTHS } from '@/lib/constants';
 import {
   AIQuickActions,
   TextSelection,
@@ -24,8 +22,7 @@ import {
 import {
   TextSelectionManager,
   TextareaAdapter,
-  TiptapAdapter,
-  TextChange
+  TiptapAdapter
 } from './text-selection-manager';
 import { tiptapToMarkdown, markdownToTiptap } from '@/lib/tiptap-markdown-converter';
 import { SmartTagInput, Tag } from './smart-tag-input';

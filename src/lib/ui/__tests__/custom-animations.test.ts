@@ -19,7 +19,6 @@ import {
   createComposedEffect,
   getAnimationDebugInfo,
   type AnimationPlugin,
-  type CustomAnimationOptions,
 } from '../custom-animations';
 
 // Mock GSAP

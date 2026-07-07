@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { getMediaProvider } from '@/lib/media';
 import { v2 as cloudinary } from 'cloudinary';
 
 // Initialize Cloudinary configuration

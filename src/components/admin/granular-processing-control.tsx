@@ -28,8 +28,6 @@ import {
   Settings, 
   Zap, 
   Moon, 
-  DollarSign, 
-  Clock, 
   Info,
   AlertTriangle,
   CheckCircle2

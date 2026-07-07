@@ -7,10 +7,8 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Wrench,
-  Clock,
   CheckCircle,
   XCircle,
-  AlertTriangle,
   Download,
   RefreshCw,
   Play,

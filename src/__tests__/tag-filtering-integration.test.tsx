@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { NavigationBar } from '@/components/layout/navigation-bar';
 import { ProjectGrid } from '@/components/projects/project-grid';
 import type { Tag, ProjectWithRelations } from '@/lib/types/project';

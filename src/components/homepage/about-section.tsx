@@ -6,7 +6,7 @@ import Image from 'next/image';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
-import { CONTAINERS, SPACING, GRID, FLEX } from '@/lib/constants/layout';
+import { CONTAINERS, SPACING, GRID } from '@/lib/constants/layout';
 
 // ============================================================================
 // TYPES AND INTERFACES

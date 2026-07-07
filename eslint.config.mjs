@@ -1,6 +1,7 @@
 import { dirname } from "path";
 import { fileURLToPath } from "url";
 import { FlatCompat } from "@eslint/eslintrc";
+import unusedImports from "eslint-plugin-unused-imports";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -26,7 +27,12 @@ const eslintConfig = [
     ],
   },
   {
+    plugins: {
+      "unused-imports": unusedImports,
+    },
     rules: {
+      // Phase 3 hygiene (manifest section G): strip unused imports automatically.
+      "unused-imports/no-unused-imports": "error",
       // Suppress common warnings to reduce build noise
       "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-unused-vars": "off",

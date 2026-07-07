@@ -9,7 +9,6 @@
 
 import { useState, useEffect } from 'react';
 import type { UseResponsiveReturn } from './types';
-import { UI_LAYOUT } from './layout-constants';
 
 // Breakpoint values
 const breakpoints = {

@@ -21,7 +21,6 @@ import {
   RefreshCw, 
   AlertTriangle,
   CheckCircle,
-  Clock,
   DollarSign,
   Zap
 } from 'lucide-react';

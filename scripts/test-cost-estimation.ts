@@ -11,7 +11,6 @@
 
 import { costEstimationService } from '../src/lib/content/CostEstimationService';
 import { semanticBudgetManager } from '../src/lib/content/SemanticBudgetManager';
-import { getBudgetAwareAI } from '../src/lib/content/BudgetAwareAIOperations';
 import { prisma } from '../src/lib/prisma';
 
 async function testCostEstimation() {

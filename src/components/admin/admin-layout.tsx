@@ -4,12 +4,7 @@ import React from "react";
 import { usePathname } from "next/navigation";
 import {
   SidebarProvider,
-  Sidebar,
-  SidebarContent,
-  SidebarHeader,
-  SidebarFooter,
   SidebarInset,
-  SidebarTrigger,
   SidebarRail,
 } from "@/components/ui/sidebar";
 import { AdminSidebar } from "./admin-sidebar";

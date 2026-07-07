@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/database/connection';
 import { SearchProjectsSchema, createApiError, createApiSuccess, createPaginatedResponse } from '@/lib/types/api';
-import { handleApiError, addCorsHeaders } from '@/lib/utils/api-utils';
+import { addCorsHeaders } from '@/lib/utils/api-utils';
 import { withPerformanceTracking, profileQuery } from '@/lib/utils/performance';
 
 // Simple in-memory cache for projects (in production, use Redis)

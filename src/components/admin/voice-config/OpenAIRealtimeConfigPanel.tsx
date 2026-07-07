@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 import { ButtonLoadingState } from '@/components/ui/loading-indicator';
-import { HelpText, HelpSection } from '@/components/ui/help-text';
+import { HelpText } from '@/components/ui/help-text';
 import { 
   OpenAIRealtimeConfig, 
   DEFAULT_OPENAI_CONFIG,

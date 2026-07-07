@@ -59,7 +59,7 @@ import { describe } from 'node:test';
 import { afterEach } from 'node:test';
 import { beforeEach } from 'node:test';
 import { describe } from 'node:test';
-import { PassiveFIDManager, FIDContext } from '../PassiveFIDManager';
+import { PassiveFIDManager } from '../PassiveFIDManager';
 import { UIState } from '../tools/types';
 
 // Mock fetch for testing

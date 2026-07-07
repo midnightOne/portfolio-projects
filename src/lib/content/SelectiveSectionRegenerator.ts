@@ -17,7 +17,7 @@
 
 import { prisma } from '@/lib/database/connection';
 import { SmartContentGenerator, TierContent } from './SmartContentGenerator';
-import { ContentChangeDetector, ContentChangeDetection, SectionChangeDetection } from './ContentChangeDetector';
+import { ContentChangeDetector, SectionChangeDetection } from './ContentChangeDetector';
 import { HierarchicalContentParser } from './HierarchicalContentParser';
 import OpenAI from 'openai';
 

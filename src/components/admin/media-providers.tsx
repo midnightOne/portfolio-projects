@@ -11,8 +11,7 @@ import {
   Database,
   Github,
   Settings,
-  Check,
-  AlertCircle
+  Check
 } from "lucide-react";
 
 interface MediaProvider {

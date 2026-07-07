@@ -20,7 +20,7 @@ import { HierarchicalContentParser } from './HierarchicalContentParser';
 import { debugEventEmitter } from '../debug/debugEventEmitter';
 import VectorOperations from './VectorOperations';
 import { IndexMaintenanceService } from '../database/IndexMaintenanceService';
-import { SmartContentGenerator, SmartGenerationResult } from './SmartContentGenerator';
+import { SmartContentGenerator } from './SmartContentGenerator';
 import OpenAI from 'openai';
 import { EventEmitter } from 'events';
 

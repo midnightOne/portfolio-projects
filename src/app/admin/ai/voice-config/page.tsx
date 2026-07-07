@@ -5,20 +5,11 @@ import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
-  Settings, 
-  Plus, 
-  Download, 
-  Upload, 
-  Trash2, 
-  Copy, 
-  Star, 
-  StarOff,
+  Plus,
   Loader2,
   AlertCircle,
-  CheckCircle,
   Mic,
   Bot
 } from 'lucide-react';

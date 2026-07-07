@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { NavigationBar } from '../navigation-bar';
 import type { Tag } from '@/lib/types/project';
 import { describe, it, beforeEach } from '@jest/globals';

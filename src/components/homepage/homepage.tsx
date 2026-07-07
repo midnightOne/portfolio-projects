@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { SectionRenderer, type HomepageConfig, type SectionConfig, sortSectionsByOrder, getEnabledSections } from './section-renderer';
 import { ProjectModal } from '@/components/projects/project-modal';

@@ -25,7 +25,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -36,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Loader2, AlertTriangle, CheckCircle2, XCircle, Clock, DollarSign, Zap, Moon } from 'lucide-react';
+import { Loader2, AlertTriangle, CheckCircle2, XCircle, Clock, Zap, Moon } from 'lucide-react';
 
 export interface RegenerationScope {
   type: 'all' | 'project' | 'section';

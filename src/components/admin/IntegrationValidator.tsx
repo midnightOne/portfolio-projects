@@ -17,7 +17,6 @@ import {
   Wrench,
   Mic,
   Globe,
-  Clock,
   Info
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';

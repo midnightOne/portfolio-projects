@@ -15,7 +15,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import VectorOperations, { VectorSearchResult } from './VectorOperations';
+import VectorOperations from './VectorOperations';
 import { debugEventEmitter } from '../debug/debugEventEmitter';
 import OpenAI from 'openai';
 import { ContentProvider, SemanticSection, NavigationContext } from '../navigation/UIManager';

@@ -17,7 +17,7 @@
 import { debugEventEmitter } from '../debug/debugEventEmitter';
 import { v4 as uuidv4 } from 'uuid';
 import { getSemanticIDRegistry, SemanticIDRegistryProvider } from './SemanticIDRegistry';
-import { contextFrameManager, FIDNavigationContext } from '../ai/ContextFrameManager';
+import { contextFrameManager } from '../ai/ContextFrameManager';
 import { PassiveFIDManager } from '../ai/PassiveFIDManager';
 import type { IConversationalAgentAdapter } from '../voice/IConversationalAgentAdapter';
 

@@ -11,7 +11,6 @@
 
 import { PrismaClient } from '@prisma/client';
 import { getDatabaseConfig, validateDatabaseConfig, getConnectionString } from './config';
-import { profiler } from '@/lib/utils/performance';
 
 // Global Prisma client instance
 declare global {

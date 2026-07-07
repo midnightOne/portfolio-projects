@@ -12,7 +12,6 @@ import { useTheme } from '@/lib/ui/theme';
 import { useResponsive } from '@/lib/ui/use-responsive';
 import { useUIControl } from '@/lib/ui/ui-control-hooks';
 import { MAX_WIDTHS, CONTAINERS, UI_LAYOUT } from '@/lib/ui/layout-constants';
-import { designTokens } from '@/lib/ui/design-tokens';
 
 export default function UISystemTestPage() {
   const [mounted, setMounted] = useState(false);

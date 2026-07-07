@@ -1,7 +1,6 @@
 /**
  * @jest-environment jsdom
  */
-import React from 'react';
 import { describe, it } from '@jest/globals';
 
 // Simple test to verify the modal loading transition logic

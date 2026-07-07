@@ -8,7 +8,6 @@
 
 import {
   VoiceProvider,
-  VoiceAgentState,
   AdapterInitOptions,
   ConnectionStatus,
   SessionStatus,

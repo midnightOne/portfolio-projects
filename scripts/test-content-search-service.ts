@@ -13,7 +13,6 @@
 import { PrismaClient } from '@prisma/client';
 import ContentSearchService from '../src/lib/content/ContentSearchService';
 import { initializeContentSearchService, registerContentSearchWithUIManager, getContentSearchIntegrationStatus } from '../src/lib/content/ContentSearchServiceIntegration';
-import { UIManager } from '../src/lib/navigation/UIManager';
 
 const prisma = new PrismaClient();
 

@@ -5,8 +5,7 @@
  * to ensure semantic navigation works correctly.
  */
 
-import { UIManager } from '../UIManager';
-import { getSemanticIDRegistry, SemanticIDRegistryProvider } from '../SemanticIDRegistry';
+import { SemanticIDRegistryProvider } from '../SemanticIDRegistry';
 
 // Mock DOM environment
 const mockElement = (id: string, semanticId?: string) => {

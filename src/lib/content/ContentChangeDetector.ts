@@ -14,7 +14,7 @@
  */
 
 import { prisma } from '@/lib/database/connection';
-import { HierarchicalContentParser, HierarchicalSection } from './HierarchicalContentParser';
+import { HierarchicalContentParser } from './HierarchicalContentParser';
 import crypto from 'crypto';
 
 // Change detection interfaces

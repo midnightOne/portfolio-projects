@@ -7,7 +7,7 @@
  */
 
 import OpenAI from 'openai';
-import { semanticBudgetManager, OperationCost } from './SemanticBudgetManager';
+import { semanticBudgetManager } from './SemanticBudgetManager';
 import { estimateCost } from '@/lib/ai/pricing';
 import { recordUsage } from '@/lib/ai/ledger';
 import { generateEmbeddings } from '@/lib/ai/embeddings';

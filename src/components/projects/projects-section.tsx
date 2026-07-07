@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { NavigationBar, type SortOption, type ViewMode, type TimelineGroupBy } from '@/components/layout/navigation-bar';
 import { ProjectGrid } from './project-grid';

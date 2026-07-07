@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Upload, BarChart3, Edit, Trash2, Eye, Brain } from "lucide-react";
+import { Plus, Upload, BarChart3, Edit, Eye, Brain } from "lucide-react";
 import { SPACING, GRID, FLEX, COMPONENTS } from '@/lib/constants';
 
 interface DashboardStats {

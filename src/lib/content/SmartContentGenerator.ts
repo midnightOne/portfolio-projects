@@ -11,7 +11,6 @@
 import { PrismaClient } from '@prisma/client';
 import { HierarchicalContentParser, EnhancedProjectIndex, HierarchicalSection, ContentChangeMap } from './HierarchicalContentParser';
 import OpenAI from 'openai';
-import { semanticBudgetManager } from './SemanticBudgetManager';
 import { getSummaryGenerationService } from './SummaryGenerationService';
 import { T3HeadingBoundedChunking } from './T3HeadingBoundedChunking';
 import ChunkingConfigService from './ChunkingConfigService';

@@ -5,7 +5,6 @@
  * model selection, and quality tracking for T1/T2 generation.
  */
 
-import OpenAI from 'openai';
 import { getBudgetAwareAI } from './BudgetAwareAIOperations';
 
 export interface SummaryGenerationConfig {

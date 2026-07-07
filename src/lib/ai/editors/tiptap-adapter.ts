@@ -4,7 +4,7 @@
  */
 
 import { BaseEditorAdapter } from './base-adapter';
-import { EditorCapabilities, TextSelection, TextChange, StructuredContent, ContentBlock } from './types';
+import { TextSelection, TextChange, StructuredContent, ContentBlock } from './types';
 
 export class TiptapAdapter extends BaseEditorAdapter {
   private editor: any; // Tiptap editor instance

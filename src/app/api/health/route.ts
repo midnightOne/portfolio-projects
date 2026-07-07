@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { checkDatabaseConnection, runDatabasePerformanceTest } from '@/lib/database/connection';
-import { profiler, getMemoryUsage } from '@/lib/utils/performance';
+import { getMemoryUsage } from '@/lib/utils/performance';
 import { createApiSuccess, createApiError } from '@/lib/types/api';
 import { addCorsHeaders } from '@/lib/utils/api-utils';
 

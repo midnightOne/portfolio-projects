@@ -3,7 +3,6 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
-import type { WaveConfiguration } from '@/components/ui/wave-background/wave-engine';
 import { defaultWaveConfig } from '@/lib/constants/wave-config';
 
 // ============================================================================

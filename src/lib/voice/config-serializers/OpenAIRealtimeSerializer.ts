@@ -17,9 +17,7 @@ import {
 import { 
   OpenAIRealtimeConfig,
   OpenAIRealtimeConfigSchema,
-  DEFAULT_OPENAI_CONFIG,
-  ConfigValidationResult,
-  EnvValidationResult
+  DEFAULT_OPENAI_CONFIG
 } from '../../../types/voice-config';
 import { VoiceProvider } from '../../../types/voice-agent';
 

@@ -7,7 +7,7 @@ import { Menu, X, Home, FolderOpen, User, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SimpleThemeToggle } from '@/components/ui/simple-theme-toggle';
 import { cn } from '@/lib/utils';
-import { CONTAINERS, FLEX, SPACING } from '@/lib/constants/layout';
+import { CONTAINERS, FLEX } from '@/lib/constants/layout';
 
 // ============================================================================
 // TYPES AND INTERFACES

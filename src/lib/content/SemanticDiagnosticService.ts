@@ -16,7 +16,7 @@
 
 import { PrismaClient } from '@prisma/client';
 import { SmartContentGenerator, TierContent } from './SmartContentGenerator';
-import { StageBasedProcessingService, ProcessingProgress } from './StageBasedProcessingService';
+import { StageBasedProcessingService } from './StageBasedProcessingService';
 import { VectorOperations } from './VectorOperations';
 import { getSemanticHealthMonitor, SemanticHealthMetrics } from './SemanticHealthMonitor';
 import { HierarchicalContentParser, EnhancedProjectIndex, HierarchicalSection } from './HierarchicalContentParser';

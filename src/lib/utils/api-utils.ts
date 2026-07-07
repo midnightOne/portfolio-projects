@@ -4,7 +4,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { ZodError } from 'zod';
-import { Prisma } from '@prisma/client';
 import { createApiError } from '@/lib/types/api';
 
 /**

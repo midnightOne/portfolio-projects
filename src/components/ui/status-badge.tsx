@@ -7,7 +7,7 @@
 'use client';
 
 import React from 'react';
-import { CheckCircle, AlertCircle, Clock, Loader2, Wifi, WifiOff, Settings, X } from 'lucide-react';
+import { CheckCircle, AlertCircle, Clock, Loader2, WifiOff, Settings, X } from 'lucide-react';
 import { Badge } from './badge';
 import { cn } from '@/lib/utils';
 

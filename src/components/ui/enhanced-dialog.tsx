@@ -10,9 +10,9 @@
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { XIcon } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
-import type { AIControlProps, NavigationCommand, ModalOptions } from "@/lib/ui/types";
+import type { AIControlProps, NavigationCommand } from "@/lib/ui/types";
 
 interface EnhancedDialogProps 
   extends React.ComponentProps<typeof DialogPrimitive.Root>,

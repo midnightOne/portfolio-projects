@@ -3,7 +3,7 @@
  */
 
 import { BaseEditorAdapter } from './base-adapter';
-import { EditorCapabilities, TextSelection, TextChange } from './types';
+import { TextSelection, TextChange } from './types';
 
 export class TextareaAdapter extends BaseEditorAdapter {
   private element: HTMLTextAreaElement | any;

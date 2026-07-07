@@ -9,7 +9,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAIGateway } from '@/lib/ai/gateway';
 import { SelectiveSectionRegenerator } from '@/lib/content/SelectiveSectionRegenerator';
-import { ContentIngestionService } from '@/lib/content/ContentIngestionService';
 import { prisma } from '@/lib/prisma';
 import { getProcessingService } from '@/lib/content/StageBasedProcessingServiceSingleton';
 import type { ProcessingRequest, StageConfig } from '@/lib/content/StageBasedProcessingService';

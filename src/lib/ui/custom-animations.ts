@@ -17,7 +17,7 @@
 'use client';
 
 import { gsap } from 'gsap';
-import type { AnimationCommand, AnimationOptions } from './types';
+import type { AnimationOptions } from './types';
 
 // Custom Animation Plugin Types
 export interface AnimationPlugin {
