@@ -7,16 +7,18 @@ import { ProviderFactory } from '../provider-factory';
 
 describe('ProviderFactory Integration', () => {
   describe('Provider Registration', () => {
-    it('should have both providers registered', () => {
+    it('should have all providers registered', () => {
       expect(ProviderFactory.isProviderRegistered('openai')).toBe(true);
       expect(ProviderFactory.isProviderRegistered('anthropic')).toBe(true);
+      expect(ProviderFactory.isProviderRegistered('google')).toBe(true);
     });
-    
-    it('should return both provider types', () => {
+
+    it('should return all provider types', () => {
       const types = ProviderFactory.getAvailableProviderTypes();
       expect(types).toContain('openai');
       expect(types).toContain('anthropic');
-      expect(types.length).toBe(2);
+      expect(types).toContain('google');
+      expect(types.length).toBe(3);
     });
     
     it('should return null for missing API keys', () => {
@@ -47,9 +49,10 @@ describe('ProviderFactory Integration', () => {
       process.env = { ...originalEnv };
       delete process.env.OPENAI_API_KEY;
       delete process.env.ANTHROPIC_API_KEY;
-      
+      delete process.env.GOOGLE_API_KEY;
+
       const providers = ProviderFactory.createAvailableProviders();
-      
+
       expect(providers.size).toBe(0);
     });
     

@@ -20,18 +20,8 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext) {
     const body = await request.json();
     
     // Validate required fields
-    const { model, content, context } = body;
-    
-    if (!model) {
-      return NextResponse.json({
-        success: false,
-        error: {
-          message: 'Model parameter is required',
-          code: 'MISSING_MODEL',
-          details: 'Request body must include "model" field with a valid model ID'
-        }
-      }, { status: 400 });
-    }
+    const { content, context } = body;
+    const model = body.model || 'default-reasoning';
     
     if (!content) {
       return NextResponse.json({
@@ -83,9 +73,11 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext) {
 
     await ctx.meter({
       usageType: 'content_improve',
+      provider: result.provider,
       modelId: result.model,
-      inputTokens: result.tokensUsed,
-      costUsd: result.cost,
+      inputTokens: result.inputTokens ?? result.tokensUsed,
+      outputTokens: result.outputTokens,
+      metadata: { requestedModel: model },
     });
 
     if (result.success) {

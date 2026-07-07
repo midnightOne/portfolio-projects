@@ -2,25 +2,22 @@
  * Base provider class with common functionality
  */
 
-import { AIProvider, ProviderChatRequest, ProviderChatResponse, AIProviderType } from '../types';
+import { AIProvider, AIProviderType } from '../types';
 
 export abstract class BaseProvider implements AIProvider {
   abstract name: AIProviderType;
   protected apiKey: string;
-  
+
   constructor(apiKey: string) {
     if (!apiKey) {
       throw new Error(`API key is required for provider`);
     }
     this.apiKey = apiKey;
   }
-  
+
   // Abstract methods that must be implemented by concrete providers
   abstract testConnection(): Promise<boolean>;
   abstract listModels(): Promise<string[]>;
-  abstract chat(request: ProviderChatRequest): Promise<ProviderChatResponse>;
-  abstract estimateTokens(text: string): number;
-  abstract calculateCost(tokens: number, model: string): number;
   
   /**
    * Parse provider-specific errors into actionable messages
@@ -68,21 +65,4 @@ export abstract class BaseProvider implements AIProvider {
     return ['INVALID_API_KEY', 'BAD_REQUEST'].includes(code);
   }
   
-  /**
-   * Validate chat request parameters
-   */
-  protected validateChatRequest(request: ProviderChatRequest): void {
-    if (!request.model) {
-      throw new Error('Model is required');
-    }
-    if (!request.messages || request.messages.length === 0) {
-      throw new Error('Messages are required');
-    }
-    if (request.temperature !== undefined && (request.temperature < 0 || request.temperature > 1)) {
-      throw new Error('Temperature must be between 0 and 1');
-    }
-    if (request.maxTokens !== undefined && request.maxTokens < 1) {
-      throw new Error('Max tokens must be greater than 0');
-    }
-  }
 }

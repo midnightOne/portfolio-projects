@@ -52,7 +52,8 @@ export async function resolveModelAlias(alias: ModelAliasName): Promise<Resolved
 /**
  * Resolve a config-supplied value that may be either a role alias or a
  * concrete model id (D4: config stores aliases by default; admins may pin a
- * concrete id). Unknown values pass through as {provider:'openai', modelId}.
+ * concrete id). Pinned ids get their provider from the pricing table when a
+ * row exists, else a conservative id-prefix heuristic (default: openai).
  */
 export async function resolveAliasOrModelId(value: string): Promise<ResolvedModel> {
   const map = await (async () => {
@@ -64,7 +65,20 @@ export async function resolveAliasOrModelId(value: string): Promise<ResolvedMode
   })();
   const hit = map.get(value);
   if (hit) return hit;
-  return { alias: value as ModelAliasName, provider: 'openai', modelId: value };
+  const provider = await inferProviderForModelId(value);
+  return { alias: value as ModelAliasName, provider, modelId: value };
+}
+
+async function inferProviderForModelId(modelId: string): Promise<string> {
+  try {
+    const row = await prisma.aIModelPricing.findFirst({ where: { modelId }, select: { provider: true } });
+    if (row) return row.provider;
+  } catch {
+    // fall through to the heuristic
+  }
+  if (modelId.startsWith('claude')) return 'anthropic';
+  if (modelId.startsWith('gemini')) return 'google';
+  return 'openai';
 }
 
 /** Test hook: drop the per-instance memo. */

@@ -1,8 +1,8 @@
 # ai-admin — Design
 
-**Status:** current — editing path implemented; registry/aliases/adapter-layer sections are target design (Phases 3–4)
+**Status:** current — editing path + registry/aliases/pricing + reasoning-adapter layer implemented (Phase 4 Block A, 2026-07-07)
 **Owner domain:** model registry, pricing, reasoning adapters, editing AI
-**Last verified against code:** 2026-07-07 (Phase 3 consolidation session)
+**Last verified against code:** 2026-07-07 (Phase 4 session — Block A)
 
 ---
 
@@ -10,14 +10,17 @@
 
 ```
 src/lib/ai/
-  service-manager.ts, provider-factory.ts     # provider orchestration (current)
-  providers/{openai,anthropic,base}-provider.ts
+  service-manager.ts, provider-factory.ts     # provider status/listing orchestration + editing prompt/parse logic
+  providers/{openai,anthropic,google,base}-provider.ts   # key validation + model listing ONLY (registry refresh source)
+  reasoning/{types,index,openai,anthropic,google,fake}-adapter.ts  # D39 adapter family — ALL chat/completion calls
+  model-registry.ts, pricing.ts               # D4 aliases + D38 estimateCost()
   error-handler.ts, status-cache.ts, availability-checker.ts, environment.ts
-  editors/                                    # editor abstraction files — EXIST BUT UNWIRED (zero component imports; the Tiptap AI panel calls the editing endpoints directly). Wire-or-delete at task 4.3 (Phase 3 manifest cross-reference §2). Sibling extensions/ was never wired either and was scheduled for deletion.
 src/app/api/admin/ai/
-  edit-content, improve-content, process-prompt, suggest-tags   # canonical editing endpoints (D23)
+  edit-content, improve-content, process-prompt, suggest-tags   # canonical editing endpoints (D23), adapter-backed
   available-models, model-config, providers*, environment-status, test-connection, initialize
 ```
+
+**Resolved at task 4.3 (2026-07-07):** the never-wired editor abstraction (`src/lib/ai/editors/`, 10 files + tests) was **deleted**, not wired — the Tiptap AI panel has always called the editing endpoints directly, and the adapter-layer migration made the server side provider-agnostic without any client abstraction. §5 below corrected to match.
 
 ## 2. Target: model registry + aliases (D4)
 
@@ -39,13 +42,13 @@ One interface (signatures indicative): `chat(messages, {model|alias, tools?, str
 | Anthropic | **kept + fixed** (D40): tool use ✓, vision ✓, JSON via tool-forcing; pricing via §3 |
 | Google | new; needed for the adapter-family showcase and D22 parity |
 
-Implementation choice (evaluate at build time): thin wrapper over the Vercel AI SDK (gets streaming/tools/structured-output/usage for free) vs. extending the current hand-rolled providers. Constraint either way: the **interface** is ours, consumers never import provider SDKs directly, and the voice adapter family stays separate.
+**Implementation choice (decided at build time, 2026-07-07): extended the hand-rolled family, no AI SDK.** The interface is ~50 lines and each adapter fits it in ~100 (Anthropic via the installed `@anthropic-ai/sdk`; Google via native REST `generateContent` — zero new dependencies); an AI-SDK rewrite would have touched every consumer for no capability the seam needs. Constraint held: the **interface** is ours, consumers never import provider SDKs directly, and the voice adapter family stays separate (D48).
 
 Consumers and their aliases:
 
 | Consumer | Alias |
 |---|---|
-| Admin editing AI | `default-chat` |
+| Admin editing AI | `default-reasoning` (request may pin an id or another alias) |
 | Public text chat tier (`access-and-cost`) | `default-cheap` |
 | Deep server tools / job analysis (`ai-assistant`), MCP deep tools | `default-reasoning` |
 | Semantic pipeline summaries/embeddings (`semantic-content`) | `default-chat` (summaries) / `default-embedding` |
@@ -54,7 +57,7 @@ This is the D39 unification: one adapter family, admin-selectable models, consum
 
 ## 5. Editing AI flow (implemented)
 
-Editor selection/context → endpoint (D23) → provider call with system prompt + project context → structured response `{reasoning, changes, confidence, warnings}` → editor adapter applies via review-before-apply → undo history. Editor abstraction (`src/lib/ai/editors/`) keeps the AI panel decoupled from Tiptap specifics.
+Editor selection/context → endpoint (D23) → **reasoning adapter** (`getReasoningAdapterForAliasOrModel`; request `model` may be a registry alias — default `default-reasoning` — or a pinned id) with system prompt + project context → structured response `{reasoning, changes, confidence, warnings}` → the Tiptap AI panel applies via review-before-apply → editor undo history. Usage is metered from the provider's usage fields; cost only via `estimateCost()` (D38). There is no client-side editor abstraction — the panel talks to the endpoints directly (the unwired `lib/ai/editors/` files were deleted at task 4.3).
 
 ## 6. Serverless notes (D43)
 

@@ -13,6 +13,8 @@ import {
 } from './types';
 import { AIErrorHandler } from './error-handler';
 import { AIStatusCache } from './status-cache';
+import { getReasoningAdapterForAliasOrModel, type ReasoningMessage } from './reasoning';
+import { estimateCost } from './pricing';
 
 const prisma = new PrismaClient();
 
@@ -76,7 +78,10 @@ export interface AIContentEditResponse {
   confidence: number;
   warnings: string[];
   model: string;
+  provider?: string;
   tokensUsed: number;
+  inputTokens?: number;
+  outputTokens?: number;
   cost: number;
 }
 
@@ -104,7 +109,10 @@ export interface AITagSuggestionResponse {
   };
   reasoning: string;
   model: string;
+  provider?: string;
   tokensUsed: number;
+  inputTokens?: number;
+  outputTokens?: number;
   cost: number;
 }
 
@@ -157,7 +165,10 @@ export interface AICustomPromptResponse {
   warnings: string[];
   userFeedback?: string;
   model: string;
+  provider?: string;
   tokensUsed: number;
+  inputTokens?: number;
+  outputTokens?: number;
   cost: number;
 }
 
@@ -553,70 +564,57 @@ export class AIServiceManager {
   }
 
   /**
+   * Run one chat call through the reasoning-adapter layer (D39). `request.model`
+   * may be a role alias (e.g. 'default-reasoning') or a pinned model id; usage
+   * comes from the provider response and cost from `estimateCost()` (D38) —
+   * identical to what the ledger computes, so UI display and metering agree.
+   */
+  private async runAdapterChat(request: ProviderChatRequest): Promise<{
+    content: string;
+    provider: string;
+    modelId: string;
+    inputTokens: number;
+    outputTokens: number;
+    cost: number;
+  }> {
+    const adapter = await getReasoningAdapterForAliasOrModel(request.model);
+    const messages: ReasoningMessage[] = [
+      ...(request.systemPrompt ? [{ role: 'system' as const, content: request.systemPrompt }] : []),
+      ...request.messages.map((m) => ({ role: m.role, content: m.content })),
+    ];
+    const result = await adapter.chat(messages, {
+      temperature: request.temperature ?? 0.7,
+      maxOutputTokens: request.maxTokens ?? 4000,
+    });
+    const cost = await estimateCost(result.modelId, {
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+    });
+    return {
+      content: result.content ?? '',
+      provider: result.provider,
+      modelId: result.modelId,
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+      cost,
+    };
+  }
+
+  /**
    * Edit content using AI
    */
   async editContent(request: AIContentEditRequest): Promise<AIContentEditResponse> {
-    const provider = this.getProviderForModel(request.model);
-
-    if (!provider) {
-      const aiError = AIErrorHandler.parseError(
-        new Error(`Model ${request.model} is not configured`),
-        { model: request.model, operation: 'editContent' }
-      );
-
-      AIErrorHandler.logError(aiError);
-
-      return {
-        success: false,
-        changes: {},
-        reasoning: aiError.message,
-        confidence: 0,
-        warnings: aiError.suggestions,
-        model: request.model,
-        tokensUsed: 0,
-        cost: 0
-      };
-    }
-
-    const providerInstance = this.providers.get(provider);
-    if (!providerInstance) {
-      const aiError = AIErrorHandler.parseError(
-        new Error(`Provider ${provider} is not available`),
-        { provider, model: request.model, operation: 'editContent' }
-      );
-
-      AIErrorHandler.logError(aiError);
-
-      return {
-        success: false,
-        changes: {},
-        reasoning: aiError.message,
-        confidence: 0,
-        warnings: aiError.suggestions,
-        model: request.model,
-        tokensUsed: 0,
-        cost: 0
-      };
-    }
-
     try {
       // Build the prompt based on the operation
       const prompt = this.buildContentEditPrompt(request);
 
-      const chatRequest: ProviderChatRequest = {
+      const response = await this.runAdapterChat({
         model: request.model,
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
+        messages: [{ role: 'user', content: prompt }],
         systemPrompt: request.systemPrompt || this.getDefaultSystemPrompt(),
         temperature: request.temperature ?? 0.7,
         maxTokens: 4000
-      };
-
-      const response = await providerInstance.chat(chatRequest);
+      });
 
       // Parse the structured response
       const parsedResponse = this.parseContentEditResponse(response.content, request);
@@ -627,15 +625,17 @@ export class AIServiceManager {
         reasoning: parsedResponse.reasoning,
         confidence: parsedResponse.confidence,
         warnings: parsedResponse.warnings,
-        model: request.model,
-        tokensUsed: response.tokensUsed || 0,
-        cost: response.cost || 0
+        model: response.modelId,
+        provider: response.provider,
+        tokensUsed: response.inputTokens + response.outputTokens,
+        inputTokens: response.inputTokens,
+        outputTokens: response.outputTokens,
+        cost: response.cost
       };
     } catch (error) {
       const aiError = AIErrorHandler.parseError(error, {
-        provider,
         model: request.model,
-        operation: 'processCustomPrompt'
+        operation: 'editContent'
       });
 
       AIErrorHandler.logError(aiError);
@@ -657,62 +657,16 @@ export class AIServiceManager {
    * Suggest tags for project content
    */
   async suggestTags(request: AITagSuggestionRequest): Promise<AITagSuggestionResponse> {
-    const provider = this.getProviderForModel(request.model);
-
-    if (!provider) {
-      const aiError = AIErrorHandler.parseError(
-        new Error(`Model ${request.model} is not configured`),
-        { model: request.model, operation: 'suggestTags' }
-      );
-
-      AIErrorHandler.logError(aiError);
-
-      return {
-        success: false,
-        suggestions: { add: [], remove: [] },
-        reasoning: aiError.message,
-        model: request.model,
-        tokensUsed: 0,
-        cost: 0
-      };
-    }
-
-    const providerInstance = this.providers.get(provider);
-    if (!providerInstance) {
-      const aiError = AIErrorHandler.parseError(
-        new Error(`Provider ${provider} is not available`),
-        { provider, model: request.model, operation: 'suggestTags' }
-      );
-
-      AIErrorHandler.logError(aiError);
-
-      return {
-        success: false,
-        suggestions: { add: [], remove: [] },
-        reasoning: aiError.message,
-        model: request.model,
-        tokensUsed: 0,
-        cost: 0
-      };
-    }
-
     try {
       const prompt = this.buildTagSuggestionPrompt(request);
 
-      const chatRequest: ProviderChatRequest = {
+      const response = await this.runAdapterChat({
         model: request.model,
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
+        messages: [{ role: 'user', content: prompt }],
         systemPrompt: 'You are an expert at analyzing project content and suggesting relevant technology and skill tags. Provide structured JSON responses.',
         temperature: 0.3, // Lower temperature for more consistent tag suggestions
         maxTokens: 2000
-      };
-
-      const response = await providerInstance.chat(chatRequest);
+      });
 
       // Parse the tag suggestions
       const parsedResponse = this.parseTagSuggestionResponse(response.content);
@@ -721,13 +675,15 @@ export class AIServiceManager {
         success: true,
         suggestions: parsedResponse.suggestions,
         reasoning: parsedResponse.reasoning,
-        model: request.model,
-        tokensUsed: response.tokensUsed,
+        model: response.modelId,
+        provider: response.provider,
+        tokensUsed: response.inputTokens + response.outputTokens,
+        inputTokens: response.inputTokens,
+        outputTokens: response.outputTokens,
         cost: response.cost
       };
     } catch (error) {
       const aiError = AIErrorHandler.parseError(error, {
-        provider,
         model: request.model,
         operation: 'suggestTags'
       });
@@ -758,67 +714,17 @@ export class AIServiceManager {
    * Single-prompt processing without maintaining chat history
    */
   async processCustomPrompt(request: AICustomPromptRequest): Promise<AICustomPromptResponse> {
-    const provider = this.getProviderForModel(request.model);
-
-    if (!provider) {
-      const aiError = AIErrorHandler.parseError(
-        new Error(`Model ${request.model} is not configured`),
-        { model: request.model, operation: 'processCustomPrompt' }
-      );
-
-      AIErrorHandler.logError(aiError);
-
-      return {
-        success: false,
-        changes: {},
-        reasoning: aiError.message,
-        confidence: 0,
-        warnings: aiError.suggestions,
-        model: request.model,
-        tokensUsed: 0,
-        cost: 0
-      };
-    }
-
-    const providerInstance = this.providers.get(provider);
-    if (!providerInstance) {
-      const aiError = AIErrorHandler.parseError(
-        new Error(`Provider ${provider} is not available`),
-        { provider, model: request.model, operation: 'processCustomPrompt' }
-      );
-
-      AIErrorHandler.logError(aiError);
-
-      return {
-        success: false,
-        changes: {},
-        reasoning: aiError.message,
-        confidence: 0,
-        warnings: aiError.suggestions,
-        model: request.model,
-        tokensUsed: 0,
-        cost: 0
-      };
-    }
-
     try {
       // Build the prompt for custom processing
       const prompt = this.buildCustomPrompt(request);
 
-      const chatRequest: ProviderChatRequest = {
+      const response = await this.runAdapterChat({
         model: request.model,
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
+        messages: [{ role: 'user', content: prompt }],
         systemPrompt: request.systemPrompt || this.getCustomPromptSystemPrompt(),
         temperature: request.temperature ?? 0.7,
         maxTokens: 4000
-      };
-
-      const response = await providerInstance.chat(chatRequest);
+      });
 
       // Parse the structured response
       const parsedResponse = this.parseCustomPromptResponse(response.content, request);
@@ -830,13 +736,15 @@ export class AIServiceManager {
         confidence: parsedResponse.confidence,
         warnings: parsedResponse.warnings,
         userFeedback: parsedResponse.userFeedback,
-        model: request.model,
-        tokensUsed: response.tokensUsed || 0,
-        cost: response.cost || 0
+        model: response.modelId,
+        provider: response.provider,
+        tokensUsed: response.inputTokens + response.outputTokens,
+        inputTokens: response.inputTokens,
+        outputTokens: response.outputTokens,
+        cost: response.cost
       };
     } catch (error) {
       const aiError = AIErrorHandler.parseError(error, {
-        provider,
         model: request.model,
         operation: 'processCustomPrompt'
       });

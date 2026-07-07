@@ -35,22 +35,20 @@ export interface ConnectionTestResult {
   };
 }
 
+/**
+ * Provider surface for admin config: key validation + model listing (the D4
+ * registry's refresh source). Chat/completions run through the reasoning-adapter
+ * layer (`lib/ai/reasoning`, D39); cost lives in `lib/ai/pricing` (D38).
+ */
 export interface AIProvider {
-  name: 'openai' | 'anthropic';
-  
+  name: AIProviderType;
+
   // Connection and validation
   testConnection(): Promise<boolean>;
   listModels(): Promise<string[]>;
-  
-  // AI operations
-  chat(request: ProviderChatRequest): Promise<ProviderChatResponse>;
-  
-  // Utility methods
-  estimateTokens(text: string): number;
-  calculateCost(tokens: number, model: string): number;
 }
 
-export type AIProviderType = 'openai' | 'anthropic';
+export type AIProviderType = 'openai' | 'anthropic' | 'google';
 
 export interface AIProviderStatus {
   name: AIProviderType;

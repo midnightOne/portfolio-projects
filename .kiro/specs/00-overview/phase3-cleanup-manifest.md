@@ -136,8 +136,11 @@ Findings from the Phase 3 session that the manifest/ledgers did not predict:
     hard-deleted by waves 1–4.
 
 **HOLDs still standing (do not delete before their named tasks):**
-`lib/ai/editors/*` (ai-admin 4.3) · `connectionDiagnostics.ts` (ai-assistant 5b.3) ·
+`connectionDiagnostics.ts` (ai-assistant 5b.3) ·
 `conversation-replay.tsx` (5b.2) · `reflink-status-indicator.tsx` (access-and-cost 8) ·
 `VoiceConnectionTester.tsx` (ai-assistant 6 / ui-system 1.2) · `config-validation.ts` (ai-assistant 6).
 `lib/ai/extensions/` was deleted per section F (no spec support).
+**Resolved 2026-07-07 (Phase 4 Block A):** `lib/ai/editors/*` — DELETED at ai-admin 4.3 (never wired;
+the Tiptap AI panel calls the endpoints directly; adapter-layer migration made the server side
+provider-agnostic without any client abstraction). ai-admin design §1/§5 corrected in the same change.
 

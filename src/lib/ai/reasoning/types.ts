@@ -9,6 +9,8 @@ export interface ReasoningMessage {
   content: string;
   /** For role 'assistant' echoing prior tool calls, and role 'tool' answering them. */
   toolCallId?: string;
+  /** Tool NAME for role 'tool' — required by providers that key results by name (Google). */
+  name?: string;
   toolCalls?: ReasoningToolCall[];
 }
 

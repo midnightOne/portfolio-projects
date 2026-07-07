@@ -2,7 +2,7 @@
 
 **Status:** current
 **Owner domain:** model registry, pricing, reasoning adapters, editing AI
-**Last verified against code:** 2026-07-07 (Phase 3 consolidation session)
+**Last verified against code:** 2026-07-07 (Phase 4 session — Block A)
 **Ledger regenerated from code truth per D36. The completed ai-architecture-redesign work (env keys, `AIModelConfig`, `AIGeneralSettings`, admin AI settings page) is history, not tasks.**
 
 ---
@@ -31,17 +31,17 @@ Env-based provider keys with status/masking/test-connection; OpenAI + Anthropic 
 - [x] 3. Pricing module (D38) — **spend path complete (Phase 2, 2026-07-05; ticked 2026-07-07); residual = estimation tables + admin rates UI, itemized in 3.2**
   - [x] 3.1 `src/lib/ai/pricing.ts` + `AIModelPricing` table + `estimateCost()` as the only cost function; unknown models price at the most expensive known rate (never free); rates are DB rows seeded in `prisma/seed.ts`. **Residual:** no admin API/panel for editing rates yet — clone the `ModelAliasPanel`/`model-aliases` pattern when wanted; until then rates edit via Prisma studio.
   - [x] 3.2 **Every path that WRITES the ledger** uses `estimateCost()` — local cost tables deleted from `BudgetAwareAIOperations` (embeddings + summaries), `StageBasedProcessingService`, `ContentSearchService` (query embeddings). **Estimation tables consolidated 2026-07-07 (Phase 4 preflight, with `semantic-content` 2.2):** all pre-flight rate tables in `SelectiveSectionRegenerator`, `ContentChangeDetector`, `SmartContentGenerator`, `ChunkingConfigService`, `CostEstimationService`, `ContentIngestionService`, `BatchEmbeddingService`, `BulkOperationsService` deleted; estimates resolve `default-embedding`/`default-cheap` through `getPreflightRates()`/`listEmbeddingPricing()` (new in `pricing.ts`). The Batch API actuals path now uses `estimateCost()` + writes the ledger. **Sole remaining constants:** both `service-manager` providers' 2024-vintage rates — they die with task 4.2/4.3 (adapter-layer migration of the editing endpoints).
-  - [x] 3.3 Every ledger write prefers provider `usage` (chat adapter, summaries, embeddings all read `response.usage`); char/4 lives only in pre-flight estimates (`estimateTokensFromChars`). **Residual:** the editing endpoints meter the providers' self-computed cost (their stale constants) — resolves when task 4.2 moves usage reporting into the adapter layer.
+  - [x] 3.3 Every ledger write prefers provider `usage` (chat adapter, summaries, embeddings all read `response.usage`); char/4 lives only in pre-flight estimates (`estimateTokensFromChars`). **Residual resolved 2026-07-07 with task 4.3:** the editing endpoints now meter adapter-reported input/output tokens and let the ledger price them via `estimateCost()`; the providers' stale constants are deleted.
   - [x] 3.4 `OPENAI_PRICING_REFERENCE.md` / `PRICING_UPDATE_SUMMARY.md` verified absent from the repo root (removed with the Phase 3 hygiene sweep).
   - _Requirements: 3_
 
 ### Phase 4
 
-- [ ] 4. Reasoning-model adapter layer (D39)
-  - [ ] 4.1 Define the adapter interface; evaluate AI-SDK-backed vs extended hand-rolled implementation (contained diff wins)
-  - [ ] 4.2 OpenAI + Anthropic + **Google** adapters; usage reporting into the ledger
-  - [ ] 4.3 Migrate editing endpoints onto the layer; `default-reasoning` consumers (job analysis, MCP deep tools) plug in
-  - [ ] 4.4 Acceptance: admin editing works via any configured provider; alias switch requires no deploy
+- [x] 4. Reasoning-model adapter layer (D39) — **done 2026-07-07 (Phase 4 Block A)**
+  - [x] 4.1 Interface kept from the Phase 2 seam (`src/lib/ai/reasoning/types.ts`, +`name` on tool messages for Google). **AI-SDK evaluation decided: extended hand-rolled** — each adapter fits the 50-line interface in ~100 lines (Anthropic via installed `@anthropic-ai/sdk`, Google via native REST `generateContent`, zero new deps); an AI-SDK rewrite would touch every consumer for no needed capability. Recorded in design §4.
+  - [x] 4.2 `AnthropicReasoningAdapter` (D40 in practice: tool use + tool_result mapping; JSON via tool-forcing available) + `GoogleReasoningAdapter` (functionDeclarations, schema-key stripping, synthesized call ids, functionResponse keyed by name); factory grew `getReasoningAdapterForModel` + `getReasoningAdapterForAliasOrModel`; `resolveAliasOrModelId` now infers provider from the pricing table (was: hardcoded openai). Providers (`lib/ai/providers/*`) slimmed to key-validation + model listing — **their 2024 rate tables and chat paths are deleted** (closes 3.2/3.3 residuals); Anthropic lists via the live models API (fossilized list gone); new `GoogleProvider` + `GOOGLE_API_KEY` in factory/environment surfaces. Unit coverage: `reasoning/__tests__/reasoning-adapters.test.ts` (mocked SDK/fetch mapping tests, 8 tests).
+  - [x] 4.3 All four editing endpoints run `AIServiceManager.{editContent,suggestTags,processCustomPrompt}` → `runAdapterChat` → adapter; `model` in requests may be an alias or pinned id and **defaults to `default-reasoning`**; endpoints meter provider-reported input/output tokens with cost computed by the ledger's `estimateCost()` (metadata records `requestedModel`). `UnifiedModelSelector` offers alias options above the provider lists. **Manifest hold resolved: `lib/ai/editors/*` DELETED** (wiring it = client-side Tiptap plumbing, far larger diff than deletion; the panel always called endpoints directly) — design §1/§5 corrected.
+  - [x] 4.4 Acceptance verified live 2026-07-07: (a) fake-mode e2e (`AI_FAKE_MODE=reasoning` → FakeReasoningAdapter, usage propagated, $0 cost); (b) live-fire route e2e — admin login → `POST edit-content` with NO model field → `default-reasoning`→gpt-4o, ledger row `feature=admin-edit, provider=openai, modelUsed=gpt-4o, 183/149 tokens, $0.001948` (id cross-checked from `_debug.usage.ledgerId`); (c) **alias switch no-deploy drill**: flipped `default-reasoning` → gpt-4o-mini in DB, same request served by gpt-4o-mini after the 60s registry cache (cost 20× lower), alias restored; (d) suggestTags via `default-cheap` live (gpt-4o-mini). **Provider caveat (environment, not code):** Anthropic live-fire blocked by the stale ANTHROPIC_API_KEY (clean 401 from the real API — adapter wiring reaches Anthropic correctly); Google has no key yet. Both proven at the mapping level by mocked unit tests; re-run live-fire when the owner provisions fresh keys.
   - _Requirements: 4_
 
 ## Backlog

@@ -16,6 +16,7 @@ describe('Environment Status API Logic', () => {
     it('should return correct status when both providers are configured', () => {
       process.env.OPENAI_API_KEY = 'sk-1234567890abcdef1234567890abcdef';
       process.env.ANTHROPIC_API_KEY = 'sk-ant-1234567890abcdef1234567890abcdef';
+      delete process.env.GOOGLE_API_KEY;
 
       const status = EnvironmentValidator.getEnvironmentStatus();
 
@@ -25,8 +26,8 @@ describe('Environment Status API Logic', () => {
       expect(status.anthropic.keyPreview).toBe('sk-a...cdef');
       expect(status.hasAnyProvider).toBe(true);
       expect(status.configuredProviders).toEqual(['openai', 'anthropic']);
-      expect(status.isFullyConfigured).toBe(true);
-      expect(status.warnings).toEqual([]);
+      expect(status.isFullyConfigured).toBe(false); // google not configured
+      expect(status.warnings).toEqual(['Google not configured. Set GOOGLE_API_KEY to enable Gemini models.']);
     });
 
     it('should return correct status when only OpenAI is configured', () => {
@@ -42,7 +43,7 @@ describe('Environment Status API Logic', () => {
       expect(status.hasAnyProvider).toBe(true);
       expect(status.configuredProviders).toEqual(['openai']);
       expect(status.isFullyConfigured).toBe(false);
-      expect(status.warnings).toEqual(['Anthropic not configured. Set ANTHROPIC_API_KEY to enable Claude models.']);
+      expect(status.warnings).toEqual(['Anthropic not configured. Set ANTHROPIC_API_KEY to enable Claude models.', 'Google not configured. Set GOOGLE_API_KEY to enable Gemini models.']);
     });
 
     it('should return correct status when only Anthropic is configured', () => {
@@ -58,7 +59,7 @@ describe('Environment Status API Logic', () => {
       expect(status.hasAnyProvider).toBe(true);
       expect(status.configuredProviders).toEqual(['anthropic']);
       expect(status.isFullyConfigured).toBe(false);
-      expect(status.warnings).toEqual(['OpenAI not configured. Set OPENAI_API_KEY to enable OpenAI models.']);
+      expect(status.warnings).toEqual(['OpenAI not configured. Set OPENAI_API_KEY to enable OpenAI models.', 'Google not configured. Set GOOGLE_API_KEY to enable Gemini models.']);
     });
 
     it('should return correct status when no providers are configured', () => {
@@ -74,7 +75,7 @@ describe('Environment Status API Logic', () => {
       expect(status.hasAnyProvider).toBe(false);
       expect(status.configuredProviders).toEqual([]);
       expect(status.isFullyConfigured).toBe(false);
-      expect(status.warnings).toEqual(['No AI providers configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY environment variables.']);
+      expect(status.warnings).toEqual(['No AI providers configured. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY environment variables.']);
     });
 
     it('should mask API keys correctly', () => {
@@ -159,7 +160,7 @@ describe('Environment Status API Logic', () => {
       expect(apiResponse.data.summary.totalConfigured).toBe(1);
       expect(apiResponse.data.summary.totalAvailable).toBe(2);
       
-      expect(apiResponse.data.warnings).toEqual(['Anthropic not configured. Set ANTHROPIC_API_KEY to enable Claude models.']);
+      expect(apiResponse.data.warnings).toEqual(['Anthropic not configured. Set ANTHROPIC_API_KEY to enable Claude models.', 'Google not configured. Set GOOGLE_API_KEY to enable Gemini models.']);
       
       expect(apiResponse.data.setupInstructions.openai).toBeNull();
       expect(apiResponse.data.setupInstructions.anthropic).toEqual({

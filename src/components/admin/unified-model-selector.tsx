@@ -283,6 +283,26 @@ export function UnifiedModelSelector({
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
+        {/* Registry role aliases (D4/D39): resolve server-side at request time, so an
+            alias switch in ModelAliasPanel changes what runs — no deploy, no re-pick. */}
+        <div className="px-3 py-2 text-sm font-medium bg-muted/50 border-b flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-foreground">Registry aliases</span>
+            <span className="text-xs text-muted-foreground">(admin-configured)</span>
+          </div>
+        </div>
+        <SelectItem value="default-reasoning" className="pl-6">
+          <div className="flex items-center justify-between w-full">
+            <span>Default reasoning (alias)</span>
+            <CheckCircle className="h-3 w-3 text-green-600" />
+          </div>
+        </SelectItem>
+        <SelectItem value="default-cheap" className="pl-6">
+          <div className="flex items-center justify-between w-full">
+            <span>Default cheap (alias)</span>
+            <CheckCircle className="h-3 w-3 text-green-600" />
+          </div>
+        </SelectItem>
         {/* Group models by provider */}
         {Object.entries(groupedModels)
           .sort(([a], [b]) => {

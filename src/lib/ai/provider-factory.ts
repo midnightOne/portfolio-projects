@@ -5,14 +5,16 @@
 import { AIProvider, AIProviderType } from './types';
 import { OpenAIProvider } from './providers/openai-provider';
 import { AnthropicProvider } from './providers/anthropic-provider';
+import { GoogleProvider } from './providers/google-provider';
 
 export class ProviderFactory {
   private static providers: Map<AIProviderType, new (apiKey: string) => AIProvider> = new Map();
-  
+
   // Auto-register known providers
   static {
     this.registerProvider('openai', OpenAIProvider);
     this.registerProvider('anthropic', AnthropicProvider);
+    this.registerProvider('google', GoogleProvider);
   }
   
   /**
@@ -75,7 +77,16 @@ export class ProviderFactory {
         providers.set('anthropic', anthropicProvider);
       }
     }
-    
+
+    // Check for Google API key
+    const googleKey = process.env.GOOGLE_API_KEY;
+    if (googleKey) {
+      const googleProvider = this.createProvider('google', googleKey);
+      if (googleProvider) {
+        providers.set('google', googleProvider);
+      }
+    }
+
     return providers;
   }
 }

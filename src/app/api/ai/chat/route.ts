@@ -120,7 +120,7 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
       const toolStart = Date.now();
       // Allowlist re-check at dispatch (Req 2.1) — defense in depth against model drift.
       if (!toolNames.includes(call.name)) {
-        messages.push({ role: 'tool', toolCallId: call.id, content: JSON.stringify({ error: `Tool '${call.name}' is not available.` }) });
+        messages.push({ role: 'tool', toolCallId: call.id, name: call.name, content: JSON.stringify({ error: `Tool '${call.name}' is not available.` }) });
         ctx.debug.toolCalls.push({ name: call.name, ok: false, error: 'not_in_allowlist', ms: 0 });
         continue;
       }
@@ -157,6 +157,7 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
       messages.push({
         role: 'tool',
         toolCallId: call.id,
+        name: call.name,
         content: JSON.stringify(toolResult.success ? toolResult.data : { error: toolResult.error }).slice(0, 8000),
       });
     }

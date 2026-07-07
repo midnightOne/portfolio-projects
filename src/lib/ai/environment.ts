@@ -5,37 +5,44 @@
 export interface AIEnvironmentConfig {
   OPENAI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
-  AI_DEFAULT_PROVIDER?: 'openai' | 'anthropic';
+  GOOGLE_API_KEY?: string;
+  AI_DEFAULT_PROVIDER?: 'openai' | 'anthropic' | 'google';
   AI_REQUEST_TIMEOUT?: string;
   AI_RATE_LIMIT_REQUESTS?: string;
 }
 
-export interface AIConfigStatus {
-  openai: {
-    configured: boolean;
-    keyPreview: string;
-  };
-  anthropic: {
-    configured: boolean;
-    keyPreview: string;
-  };
+interface ProviderKeyStatus {
+  configured: boolean;
+  keyPreview: string;
 }
+
+export interface AIConfigStatus {
+  openai: ProviderKeyStatus;
+  anthropic: ProviderKeyStatus;
+  google: ProviderKeyStatus;
+}
+
+const PROVIDER_ENV_KEYS = {
+  openai: 'OPENAI_API_KEY',
+  anthropic: 'ANTHROPIC_API_KEY',
+  google: 'GOOGLE_API_KEY',
+} as const;
+
+type ProviderName = keyof typeof PROVIDER_ENV_KEYS;
 
 export class EnvironmentValidator {
   /**
    * Validates AI configuration from environment variables
    */
   static validateAIConfig(): AIConfigStatus {
-    return {
-      openai: {
-        configured: !!process.env.OPENAI_API_KEY,
-        keyPreview: this.maskApiKey(process.env.OPENAI_API_KEY)
-      },
-      anthropic: {
-        configured: !!process.env.ANTHROPIC_API_KEY,
-        keyPreview: this.maskApiKey(process.env.ANTHROPIC_API_KEY)
-      }
-    };
+    const status = {} as AIConfigStatus;
+    for (const [provider, envKey] of Object.entries(PROVIDER_ENV_KEYS)) {
+      status[provider as ProviderName] = {
+        configured: !!process.env[envKey],
+        keyPreview: this.maskApiKey(process.env[envKey]),
+      };
+    }
+    return status;
   }
 
   /**
@@ -51,24 +58,16 @@ export class EnvironmentValidator {
    * Checks if at least one AI provider is configured
    */
   static hasAnyAIProvider(): boolean {
-    return !!(process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY);
+    return Object.values(PROVIDER_ENV_KEYS).some((envKey) => !!process.env[envKey]);
   }
 
   /**
    * Gets configured AI providers
    */
-  static getConfiguredProviders(): ('openai' | 'anthropic')[] {
-    const providers: ('openai' | 'anthropic')[] = [];
-    
-    if (process.env.OPENAI_API_KEY) {
-      providers.push('openai');
-    }
-    
-    if (process.env.ANTHROPIC_API_KEY) {
-      providers.push('anthropic');
-    }
-    
-    return providers;
+  static getConfiguredProviders(): ProviderName[] {
+    return (Object.entries(PROVIDER_ENV_KEYS) as Array<[ProviderName, string]>)
+      .filter(([, envKey]) => !!process.env[envKey])
+      .map(([provider]) => provider);
   }
 
   /**
@@ -83,7 +82,7 @@ export class EnvironmentValidator {
       ...config,
       hasAnyProvider,
       configuredProviders,
-      isFullyConfigured: config.openai.configured && config.anthropic.configured,
+      isFullyConfigured: config.openai.configured && config.anthropic.configured && config.google.configured,
       warnings: this.getConfigurationWarnings(config)
     };
   }
@@ -94,15 +93,22 @@ export class EnvironmentValidator {
   private static getConfigurationWarnings(config: AIConfigStatus): string[] {
     const warnings: string[] = [];
 
-    if (!config.openai.configured && !config.anthropic.configured) {
-      warnings.push('No AI providers configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY environment variables.');
-    } else {
-      if (!config.openai.configured) {
-        warnings.push('OpenAI not configured. Set OPENAI_API_KEY to enable OpenAI models.');
-      }
-      if (!config.anthropic.configured) {
-        warnings.push('Anthropic not configured. Set ANTHROPIC_API_KEY to enable Claude models.');
-      }
+    const anyConfigured = (Object.keys(PROVIDER_ENV_KEYS) as ProviderName[]).some(
+      (p) => config[p].configured
+    );
+    if (!anyConfigured) {
+      warnings.push('No AI providers configured. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY environment variables.');
+      return warnings;
+    }
+
+    if (!config.openai.configured) {
+      warnings.push('OpenAI not configured. Set OPENAI_API_KEY to enable OpenAI models.');
+    }
+    if (!config.anthropic.configured) {
+      warnings.push('Anthropic not configured. Set ANTHROPIC_API_KEY to enable Claude models.');
+    }
+    if (!config.google.configured) {
+      warnings.push('Google not configured. Set GOOGLE_API_KEY to enable Gemini models.');
     }
 
     return warnings;

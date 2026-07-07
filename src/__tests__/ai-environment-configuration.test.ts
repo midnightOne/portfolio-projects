@@ -65,7 +65,7 @@ describe('AI Environment Configuration Scenarios', () => {
       expect(envStatus.hasAnyProvider).toBe(false);
       expect(envStatus.isFullyConfigured).toBe(false);
       expect(envStatus.warnings).toContain(
-        'No AI providers configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY environment variables.'
+        'No AI providers configured. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY environment variables.'
       );
     });
 
@@ -465,12 +465,12 @@ describe('AI Environment Configuration Scenarios', () => {
       expect(providers).toEqual(['openai', 'anthropic']);
     });
 
-    it('should show fully configured status', () => {
+    it('should show both classic providers configured (google still missing)', () => {
       const envStatus = EnvironmentValidator.getEnvironmentStatus();
-      
+
       expect(envStatus.hasAnyProvider).toBe(true);
-      expect(envStatus.isFullyConfigured).toBe(true);
-      expect(envStatus.warnings).toHaveLength(0);
+      expect(envStatus.isFullyConfigured).toBe(false); // google not configured
+      expect(envStatus.warnings).toEqual(['Google not configured. Set GOOGLE_API_KEY to enable Gemini models.']);
     });
 
     it('should show full availability when both providers connect', async () => {

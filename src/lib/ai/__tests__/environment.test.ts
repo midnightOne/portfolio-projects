@@ -21,6 +21,7 @@ describe('EnvironmentValidator', () => {
     it('should return not configured when no API keys are set', () => {
       delete process.env.OPENAI_API_KEY;
       delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.GOOGLE_API_KEY;
 
       const result = EnvironmentValidator.validateAIConfig();
 
@@ -56,6 +57,7 @@ describe('EnvironmentValidator', () => {
     it('should return false when no providers are configured', () => {
       delete process.env.OPENAI_API_KEY;
       delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.GOOGLE_API_KEY;
 
       expect(EnvironmentValidator.hasAnyAIProvider()).toBe(false);
     });
@@ -63,6 +65,7 @@ describe('EnvironmentValidator', () => {
     it('should return true when OpenAI is configured', () => {
       process.env.OPENAI_API_KEY = 'sk-test123';
       delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.GOOGLE_API_KEY;
 
       expect(EnvironmentValidator.hasAnyAIProvider()).toBe(true);
     });
@@ -70,6 +73,7 @@ describe('EnvironmentValidator', () => {
     it('should return true when Anthropic is configured', () => {
       delete process.env.OPENAI_API_KEY;
       process.env.ANTHROPIC_API_KEY = 'sk-ant-test123';
+      delete process.env.GOOGLE_API_KEY;
 
       expect(EnvironmentValidator.hasAnyAIProvider()).toBe(true);
     });
@@ -86,6 +90,7 @@ describe('EnvironmentValidator', () => {
     it('should return empty array when no providers are configured', () => {
       delete process.env.OPENAI_API_KEY;
       delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.GOOGLE_API_KEY;
 
       expect(EnvironmentValidator.getConfiguredProviders()).toEqual([]);
     });
@@ -93,6 +98,7 @@ describe('EnvironmentValidator', () => {
     it('should return only openai when OpenAI is configured', () => {
       process.env.OPENAI_API_KEY = 'sk-test123';
       delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.GOOGLE_API_KEY;
 
       expect(EnvironmentValidator.getConfiguredProviders()).toEqual(['openai']);
     });
@@ -100,6 +106,7 @@ describe('EnvironmentValidator', () => {
     it('should return only anthropic when Anthropic is configured', () => {
       delete process.env.OPENAI_API_KEY;
       process.env.ANTHROPIC_API_KEY = 'sk-ant-test123';
+      delete process.env.GOOGLE_API_KEY;
 
       expect(EnvironmentValidator.getConfiguredProviders()).toEqual(['anthropic']);
     });
@@ -107,6 +114,7 @@ describe('EnvironmentValidator', () => {
     it('should return both providers when both are configured', () => {
       process.env.OPENAI_API_KEY = 'sk-test123';
       process.env.ANTHROPIC_API_KEY = 'sk-ant-test123';
+      delete process.env.GOOGLE_API_KEY;
 
       expect(EnvironmentValidator.getConfiguredProviders()).toEqual(['openai', 'anthropic']);
     });
@@ -116,18 +124,20 @@ describe('EnvironmentValidator', () => {
     it('should return comprehensive status with warnings', () => {
       delete process.env.OPENAI_API_KEY;
       delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.GOOGLE_API_KEY;
 
       const status = EnvironmentValidator.getEnvironmentStatus();
 
       expect(status.hasAnyProvider).toBe(false);
       expect(status.configuredProviders).toEqual([]);
       expect(status.isFullyConfigured).toBe(false);
-      expect(status.warnings).toContain('No AI providers configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY environment variables.');
+      expect(status.warnings).toContain('No AI providers configured. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY environment variables.');
     });
 
     it('should return status with partial configuration warnings', () => {
       process.env.OPENAI_API_KEY = 'sk-test123';
       delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.GOOGLE_API_KEY;
 
       const status = EnvironmentValidator.getEnvironmentStatus();
 
@@ -140,11 +150,12 @@ describe('EnvironmentValidator', () => {
     it('should return fully configured status', () => {
       process.env.OPENAI_API_KEY = 'sk-test123';
       process.env.ANTHROPIC_API_KEY = 'sk-ant-test123';
+      process.env.GOOGLE_API_KEY = 'AIza-test123';
 
       const status = EnvironmentValidator.getEnvironmentStatus();
 
       expect(status.hasAnyProvider).toBe(true);
-      expect(status.configuredProviders).toEqual(['openai', 'anthropic']);
+      expect(status.configuredProviders).toEqual(['openai', 'anthropic', 'google']);
       expect(status.isFullyConfigured).toBe(true);
       expect(status.warnings).toEqual([]);
     });

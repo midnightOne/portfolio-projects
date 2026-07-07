@@ -310,30 +310,30 @@ describe('AI Error Handling Scenarios', () => {
         headers: { 'retry-after': '30' }
       };
 
-      // Mock chat method to throw rate limit error
-      MockedOpenAIProvider.prototype.chat.mockRejectedValue(rateLimitError);
+      // Chat runs through the reasoning-adapter layer (D39); make it throw 429
+      jest
+        .spyOn(serviceManager as any, 'runAdapterChat')
+        .mockRejectedValue(rateLimitError);
 
-      try {
-        await serviceManager.editContent({
-          model: 'gpt-4',
-          operation: 'improve',
-          content: 'Test content',
-          context: {
-            projectTitle: 'Test',
-            projectDescription: 'Test',
-            existingTags: [],
-            fullContent: 'Test content'
-          }
-        });
-      } catch (error) {
-        const parsed = AIErrorHandler.parseError(error, { 
-          provider: 'openai',
-          operation: 'editContent'
-        });
-        
-        expect(parsed.type).toBe(AIErrorType.RATE_LIMIT_EXCEEDED);
-        expect(parsed.suggestions).toContain('Wait 30 seconds before retrying');
-      }
+      const result = await serviceManager.editContent({
+        model: 'gpt-4',
+        operation: 'improve',
+        content: 'Test content',
+        context: {
+          projectTitle: 'Test',
+          projectDescription: 'Test',
+          existingTags: [],
+          fullContent: 'Test content'
+        }
+      });
+
+      // editContent surfaces parsed provider errors as a failed response
+      expect(result.success).toBe(false);
+      const parsed = AIErrorHandler.parseError(rateLimitError, {
+        operation: 'editContent'
+      });
+      expect(parsed.type).toBe(AIErrorType.RATE_LIMIT_EXCEEDED);
+      expect(result.reasoning).toBe(parsed.message);
     });
   });
 

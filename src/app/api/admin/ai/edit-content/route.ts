@@ -20,20 +20,11 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext) {
   try {
     body = await request.json();
     
-    // Validate required fields
-    const { model, operation, content, context } = body;
-    
-    if (!model) {
-      return NextResponse.json({
-        success: false,
-        error: {
-          message: 'Model parameter is required',
-          code: 'MISSING_MODEL',
-          details: 'Request body must include "model" field with a valid model ID'
-        }
-      }, { status: 400 });
-    }
-    
+    // Validate required fields; model may be a registry alias or a pinned id
+    // (D4/D39) and defaults to the admin-selectable reasoning alias.
+    const { operation, content, context } = body;
+    const model = body.model || 'default-reasoning';
+
     if (!operation) {
       return NextResponse.json({
         success: false,
@@ -108,12 +99,15 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext) {
     // Perform content editing
     const result = await aiService.editContent(editRequest);
 
+    // Usage from the adapter's provider response; cost computed by the ledger
+    // via estimateCost() (D38) — no provider-local rates.
     await ctx.meter({
       usageType: 'content_edit',
+      provider: result.provider,
       modelId: result.model,
-      inputTokens: result.tokensUsed,
-      costUsd: result.cost,
-      metadata: { operation },
+      inputTokens: result.inputTokens ?? result.tokensUsed,
+      outputTokens: result.outputTokens,
+      metadata: { operation, requestedModel: model },
     });
 
     if (result.success) {
