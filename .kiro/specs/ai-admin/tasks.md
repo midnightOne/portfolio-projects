@@ -9,7 +9,7 @@
 
 ## Already implemented (verified on branch)
 
-Env-based provider keys with status/masking/test-connection; OpenAI + Anthropic providers behind `service-manager`/`provider-factory`; canonical editing endpoints (`edit-content`, `improve-content`, `process-prompt`, `suggest-tags`) with structured responses; **editor abstraction (`lib/ai/editors/`): files exist but are UNWIRED — zero component imports; the Tiptap AI panel talks to the endpoints directly. Wire-or-delete decision belongs to task 4.3 (Phase 3 manifest cross-reference §2)**; `AIModelConfig`/`AIGeneralSettings` persistence; admin AI settings UI; error handler + availability checker + per-instance status cache. Since Phase 2: `AIModelAlias`/`AIModelPricing` tables + `resolveModelAlias()` (`src/lib/ai/model-registry.ts`, 5 aliases, fail-closed) feed the gateway/chat/embeddings paths.
+Env-based provider keys with status/masking/test-connection; OpenAI + Anthropic providers behind `service-manager`/`provider-factory`; canonical editing endpoints (`edit-content`, `improve-content`, `process-prompt`, `suggest-tags`) with structured responses; **editor abstraction (`lib/ai/editors/`): files exist but are UNWIRED — zero component imports; the Tiptap AI panel talks to the endpoints directly. Wire-or-delete decision belongs to task 4.3 (Phase 3 manifest cross-reference §2)**; `AIModelConfig`/`AIGeneralSettings` persistence; admin AI settings UI; error handler + availability checker + per-instance status cache. Since Phase 2: `AIModelAlias`/`AIModelPricing` tables + `resolveModelAlias()` (`src/lib/ai/model-registry.ts`, 5 aliases, fail-closed) feed the gateway/chat/embeddings paths; `src/lib/ai/pricing.ts` `estimateCost()` is the single cost function for all ledger writes (D38); reasoning-adapter seam started (`src/lib/ai/reasoning/`: interface + OpenAI + Fake — task 4 extends it with Anthropic/Google and migrates the editing endpoints).
 
 ## Open tasks
 
@@ -28,11 +28,11 @@ Env-based provider keys with status/masking/test-connection; OpenAI + Anthropic 
 
 ### Phase 2 (pricing is needed by the gateway ledger — build early)
 
-- [ ] 3. Pricing module (D38)
-  - [ ] 3.1 `pricing.ts`/table + `estimateCost()`; admin-editable rates
-  - [ ] 3.2 Replace local constants in `SelectiveSectionRegenerator`, `ContentIngestionService`, `ChunkingConfigService`, `ContentChangeDetector`, `SmartContentGenerator`, `CostEstimationService`, `BudgetAwareAIOperations`, both providers (grep for stragglers)
-  - [ ] 3.3 Accounting from provider `usage` where available
-  - [ ] 3.4 Delete `OPENAI_PRICING_REFERENCE.md` / `PRICING_UPDATE_SUMMARY.md` root docs (D42) once the module lands
+- [x] 3. Pricing module (D38) — **spend path complete (Phase 2, 2026-07-05; ticked 2026-07-07); residual = estimation tables + admin rates UI, itemized in 3.2**
+  - [x] 3.1 `src/lib/ai/pricing.ts` + `AIModelPricing` table + `estimateCost()` as the only cost function; unknown models price at the most expensive known rate (never free); rates are DB rows seeded in `prisma/seed.ts`. **Residual:** no admin API/panel for editing rates yet — clone the `ModelAliasPanel`/`model-aliases` pattern when wanted; until then rates edit via Prisma studio.
+  - [~] 3.2 **Every path that WRITES the ledger** uses `estimateCost()` — local cost tables deleted from `BudgetAwareAIOperations` (embeddings + summaries), `StageBasedProcessingService`, `ContentSearchService` (query embeddings). **Remaining constants are pre-flight ESTIMATION tables only** (select nothing, spend nothing): `SelectiveSectionRegenerator`, `ContentChangeDetector`, `SmartContentGenerator` (cost-saved estimates), `ChunkingConfigService`, `CostEstimationService`, `ContentIngestionService` (legacy, D27 deletion path), and both `service-manager` providers (2024-vintage rates — superseded by task 4.2). Consolidate the estimation tables onto `estimateCost()` with `semantic-content` 2.2 (cross-referenced from ai-admin 1.2 residual).
+  - [x] 3.3 Every ledger write prefers provider `usage` (chat adapter, summaries, embeddings all read `response.usage`); char/4 lives only in pre-flight estimates (`estimateTokensFromChars`). **Residual:** the editing endpoints meter the providers' self-computed cost (their stale constants) — resolves when task 4.2 moves usage reporting into the adapter layer.
+  - [x] 3.4 `OPENAI_PRICING_REFERENCE.md` / `PRICING_UPDATE_SUMMARY.md` verified absent from the repo root (removed with the Phase 3 hygiene sweep).
   - _Requirements: 3_
 
 ### Phase 4
