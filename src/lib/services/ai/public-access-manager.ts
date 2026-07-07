@@ -3,9 +3,8 @@
  * Handles public AI access settings and feature availability
  */
 
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
 
-const prisma = new PrismaClient();
 
 export type AccessLevel = 'no_access' | 'basic' | 'limited' | 'premium';
 export type AIFeature = 'chat_interface' | 'voice_ai' | 'job_analysis' | 'advanced_navigation' | 'file_upload';

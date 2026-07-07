@@ -3,7 +3,7 @@
  * Handles creation, validation, and management of reflink codes
  */
 
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
 import {
   ReflinkInfo,
   CreateReflinkParams,
@@ -17,7 +17,6 @@ import {
   ReflinkAnalytics,
 } from '@/lib/types/rate-limiting';
 
-const prisma = new PrismaClient();
 
 export class ReflinkManager {
   /**

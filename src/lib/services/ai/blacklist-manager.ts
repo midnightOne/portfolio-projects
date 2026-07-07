@@ -3,7 +3,7 @@
  * Handles IP blocking, violation tracking, and reinstatement
  */
 
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
 import {
   IPBlacklistEntry,
   BlacklistIPParams,
@@ -12,7 +12,6 @@ import {
   SecurityConfig,
 } from '@/lib/types/rate-limiting';
 
-const prisma = new PrismaClient();
 
 export class BlacklistManager {
   private config: SecurityConfig;

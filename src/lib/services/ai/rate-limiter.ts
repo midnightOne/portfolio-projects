@@ -3,7 +3,7 @@
  * Implements per-IP and per-session rate limiting with reflink-based access control
  */
 
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
 import {
   RateLimitStatus,
   RateLimitResult,
@@ -15,7 +15,6 @@ import {
   RateLimitAnalytics,
 } from '@/lib/types/rate-limiting';
 
-const prisma = new PrismaClient();
 
 export class RateLimiter {
   private config: RateLimitConfig;

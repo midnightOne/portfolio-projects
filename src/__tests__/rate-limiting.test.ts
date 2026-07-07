@@ -13,8 +13,11 @@ import {
 } from '@/lib/types/rate-limiting';
 
 // Mock Prisma client
-jest.mock('@prisma/client', () => ({
-  PrismaClient: jest.fn().mockImplementation(() => ({
+// Mock the SHARED prisma singleton (the seam the services actually import) —
+// mocking '@prisma/client' left the services on the real dev DB and every
+// test run wrote real blacklist rows (found 2026-07-07).
+jest.mock('@/lib/prisma', () => ({
+  prisma: {
     aIRateLimit: {
       findFirst: jest.fn(),
       create: jest.fn(),
@@ -50,7 +53,8 @@ jest.mock('@prisma/client', () => ({
       deleteMany: jest.fn(),
     },
     $queryRaw: jest.fn(),
-  })),
+    $transaction: jest.fn(),
+  },
 }));
 
 describe('RateLimiter', () => {
@@ -65,9 +69,8 @@ describe('RateLimiter', () => {
       logRetentionDays: 30,
     });
 
-    // Get the mocked prisma instance
-    const { PrismaClient } = require('@prisma/client');
-    mockPrisma = new PrismaClient();
+    // Get the mocked shared prisma singleton
+    mockPrisma = require('@/lib/prisma').prisma;
   });
 
   afterEach(() => {
@@ -264,8 +267,7 @@ describe('ReflinkManager', () => {
 
   beforeEach(() => {
     reflinkManager = new ReflinkManager();
-    const { PrismaClient } = require('@prisma/client');
-    mockPrisma = new PrismaClient();
+    mockPrisma = require('@/lib/prisma').prisma;
   });
 
   afterEach(() => {
@@ -399,8 +401,7 @@ describe('BlacklistManager', () => {
       suspiciousActivityThreshold: 100,
       contentAnalysisEnabled: true,
     });
-    const { PrismaClient } = require('@prisma/client');
-    mockPrisma = new PrismaClient();
+    mockPrisma = require('@/lib/prisma').prisma;
   });
 
   afterEach(() => {
