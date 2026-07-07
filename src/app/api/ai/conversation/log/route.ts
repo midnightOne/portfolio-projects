@@ -69,6 +69,12 @@ interface ConversationLogRequest {
   timestamp?: string;
   toolName?: string;
   toolArgs?: any;
+  /** Labeled navigation/error event (owner, 2026-07-07) — distinct from raw tool_call/tool_result rows. */
+  event?: {
+    type: 'navigation' | 'error';
+    label: string;
+    detail?: unknown;
+  };
 }
 
 interface ConversationLogResponse {
@@ -97,7 +103,8 @@ interface ConversationLogResponse {
  */
 type PersistableEntry =
   | { kind: 'transcript'; id?: string; type?: string; content?: string; timestamp?: string | Date; duration?: number; reasoning?: string }
-  | { kind: 'tool'; id?: string; toolName?: string; args?: unknown; result?: unknown; success?: boolean; executionTime?: number; timestamp?: string | Date };
+  | { kind: 'tool'; id?: string; toolName?: string; args?: unknown; result?: unknown; success?: boolean; executionTime?: number; timestamp?: string | Date }
+  | { kind: 'event'; id?: string; eventType?: 'navigation' | 'error'; label?: string; detail?: unknown; timestamp?: string | Date };
 
 async function persistVoiceEntries(
   sessionId: string,
@@ -138,7 +145,7 @@ async function persistVoiceEntries(
           },
         });
         persisted++;
-      } else {
+      } else if (entry.kind === 'tool') {
         if (!entry.toolName) continue;
         await conversationHistoryManager.addMessage(
           conversationId,
@@ -159,6 +166,22 @@ async function persistVoiceEntries(
             aiResponse: { result: JSON.stringify(entry.result ?? null).slice(0, 8000), success: entry.success !== false },
           }
         );
+        persisted++;
+      } else if (entry.kind === 'event') {
+        if (!entry.eventType || !entry.label) continue;
+        await conversationHistoryManager.addMessage(conversationId, {
+          id: itemId,
+          role: 'system',
+          content: entry.label,
+          timestamp: entry.timestamp ? new Date(entry.timestamp) : new Date(),
+          inputMode: 'voice',
+          legId: legId ?? undefined,
+          metadata: {
+            transcriptItemId: itemId,
+            eventType: entry.eventType,
+            detail: entry.detail ? JSON.stringify(entry.detail).slice(0, 4000) : undefined,
+          },
+        });
         persisted++;
       }
     } catch (entryError) {
@@ -368,7 +391,33 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           }
         });
       }
-      
+
+      // Check if this is a labeled navigation/error event (legacy format)
+      if (body.event) {
+        await persistVoiceEntries(sessionId, reflinkId, [{
+          kind: 'event',
+          eventType: body.event.type,
+          label: body.event.label,
+          detail: body.event.detail,
+          timestamp: body.timestamp,
+        }]);
+        console.log(`Individual ${body.event.type} event received for session ${sessionId}:`, {
+          provider,
+          label: body.event.label
+        });
+
+        return NextResponse.json({
+          success: true,
+          message: `Event processed successfully for session ${sessionId}`,
+          metadata: {
+            timestamp: Date.now(),
+            sessionId,
+            entriesProcessed: 1,
+            storedSuccessfully: true
+          }
+        });
+      }
+
       return NextResponse.json({
         success: false,
         error: 'Conversation data is required.',
@@ -470,6 +519,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
             sessionId
           }, 'conversation-log-replay', entry.correlationId, sessionId);
           break;
+        case 'system_event':
+          debugEventEmitter.emit('system_event', {
+            eventType: entry.data?.eventType,
+            label: entry.data?.label,
+            sessionId
+          }, 'conversation-log-replay', entry.correlationId, sessionId);
+          break;
       }
     });
 
@@ -507,6 +563,15 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           result: entry.data.result,
           success: entry.metadata?.success,
           executionTime: entry.metadata?.executionTime,
+          timestamp: entry.timestamp,
+        });
+      } else if (entry.type === 'system_event' && entry.data?.eventType) {
+        persistable.push({
+          kind: 'event',
+          id: entry.id,
+          eventType: entry.data.eventType,
+          label: entry.data.label,
+          detail: entry.data.detail,
           timestamp: entry.timestamp,
         });
       }

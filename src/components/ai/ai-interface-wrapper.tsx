@@ -5,18 +5,22 @@ import { FloatingAIInterface, QuickAction } from './floating-ai-interface';
 import { ConversationalAgentProvider } from '@/components/providers/conversational-agent-provider';
 import { ReflinkSessionProvider } from '@/components/providers/reflink-session-wrapper';
 import { useReflinkSession } from '@/components/providers/reflink-session-provider';
+import { HomepageDevVoicePanel } from './HomepageDevVoicePanel';
 
 interface AIInterfaceWrapperProps {
   // Optional props to override defaults
   defaultProvider?: 'openai' | 'elevenlabs';
   className?: string;
   onSettingsClick?: () => void;
+  /** Dev-only fake-mic drill affordance, admin-gated server-side (owner, 2026-07-07). */
+  isAdmin?: boolean;
 }
 
-export function AIInterfaceWrapper({ 
+export function AIInterfaceWrapper({
   defaultProvider = 'openai',
   className,
-  onSettingsClick 
+  onSettingsClick,
+  isAdmin = false
 }: AIInterfaceWrapperProps) {
   // Debug: Log wrapper creation to detect multiple instances
   useEffect(() => {
@@ -122,6 +126,7 @@ export function AIInterfaceWrapper({
         handleQuickAction={handleQuickAction}
         handleSettingsClick={handleSettingsClick}
         className={className}
+        isAdmin={isAdmin}
       />
     </ReflinkSessionProvider>
   );
@@ -142,6 +147,7 @@ interface AIInterfaceContentProps {
   handleQuickAction: (action: QuickAction) => void;
   handleSettingsClick: () => void;
   className?: string;
+  isAdmin?: boolean;
 }
 
 function AIInterfaceContent({
@@ -157,7 +163,8 @@ function AIInterfaceContent({
   handleTextSubmit,
   handleQuickAction,
   handleSettingsClick,
-  className
+  className,
+  isAdmin = false
 }: AIInterfaceContentProps) {
   const { session, accessLevel, isLoading } = useReflinkSession();
 
@@ -197,6 +204,7 @@ function AIInterfaceContent({
         animationDuration={700}
         className={className}
       />
+      {isAdmin && <HomepageDevVoicePanel />}
     </ConversationalAgentProvider>
   );
 }

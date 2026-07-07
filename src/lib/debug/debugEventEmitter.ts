@@ -21,6 +21,7 @@ type DebugEventType =
   | 'audio_event'
   | 'tool_event'
   | 'navigation_event'
+  | 'system_event'
   // Content ingestion events
   | 'content-ingestion-start'
   | 'content-ingestion-complete'

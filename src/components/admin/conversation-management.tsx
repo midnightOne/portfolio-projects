@@ -14,16 +14,17 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { 
-  MessageSquare, 
-  Download, 
-  Trash2, 
-  Search, 
+  MessageSquare,
+  Download,
+  Trash2,
+  Search,
   RefreshCw,
   DollarSign,
   Users,
   Zap,
   Play
 } from 'lucide-react';
+import { ConversationReplayViewer } from './ConversationReplayViewer';
 
 interface ConversationAnalytics {
   totalConversations: number;
@@ -63,6 +64,7 @@ export default function ConversationManagement() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [replaySessionId, setReplaySessionId] = useState<string | null>(null);
   const [selectedDateRange, setSelectedDateRange] = useState<{
     start: string;
     end: string;
@@ -193,113 +195,6 @@ export default function ConversationManagement() {
       }
     } catch (error) {
       console.error('Error deleting conversation:', error);
-    }
-  };
-
-  // View conversation replay
-  const viewReplay = async (sessionId: string) => {
-    try {
-      const response = await fetch(`/api/ai/conversation/replay?sessionId=${sessionId}`);
-      const data = await response.json();
-      
-      if (data.success && data.data) {
-        // Open replay in new window or modal
-        const replayWindow = window.open('', '_blank', 'width=1200,height=800');
-        if (replayWindow) {
-          const legs: any[] = data.data.legs ?? [];
-          const legIndex = new Map(legs.map((leg: any, i: number) => [leg.id, i + 1]));
-          replayWindow.document.write(`
-            <html>
-              <head>
-                <title>Conversation Replay - ${sessionId}</title>
-                <style>
-                  body { font-family: Arial, sans-serif; margin: 20px; }
-                  .step { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
-                  .user { background-color: #f0f8ff; }
-                  .assistant { background-color: #f8f8f8; }
-                  .system { background-color: #f5f0ff; font-size: 13px; }
-                  .marker { background-color: #fff3f0; border: 2px dashed #d9534f; font-size: 13px; }
-                  .marker.resumed { background-color: #f0fff4; border-color: #28a745; }
-                  .leg-chip { display: inline-block; padding: 1px 8px; border-radius: 10px; background: #e8eef7; font-size: 11px; margin-left: 6px; }
-                  .legs { background: #fafafa; border: 1px solid #eee; padding: 10px 15px; border-radius: 5px; margin: 15px 0; font-size: 13px; }
-                  .debug { background-color: #fff8dc; margin-top: 10px; font-size: 12px; }
-                  pre { white-space: pre-wrap; word-wrap: break-word; }
-                </style>
-              </head>
-              <body>
-                <h1>Conversation Replay</h1>
-                <h2>Session: ${sessionId}</h2>
-                <div>
-                  <strong>Started:</strong> ${new Date(data.data.conversation.startedAt).toLocaleString()}<br>
-                  <strong>Messages:</strong> ${data.data.conversation.messageCount}<br>
-                  <strong>Tokens:</strong> ${data.data.conversation.totalTokens}<br>
-                  <strong>Cost:</strong> $${data.data.conversation.totalCost.toFixed(4)}
-                </div>
-                ${legs.length > 0 ? `
-                  <div class="legs">
-                    <strong>Session legs (D49):</strong>
-                    <ol>
-                      ${legs.map((leg: any) => `
-                        <li>
-                          <strong>${leg.provider}</strong>${leg.modelId ? ` / ${leg.modelId}` : ''}${leg.modelAlias ? ` (${leg.modelAlias})` : ''}
-                          — ${new Date(leg.startedAt).toLocaleTimeString()} → ${leg.endedAt ? new Date(leg.endedAt).toLocaleTimeString() : 'open'}
-                          ${leg.endReason ? ` · end: ${leg.endReason}` : ''}
-                        </li>
-                      `).join('')}
-                    </ol>
-                  </div>
-                ` : ''}
-                <hr>
-                ${data.data.timeline.map((step: any) => {
-                  const markerType = step.message.metadata?.markerType;
-                  const stepClass = step.type === 'marker'
-                    ? `marker ${markerType === 'session_resumed' ? 'resumed' : ''}`
-                    : step.message.role;
-                  const legNo = step.legId && legIndex.has(step.legId) ? `<span class="leg-chip">leg ${legIndex.get(step.legId)}</span>` : '';
-                  if (step.type === 'marker') {
-                    return `
-                      <div class="step ${stepClass}">
-                        <h3>${markerType === 'session_resumed' ? '🟢 Session resumed' : '🔴 Session disruption'}${legNo}</h3>
-                        <p><strong>Time:</strong> ${new Date(step.timestamp).toLocaleString()}</p>
-                        <div>${step.message.content}</div>
-                        ${step.message.metadata?.issueType ? `<p><strong>Issue:</strong> ${step.message.metadata.issueType}</p>` : ''}
-                        ${step.message.metadata?.provider ? `<p><strong>New leg:</strong> ${step.message.metadata.provider}${step.message.metadata.modelAlias ? ` (${step.message.metadata.modelAlias})` : ''}</p>` : ''}
-                        ${step.message.metadata?.diagnostics ? `<details><summary>Diagnostics</summary><pre>${JSON.stringify(step.message.metadata.diagnostics, null, 2)}</pre></details>` : ''}
-                      </div>
-                    `;
-                  }
-                  return `
-                  <div class="step ${stepClass}">
-                    <h3>Step ${step.step} - ${step.type} (${step.message.role})${step.message.mode ? ` · ${step.message.mode}` : ''}${legNo}</h3>
-                    <p><strong>Time:</strong> ${new Date(step.timestamp).toLocaleString()}</p>
-                    <p><strong>Content:</strong></p>
-                    <div>${step.message.content}</div>
-                    ${step.message.metadata?.reasoning ? `<details><summary>Reasoning (hidden by default — never spoken)</summary><pre>${step.message.metadata.reasoning}</pre></details>` : ''}
-                    ${step.debugInfo ? `
-                      <div class="debug">
-                        <h4>Debug Info:</h4>
-                        <p><strong>Processing Time:</strong> ${step.debugInfo.performanceMetrics.totalProcessingTime}ms</p>
-                        ${step.debugInfo.error ? `<p><strong>Error:</strong> ${step.debugInfo.error}</p>` : ''}
-                        <details>
-                          <summary>System Prompt</summary>
-                          <pre>${step.debugInfo.systemPrompt}</pre>
-                        </details>
-                        <details>
-                          <summary>Context</summary>
-                          <pre>${step.debugInfo.contextString}</pre>
-                        </details>
-                      </div>
-                    ` : ''}
-                  </div>
-                `;
-                }).join('')}
-              </body>
-            </html>
-          `);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading replay:', error);
     }
   };
 
@@ -531,7 +426,7 @@ export default function ConversationManagement() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => viewReplay(conv.sessionId)}
+                        onClick={() => setReplaySessionId(conv.sessionId)}
                       >
                         <Play className="w-4 h-4" />
                       </Button>
@@ -611,6 +506,11 @@ export default function ConversationManagement() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <ConversationReplayViewer
+        sessionId={replaySessionId}
+        onClose={() => setReplaySessionId(null)}
+      />
     </div>
   );
 }

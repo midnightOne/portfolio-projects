@@ -50,6 +50,9 @@ export interface ConversationMessage {
         requestId?: string;
         /** Internal reasoning/thinking trace, stored separately from `content` (D22 amendment) — never the spoken answer, rendered collapsed by default. */
         reasoning?: string;
+        /** Labeled navigation/error event (owner, 2026-07-07) — `content` carries the human-readable label. */
+        eventType?: 'navigation' | 'error';
+        detail?: string;
     };
 }
 
@@ -156,6 +159,9 @@ export interface MessageMetadata {
     processingTime?: number;
     /** Internal reasoning/thinking trace, stored separately from the message content (D22 amendment). */
     reasoning?: string;
+    /** Labeled navigation/error event (owner, 2026-07-07) — `content` carries the human-readable label. */
+    eventType?: 'navigation' | 'error';
+    detail?: string;
     voiceData?: {
         duration?: number;
         audioUrl?: string;
@@ -353,6 +359,8 @@ export class ConversationHistoryManager {
                             transcriptItemId: message.metadata?.transcriptItemId,
                             requestId: message.metadata?.requestId,
                             reasoning: message.metadata?.reasoning,
+                            eventType: message.metadata?.eventType,
+                            detail: message.metadata?.detail,
                             navigationCommands: message.metadata?.navigationCommands ? JSON.stringify(message.metadata.navigationCommands) : undefined,
                             performanceMetrics: {
                                 totalProcessingTime: message.metadata?.processingTime

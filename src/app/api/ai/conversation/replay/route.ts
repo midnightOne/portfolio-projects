@@ -70,6 +70,10 @@ export async function GET(request: NextRequest) {
         timestamp: msg.timestamp,
         type: (msg.metadata as any)?.markerType
           ? 'marker'
+          : msg.metadata?.eventType === 'navigation'
+          ? 'navigation'
+          : msg.metadata?.eventType === 'error'
+          ? 'error'
           : msg.role === 'user' ? 'input' : msg.role === 'system' ? 'system' : 'response',
         legId: msg.legId ?? null,
         message: {

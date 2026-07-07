@@ -191,6 +191,11 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
     return { ...this._options };
   }
 
+  /** Default: no session id. Adapters that support it (D49) override this. */
+  getConversationSessionId(): string | null {
+    return null;
+  }
+
   // Common implementations
   registerTool(tool: import('@/types/voice-agent').ToolDefinition): void {
     this._tools.set(tool.name, tool);
@@ -243,14 +248,15 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
 
   // Event handlers
   _handleConnectionEvent(event: import('@/types/voice-agent').ConnectionEvent): void {
-    this._connectionStatus = event.type === 'connected' ? 'connected' : 
+    this._connectionStatus = event.type === 'connected' ? 'connected' :
                            event.type === 'disconnected' ? 'disconnected' :
                            event.type === 'reconnecting' ? 'reconnecting' : 'error';
-    
+
     if (event.error) {
       this._lastError = new VoiceAgentError(event.error, this._provider);
+      this._logEvent('error', event.error, { connectionEvent: true });
     }
-    
+
     this._options?.onConnectionEvent(event);
   }
 
@@ -282,6 +288,41 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
 
   protected _setError(error: VoiceAgentError): void {
     this._lastError = error;
+  }
+
+  /**
+   * Persist a labeled navigation/error event to the unified conversation store,
+   * distinct from the raw tool_call/tool_result rows — a human-readable record
+   * ("Navigated to: projects", "Tool ui_intent failed: ...") for the admin
+   * replay timeline (owner, 2026-07-07). Shared across all adapters since it
+   * lives in the base class; fire-and-forget, never blocks the voice path.
+   */
+  protected _logEvent(eventType: 'navigation' | 'error', label: string, detail?: unknown): void {
+    try {
+      const sessionId = this.getConversationSessionId?.();
+      if (!sessionId) return;
+      fetch('/api/ai/conversation/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          provider: this._provider,
+          reflinkId: this._options?.reflinkId,
+          event: { type: eventType, label, detail },
+          timestamp: new Date().toISOString()
+        })
+      }).catch(err => console.warn(`Failed to log ${eventType} event:`, err));
+    } catch (err) {
+      console.warn(`Error logging ${eventType} event:`, err);
+    }
+  }
+
+  /** Best-effort human label for a ui_intent call, tolerant of schema drift (D41 §2c). */
+  private _describeNavigationIntent(args: any, result: any): string {
+    const target = args?.target ?? {};
+    const dest = target.id ?? target.route ?? target.type ?? JSON.stringify(target);
+    const ok = result && !(typeof result === 'object' && result.success === false);
+    return ok ? `Navigated to: ${dest}` : `Navigation to "${dest}" did not resolve`;
   }
 
   protected async _executeTool(toolCall: ToolCall): Promise<ToolResult> {
@@ -407,6 +448,10 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
         provider: this._provider
       }, `${this._provider}-adapter`);
 
+      if (toolName === 'ui_intent') {
+        this._logEvent('navigation', this._describeNavigationIntent(args, result), { args, result });
+      }
+
       return result;
     } catch (error) {
       const executionTime = Date.now() - startTime;
@@ -424,6 +469,8 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
         executionContext: toolDef.executionContext,
         provider: this._provider
       }, `${this._provider}-adapter`);
+
+      this._logEvent('error', `Tool ${toolName} failed: ${errorMessage}`, { toolName, args, error: errorMessage });
 
       throw error;
     }
