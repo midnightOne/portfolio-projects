@@ -101,7 +101,11 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
         displayName: 'ElevenLabs Conversational AI',
         description: 'Natural voice conversations powered by ElevenLabs',
         version: '1.0.0',
-        agentId: 'agent_2101k3sztpfse6396vep8tfj9an8', // Portfolio-assistant agent
+        // No hardcoded agent fallback (ai-assistant 5.1 / D3): the agent ID must
+        // come from VoiceProviderConfig or NEXT_PUBLIC_ELEVENLABS_AGENT_ID;
+        // connecting without one fails with a clear error instead of silently
+        // using a stale agent.
+        agentId: process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID || '',
         voiceId: '21m00Tcm4TlvDq8ikWAM', // Rachel voice
         model: 'eleven_turbo_v2_5',
         voiceSettings: {
