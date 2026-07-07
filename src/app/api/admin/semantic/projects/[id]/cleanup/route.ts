@@ -76,13 +76,6 @@ export async function DELETE(
 
     console.log(`[SemanticCleanup] Deleted content entity: ${deletedEntity.id}`);
 
-    // Clean up project AI index if it exists
-    const aiIndexDeleted = await prisma.projectAIIndex.deleteMany({
-      where: { projectId }
-    });
-
-    console.log(`[SemanticCleanup] Deleted ${aiIndexDeleted.count} AI index entries`);
-
     // Clean up any semantic operations for this project
     const operationsDeleted = await prisma.semanticOperation.deleteMany({
       where: { projectId }
@@ -96,7 +89,6 @@ export async function DELETE(
       projectSlug: project.slug,
       deletedChunks: deletedChunks.count,
       deletedEntities: 1,
-      deletedAIIndexes: aiIndexDeleted.count,
       deletedOperations: operationsDeleted.count
     };
 

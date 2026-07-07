@@ -18,7 +18,7 @@
 import { prisma } from '@/lib/database/connection';
 import { SmartContentGenerator, TierContent } from './SmartContentGenerator';
 import { ContentChangeDetector, ContentChangeDetection, SectionChangeDetection } from './ContentChangeDetector';
-import { ProjectIndexer } from '../services/project-indexer';
+import { HierarchicalContentParser } from './HierarchicalContentParser';
 import OpenAI from 'openai';
 
 // Regeneration scope types
@@ -105,7 +105,7 @@ const GPT4_MINI_COST_PER_1K_TOKENS = 0.00015; // gpt-4o-mini input tokens
 export class SelectiveSectionRegenerator {
   private contentGenerator: SmartContentGenerator;
   private changeDetector: ContentChangeDetector;
-  private projectIndexer: ProjectIndexer;
+  private contentParser: HierarchicalContentParser;
   private openai: OpenAI | null;
   
   // Progress tracking
@@ -115,7 +115,7 @@ export class SelectiveSectionRegenerator {
   constructor() {
     this.contentGenerator = new SmartContentGenerator();
     this.changeDetector = new ContentChangeDetector();
-    this.projectIndexer = ProjectIndexer.getInstance();
+    this.contentParser = HierarchicalContentParser.getInstance();
     
     const apiKey = process.env.OPENAI_API_KEY;
     if (apiKey) {
@@ -320,7 +320,7 @@ export class SelectiveSectionRegenerator {
     }
 
     // Get section content and estimate tokens
-    const enhancedIndex = await this.projectIndexer.indexProjectHierarchical(projectId);
+    const enhancedIndex = await this.contentParser.indexProjectHierarchical(projectId);
     const section = enhancedIndex.hierarchicalSections.find(s => s.anchorId === sectionId);
 
     if (!section) {
@@ -585,7 +585,7 @@ export class SelectiveSectionRegenerator {
     progress.progress.totalSections = 1;
 
     // Get section from enhanced index
-    const enhancedIndex = await this.projectIndexer.indexProjectHierarchical(projectId);
+    const enhancedIndex = await this.contentParser.indexProjectHierarchical(projectId);
     const section = enhancedIndex.hierarchicalSections.find(s => s.anchorId === sectionId);
 
     if (!section) {

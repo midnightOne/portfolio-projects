@@ -587,11 +587,26 @@ class ProjectContentProvider implements ContentSourceProvider {
 
   async searchContent(query: string, options: SearchOptions = {}): Promise<RelevantContent[]> {
     try {
-      // Use existing project search functionality with absolute URL
-      const baseUrl = process.env.NEXTAUTH_URL || 'http://localhost:3000';
-      const response = await fetch(`${baseUrl}/api/projects/search/ai-context?q=${encodeURIComponent(query)}&limit=${options.maxResults || 20}`);
-      const data = await response.json();
-      return data.data?.results || [];
+      // D37: search the semantic index directly via ContentSearchService
+      // (the Gen-1 /api/projects/search/ai-context route is retired)
+      const { ContentSearchService } = await import('@/lib/content/ContentSearchService');
+      const searchService = new ContentSearchService();
+      const result = await searchService.searchContentInternal({
+        query,
+        k: options.maxResults || 20,
+        maxTier: 3,
+        filters: options.minRelevanceScore ? { minImportance: 0 } : undefined,
+      });
+
+      return result.items.map((item) => ({
+        id: item.id,
+        type: 'project' as const,
+        title: item.title,
+        content: item.content || item.oneLiner,
+        summary: item.oneLiner,
+        relevanceScore: item.score,
+        keywords: item.facets?.tech ?? [],
+      }));
     } catch (error) {
       console.error('Error searching project content:', error);
       return [];

@@ -5,7 +5,7 @@
  * never crossing heading boundaries.
  */
 
-import { EnhancedProjectIndex, HierarchicalSection } from '../services/project-indexer';
+import { EnhancedProjectIndex, HierarchicalSection } from './HierarchicalContentParser';
 import { TierContent } from './SmartContentGenerator';
 
 export interface ChunkingConfig {

@@ -20,7 +20,6 @@
     "check:specs": "tsx scripts/checks/check-specs.ts",
     "verify": "npm run type-check && npm run check:gateway && npm run check:specs && tsx scripts/check-semantic.ts --no-live",
     "db:seed-homepage": "node scripts/seed-homepage-config.js",
-    "db:setup-pgvector": "tsx scripts/setup-pgvector.ts",
     "db:test-content": "tsx scripts/test-hierarchical-content.ts",
     "db:verify-content": "tsx scripts/verify-hierarchical-content-system.ts",
     "db:post-reset": "node scripts/post-reset-setup.js",

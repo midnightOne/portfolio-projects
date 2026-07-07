@@ -47,7 +47,6 @@ import { useToast } from '@/components/ui/toast';
 interface ChunkData {
   id: string;
   entityId: string;
-  projectIndexId: string;
   chunkId: string;
   tier: number;
   title: string | null;

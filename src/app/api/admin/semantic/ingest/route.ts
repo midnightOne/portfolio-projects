@@ -43,8 +43,7 @@ async function handlePOST(request: NextRequest) {
       },
       include: {
         articleContent: true,
-        tags: true,
-        aiIndex: true
+        tags: true
       }
     });
 

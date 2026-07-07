@@ -22,7 +22,7 @@ export interface OrphanedChunk {
   tier: number;
   title: string | null;
   tokenCount: number;
-  projectIndexId: string;
+  entitySlug: string | null;
   createdAt: Date;
 }
 
@@ -95,16 +95,13 @@ export class BulkOperationsService {
 
   /**
    * Preview orphaned chunks before cleanup
-   * 
-   * Note: First attempts to recover chunks via entity relationships
-   * Only truly orphaned chunks (no entity or no matching project) are returned
+   *
+   * Post-D37 the chunk→project association rides entirely on ContentEntity
+   * (entityType + slug). A chunk is orphaned when its PROJECT-type entity no
+   * longer matches an existing project.
    */
   async previewOrphanedChunks(): Promise<CleanupPreview> {
-    // Find chunks with null projectIndexId
-    const potentiallyOrphaned = await prisma.contextChunk.findMany({
-      where: {
-        projectIndexId: null
-      },
+    const chunks = await prisma.contextChunk.findMany({
       include: {
         entity: true
       },
@@ -113,50 +110,24 @@ export class BulkOperationsService {
       }
     });
 
-    // Try to recover chunks via entity relationships
-    const recoverable: string[] = [];
-    const trulyOrphaned: OrphanedChunk[] = [];
+    const projectSlugs = new Set(
+      (await prisma.project.findMany({ select: { slug: true } })).map((p) => p.slug)
+    );
 
-    for (const chunk of potentiallyOrphaned) {
-      if (!chunk.entity) {
-        // No entity - truly orphaned
-        trulyOrphaned.push({
-          id: chunk.id,
-          chunkId: chunk.chunkId,
-          tier: chunk.tier,
-          title: chunk.title,
-          tokenCount: chunk.tokenCount,
-          projectIndexId: chunk.projectIndexId,
-          createdAt: chunk.createdAt
-        });
-        continue;
-      }
-
-      // Check if entity slug matches a project
-      const project = await prisma.project.findUnique({
-        where: { slug: chunk.entity.slug }
-      });
-
-      if (project) {
-        recoverable.push(chunk.id);
-      } else {
-        trulyOrphaned.push({
-          id: chunk.id,
-          chunkId: chunk.chunkId,
-          tier: chunk.tier,
-          title: chunk.title,
-          tokenCount: chunk.tokenCount,
-          projectIndexId: chunk.projectIndexId,
-          createdAt: chunk.createdAt
-        });
-      }
-    }
-
-    // Auto-recover chunks that can be linked
-    if (recoverable.length > 0) {
-      console.log(`Auto-recovering ${recoverable.length} chunks via entity relationships...`);
-      await this.recoverChunksViaEntity(recoverable);
-    }
+    const trulyOrphaned: OrphanedChunk[] = chunks
+      .filter((chunk) =>
+        !chunk.entity ||
+        (chunk.entity.entityType === 'PROJECT' && !projectSlugs.has(chunk.entity.slug))
+      )
+      .map((chunk) => ({
+        id: chunk.id,
+        chunkId: chunk.chunkId,
+        tier: chunk.tier,
+        title: chunk.title,
+        tokenCount: chunk.tokenCount,
+        entitySlug: chunk.entity?.slug ?? null,
+        createdAt: chunk.createdAt
+      }));
 
     const totalTokens = trulyOrphaned.reduce((sum, chunk) => sum + chunk.tokenCount, 0);
     const estimatedSpaceFreed = this.formatBytes(totalTokens * 4);
@@ -169,64 +140,13 @@ export class BulkOperationsService {
   }
 
   /**
-   * Recover chunks by linking them to projects via entity relationships
-   */
-  private async recoverChunksViaEntity(chunkIds: string[]): Promise<number> {
-    const chunks = await prisma.contextChunk.findMany({
-      where: { id: { in: chunkIds } },
-      include: { entity: true }
-    });
-
-    let recovered = 0;
-
-    for (const chunk of chunks) {
-      if (!chunk.entity) continue;
-
-      const project = await prisma.project.findUnique({
-        where: { slug: chunk.entity.slug }
-      });
-
-      if (!project) continue;
-
-      // Find or create ProjectAIIndex
-      let projectIndex = await prisma.projectAIIndex.findUnique({
-        where: { projectId: project.id }
-      });
-
-      if (!projectIndex) {
-        projectIndex = await prisma.projectAIIndex.create({
-          data: {
-            projectId: project.id,
-            summary: `Semantic index for ${project.title}`,
-            keywords: [],
-            topics: [],
-            technologies: [],
-            sectionsCount: 0,
-            mediaCount: 0
-          }
-        });
-      }
-
-      // Link chunk to project
-      await prisma.contextChunk.update({
-        where: { id: chunk.id },
-        data: { projectIndexId: projectIndex.projectId }
-      });
-
-      recovered++;
-    }
-
-    return recovered;
-  }
-
-  /**
    * Cleanup orphaned chunks
    */
   async cleanupOrphanedChunks(): Promise<CleanupResult> {
     const startTime = Date.now();
 
     const preview = await this.previewOrphanedChunks();
-    
+
     if (preview.totalCount === 0) {
       return {
         chunksRemoved: 0,
@@ -235,10 +155,10 @@ export class BulkOperationsService {
       };
     }
 
-    // Delete orphaned chunks
+    // Delete orphaned chunks by id (as identified via entity linkage)
     await prisma.contextChunk.deleteMany({
       where: {
-        projectIndex: null
+        id: { in: preview.orphanedChunks.map((c) => c.id) }
       }
     });
 
@@ -255,33 +175,39 @@ export class BulkOperationsService {
   async exportSemanticIndexes(projectIds?: string[]): Promise<Buffer> {
     const zip = new JSZip();
 
-    // Get projects to export
-    const projects = await prisma.projectAIIndex.findMany({
-      where: projectIds ? { projectId: { in: projectIds } } : undefined,
+    // Get projects to export (entity-based post-D37)
+    const projects = await prisma.project.findMany({
+      where: projectIds ? { id: { in: projectIds } } : undefined,
+      select: { id: true, slug: true, title: true }
+    });
+
+    const entities = await prisma.contentEntity.findMany({
+      where: {
+        entityType: 'PROJECT',
+        slug: { in: projects.map((p) => p.slug) }
+      },
       include: {
-        contentChunks: {
-          include: {
-            entity: true
-          }
-        }
+        contentChunks: true
       }
     });
+    const entityBySlug = new Map(entities.map((e) => [e.slug, e]));
 
     const exportData: ExportData = {
       version: '1.0.0',
       exportedAt: new Date(),
       projects: projects.map(project => {
-        const tierDistribution = project.contentChunks.reduce((acc, chunk) => {
+        const contentChunks = entityBySlug.get(project.slug)?.contentChunks ?? [];
+        const tierDistribution = contentChunks.reduce((acc, chunk) => {
           acc[chunk.tier] = (acc[chunk.tier] || 0) + 1;
           return acc;
         }, {} as Record<number, number>);
 
-        const hasEmbeddings = project.contentChunks.some(chunk => (chunk as any).embeddingVector !== null);
+        const hasEmbeddings = contentChunks.some(chunk => (chunk as any).embeddingVector !== null);
 
         return {
-          projectId: project.projectId,
-          projectTitle: project.contentChunks[0]?.entity?.title || 'Unknown',
-          chunks: project.contentChunks.map(chunk => ({
+          projectId: project.id,
+          projectTitle: project.title || 'Unknown',
+          chunks: contentChunks.map(chunk => ({
             id: chunk.id,
             chunkId: chunk.chunkId,
             tier: chunk.tier,
@@ -304,7 +230,7 @@ export class BulkOperationsService {
             updatedAt: chunk.updatedAt
           })),
           metadata: {
-            totalChunks: project.contentChunks.length,
+            totalChunks: contentChunks.length,
             tierDistribution,
             hasEmbeddings
           }
@@ -366,14 +292,28 @@ export class BulkOperationsService {
         };
       }
 
-      // Import each project
+      // Import each project (entity-based post-D37)
       for (const projectData of exportData.projects) {
-        // Check if project exists
-        const existingProject = await prisma.projectAIIndex.findUnique({
-          where: { projectId: projectData.projectId }
+        const project = await prisma.project.findUnique({
+          where: { id: projectData.projectId },
+          select: { id: true, slug: true, title: true, description: true }
         });
 
-        if (existingProject && !options.overwriteExisting) {
+        if (!project) {
+          conflicts.push({
+            chunkId: projectData.projectId,
+            reason: 'Project does not exist in this database',
+            resolution: 'skipped'
+          });
+          continue;
+        }
+
+        const existingEntity = await prisma.contentEntity.findUnique({
+          where: { entityType_slug: { entityType: 'PROJECT', slug: project.slug } },
+          include: { _count: { select: { contentChunks: true } } }
+        });
+
+        if (existingEntity && existingEntity._count.contentChunks > 0 && !options.overwriteExisting) {
           conflicts.push({
             chunkId: projectData.projectId,
             reason: 'Project already exists',
@@ -382,10 +322,19 @@ export class BulkOperationsService {
           continue;
         }
 
+        const entity = existingEntity ?? await prisma.contentEntity.create({
+          data: {
+            entityType: 'PROJECT',
+            slug: project.slug,
+            title: project.title,
+            description: project.description || ''
+          }
+        });
+
         // Delete existing chunks if overwriting
-        if (existingProject && options.overwriteExisting) {
+        if (existingEntity && options.overwriteExisting) {
           await prisma.contextChunk.deleteMany({
-            where: { projectIndexId: existingProject.projectId }
+            where: { entityId: existingEntity.id }
           });
         }
 
@@ -395,8 +344,7 @@ export class BulkOperationsService {
             await prisma.contextChunk.create({
               data: {
                 chunkId: chunkData.chunkId,
-                projectIndexId: existingProject?.projectId || projectData.projectId,
-                entityId: chunkData.id, // Will need to map to actual entity
+                entityId: entity.id,
                 tier: chunkData.tier,
                 title: chunkData.title,
                 content: chunkData.content,
@@ -443,15 +391,22 @@ export class BulkOperationsService {
    * Estimate cost for bulk regeneration
    */
   async estimateBulkRegeneration(options: BulkRegenerationOptions): Promise<BulkRegenerationEstimate> {
-    const projects = await prisma.projectAIIndex.findMany({
-      where: options.projectIds ? { projectId: { in: options.projectIds } } : undefined,
+    const projectRows = await prisma.project.findMany({
+      where: options.projectIds ? { id: { in: options.projectIds } } : undefined,
+      select: { slug: true }
+    });
+    const projects = await prisma.contentEntity.findMany({
+      where: {
+        entityType: 'PROJECT',
+        slug: { in: projectRows.map((p) => p.slug) }
+      },
       include: {
         contentChunks: true
       }
     });
 
     const totalChunks = projects.reduce((sum, p) => sum + p.contentChunks.length, 0);
-    const totalTokens = projects.reduce((sum, p) => 
+    const totalTokens = projects.reduce((sum, p) =>
       sum + p.contentChunks.reduce((s, c) => s + c.tokenCount, 0), 0
     );
 
@@ -502,9 +457,13 @@ export class BulkOperationsService {
     useBatchMode: boolean,
     embeddingModel: string = 'text-embedding-3-small'
   ): Promise<{ jobId?: string; chunksProcessed?: number }> {
+    const projectSlugs = (await prisma.project.findMany({
+      where: { id: { in: projectIds } },
+      select: { slug: true }
+    })).map((p) => p.slug);
     const chunks = await prisma.contextChunk.findMany({
       where: {
-        projectIndexId: { in: projectIds }
+        entity: { entityType: 'PROJECT', slug: { in: projectSlugs } }
       },
       select: {
         id: true,

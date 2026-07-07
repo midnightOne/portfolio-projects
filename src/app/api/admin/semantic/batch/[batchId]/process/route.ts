@@ -55,7 +55,6 @@ async function handlePOST(
           // Update with embedding
           await vectorOps.upsertContextChunkWithVector({
             entityId: chunk.entityId,
-            projectIndexId: chunk.projectIndexId || undefined,
             tier: chunk.tier,
             chunkId: chunk.chunkId,
             title: chunk.title || undefined,

@@ -19,7 +19,7 @@ import { SmartContentGenerator, TierContent } from './SmartContentGenerator';
 import { StageBasedProcessingService, ProcessingProgress } from './StageBasedProcessingService';
 import { VectorOperations } from './VectorOperations';
 import { getSemanticHealthMonitor, SemanticHealthMetrics } from './SemanticHealthMonitor';
-import { ProjectIndexer, EnhancedProjectIndex, HierarchicalSection } from '../services/project-indexer';
+import { HierarchicalContentParser, EnhancedProjectIndex, HierarchicalSection } from './HierarchicalContentParser';
 import { EventEmitter } from 'events';
 
 const prisma = new PrismaClient();
@@ -126,7 +126,7 @@ export class SemanticDiagnosticService extends EventEmitter {
   private processingService: StageBasedProcessingService;
   private vectorOps: VectorOperations;
   private healthMonitor: ReturnType<typeof getSemanticHealthMonitor>;
-  private projectIndexer: ProjectIndexer;
+  private contentParser: HierarchicalContentParser;
 
   // Performance tracking
   private performanceMetrics = new Map<string, number[]>();
@@ -138,7 +138,7 @@ export class SemanticDiagnosticService extends EventEmitter {
     this.processingService = new StageBasedProcessingService();
     this.vectorOps = new VectorOperations(prisma);
     this.healthMonitor = getSemanticHealthMonitor();
-    this.projectIndexer = ProjectIndexer.getInstance();
+    this.contentParser = HierarchicalContentParser.getInstance();
   }
 
   /**
@@ -320,7 +320,7 @@ export class SemanticDiagnosticService extends EventEmitter {
       details.projectTitle = project.title;
 
       // Get enhanced project index for analysis
-      const enhancedIndex = await this.projectIndexer.indexProjectHierarchical(project.id);
+      const enhancedIndex = await this.contentParser.indexProjectHierarchical(project.id);
       details.totalSections = enhancedIndex.hierarchicalSections.length;
 
       // Analyze section availability for T3 generation
@@ -875,8 +875,7 @@ export class SemanticDiagnosticService extends EventEmitter {
           where: { id: projectId },
           include: {
             articleContent: true,
-            tags: true,
-            aiIndex: true
+            tags: true
           }
         });
       }
@@ -886,8 +885,7 @@ export class SemanticDiagnosticService extends EventEmitter {
         where: { status: 'PUBLISHED' },
         include: {
           articleContent: true,
-          tags: true,
-          aiIndex: true
+          tags: true
         }
       });
     } catch (error) {

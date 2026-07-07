@@ -40,7 +40,6 @@ export class VectorOperations {
    */
   async upsertContextChunkWithVector(data: {
     entityId: string;
-    projectIndexId?: string;
     tier: number;
     chunkId: string;
     title?: string;
@@ -119,14 +118,13 @@ export class VectorOperations {
       if (embeddingString) {
         result = await this.prisma.$queryRaw<{ id: string; created_at: Date }[]>`
           INSERT INTO context_chunks (
-            id, entity_id, project_index_id, tier, chunk_id, title, content, token_count, 
+            id, entity_id, tier, chunk_id, title, content, token_count, 
             embedding_vector, embedding_generated_at, embedding_model,
             metadata, parent_chunk_id, root_chunk_id, section_group, 
             derivation_path, created_at, updated_at
           ) VALUES (
             gen_random_uuid(),
             ${data.entityId},
-            ${data.projectIndexId || null},
             ${data.tier},
             ${data.chunkId},
             ${truncatedTitle || null},
@@ -148,13 +146,12 @@ export class VectorOperations {
       } else {
         result = await this.prisma.$queryRaw<{ id: string; created_at: Date }[]>`
           INSERT INTO context_chunks (
-            id, entity_id, project_index_id, tier, chunk_id, title, content, token_count, 
+            id, entity_id, tier, chunk_id, title, content, token_count, 
             embedding_vector, metadata, parent_chunk_id, root_chunk_id, section_group, 
             derivation_path, created_at, updated_at
           ) VALUES (
             gen_random_uuid(),
             ${data.entityId},
-            ${data.projectIndexId || null},
             ${data.tier},
             ${data.chunkId},
             ${truncatedTitle || null},

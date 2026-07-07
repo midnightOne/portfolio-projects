@@ -16,7 +16,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import { ProjectIndexer } from '../services/project-indexer';
+import { HierarchicalContentParser } from './HierarchicalContentParser';
 import { debugEventEmitter } from '../debug/debugEventEmitter';
 import VectorOperations from './VectorOperations';
 import { IndexMaintenanceService } from '../database/IndexMaintenanceService';
@@ -93,7 +93,7 @@ export interface ContentIngestionEvents {
 }
 
 export class ContentIngestionService extends EventEmitter {
-  private projectIndexer: ProjectIndexer;
+  private contentParser: HierarchicalContentParser;
   private vectorOps: VectorOperations;
   private indexMaintenance: IndexMaintenanceService;
   private smartGenerator: SmartContentGenerator;
@@ -110,7 +110,7 @@ export class ContentIngestionService extends EventEmitter {
 
   constructor() {
     super();
-    this.projectIndexer = ProjectIndexer.getInstance();
+    this.contentParser = HierarchicalContentParser.getInstance();
     this.vectorOps = new VectorOperations(prisma);
     this.smartGenerator = new SmartContentGenerator();
     this.indexMaintenance = IndexMaintenanceService.getInstance(prisma, {
@@ -142,8 +142,7 @@ export class ContentIngestionService extends EventEmitter {
         where: { status: 'PUBLISHED' },
         include: {
           articleContent: true,
-          tags: true,
-          aiIndex: true
+          tags: true
         }
       });
 
@@ -241,13 +240,13 @@ export class ContentIngestionService extends EventEmitter {
           title: project.title,
           description: project.description,
           tags: project.tags?.map((tag: any) => tag.name) || [],
-          technologies: project.aiIndex?.technologies || []
+          technologies: project.tags?.map((tag: any) => tag.name) || []
         },
         update: {
           title: project.title,
           description: project.description,
           tags: project.tags?.map((tag: any) => tag.name) || [],
-          technologies: project.aiIndex?.technologies || []
+          technologies: project.tags?.map((tag: any) => tag.name) || []
         }
       });
 
@@ -287,7 +286,6 @@ export class ContentIngestionService extends EventEmitter {
       for (const tierContent of tierContents) {
         const chunkResult = await this.vectorOps.upsertContextChunkWithVector({
           entityId: entity.id,
-          projectIndexId: project.id,
           tier: tierContent.tier,
           chunkId: tierContent.chunkId,
           title: tierContent.title,
@@ -426,7 +424,7 @@ export class ContentIngestionService extends EventEmitter {
     let autoGenerationCost = 0;
 
     // Get project index for structured content
-    const projectIndex = await this.projectIndexer.indexProject(project.id);
+    const projectIndex = await this.contentParser.indexProject(project.id);
     
     // Track relationships for hierarchical structure
     const relationshipMap = new Map<string, string>(); // chunkId -> parentChunkId
@@ -564,7 +562,7 @@ export class ContentIngestionService extends EventEmitter {
                 type: 'key-section',
                 importance: section.importance,
                 keywords: section.keywords,
-                source: 'project-indexer',
+                source: 'content-parser',
                 // NEW: Hierarchical relationship metadata
                 parentChunkId: t1ChunkId,
                 rootChunkId: t0ChunkId,
@@ -603,7 +601,7 @@ export class ContentIngestionService extends EventEmitter {
         }
       });
     } else {
-      // Use all sections from ProjectIndexer or auto-generate
+      // Use all sections from HierarchicalContentParser or auto-generate
       if (projectIndex?.sections && projectIndex.sections.length > 0) {
         projectIndex.sections.forEach((section, index) => {
           const chunkId = `section-${index}`;
@@ -626,7 +624,7 @@ export class ContentIngestionService extends EventEmitter {
               importance: section.importance,
               keywords: section.keywords,
               nodeType: section.nodeType,
-              source: 'project-indexer',
+              source: 'content-parser',
               // NEW: Hierarchical relationship metadata
               parentChunkId: parentT2ChunkId,
               rootChunkId: t0ChunkId,
@@ -938,8 +936,7 @@ Include: technical architecture, key features, implementation details, technolog
         where: { slug },
         include: {
           articleContent: true,
-          tags: true,
-          aiIndex: true
+          tags: true
         }
       });
 

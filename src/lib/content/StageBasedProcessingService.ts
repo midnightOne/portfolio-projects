@@ -19,7 +19,7 @@ import { SummaryGenerationService, getSummaryGenerationService } from './Summary
 import { BatchEmbeddingService } from './BatchEmbeddingService';
 import { VectorOperations } from './VectorOperations';
 import { SemanticBudgetManager } from './SemanticBudgetManager';
-import { ProjectIndexer } from '../services/project-indexer';
+import { HierarchicalContentParser } from './HierarchicalContentParser';
 import { IndexMaintenanceService } from '../database/IndexMaintenanceService';
 import { EventEmitter } from 'events';
 import OpenAI from 'openai';
@@ -146,7 +146,7 @@ export class StageBasedProcessingService extends EventEmitter {
   private batchEmbeddingService: BatchEmbeddingService;
   private vectorOps: VectorOperations;
   private budgetManager: SemanticBudgetManager;
-  private projectIndexer: ProjectIndexer;
+  private contentParser: HierarchicalContentParser;
   private indexMaintenance: IndexMaintenanceService;
   private openai: OpenAI | null;
 
@@ -164,7 +164,7 @@ export class StageBasedProcessingService extends EventEmitter {
     this.batchEmbeddingService = new BatchEmbeddingService(apiKey);
     this.vectorOps = new VectorOperations(prisma);
     this.budgetManager = new SemanticBudgetManager();
-    this.projectIndexer = ProjectIndexer.getInstance();
+    this.contentParser = HierarchicalContentParser.getInstance();
     
     // Initialize index maintenance with optimized settings for embedding operations
     this.indexMaintenance = IndexMaintenanceService.getInstance(prisma, {
@@ -609,7 +609,7 @@ export class StageBasedProcessingService extends EventEmitter {
     const project = projects[0]; // Assuming single project for now
 
     // Get enhanced project index for content extraction
-    const enhancedIndex = await this.projectIndexer.indexProjectHierarchical(project.id);
+    const enhancedIndex = await this.contentParser.indexProjectHierarchical(project.id);
 
     // Get chunks - either from chunking checkpoint or from database
     const chunkingCheckpoint = progress.stageProgress.chunking.checkpoint as ChunkingCheckpoint;
@@ -1197,16 +1197,6 @@ export class StageBasedProcessingService extends EventEmitter {
       });
     }
 
-    // Ensure ProjectAIIndex exists
-    await prisma.projectAIIndex.upsert({
-      where: { projectId: project.id },
-      update: {},
-      create: {
-        projectId: project.id,
-        summary: project.summary || project.description || `AI index for ${project.title}`
-      }
-    });
-
     // Use batch storage for efficiency
     if (!hasEmbeddings && chunks.length > 1) {
       await this.batchStoreChunks(chunks, request);
@@ -1297,8 +1287,7 @@ export class StageBasedProcessingService extends EventEmitter {
           where: { status: 'PUBLISHED' },
           include: {
             articleContent: true,
-            tags: true,
-            aiIndex: true
+            tags: true
           }
         });
       
@@ -1310,8 +1299,7 @@ export class StageBasedProcessingService extends EventEmitter {
           where: { id: request.projectId },
           include: {
             articleContent: true,
-            tags: true,
-            aiIndex: true
+            tags: true
           }
         });
         return project ? [project] : [];
@@ -1325,8 +1313,7 @@ export class StageBasedProcessingService extends EventEmitter {
           where: { id: request.projectId },
           include: {
             articleContent: true,
-            tags: true,
-            aiIndex: true
+            tags: true
           }
         });
         return sectionProject ? [sectionProject] : [];
@@ -1374,21 +1361,6 @@ export class StageBasedProcessingService extends EventEmitter {
     
     console.log(`[batchStoreChunks] Found project: ${project.slug}`);
     
-    // Ensure ProjectAIIndex exists
-    await prisma.projectAIIndex.upsert({
-      where: { projectId: request.projectId },
-      create: {
-        projectId: request.projectId,
-        summary: '',
-        keywords: [],
-        topics: [],
-        technologies: [],
-        sectionsCount: 0,
-        mediaCount: 0
-      },
-      update: {}
-    });
-    
     const entity = await prisma.contentEntity.upsert({
       where: {
         entityType_slug: {
@@ -1432,7 +1404,6 @@ export class StageBasedProcessingService extends EventEmitter {
           },
           create: {
             entityId: entity.id,
-            projectIndexId: request.projectId,
             tier: 0,
             chunkId: t0Chunk.chunkId,
             title: t0Chunk.title ? t0Chunk.title.substring(0, 255) : null,
@@ -1520,7 +1491,6 @@ export class StageBasedProcessingService extends EventEmitter {
           },
           create: {
             entityId: entity.id,
-            projectIndexId: request.projectId,
             tier: chunk.tier,
             chunkId: chunk.chunkId,
             title: truncatedTitle,
@@ -1573,23 +1543,6 @@ export class StageBasedProcessingService extends EventEmitter {
     }
 
     console.log(`[storeValidatedChunk] Found project: ${project.slug}`);
-
-    // Ensure ProjectAIIndex exists (required for foreign key)
-    console.log(`[storeValidatedChunk] Upserting ProjectAIIndex for projectId: ${request.projectId}`);
-    const projectIndex = await prisma.projectAIIndex.upsert({
-      where: { projectId: request.projectId },
-      create: {
-        projectId: request.projectId,
-        summary: '',
-        keywords: [],
-        topics: [],
-        technologies: [],
-        sectionsCount: 0,
-        mediaCount: 0
-      },
-      update: {} // Don't overwrite existing data
-    });
-    console.log(`[storeValidatedChunk] ProjectAIIndex upserted successfully. Record projectId: ${projectIndex.projectId}`);
 
     const entity = await prisma.contentEntity.upsert({
       where: {
@@ -1655,11 +1608,8 @@ export class StageBasedProcessingService extends EventEmitter {
     }
 
     // Store chunk using VectorOperations
-    // projectIndexId references project_ai_index.projectId (which we ensured exists above)
-    console.log(`[storeValidatedChunk] Calling upsertContextChunkWithVector with projectIndexId: ${request.projectId}`);
     const result = await this.vectorOps.upsertContextChunkWithVector({
       entityId: entity.id,
-      projectIndexId: request.projectId, // Now safe - ProjectAIIndex record exists
       tier: chunk.tier,
       chunkId: chunk.chunkId,
       title: chunk.title,

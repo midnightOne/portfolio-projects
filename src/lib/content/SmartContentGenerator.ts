@@ -9,7 +9,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import { ProjectIndexer, EnhancedProjectIndex, HierarchicalSection, ContentChangeMap } from '../services/project-indexer';
+import { HierarchicalContentParser, EnhancedProjectIndex, HierarchicalSection, ContentChangeMap } from './HierarchicalContentParser';
 import OpenAI from 'openai';
 import { semanticBudgetManager } from './SemanticBudgetManager';
 import { getSummaryGenerationService } from './SummaryGenerationService';
@@ -54,7 +54,7 @@ export interface SmartGenerationResult {
 }
 
 export class SmartContentGenerator {
-  private projectIndexer: ProjectIndexer;
+  private contentParser: HierarchicalContentParser;
   private openai: OpenAI | null;
   private summaryService = getSummaryGenerationService();
   private t3Chunker: T3HeadingBoundedChunking;
@@ -66,7 +66,7 @@ export class SmartContentGenerator {
   private readonly GPT4_MINI_COST_PER_1K_TOKENS = 0.00015;
 
   constructor(chunkingConfig?: { targetChunkSize?: number; maxSectionSize?: number; minSectionSize?: number; sectionBoundaryOverlap?: number; splitStrategy?: 'paragraph' | 'sentence' | 'token' }) {
-    this.projectIndexer = ProjectIndexer.getInstance();
+    this.contentParser = HierarchicalContentParser.getInstance();
     
     // Initialize T3 chunker with config
     this.t3Chunker = new T3HeadingBoundedChunking(chunkingConfig);
@@ -88,7 +88,7 @@ export class SmartContentGenerator {
     const startTime = Date.now();
 
     // Get enhanced project index with change detection
-    const enhancedIndex = await this.projectIndexer.indexProjectHierarchical(project.id);
+    const enhancedIndex = await this.contentParser.indexProjectHierarchical(project.id);
 
     const tiers: TierContent[] = [];
     let tokensSkipped = 0;
@@ -167,7 +167,7 @@ export class SmartContentGenerator {
     console.log('[SmartContentGenerator] Generating scaffold (T0 + placeholders + T3)...');
 
     // Get enhanced project index
-    const enhancedIndex = await this.projectIndexer.indexProjectHierarchical(project.id);
+    const enhancedIndex = await this.contentParser.indexProjectHierarchical(project.id);
 
     const tiers: TierContent[] = [];
 
@@ -354,7 +354,7 @@ export class SmartContentGenerator {
     const content = JSON.stringify({
       title: project.title,
       tags: project.tags?.map((tag: any) => tag.name) || [],
-      technologies: project.aiIndex?.technologies || [],
+      technologies: project.tags?.map((tag: any) => tag.name) || [],
       workDate: project.workDate
     });
 

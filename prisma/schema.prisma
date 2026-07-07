@@ -33,7 +33,6 @@ model Project {
   interactiveExamples InteractiveExample[]
   carousels           MediaCarousel[]
   mediaItems          MediaItem[]              @relation("ProjectMedia")
-  aiIndex             ProjectAIIndex?
   analytics           ProjectAnalytics[]
   referencedBy        ProjectReference[]       @relation("ReferencedProject")
   projectReferences   ProjectReference[]       @relation("ReferencingProject")
@@ -253,29 +252,6 @@ model AIGeneralSettings {
   @@map("ai_general_settings")
 }
 
-model ProjectAIIndex {
-  projectId       String                 @id @db.VarChar(255)
-  summary         String
-  keywords        Json                   @default("[]")
-  topics          Json                   @default("[]")
-  technologies    Json                   @default("[]")
-  sectionsCount   Int                    @default(0)
-  mediaCount      Int                    @default(0)
-  contentHash     String?                @db.VarChar(255)
-  createdAt       DateTime               @default(now())
-  updatedAt       DateTime               @default(now())
-  contentTiers    Json?
-  embeddingVector Unsupported("vector(1536)")?
-  contentChunks   ContextChunk[]
-  project         Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  @@index([contentHash])
-  @@index([updatedAt])
-  @@index([keywords], type: Gin)
-  @@index([topics], type: Gin)
-  @@index([technologies], type: Gin)
-  @@map("project_ai_index")
-}
 
 model AIContentSourceConfig {
   id         String   @id @default(cuid())
@@ -607,7 +583,6 @@ model ContentEntity {
 model ContextChunk {
   id                   String                 @id @default(cuid())
   entityId             String                 @map("entity_id")
-  projectIndexId       String?                @map("project_index_id")
   tier                 Int
   chunkId              String                 @map("chunk_id")
   title                String?                @db.VarChar(255)
@@ -638,21 +613,18 @@ model ContextChunk {
   entity               ContentEntity          @relation(fields: [entityId], references: [id], onDelete: Cascade)
   parentChunk          ContextChunk?          @relation("ChunkHierarchy", fields: [parentChunkId], references: [id])
   childChunks          ContextChunk[]         @relation("ChunkHierarchy")
-  projectIndex         ProjectAIIndex?        @relation(fields: [projectIndexId], references: [projectId])
 
   @@unique([entityId, tier, chunkId])
   @@index([entityId])
   @@index([tier])
   @@index([chunkId])
   @@index([tokenCount])
-  @@index([projectIndexId])
   @@index([embeddingVector], map: "idx_context_chunks_embedding_hnsw")
   @@index([entityId, tier], map: "idx_context_chunks_entity_tier")
   @@index([parentChunkId], map: "idx_context_chunks_parent_chunk_id")
   @@index([rootChunkId], map: "idx_context_chunks_root_chunk_id")
   @@index([sectionGroup], map: "idx_context_chunks_section_group")
   @@index([tier], map: "idx_context_chunks_tier")
-  @@index([projectIndexId, tier])
   @@index([importance])
   @@index([manuallyEdited])
   @@index([embeddingGeneratedAt])

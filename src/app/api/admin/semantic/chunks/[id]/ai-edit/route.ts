@@ -59,8 +59,7 @@ async function handlePOST(
         id: true,
         tier: true,
         title: true,
-        content: true,
-        projectIndexId: true
+        content: true
       }
     });
 

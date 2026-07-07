@@ -305,8 +305,9 @@ export class ChunkingConfigService {
     currentConfig: ChunkingSettings,
     newConfig: Partial<ChunkingSettings>
   ): Promise<CostImpact> {
-    // Get all projects with semantic indexes
-    const projects = await prisma.projectAIIndex.findMany({
+    // Get all project entities with semantic chunks (entity-based post-D37)
+    const projects = await prisma.contentEntity.findMany({
+      where: { entityType: 'PROJECT' },
       include: {
         contentChunks: {
           select: {

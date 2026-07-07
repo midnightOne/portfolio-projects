@@ -607,9 +607,13 @@ export class CostEstimationService {
     t2: { sections: number; inputTokens: number; outputTokens: number; embeddingTokens: number };
     t3: { chunks: number; embeddingTokens: number };
   }> {
-    // Get existing chunks to estimate
+    // Get existing chunks to estimate (entity-based post-D37)
+    const projectSlugs = (await prisma.project.findMany({
+      where: { id: { in: projectIds } },
+      select: { slug: true }
+    })).map((p) => p.slug);
     const where: any = {
-      projectIndexId: { in: projectIds }
+      entity: { entityType: 'PROJECT', slug: { in: projectSlugs } }
     };
 
     if (sectionIds && sectionIds.length > 0) {

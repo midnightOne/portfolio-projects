@@ -1,7 +1,10 @@
 /**
- * Project Indexer Service
- * Generates searchable summaries and indexes for AI context management
- * Integrates with Rich Content System's Tiptap structure and Media Management System
+ * Hierarchical Content Parser (D48 content-source entry point)
+ *
+ * Parses a project's Tiptap/ArticleContent into hierarchical sections with
+ * tier assignments, content hashes, and change maps for the semantic pipeline.
+ * Extracted from the retired Gen-1 project-indexer (D37) — this is the single
+ * entry point through which ingestion reads project content structure.
  */
 
 import { prisma } from '@/lib/database/connection';
@@ -82,53 +85,19 @@ export interface MediaContext {
   relevanceScore: number;
 }
 
-export interface ProjectSummary {
-  projectId: string;
-  title: string;
-  briefSummary: string;
-  detailedSummary: string;
-  keyTechnologies: string[];
-  mainTopics: string[];
-  contentStructure: ContentStructure;
-  mediaOverview: MediaOverview;
-}
-
-export interface ContentStructure {
-  totalSections: number;
-  headingHierarchy: HeadingNode[];
-  contentTypes: string[];
-  estimatedReadTime: number;
-}
-
-export interface HeadingNode {
-  level: number;
-  title: string;
-  sectionId: string;
-  children: HeadingNode[];
-}
-
-export interface MediaOverview {
-  totalImages: number;
-  totalVideos: number;
-  hasCarousels: boolean;
-  hasInteractiveContent: boolean;
-  hasDownloads: boolean;
-  mediaDescriptions: string[];
-}
-
 /**
- * Main ProjectIndexer service class
+ * Hierarchical content parser — singleton
  */
-export class ProjectIndexer {
-  private static instance: ProjectIndexer;
+export class HierarchicalContentParser {
+  private static instance: HierarchicalContentParser;
   private indexCache = new Map<string, ProjectIndex>();
   private readonly CACHE_TTL = 15 * 60 * 1000; // 15 minutes
 
-  static getInstance(): ProjectIndexer {
-    if (!ProjectIndexer.instance) {
-      ProjectIndexer.instance = new ProjectIndexer();
+  static getInstance(): HierarchicalContentParser {
+    if (!HierarchicalContentParser.instance) {
+      HierarchicalContentParser.instance = new HierarchicalContentParser();
     }
-    return ProjectIndexer.instance;
+    return HierarchicalContentParser.instance;
   }
 
   /**
@@ -139,8 +108,7 @@ export class ProjectIndexer {
       where: { id: projectId },
       include: {
         articleContent: true,
-        tags: true,
-        aiIndex: true
+        tags: true
       }
     });
 
@@ -495,11 +463,8 @@ export class ProjectIndexer {
         contentHash
       };
 
-      // Cache the result
+      // Cache the result (in-memory only — ProjectAIIndex persistence retired, D37)
       this.indexCache.set(projectId, projectIndex);
-
-      // Store in database for persistence (optional - for analytics)
-      await this.storeIndexInDatabase(projectIndex);
 
       return projectIndex;
 
@@ -902,208 +867,6 @@ export class ProjectIndexer {
   }
 
   /**
-   * Store index in database for persistence and analytics
-   */
-  private async storeIndexInDatabase(index: ProjectIndex): Promise<void> {
-    try {
-      // Use Prisma upsert for better type safety and compatibility
-      await prisma.projectAIIndex.upsert({
-        where: {
-          projectId: index.projectId,
-        },
-        update: {
-          summary: index.summary,
-          keywords: index.keywords,
-          topics: index.topics,
-          technologies: index.technologies,
-          sectionsCount: index.sections.length,
-          mediaCount: index.mediaContext.length,
-          contentHash: index.contentHash,
-          updatedAt: new Date(),
-        },
-        create: {
-          projectId: index.projectId,
-          summary: index.summary,
-          keywords: index.keywords,
-          topics: index.topics,
-          technologies: index.technologies,
-          sectionsCount: index.sections.length,
-          mediaCount: index.mediaContext.length,
-          contentHash: index.contentHash,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      });
-    } catch (error) {
-      // Don't fail the indexing if database storage fails
-      console.warn('Failed to store index in database:', error);
-    }
-  }
-
-  /**
-   * Get project summary for AI context
-   */
-  async getProjectSummary(projectId: string): Promise<ProjectSummary | null> {
-    try {
-      const index = await this.indexProject(projectId);
-      
-      const project = await prisma.project.findUnique({
-        where: { id: projectId },
-        select: {
-          id: true,
-          title: true,
-          briefOverview: true,
-          description: true,
-          tags: { select: { name: true } }
-        }
-      });
-
-      if (!project) return null;
-
-      // Build content structure
-      const headingHierarchy = this.buildHeadingHierarchy(index.sections);
-      const contentTypes = Array.from(new Set(index.sections.map(s => s.nodeType)));
-      const estimatedReadTime = Math.ceil(
-        index.sections.reduce((total, section) => total + section.content.length, 0) / 1000
-      );
-
-      // Build media overview
-      const mediaOverview: MediaOverview = {
-        totalImages: index.mediaContext.filter(m => m.type === 'image').length,
-        totalVideos: index.mediaContext.filter(m => m.type === 'video').length,
-        hasCarousels: index.mediaContext.some(m => m.type === 'carousel'),
-        hasInteractiveContent: index.mediaContext.some(m => m.type === 'interactive'),
-        hasDownloads: index.mediaContext.some(m => m.type === 'download'),
-        mediaDescriptions: index.mediaContext
-          .filter(m => m.description)
-          .map(m => m.description!)
-          .slice(0, 5)
-      };
-
-      return {
-        projectId,
-        title: project.title,
-        briefSummary: project.briefOverview || '',
-        detailedSummary: index.summary,
-        keyTechnologies: index.technologies,
-        mainTopics: index.topics,
-        contentStructure: {
-          totalSections: index.sections.length,
-          headingHierarchy,
-          contentTypes,
-          estimatedReadTime
-        },
-        mediaOverview
-      };
-
-    } catch (error) {
-      console.error(`Error getting project summary for ${projectId}:`, error);
-      return null;
-    }
-  }
-
-  /**
-   * Build heading hierarchy from sections
-   */
-  private buildHeadingHierarchy(sections: IndexedSection[]): HeadingNode[] {
-    const headings = sections.filter(s => s.nodeType === 'heading');
-    const hierarchy: HeadingNode[] = [];
-    const stack: HeadingNode[] = [];
-
-    headings.forEach(section => {
-      const level = section.depth || 1;
-      const node: HeadingNode = {
-        level,
-        title: section.title,
-        sectionId: section.id,
-        children: []
-      };
-
-      // Find the correct parent
-      while (stack.length > 0 && stack[stack.length - 1].level >= level) {
-        stack.pop();
-      }
-
-      if (stack.length === 0) {
-        hierarchy.push(node);
-      } else {
-        stack[stack.length - 1].children.push(node);
-      }
-
-      stack.push(node);
-    });
-
-    return hierarchy;
-  }
-
-  /**
-   * Search relevant content based on query
-   */
-  async searchRelevantContent(
-    projectIds: string[],
-    query: string,
-    limit: number = 10
-  ): Promise<IndexedSection[]> {
-    const relevantSections: Array<IndexedSection & { relevanceScore: number }> = [];
-
-    // Index all projects if not already cached
-    for (const projectId of projectIds) {
-      try {
-        const index = await this.indexProject(projectId);
-        
-        // Score sections based on query relevance
-        index.sections.forEach(section => {
-          const relevanceScore = this.calculateRelevanceScore(section, query);
-          if (relevanceScore > 0.1) { // Minimum relevance threshold
-            relevantSections.push({
-              ...section,
-              projectId, // Ensure projectId is set
-              relevanceScore: relevanceScore * section.importance
-            });
-          }
-        });
-      } catch (error) {
-        console.warn(`Failed to index project ${projectId} for search:`, error);
-      }
-    }
-
-    // Sort by relevance and return top results
-    return relevantSections
-      .sort((a, b) => b.relevanceScore - a.relevanceScore)
-      .slice(0, limit)
-      .map(({ relevanceScore, ...section }) => section);
-  }
-
-  /**
-   * Calculate relevance score for a section based on query
-   */
-  private calculateRelevanceScore(section: IndexedSection, query: string): number {
-    const queryTerms = query.toLowerCase().split(/\s+/).filter(term => term.length > 2);
-    if (queryTerms.length === 0) return 0;
-
-    let score = 0;
-    const content = (section.title + ' ' + section.content + ' ' + section.keywords.join(' ')).toLowerCase();
-
-    queryTerms.forEach(term => {
-      // Exact matches in title get highest score
-      if (section.title.toLowerCase().includes(term)) {
-        score += 0.5;
-      }
-      
-      // Matches in keywords get high score
-      if (section.keywords.some(keyword => keyword.includes(term))) {
-        score += 0.3;
-      }
-      
-      // Matches in content get base score
-      const termCount = (content.match(new RegExp(term, 'g')) || []).length;
-      score += Math.min(termCount * 0.1, 0.4);
-    });
-
-    return Math.min(score, 1);
-  }
-
-  /**
    * Clear cache for a specific project
    */
   clearProjectCache(projectId: string): void {
@@ -1129,4 +892,4 @@ export class ProjectIndexer {
 }
 
 // Export singleton instance
-export const projectIndexer = ProjectIndexer.getInstance();
+export const hierarchicalContentParser = HierarchicalContentParser.getInstance();

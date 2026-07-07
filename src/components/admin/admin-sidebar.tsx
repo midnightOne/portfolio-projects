@@ -389,17 +389,6 @@ export function AdminSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
-                  isActive={isItemActive('/admin/ai/project-indexing')}
-                >
-                  <Link href="/admin/ai/project-indexing" className="flex items-center gap-2">
-                    <Database className="size-4" />
-                    <span>Project Indexing</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
                   isActive={isItemActive('/admin/ai/context-config')}
                 >
                   <Link href="/admin/ai/context-config" className="flex items-center gap-2">

@@ -110,7 +110,7 @@ async function handlePOST(
     const result = await summaryService.generateSummary({
       content: sourceContent,
       type: chunk.tier === 1 ? 'T1' : 'T2',
-      projectId: project?.id || chunk.projectIndexId || undefined,
+      projectId: project?.id || undefined,
       sectionTitle: chunk.title || undefined,
       configId,
       metadata: {

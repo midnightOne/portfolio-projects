@@ -242,9 +242,8 @@ export class ChangeDetectionIntegration extends EventEmitter {
       // Check if there are any pending changes
       const project = await prisma.project.findUnique({
         where: { id: projectId },
-        include: { 
-          articleContent: true,
-          aiIndex: true 
+        include: {
+          articleContent: true
         }
       });
 
@@ -255,16 +254,24 @@ export class ChangeDetectionIntegration extends EventEmitter {
         };
       }
 
-      // Compare current content hash with stored hash
-      const currentContent = project.articleContent?.content || '';
-      const currentHash = this.changeDetector['generateContentHash'](currentContent);
-      const storedHash = project.aiIndex?.contentHash;
+      // Post-D37 (ProjectAIIndex retired): compare article recency against the
+      // last ingested chunk for this project's entity. Per-section change
+      // detection still runs on chunk-level section hashes.
+      const latestChunk = await prisma.contextChunk.findFirst({
+        where: {
+          entity: { entityType: 'PROJECT', slug: project.slug }
+        },
+        orderBy: { updatedAt: 'desc' },
+        select: { updatedAt: true }
+      });
 
-      const hasChanges = storedHash ? currentHash !== storedHash : true;
+      const articleUpdatedAt = project.articleContent?.updatedAt;
+      const hasChanges = !latestChunk ||
+        (!!articleUpdatedAt && articleUpdatedAt > latestChunk.updatedAt);
 
       return {
         hasChanges,
-        lastDetection: project.aiIndex?.updatedAt,
+        lastDetection: latestChunk?.updatedAt,
         pendingRegeneration: hasChanges
       };
 
@@ -304,17 +311,11 @@ export class ChangeDetectionIntegration extends EventEmitter {
   // Private methods
 
   private async getPreviousContentHash(projectId: string): Promise<string | undefined> {
-    try {
-      const aiIndex = await prisma.projectAIIndex.findUnique({
-        where: { projectId },
-        select: { contentHash: true }
-      });
-
-      return aiIndex?.contentHash || undefined;
-    } catch (error) {
-      console.error('Error getting previous content hash:', error);
-      return undefined;
-    }
+    // Post-D37 there is no project-level stored hash (ProjectAIIndex retired).
+    // Returning undefined makes the detector treat state as unknown and run the
+    // full per-section comparison against chunk-level section hashes — the live
+    // change-detection mechanism.
+    return undefined;
   }
 
   private shouldPromptUser(

@@ -14,7 +14,7 @@
  */
 
 import { prisma } from '@/lib/database/connection';
-import { ProjectIndexer, HierarchicalSection } from '../services/project-indexer';
+import { HierarchicalContentParser, HierarchicalSection } from './HierarchicalContentParser';
 import crypto from 'crypto';
 
 // Change detection interfaces
@@ -97,7 +97,7 @@ export interface ChangeDetectionConfig {
  * Main ContentChangeDetector class
  */
 export class ContentChangeDetector {
-  private projectIndexer: ProjectIndexer;
+  private contentParser: HierarchicalContentParser;
   private config: ChangeDetectionConfig;
 
   // Cost estimation constants (approximate costs in USD)
@@ -105,7 +105,7 @@ export class ContentChangeDetector {
   private readonly GPT4_MINI_COST_PER_1K_TOKENS = 0.00015; // gpt-4o-mini input tokens
 
   constructor(config?: Partial<ChangeDetectionConfig>) {
-    this.projectIndexer = ProjectIndexer.getInstance();
+    this.contentParser = HierarchicalContentParser.getInstance();
     this.config = {
       sectionChangePercent: 0.2,        // 20% sections changed = major
       minorChangeThreshold: 2,          // ≤2 sections = minor
@@ -188,7 +188,7 @@ export class ContentChangeDetector {
   }
 
   /**
-   * Parse headings from content using ProjectIndexer
+   * Parse headings from content using HierarchicalContentParser
    */
   private async parseHeadingsFromContent(
     content: string,
@@ -205,8 +205,8 @@ export class ContentChangeDetector {
         }
       };
 
-      // Use ProjectIndexer to get hierarchical sections
-      const enhancedIndex = await this.projectIndexer.indexProjectHierarchical(project.id);
+      // Use HierarchicalContentParser to get hierarchical sections
+      const enhancedIndex = await this.contentParser.indexProjectHierarchical(project.id);
       
       // Convert hierarchical sections to ParsedHeading format
       const headings: ParsedHeading[] = [];

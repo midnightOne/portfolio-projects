@@ -8,7 +8,6 @@
 
 import { UnifiedToolDefinition, UnifiedToolResult, ServerToolExecutionContext } from './types';
 import { serverToolDefinitions } from './server-tools';
-import { projectIndexer } from '@/lib/services/project-indexer';
 import ContentSearchService from '@/lib/content/ContentSearchService';
 import { contextFrameManager, ContextSwapConfig } from '../ContextFrameManager';
 
@@ -1651,19 +1650,6 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
 
       const actualProjectId = project.id;
 
-      // Get AI Index data for semantic information
-      const aiIndex = await prisma.projectAIIndex.findUnique({
-        where: { projectId: actualProjectId },
-        select: {
-          sectionsCount: true,
-          mediaCount: true,
-          keywords: true,
-          topics: true,
-          technologies: true,
-          summary: true
-        }
-      });
-
       // Get article content for structure analysis
       const articleContent = await prisma.articleContent.findFirst({
         where: { projectId: actualProjectId },
@@ -1757,7 +1743,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
       }
 
       return {
-        totalSections: aiIndex?.sectionsCount || headingHierarchy.length || 0,
+        totalSections: headingHierarchy.length || 0,
         headingHierarchy,
         contentTypes,
         estimatedReadTime,

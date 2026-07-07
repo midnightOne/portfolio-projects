@@ -255,7 +255,7 @@ export async function GET(request: NextRequest) {
     // Get total projects with semantic indexes
     const totalProjects = await prisma.project.count();
     const projectsWithChunks = await prisma.contextChunk.groupBy({
-      by: ['projectIndexId'],
+      by: ['entityId'],
       _count: true
     });
 
@@ -270,6 +270,7 @@ export async function GET(request: NextRequest) {
     const projects = await prisma.project.findMany({
       select: {
         id: true,
+        slug: true,
         title: true,
         updatedAt: true
       },
@@ -280,7 +281,7 @@ export async function GET(request: NextRequest) {
       projects.map(async (project) => {
         // Get chunks for this project with detailed information
         const chunks = await prisma.contextChunk.findMany({
-          where: { projectIndexId: project.id },
+          where: { entity: { entityType: 'PROJECT', slug: project.slug } },
           select: {
             id: true,
             tier: true,
