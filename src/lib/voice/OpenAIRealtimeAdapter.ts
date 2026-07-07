@@ -170,10 +170,18 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
                 console.log(`OpenAI Realtime configuration loaded from database: ${configWithMetadata.name}`);
             } else {
-                // Client side - use default configuration from serializer
-                const { getSerializerForProvider } = await import('./config-serializers');
-                const openaiSerializer = getSerializerForProvider('openai');
-                this._config = openaiSerializer.getDefaultConfig() as OpenAIRealtimeConfig;
+                // Client side — fetch the admin-configured default via the public
+                // read-only surface (2026-07-07 fix: the pill previously ALWAYS ran
+                // on serializer defaults in the browser, ignoring VoiceProviderConfig)
+                const response = await fetch('/api/ai/voice-config?provider=openai');
+                if (!response.ok) {
+                    throw new Error(`voice-config API returned ${response.status}`);
+                }
+                const data = await response.json();
+                if (!data.success || !data.config) {
+                    throw new Error(data.error || 'voice-config API returned no config');
+                }
+                this._config = data.config as OpenAIRealtimeConfig;
 
                 console.log('OpenAI Realtime configuration loaded from defaults (client-side)');
             }

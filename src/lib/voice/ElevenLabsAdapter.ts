@@ -76,12 +76,20 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
         
         console.log(`ElevenLabs configuration loaded from database: ${configWithMetadata.name}`);
       } else {
-        // Client side - use default configuration from serializer
-        const { getSerializerForProvider } = await import('./config-serializers');
-        const elevenLabsSerializer = getSerializerForProvider('elevenlabs');
-        this._config = elevenLabsSerializer.getDefaultConfig() as ElevenLabsConfig;
-        
-        console.log('ElevenLabs configuration loaded from defaults (client-side)');
+        // Client side — fetch the admin-configured default via the public
+        // read-only surface (2026-07-07 fix: the pill previously ALWAYS ran on
+        // serializer defaults in the browser, ignoring VoiceProviderConfig)
+        const response = await fetch('/api/ai/voice-config?provider=elevenlabs');
+        if (!response.ok) {
+          throw new Error(`voice-config API returned ${response.status}`);
+        }
+        const data = await response.json();
+        if (!data.success || !data.config) {
+          throw new Error(data.error || 'voice-config API returned no config');
+        }
+        this._config = data.config as ElevenLabsConfig;
+
+        console.log(`ElevenLabs configuration loaded from database via API: ${data.name}`);
       }
       
       // Update metadata with loaded configuration

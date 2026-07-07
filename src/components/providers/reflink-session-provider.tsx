@@ -164,18 +164,10 @@ export function ReflinkSessionProvider({ children }: ReflinkSessionProviderProps
       sessionStorage.removeItem('ai_reflink_code');
       sessionStorage.removeItem('ai_reflink_session');
       
-      // Check for existing session in sessionStorage
-      const storedSession = sessionStorage.getItem('ai_public_session');
-      if (storedSession) {
-        try {
-          const parsedSession = JSON.parse(storedSession);
-          setAccessLevel(parsedSession.accessLevel || 'no_access');
-          await loadFeatureAvailability(parsedSession.accessLevel || 'no_access');
-          return;
-        } catch (error) {
-          console.error('Failed to parse stored session:', error);
-        }
-      }
+      // Always revalidate the access level from the server (2026-07-07 fix:
+      // the old cache short-circuit had no TTL, so admin-session detection and
+      // admin toggles to public access never took effect in an open tab). The
+      // stored session below remains only as a failed-fetch fallback.
 
       // Get public access level from server
       const response = await fetch('/api/ai/public-access');
@@ -198,6 +190,18 @@ export function ReflinkSessionProvider({ children }: ReflinkSessionProviderProps
       
     } catch (error) {
       console.error('Failed to initialize public session:', error);
+      // Failed fetch — fall back to the last known stored session before no_access
+      const storedSession = sessionStorage.getItem('ai_public_session');
+      if (storedSession) {
+        try {
+          const parsedSession = JSON.parse(storedSession);
+          setAccessLevel(parsedSession.accessLevel || 'no_access');
+          await loadFeatureAvailability(parsedSession.accessLevel || 'no_access');
+          return;
+        } catch {
+          // fall through to no_access
+        }
+      }
       // Fallback to no access
       setAccessLevel('no_access');
       setAccessMessage({
