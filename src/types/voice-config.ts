@@ -15,7 +15,7 @@ import { z } from 'zod';
  * Base interface for all voice AI provider configurations
  */
 export interface BaseVoiceProviderConfig {
-  provider: 'openai' | 'elevenlabs';
+  provider: 'openai' | 'elevenlabs' | 'google';
   enabled: boolean;
   displayName: string;
   description: string;
@@ -185,13 +185,48 @@ export interface ElevenLabsConfig extends BaseVoiceProviderConfig {
 }
 
 // =============================================================================
+// Google Gemini Live Configuration (D22, ai-assistant task 6)
+// =============================================================================
+
+/**
+ * Gemini Live voice names (prebuilt voices).
+ */
+export type GoogleLiveVoice = 'Puck' | 'Charon' | 'Kore' | 'Fenrir' | 'Aoede' | 'Leda' | 'Orus' | 'Zephyr' | string;
+
+/**
+ * Complete Google Gemini Live configuration.
+ * Transport is a WebSocket (BidiGenerateContent); the session is minted with a
+ * v1alpha ephemeral auth token so the API key never reaches the client (D3).
+ */
+export interface GoogleLiveConfig extends BaseVoiceProviderConfig {
+  provider: 'google';
+  /** Live-capable model id — must support bidiGenerateContent (verify via ListModels; e.g. gemini-2.5-flash-native-audio-latest). */
+  model: string;
+  voice: GoogleLiveVoice;
+  temperature: number;
+  instructions: string;
+  /** Response modality: audio speaks, text is a silent fallback for debugging. */
+  responseModality: 'AUDIO' | 'TEXT';
+  /** Input/output transcription toggles (both wanted for D58 persistence). */
+  transcription: {
+    input: boolean;
+    output: boolean;
+  };
+  /** Session duration cap in seconds, enforced via ephemeral-token expiry at mint. */
+  maxSessionSeconds: number;
+  capabilities: VoiceCapability[];
+  apiKeyEnvVar?: string;
+  baseUrlEnvVar?: string;
+}
+
+// =============================================================================
 // Union Types and Utility Types
 // =============================================================================
 
 /**
  * Union type for all provider configurations
  */
-export type VoiceProviderConfig = OpenAIRealtimeConfig | ElevenLabsConfig;
+export type VoiceProviderConfig = OpenAIRealtimeConfig | ElevenLabsConfig | GoogleLiveConfig;
 
 /**
  * Provider type extraction utility
@@ -201,8 +236,8 @@ export type ProviderType<T extends VoiceProviderConfig> = T['provider'];
 /**
  * Configuration for specific provider
  */
-export type ConfigForProvider<P extends 'openai' | 'elevenlabs'> = 
-  P extends 'openai' ? OpenAIRealtimeConfig : ElevenLabsConfig;
+export type ConfigForProvider<P extends 'openai' | 'elevenlabs' | 'google'> =
+  P extends 'openai' ? OpenAIRealtimeConfig : P extends 'google' ? GoogleLiveConfig : ElevenLabsConfig;
 
 // =============================================================================
 // Agent and Client Configuration

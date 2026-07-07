@@ -28,9 +28,11 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 
+type VoiceConfigProvider = 'openai' | 'elevenlabs' | 'google';
+
 interface VoiceConfigRecord {
   id: string;
-  provider: 'openai' | 'elevenlabs';
+  provider: VoiceConfigProvider;
   name: string;
   isDefault: boolean;
   configJson: string;
@@ -95,7 +97,7 @@ export function VoiceConfigImportExport({
     }
   };
 
-  const handleExportProvider = (provider: 'openai' | 'elevenlabs') => {
+  const handleExportProvider = (provider: VoiceConfigProvider) => {
     try {
       const providerConfigs = configurations.filter(c => c.provider === provider);
       
@@ -232,12 +234,20 @@ export function VoiceConfigImportExport({
             Export OpenAI ({configurations.filter(c => c.provider === 'openai').length})
           </DropdownMenuItem>
           
-          <DropdownMenuItem 
-            onClick={() => handleExportProvider('elevenlabs')} 
+          <DropdownMenuItem
+            onClick={() => handleExportProvider('elevenlabs')}
             disabled={configurations.filter(c => c.provider === 'elevenlabs').length === 0}
           >
             <Download className="h-4 w-4 mr-2" />
             Export ElevenLabs ({configurations.filter(c => c.provider === 'elevenlabs').length})
+          </DropdownMenuItem>
+
+          <DropdownMenuItem
+            onClick={() => handleExportProvider('google')}
+            disabled={configurations.filter(c => c.provider === 'google').length === 0}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Export Gemini Live ({configurations.filter(c => c.provider === 'google').length})
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

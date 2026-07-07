@@ -3,9 +3,10 @@
  */
 
 import { describe, it, expect } from '@jest/globals';
-import { 
-  OpenAIRealtimeSerializer, 
+import {
+  OpenAIRealtimeSerializer,
   ElevenLabsSerializer,
+  GoogleLiveSerializer,
   getSerializerForProvider,
   ConfigValidationError,
   ConfigSerializationError
@@ -130,6 +131,65 @@ describe('ElevenLabs Serializer', () => {
   });
 });
 
+describe('Google Live Serializer', () => {
+  const serializer = new GoogleLiveSerializer();
+
+  it('should create default configuration', () => {
+    const config = serializer.getDefaultConfig();
+    expect(config.provider).toBe('google');
+    expect(config.enabled).toBe(true);
+    expect(config.model).toBe('gemini-2.5-flash-native-audio-latest');
+    expect(config.voice).toBe('Puck');
+  });
+
+  it('should serialize and deserialize configuration', () => {
+    const config = serializer.getDefaultConfig();
+    const serialized = serializer.serialize(config);
+    const deserialized = serializer.deserialize(serialized);
+
+    expect(deserialized).toEqual(config);
+  });
+
+  it('should validate configuration correctly', () => {
+    const config = serializer.getDefaultConfig();
+    const validation = serializer.validate(config);
+
+    expect(validation.valid).toBe(true);
+    expect(validation.errors).toHaveLength(0);
+  });
+
+  it('should detect invalid temperature', () => {
+    const config = { ...serializer.getDefaultConfig(), temperature: 3 };
+    const validation = serializer.validate(config);
+
+    expect(validation.valid).toBe(false);
+    expect(validation.errors.some(e => e.field === 'temperature')).toBe(true);
+  });
+
+  it('should detect invalid responseModality', () => {
+    const config = { ...serializer.getDefaultConfig(), responseModality: 'VIDEO' as any };
+    const validation = serializer.validate(config);
+
+    expect(validation.valid).toBe(false);
+    expect(validation.errors.some(e => e.field === 'responseModality')).toBe(true);
+  });
+
+  it('should detect out-of-range maxSessionSeconds', () => {
+    const config = { ...serializer.getDefaultConfig(), maxSessionSeconds: 10 };
+    const validation = serializer.validate(config);
+
+    expect(validation.valid).toBe(false);
+    expect(validation.errors.some(e => e.field === 'maxSessionSeconds')).toBe(true);
+  });
+
+  it('should generate JSON schema', () => {
+    const schema = serializer.getConfigSchema();
+    expect(schema.type).toBe('object');
+    expect(schema.properties.model).toBeDefined();
+    expect(schema.properties.voice).toBeDefined();
+  });
+});
+
 describe('Serializer Factory', () => {
   it('should return OpenAI serializer for openai provider', () => {
     const serializer = getSerializerForProvider('openai');
@@ -139,6 +199,11 @@ describe('Serializer Factory', () => {
   it('should return ElevenLabs serializer for elevenlabs provider', () => {
     const serializer = getSerializerForProvider('elevenlabs');
     expect(serializer).toBeInstanceOf(ElevenLabsSerializer);
+  });
+
+  it('should return Google serializer for google provider', () => {
+    const serializer = getSerializerForProvider('google');
+    expect(serializer).toBeInstanceOf(GoogleLiveSerializer);
   });
 
   it('should throw error for unknown provider', () => {

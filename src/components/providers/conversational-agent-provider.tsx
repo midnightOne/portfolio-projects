@@ -14,6 +14,7 @@ import {
 import { IConversationalAgentAdapter, AdapterRegistry, ConnectOptions, AudioInputMode } from '@/lib/voice/IConversationalAgentAdapter';
 import { OpenAIRealtimeAdapter } from '@/lib/voice/OpenAIRealtimeAdapter';
 import { ElevenLabsAdapter } from '@/lib/voice/ElevenLabsAdapter';
+import { GoogleLiveAdapter } from '@/lib/voice/GoogleLiveAdapter';
 import { useReflinkSession } from './reflink-session-provider';
 import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 
@@ -94,7 +95,7 @@ export function ConversationalAgentProvider({
   // Voice agent state
   const [voiceAgentState, setVoiceAgentState] = useState<VoiceAgentState>({
     activeProvider: null,
-    availableProviders: ['openai', 'elevenlabs'],
+    availableProviders: ['openai', 'elevenlabs', 'google'],
     connectionState: {
       status: 'disconnected',
       lastConnected: undefined,
@@ -138,6 +139,7 @@ export function ConversationalAgentProvider({
     // Register adapter factories
     AdapterRegistry.register('openai', async () => new OpenAIRealtimeAdapter());
     AdapterRegistry.register('elevenlabs', async () => new ElevenLabsAdapter());
+    AdapterRegistry.register('google', async () => new GoogleLiveAdapter());
   }, []);
 
   // Initialize provider when reflink session is ready (but don't auto-connect)
@@ -690,7 +692,7 @@ export function ConversationalAgentProvider({
     
     // Provider management
     activeProvider,
-    availableProviders: ['openai', 'elevenlabs'],
+    availableProviders: ['openai', 'elevenlabs', 'google'],
     switchProvider,
     
     // Connection management

@@ -6,7 +6,7 @@
  */
 
 // Provider Types
-export type VoiceProvider = 'openai' | 'elevenlabs';
+export type VoiceProvider = 'openai' | 'elevenlabs' | 'google';
 
 export interface ProviderMetadata {
   provider: VoiceProvider;
@@ -222,6 +222,11 @@ export interface AdapterInitOptions {
       voiceId?: string;
       stability?: number;
       similarityBoost?: number;
+    };
+    google?: {
+      model?: string;
+      voice?: string;
+      temperature?: number;
     };
   };
   

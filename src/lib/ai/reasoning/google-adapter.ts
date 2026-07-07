@@ -135,16 +135,23 @@ function safeParseJson(raw: string): unknown {
   }
 }
 
-/** Gemini's schema dialect rejects some JSON-Schema keys (e.g. additionalProperties, $schema). */
-function stripUnsupportedSchemaKeys(schema: Record<string, unknown>): Record<string, unknown> {
+/**
+ * Gemini's schema dialect rejects some JSON-Schema keys (e.g. additionalProperties,
+ * $schema), and its `enum` field is `repeated string` — numeric enums (e.g. a
+ * `maxTier` param typed `enum: [1, 2, 3]`) must be coerced to strings or the
+ * auth_tokens/generateContent call fails with "Invalid value ... (TYPE_STRING)".
+ */
+export function stripUnsupportedSchemaKeys(schema: Record<string, unknown>): Record<string, unknown> {
   const UNSUPPORTED = new Set(['additionalProperties', '$schema', 'examples', 'default']);
-  const walk = (node: unknown): unknown => {
-    if (Array.isArray(node)) return node.map(walk);
+  const walk = (node: unknown, key?: string): unknown => {
+    if (Array.isArray(node)) {
+      return key === 'enum' ? node.map(v => String(v)) : node.map(v => walk(v));
+    }
     if (node && typeof node === 'object') {
       const out: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(node)) {
         if (UNSUPPORTED.has(k)) continue;
-        out[k] = walk(v);
+        out[k] = walk(v, k);
       }
       return out;
     }

@@ -205,14 +205,18 @@ Findings from the Phase 3 session that the manifest/ledgers did not predict:
     readability fixed in the same pass (explicit dark: variants).
 
 **HOLDs still standing (do not delete before their named tasks):**
-`reflink-status-indicator.tsx` (access-and-cost 8) ·
-`VoiceConnectionTester.tsx` (ai-assistant 6 / ui-system 1.2) · `config-validation.ts` (ai-assistant 6) ·
-`connectionDiagnostics.ts` (inspected at 5b.3 2026-07-07: pre-flight test suite, no heartbeat/disruption
-logic to harvest — D49 detection was built from adapter peer-connection polling instead; the file is
-only imported by `VoiceConnectionTester.tsx`, so its delete/keep decision rides task 6 with the tester).
+`reflink-status-indicator.tsx` (access-and-cost 8).
 **Resolved 2026-07-07 (Phase 4 Block C):** `conversation-replay.tsx` — DELETED at 5b.2 (step-through
 playback gimmick, no marker/leg support; replay markers render in the mounted `conversation-management.tsx`
 popup; nothing harvested).
+**Resolved 2026-07-07 (Phase 4 Block C, task 6):** `config-validation.ts` (+ its coupled test) — DELETED.
+Confirmed the only consumer of `VoiceConfigValidator`/`VoiceConfigHelpers` was its own test; every real
+call site (admin voice-config CRUD routes, config panels) already calls `getSerializerForProvider(...).validate()`
+directly, which `GoogleLiveSerializer` implements the same as OpenAI/ElevenLabs — nothing to extend, the
+shim was fully redundant. `VoiceConnectionTester.tsx` — DELETED (unmounted anywhere; its `connectionDiagnostics.ts`
+dependency was already confirmed dead weight at 5b.3). The D16 admin-gated playground requirement it was
+meant to serve is satisfied by the existing `/admin/ai/voice-debug` page, extended with a Gemini Live
+provider button + Test Configuration wiring in this same task.
 `lib/ai/extensions/` was deleted per section F (no spec support).
 **Resolved 2026-07-07 (Phase 4 Block A):** `lib/ai/editors/*` — DELETED at ai-admin 4.3 (never wired;
 the Tiptap AI panel calls the endpoints directly; adapter-layer migration made the server side

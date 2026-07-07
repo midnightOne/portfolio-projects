@@ -13,16 +13,19 @@ import {
   ConfigSerializationError,
   ConfigValidationError,
   OpenAIRealtimeConfig,
-  ElevenLabsConfig
+  ElevenLabsConfig,
+  GoogleLiveConfig
 } from './config-serializers';
-import { 
+import {
   ValidationResult,
   EnvValidationResult
 } from '../../types/voice-config';
 import { VoiceProvider } from '../../types/voice-agent';
 
 // Union type for all provider configurations
-export type VoiceProviderConfig = OpenAIRealtimeConfig | ElevenLabsConfig;
+export type VoiceProviderConfig = OpenAIRealtimeConfig | ElevenLabsConfig | GoogleLiveConfig;
+
+const ALL_VOICE_PROVIDERS: VoiceProvider[] = ['openai', 'elevenlabs', 'google'];
 
 // Database record interface
 export interface VoiceProviderConfigRecord {
@@ -400,18 +403,14 @@ export class ClientAIModelManager {
    */
   async getAvailableVoiceModels(provider?: VoiceProvider): Promise<string[]> {
     try {
-      const providers = provider ? [provider] : (['openai', 'elevenlabs'] as VoiceProvider[]);
+      const providers = provider ? [provider] : ALL_VOICE_PROVIDERS;
       const models: string[] = [];
-      
+
       for (const p of providers) {
         const configs = await this.getAllProviderConfigs(p);
         for (const config of configs) {
-          if (config.config.enabled) {
-            if (p === 'openai' && 'model' in config.config) {
-              models.push(config.config.model);
-            } else if (p === 'elevenlabs' && 'model' in config.config) {
-              models.push(config.config.model);
-            }
+          if (config.config.enabled && 'model' in config.config) {
+            models.push(config.config.model);
           }
         }
       }
@@ -437,9 +436,7 @@ export class ClientAIModelManager {
       this.cache.clear();
       
       // Optionally pre-load default configurations
-      const providers: VoiceProvider[] = ['openai', 'elevenlabs'];
-      
-      for (const provider of providers) {
+      for (const provider of ALL_VOICE_PROVIDERS) {
         try {
           await this.getProviderConfig(provider); // This will cache the default config
         } catch (error) {
@@ -479,12 +476,14 @@ export class ClientAIModelManager {
       
       const configsByProvider: Record<VoiceProvider, number> = {
         openai: 0,
-        elevenlabs: 0
+        elevenlabs: 0,
+        google: 0
       };
-      
+
       const defaultConfigs: Record<VoiceProvider, string | null> = {
         openai: null,
-        elevenlabs: null
+        elevenlabs: null,
+        google: null
       };
       
       for (const config of allConfigs) {
@@ -528,7 +527,7 @@ export class ClientAIModelManager {
     recommendations: string[];
   }> {
     try {
-      const providers: VoiceProvider[] = provider ? [provider] : ['openai', 'elevenlabs'];
+      const providers: VoiceProvider[] = provider ? [provider] : ALL_VOICE_PROVIDERS;
       const results: Record<VoiceProvider, any> = {} as any;
       const globalRecommendations: string[] = [];
       
@@ -571,6 +570,16 @@ export class ClientAIModelManager {
             }
             if (elevenLabsConfig.voiceId === 'default-voice') {
               recommendations.push('Configure a valid ElevenLabs voice ID');
+            }
+          }
+
+          if (p === 'google') {
+            const googleConfig = config as GoogleLiveConfig;
+            if (googleConfig.temperature > 1.5) {
+              recommendations.push('Consider lowering temperature for more consistent responses');
+            }
+            if (googleConfig.maxSessionSeconds > 1800) {
+              recommendations.push('Consider limiting session duration to reduce costs');
             }
           }
           

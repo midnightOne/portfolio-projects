@@ -88,10 +88,28 @@ OpenAI Realtime + ElevenLabs adapters behind `IConversationalAgentAdapter` with 
 
 ### Phase 4 — features
 
-- [ ] 6. Google (Gemini Live) adapter (D22)
-  - [ ] 6.1 Session/token route (gateway-wrapped, duration-capped) + adapter implementing `IConversationalAgentAdapter`
-  - [ ] 6.2 Admin voice config support; smoke test `ui_intent` + `content_search`
-  - [ ] 6.3 Document tool-calling behavior/gaps → feed D41 exploration notes
+- [x] 6. Google (Gemini Live) adapter (D22)
+  - [x] 6.1 `GoogleLiveAdapter` (raw WebSocket, no SDK) implementing `IConversationalAgentAdapter`; `GET /api/ai/google/session`
+        mints a gateway-wrapped, duration-capped v1alpha ephemeral `auth_tokens` token with model/instructions/tools locked
+        in (D3: no system prompt ever reaches the browser). Resolved holds: `config-validation.ts` (+ test) deleted as a
+        redundant shim now that every real caller uses `getSerializerForProvider(...).validate()` directly;
+        `VoiceConnectionTester.tsx` + its only dependency `connectionDiagnostics.ts` deleted (unmounted; the D16 playground
+        requirement is met by `/admin/ai/voice-debug`, extended with a Gemini button in 6.2).
+  - [x] 6.2 Admin voice config support: `GoogleLiveConfigPanel.tsx`, wired into the voice-config CRUD page/list/import-export
+        (provider union widened everywhere); a Google connectivity test (`ListModels` filtered to `bidiGenerateContent`)
+        added to `/api/admin/ai/voice-config/test`. Smoke-tested `content_search` and `ui_intent` live via the C0 fake-mic
+        driver against `gemini-2.5-flash-native-audio-latest` (the only Live-capable model on this account's key —
+        `gemini-live-*-preview` ids from Google's docs 404 here); both tools executed through the shared
+        `UnifiedToolRegistry` pipeline and persisted leg-tagged, transcript items accumulate correctly across Gemini's
+        chunked input/output transcription.
+  - [x] 6.3 Tool-calling gaps documented in `design-voice-adapters.md` §2c (feeds D41): `ui_intent` argument-shape drift
+        (`{route:'projects'}` vs the documented `{type:'route',id:'projects'}`, executes as a silent no-op rather than
+        erroring); native-audio "thinking" narration leaking into the spoken/transcribed response instead of a direct
+        answer; Gemini's `enum` schema field is string-only regardless of the property's declared type (fixed in the
+        shared `stripUnsupportedSchemaKeys` sanitizer, also closing a latent bug for two registry tools).
+        Cross-provider resume onto/from Gemini NOT run (5b.4 precedent: OpenAI↔OpenAI covered the mechanics; Gemini's
+        disruption-watcher/auto-reconnect wasn't built — out of this task's scope). Audio quality needs a human ear;
+        turn mechanics are fully covered by the C0 driver.
   - _Requirements: 3.2, 3.3_
 
 - [ ] 7. `BackendToolService` de-stubbing

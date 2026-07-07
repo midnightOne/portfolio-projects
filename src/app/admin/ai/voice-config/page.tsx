@@ -6,25 +6,29 @@ import { useSession } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
+import {
   Plus,
   Loader2,
   AlertCircle,
   Mic,
-  Bot
+  Bot,
+  Sparkles
 } from 'lucide-react';
 import { AdminLayout } from '@/components/admin/admin-layout';
 import { AdminPageLayout } from '@/components/admin/admin-page-layout';
 import { useToast } from '@/components/ui/toast';
 import { OpenAIRealtimeConfigPanel } from '@/components/admin/voice-config/OpenAIRealtimeConfigPanel';
 import { ElevenLabsConfigPanel } from '@/components/admin/voice-config/ElevenLabsConfigPanel';
+import { GoogleLiveConfigPanel } from '@/components/admin/voice-config/GoogleLiveConfigPanel';
 import { VoiceConfigurationList } from '@/components/admin/voice-config/VoiceConfigurationList';
 import { VoiceConfigImportExport } from '@/components/admin/voice-config/VoiceConfigImportExport';
 import { VoiceProviderConfig } from '@/types/voice-config';
 
+type VoiceConfigProvider = 'openai' | 'elevenlabs' | 'google';
+
 interface VoiceConfigRecord {
   id: string;
-  provider: 'openai' | 'elevenlabs';
+  provider: VoiceConfigProvider;
   name: string;
   isDefault: boolean;
   configJson: string;
@@ -39,7 +43,7 @@ function VoiceConfigContent() {
   
   // State management
   const [configurations, setConfigurations] = useState<VoiceConfigRecord[]>([]);
-  const [selectedProvider, setSelectedProvider] = useState<'openai' | 'elevenlabs'>('openai');
+  const [selectedProvider, setSelectedProvider] = useState<VoiceConfigProvider>('openai');
   const [selectedConfig, setSelectedConfig] = useState<VoiceConfigRecord | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   
@@ -177,7 +181,7 @@ function VoiceConfigContent() {
     }
   };
 
-  const handleSetDefault = async (configId: string, provider: 'openai' | 'elevenlabs') => {
+  const handleSetDefault = async (configId: string, provider: VoiceConfigProvider) => {
     try {
       const response = await fetch(`/api/admin/ai/voice-config/${configId}/default`, {
         method: 'POST'
@@ -284,8 +288,8 @@ function VoiceConfigContent() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Tabs value={selectedProvider} onValueChange={(value) => setSelectedProvider(value as 'openai' | 'elevenlabs')}>
-                <TabsList className="grid w-full grid-cols-2">
+              <Tabs value={selectedProvider} onValueChange={(value) => setSelectedProvider(value as VoiceConfigProvider)}>
+                <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="openai" className="flex items-center gap-2">
                     <Bot className="h-4 w-4" />
                     OpenAI Realtime
@@ -293,6 +297,10 @@ function VoiceConfigContent() {
                   <TabsTrigger value="elevenlabs" className="flex items-center gap-2">
                     <Mic className="h-4 w-4" />
                     ElevenLabs
+                  </TabsTrigger>
+                  <TabsTrigger value="google" className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4" />
+                    Gemini Live
                   </TabsTrigger>
                 </TabsList>
               </Tabs>
@@ -312,6 +320,15 @@ function VoiceConfigContent() {
 
         {selectedProvider === 'elevenlabs' && (
           <ElevenLabsConfigPanel
+            initialConfig={selectedConfig ? JSON.parse(selectedConfig.configJson) : undefined}
+            onSave={(config) => handleSaveConfig(config, selectedConfig?.id)}
+            onCancel={handleCancel}
+            saving={saving}
+          />
+        )}
+
+        {selectedProvider === 'google' && (
+          <GoogleLiveConfigPanel
             initialConfig={selectedConfig ? JSON.parse(selectedConfig.configJson) : undefined}
             onSave={(config) => handleSaveConfig(config, selectedConfig?.id)}
             onCancel={handleCancel}
@@ -346,7 +363,7 @@ function VoiceConfigContent() {
       </div>
 
       {/* Configuration Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">OpenAI Configurations</CardTitle>
@@ -373,6 +390,21 @@ function VoiceConfigContent() {
             </div>
             <p className="text-xs text-muted-foreground">
               {configurations.filter(c => c.provider === 'elevenlabs' && c.isDefault).length} default
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Gemini Live Configurations</CardTitle>
+            <Sparkles className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {configurations.filter(c => c.provider === 'google').length}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {configurations.filter(c => c.provider === 'google' && c.isDefault).length} default
             </p>
           </CardContent>
         </Card>

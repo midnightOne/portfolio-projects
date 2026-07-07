@@ -2,7 +2,7 @@
 
 **Status:** current
 **Owner domain:** provider adapter layer, session lifecycle, mode continuity
-**Last verified against code:** 2026-07-02 (`e2d75b4`)
+**Last verified against code:** 2026-07-07 (Phase 4 Block C, task 6 — Google Gemini Live adapter)
 
 ---
 
@@ -25,7 +25,7 @@ Each adapter owns the translation between this contract and its provider SDK. Th
 | Provider | Status | Transport | Token route | Notes |
 |---|---|---|---|---|
 | OpenAI Realtime | **primary, implemented** | WebRTC via `@openai/agents` | `POST /api/ai/openai/session` | Ephemeral session; prompt + tools at mint; model via `default-realtime` alias (D4) |
-| Google Gemini Live | **planned (Phase 4.3)** | WebRTC/WebSocket per SDK | new session route, same gateway pattern | Weaker tool-calling expected — document gaps, feed D41; adapter must not fork the interface |
+| Google Gemini Live | **implemented (Phase 4 Block C, task 6)** | raw WebSocket (`BidiGenerateContentConstrained`), no SDK — matches the D39 reasoning adapter's no-SDK convention | `GET /api/ai/google/session` — mints a v1alpha ephemeral `auth_tokens` token with model/instructions/tools/generationConfig **locked** into the token (no `lockAdditionalFields` while a setup is present ⇒ Gemini locks everything named); the client's own post-connect setup message can be a bare model echo since the server enforces the locked config regardless | Tool-calling gaps documented in §2c below, feeding D41 |
 | ElevenLabs Agents | implemented, **last priority** | WebRTC via `@elevenlabs/client` | `POST /api/ai/elevenlabs/token` | Maintenance only; hardcoded fallback agent ID removed (config via `VoiceProviderConfig`) |
 
 Provider/model selection: `VoiceProviderConfig` rows (admin CRUD at `/api/admin/ai/voice-config*`, default flag, import/test endpoints). The client receives resolved config through `ClientAIModelManager` — models by alias, never literal IDs in code.
@@ -49,6 +49,49 @@ mic ──► streaming STT ──► reasoning adapter (D39: OpenAI | Anthropic
 - Everything else is untouched: same pill, same F-I-D injection (into the LLM context directly — simpler than realtime context items), same conversation logging, same gateway metering.
 
 Showcase framing: native S2S vs cascade behind one interface, switchable in admin, A/B-able live.
+
+## 2c. Google Gemini Live — tool-calling findings (task 6.3, feeds D41)
+
+Live-fire drilled 2026-07-07 via the C0 synthesized-audio fake-mic driver (`/admin/ai/voice-debug`,
+Gemini Live selected) against `gemini-2.5-flash-native-audio-latest` — the **only** model on this
+account's key with `bidiGenerateContent` in `supportedGenerationMethods` (`gemini-live-*-preview` and
+`gemini-2.0-flash-live-001` model ids from Google's public docs 404 on this account — same "current-gen
+only" pattern as the D39 reasoning adapter's Anthropic/OpenAI keys; verify via `ListModels` + the
+`Test Configuration` button before assuming a model id is usable, don't hardcode from docs).
+
+**Confirmed working end-to-end:** input/output transcription (streamed word-by-word, accumulated
+client-side into one row per turn), `content_search` and `ui_intent` tool calls routed through the same
+`UnifiedToolRegistry` → `_executeUnifiedTool` pipeline as OpenAI/ElevenLabs, tool results returned via
+`toolResponse.functionResponses`, and full persistence (leg-tagged messages, `[tool:name] ok` rows with
+`debugInfo`, one assistant row per finalized turn) — verified via `GET /api/ai/conversation/log?sessionId=`.
+
+**Real gaps found (this session, not hypothetical):**
+- **Argument schema drift.** Asked to navigate via `ui_intent`, the model called it with
+  `{ target: { route: 'projects' } }` instead of the documented `{ target: { type: 'route', id: 'projects' } }`.
+  The tool executed "successfully" (empty result, no error) but the shape mismatch means the call is a
+  silent no-op rather than a real navigation — worse than an explicit failure. OpenAI/ElevenLabs did not
+  exhibit this in prior drills. Candidate fixes for D41: tighter `enum`/`required` constraints in the
+  function-declaration schema (Gemini's dialect already strips `additionalProperties`, so schemas are
+  looser than intended by the time they reach the model), or a thin server-side shape-normalizer for
+  `ui_intent` args specifically before dispatch.
+- **Native-audio "thinking" narration leaks into the spoken/transcribed response.** Rather than a direct
+  conversational answer, `outputTranscription` carried the model's step-by-step reasoning verbatim
+  ("**Initiating the Search**... I've set a `maxTier=3`..."), which is not something a visitor should hear
+  a portfolio narrator say. This looks like a "thinking" mode default for this preview model rather than
+  an adapter bug — worth an explicit `thinkingConfig` (if the Live API exposes one for this model) or a
+  stronger system-instruction constraint ("never narrate your tool-use process") before this ships past
+  internal testing.
+- **`enum` values must be strings regardless of the property's declared `type`.** Gemini's Schema proto
+  enum field is `repeated string`; two registry tools (`content_search.maxTier`, `content_get.includeTiers`)
+  declare `type: 'number'` with a numeric `enum`. Fixed in the shared `stripUnsupportedSchemaKeys` sanitizer
+  (`lib/ai/reasoning/google-adapter.ts`, also used by `UnifiedToolRegistry.getGoogleToolsArray()`) by
+  coercing enum array values to strings — otherwise `auth_tokens.create`/`generateContent` reject the whole
+  tool declaration with a 400.
+
+**Not run:** cross-provider resume onto/from Gemini (5b.4 precedent: OpenAI↔OpenAI exercised the resume
+mechanics; Gemini's disruption-watcher/auto-reconnect was not built in this pass — task 6 scope was the
+adapter + admin config + tool-calling smoke test, not full D49 parity). Audio *quality* (voice naturalness,
+latency feel) needs a human listener; turn mechanics are covered by the driver above.
 
 ## 3. Session lifecycle
 

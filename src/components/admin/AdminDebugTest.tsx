@@ -17,7 +17,7 @@ interface TestResult {
   name: string;
   status: 'pending' | 'success' | 'error';
   message: string;
-  provider?: 'openai' | 'elevenlabs';
+  provider?: 'openai' | 'elevenlabs' | 'google';
 }
 
 function AdminDebugTestContent() {

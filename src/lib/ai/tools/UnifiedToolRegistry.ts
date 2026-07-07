@@ -6,17 +6,19 @@
  * tool access and provider-specific formatters for OpenAI and ElevenLabs.
  */
 
-import { 
-  UnifiedToolDefinition, 
-  IUnifiedToolRegistry, 
-  OpenAIToolFormat, 
+import {
+  UnifiedToolDefinition,
+  IUnifiedToolRegistry,
+  OpenAIToolFormat,
   ElevenLabsToolExecutor,
+  GoogleFunctionDeclaration,
   UnifiedToolCall,
   ToolValidationResult,
   ToolExecutionError
 } from './types';
 import { clientToolDefinitions } from './client-tools';
 import { serverToolDefinitions } from './server-tools';
+import { stripUnsupportedSchemaKeys } from '../reasoning/google-adapter';
 
 export class UnifiedToolRegistry implements IUnifiedToolRegistry {
   private static instance: UnifiedToolRegistry;
@@ -146,6 +148,19 @@ export class UnifiedToolRegistry implements IUnifiedToolRegistry {
     });
     
     return elevenLabsClientTools;
+  }
+
+  /**
+   * Get tools formatted as Gemini Live `functionDeclarations` (D22, ai-assistant task 6).
+   * Gemini's schema dialect rejects some JSON-Schema keys, so parameters are sanitized
+   * the same way the Google reasoning adapter (D39) sanitizes them.
+   */
+  getGoogleToolsArray(): GoogleFunctionDeclaration[] {
+    return this.getAllToolDefinitions().map(tool => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: stripUnsupportedSchemaKeys(tool.parameters) as GoogleFunctionDeclaration['parameters']
+    }));
   }
 
   /**

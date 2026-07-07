@@ -32,7 +32,7 @@ interface ToolCallEvent {
   success: boolean;
   error?: string;
   timestamp: Date;
-  provider?: 'openai' | 'elevenlabs';
+  provider?: 'openai' | 'elevenlabs' | 'google';
   executionContext?: 'client' | 'server';
   toolCallId?: string;
   correlationId?: string;
@@ -54,7 +54,7 @@ interface ToolCallStats {
 
 interface ToolCallMonitorProps {
   conversationId: string;
-  activeProvider: 'openai' | 'elevenlabs' | null;
+  activeProvider: 'openai' | 'elevenlabs' | 'google' | null;
   onToolCallUpdate?: (toolCall: ToolCallEvent) => void;
 }
 

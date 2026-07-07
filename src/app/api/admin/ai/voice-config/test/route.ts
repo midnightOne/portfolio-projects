@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { provider, config }: { provider: 'openai' | 'elevenlabs'; config: VoiceProviderConfig } = await request.json();
+    const { provider, config }: { provider: 'openai' | 'elevenlabs' | 'google'; config: VoiceProviderConfig } = await request.json();
 
     if (!provider || !config) {
       return NextResponse.json(
@@ -47,6 +47,8 @@ export async function POST(request: NextRequest) {
       return await testOpenAIConfiguration(config);
     } else if (provider === 'elevenlabs') {
       return await testElevenLabsConfiguration(config);
+    } else if (provider === 'google') {
+      return await testGoogleConfiguration(config);
     } else {
       return NextResponse.json(
         { success: false, error: { message: 'Unsupported provider' } },
@@ -131,6 +133,69 @@ async function testOpenAIConfiguration(config: VoiceProviderConfig) {
           message: 'OpenAI configuration test failed',
           details: error instanceof Error ? error.message : 'Unknown error'
         } 
+      },
+      { status: 500 }
+    );
+  }
+}
+
+async function testGoogleConfiguration(config: VoiceProviderConfig) {
+  try {
+    const apiKey = process.env[config.apiKeyEnvVar || 'GOOGLE_API_KEY'] || process.env.GEMINI_API_KEY;
+
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            message: 'Google API key not found',
+            details: `Environment variable ${config.apiKeyEnvVar || 'GOOGLE_API_KEY'} (or GEMINI_API_KEY) is not set`
+          }
+        },
+        { status: 400 }
+      );
+    }
+
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
+      headers: { 'x-goog-api-key': apiKey }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return NextResponse.json(
+        {
+          success: false,
+          error: {
+            message: 'Google API connection failed',
+            details: errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`
+          }
+        },
+        { status: 400 }
+      );
+    }
+
+    const data = await response.json();
+    const liveModels = (data.models || []).filter((m: any) =>
+      Array.isArray(m.supportedGenerationMethods) && m.supportedGenerationMethods.includes('bidiGenerateContent')
+    );
+
+    return NextResponse.json({
+      success: true,
+      message: `Google connection successful. Found ${liveModels.length} Live-capable models.`,
+      data: {
+        modelsFound: liveModels.length,
+        compatibleModels: liveModels.map((m: any) => m.name.replace('models/', '')).slice(0, 10)
+      }
+    });
+
+  } catch (error) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: {
+          message: 'Google configuration test failed',
+          details: error instanceof Error ? error.message : 'Unknown error'
+        }
       },
       { status: 500 }
     );

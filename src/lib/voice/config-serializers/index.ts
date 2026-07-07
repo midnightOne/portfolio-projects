@@ -120,6 +120,7 @@ export class ConfigValidationError extends Error {
 // Import serializers for factory function
 import { OpenAIRealtimeSerializer } from './OpenAIRealtimeSerializer';
 import { ElevenLabsSerializer } from './ElevenLabsSerializer';
+import { GoogleLiveSerializer } from './GoogleLiveSerializer';
 
 // Factory function to get appropriate serializer
 export function getSerializerForProvider(provider: VoiceProvider): VoiceConfigSerializer<any> {
@@ -128,6 +129,8 @@ export function getSerializerForProvider(provider: VoiceProvider): VoiceConfigSe
       return new OpenAIRealtimeSerializer();
     case 'elevenlabs':
       return new ElevenLabsSerializer();
+    case 'google':
+      return new GoogleLiveSerializer();
     default:
       throw new Error(`No serializer available for provider: ${provider}`);
   }
@@ -136,6 +139,7 @@ export function getSerializerForProvider(provider: VoiceProvider): VoiceConfigSe
 // Re-export serializers
 export { OpenAIRealtimeSerializer } from './OpenAIRealtimeSerializer';
 export { ElevenLabsSerializer } from './ElevenLabsSerializer';
+export { GoogleLiveSerializer } from './GoogleLiveSerializer';
 
 // Re-export provider-specific config types from voice-config
-export type { OpenAIRealtimeConfig, ElevenLabsConfig } from '../../../types/voice-config';
+export type { OpenAIRealtimeConfig, ElevenLabsConfig, GoogleLiveConfig } from '../../../types/voice-config';

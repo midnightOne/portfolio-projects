@@ -22,6 +22,7 @@ const REQUIRED_WRAPPED = [
   'src/app/api/ai/chat/session/route.ts',
   'src/app/api/ai/openai/session/route.ts',
   'src/app/api/ai/elevenlabs/token/route.ts',
+  'src/app/api/ai/google/session/route.ts',
   'src/app/api/ai/tools/execute/route.ts',
   'src/app/api/ai/analyze-job/route.ts',
   'src/app/api/admin/ai/edit-content/route.ts',

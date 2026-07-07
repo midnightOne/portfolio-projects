@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -19,7 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { 
+import {
   MoreHorizontal,
   Edit,
   Trash2,
@@ -28,14 +28,17 @@ import {
   StarOff,
   Bot,
   Mic,
+  Sparkles,
   Calendar,
   Settings
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
+type VoiceConfigProvider = 'openai' | 'elevenlabs' | 'google';
+
 interface VoiceConfigRecord {
   id: string;
-  provider: 'openai' | 'elevenlabs';
+  provider: VoiceConfigProvider;
   name: string;
   isDefault: boolean;
   configJson: string;
@@ -47,9 +50,27 @@ interface VoiceConfigurationListProps {
   configurations: VoiceConfigRecord[];
   onEdit: (config: VoiceConfigRecord) => void;
   onDelete: (configId: string) => void;
-  onSetDefault: (configId: string, provider: 'openai' | 'elevenlabs') => void;
+  onSetDefault: (configId: string, provider: VoiceConfigProvider) => void;
   onClone: (config: VoiceConfigRecord) => void;
 }
+
+const PROVIDER_LABELS: Record<VoiceConfigProvider, string> = {
+  openai: 'OpenAI',
+  elevenlabs: 'ElevenLabs',
+  google: 'Gemini Live',
+};
+
+const PROVIDER_ICONS: Record<VoiceConfigProvider, ReactNode> = {
+  openai: <Bot className="h-4 w-4" />,
+  elevenlabs: <Mic className="h-4 w-4" />,
+  google: <Sparkles className="h-4 w-4" />,
+};
+
+const PROVIDER_COLORS: Record<VoiceConfigProvider, string> = {
+  openai: 'bg-blue-100 text-blue-800',
+  elevenlabs: 'bg-purple-100 text-purple-800',
+  google: 'bg-amber-100 text-amber-800',
+};
 
 export function VoiceConfigurationList({
   configurations,
@@ -58,19 +79,15 @@ export function VoiceConfigurationList({
   onSetDefault,
   onClone
 }: VoiceConfigurationListProps) {
-  const [selectedProvider, setSelectedProvider] = useState<'all' | 'openai' | 'elevenlabs'>('all');
+  const [selectedProvider, setSelectedProvider] = useState<'all' | VoiceConfigProvider>('all');
 
-  const filteredConfigurations = configurations.filter(config => 
+  const filteredConfigurations = configurations.filter(config =>
     selectedProvider === 'all' || config.provider === selectedProvider
   );
 
-  const getProviderIcon = (provider: 'openai' | 'elevenlabs') => {
-    return provider === 'openai' ? <Bot className="h-4 w-4" /> : <Mic className="h-4 w-4" />;
-  };
+  const getProviderIcon = (provider: VoiceConfigProvider) => PROVIDER_ICONS[provider];
 
-  const getProviderColor = (provider: 'openai' | 'elevenlabs') => {
-    return provider === 'openai' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800';
-  };
+  const getProviderColor = (provider: VoiceConfigProvider) => PROVIDER_COLORS[provider];
 
   const parseConfigName = (configJson: string) => {
     try {
@@ -142,6 +159,15 @@ export function VoiceConfigurationList({
           <Mic className="h-4 w-4" />
           ElevenLabs ({configurations.filter(c => c.provider === 'elevenlabs').length})
         </Button>
+        <Button
+          variant={selectedProvider === 'google' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setSelectedProvider('google')}
+          className="flex items-center gap-2"
+        >
+          <Sparkles className="h-4 w-4" />
+          Gemini Live ({configurations.filter(c => c.provider === 'google').length})
+        </Button>
       </div>
 
       {/* Configuration Table */}
@@ -184,7 +210,7 @@ export function VoiceConfigurationList({
                       className={`${getProviderColor(config.provider)} flex items-center gap-1 w-fit`}
                     >
                       {getProviderIcon(config.provider)}
-                      {config.provider === 'openai' ? 'OpenAI' : 'ElevenLabs'}
+                      {PROVIDER_LABELS[config.provider]}
                     </Badge>
                   </TableCell>
                   

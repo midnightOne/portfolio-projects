@@ -100,6 +100,17 @@ export interface ElevenLabsToolExecutor {
   [toolName: string]: (parameters: any) => Promise<any>;
 }
 
+/** Gemini Live `functionDeclarations` entry (D22, ai-assistant task 6). */
+export interface GoogleFunctionDeclaration {
+  name: string;
+  description: string;
+  parameters: {
+    type: 'object';
+    properties: Record<string, any>;
+    required?: string[];
+  };
+}
+
 // Tool registry interface
 export interface IUnifiedToolRegistry {
   registerTool(tool: UnifiedToolDefinition): void;
@@ -107,10 +118,11 @@ export interface IUnifiedToolRegistry {
   getClientToolDefinitions(): UnifiedToolDefinition[];
   getServerToolDefinitions(): UnifiedToolDefinition[];
   getAllToolDefinitions(): UnifiedToolDefinition[];
-  
+
   // Provider-specific formatters
   getOpenAIToolsArray(): OpenAIToolFormat[];
   getElevenLabsClientToolsExecutor(executor: (toolCall: UnifiedToolCall) => Promise<any>): ElevenLabsToolExecutor;
+  getGoogleToolsArray(): GoogleFunctionDeclaration[];
 }
 
 // Tool validation result

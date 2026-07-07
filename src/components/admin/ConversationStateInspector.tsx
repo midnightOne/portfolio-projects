@@ -27,7 +27,7 @@ interface ConversationMetadata {
   messageCount: number;
   toolCallCount: number;
   contextUpdateCount: number;
-  provider: 'openai' | 'elevenlabs' | null;
+  provider: 'openai' | 'elevenlabs' | 'google' | null;
   accessLevel: 'basic' | 'limited' | 'premium';
   reflinkId?: string;
 }

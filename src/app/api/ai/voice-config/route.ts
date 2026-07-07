@@ -3,7 +3,7 @@
  * on serializer fallback defaults in the browser — the admin's
  * VoiceProviderConfig never reached visitors).
  *
- * GET /api/ai/voice-config?provider=openai|elevenlabs
+ * GET /api/ai/voice-config?provider=openai|elevenlabs|google
  * → the provider's DEFAULT config (deserialized), sanitized. Contains no
  * secrets by design (D3: keys live in env only; this strips even the env-var
  * names). Read-only, no cost — not gateway-metered, same class as
@@ -13,7 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getClientAIModelManager } from '@/lib/voice/ClientAIModelManager';
 
-const PUBLIC_PROVIDERS = ['openai', 'elevenlabs'] as const;
+const PUBLIC_PROVIDERS = ['openai', 'elevenlabs', 'google'] as const;
 type PublicProvider = (typeof PUBLIC_PROVIDERS)[number];
 
 export async function GET(request: NextRequest) {

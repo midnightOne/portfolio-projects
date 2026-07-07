@@ -106,7 +106,10 @@ function VoiceDebugContent() {
     }
   }, [state.transcript.length]);
 
-  const handleProviderSwitch = useCallback(async (provider: 'openai' | 'elevenlabs') => {
+  const providerLabel = (provider: 'openai' | 'elevenlabs' | 'google') =>
+    provider === 'openai' ? 'OpenAI Realtime' : provider === 'elevenlabs' ? 'ElevenLabs' : 'Gemini Live';
+
+  const handleProviderSwitch = useCallback(async (provider: 'openai' | 'elevenlabs' | 'google') => {
     // Don't switch if already on this provider
     if (selectedProvider === provider) {
       return;
@@ -116,7 +119,7 @@ function VoiceDebugContent() {
       await switchProvider(provider);
       toast({
         title: 'Provider switched',
-        description: `Switched to ${provider === 'openai' ? 'OpenAI Realtime' : 'ElevenLabs'}`,
+        description: `Switched to ${providerLabel(provider)}`,
       });
     } catch (error) {
       toast({
@@ -132,7 +135,7 @@ function VoiceDebugContent() {
       await connect();
       toast({
         title: 'Connected',
-        description: `Connected to ${selectedProvider === 'openai' ? 'OpenAI Realtime' : 'ElevenLabs'}`,
+        description: `Connected to ${providerLabel(selectedProvider)}`,
       });
     } catch (error) {
       toast({
@@ -444,7 +447,7 @@ function VoiceDebugContent() {
           <div className="flex items-center gap-2">
             <Settings className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm">
-              {selectedProvider === 'openai' ? 'OpenAI Realtime' : 'ElevenLabs'}
+              {providerLabel(selectedProvider)}
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -477,7 +480,7 @@ function VoiceDebugContent() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <Button
                   variant={selectedProvider === 'openai' ? 'default' : 'outline'}
                   onClick={() => handleProviderSwitch('openai')}
@@ -497,6 +500,16 @@ function VoiceDebugContent() {
                 >
                   <span className="text-xs">ElevenLabs</span>
                   <Badge variant="outline" className="text-xs">AI</Badge>
+                </Button>
+                <Button
+                  variant={selectedProvider === 'google' ? 'default' : 'outline'}
+                  onClick={() => handleProviderSwitch('google')}
+                  disabled={isConnecting || isConnected}
+                  size="sm"
+                  className="flex flex-col items-center gap-1 h-auto py-2"
+                >
+                  <span className="text-xs">Gemini</span>
+                  <Badge variant="outline" className="text-xs">Live</Badge>
                 </Button>
               </div>
 

@@ -1,0 +1,709 @@
+/**
+ * Google Gemini Live Adapter (D22, ai-assistant task 6)
+ *
+ * Native speech-to-speech over the Gemini Live WebSocket protocol
+ * (BidiGenerateContentConstrained + ephemeral auth token, D3: the real
+ * GOOGLE_API_KEY never reaches the browser). Unlike OpenAI (WebRTC) and
+ * ElevenLabs (SDK-managed WebRTC/WebSocket), there is no client SDK for the
+ * Live API's raw protocol, so this adapter owns the wire format directly:
+ * JSON text frames, PCM16 audio in/out, and manual audio capture/playback
+ * via the Web Audio API.
+ *
+ * Scope note (task 6, feeds D41): resume/leg-lifecycle wiring here is
+ * baseline-compatible (resumeFromSessionId is accepted and forwarded to the
+ * mint route so a resumed leg gets the ground-truth briefing; connection
+ * events are leg-tagged) but the disruption-watcher + auto-reconnect drill
+ * built for OpenAI in 5b is NOT replicated here — see task 6.3 gap notes.
+ */
+
+import { v4 as uuidv4 } from 'uuid';
+import {
+  AdapterInitOptions,
+  TranscriptItem,
+  ProviderMetadata,
+  VoiceAgentError,
+  ConnectionError,
+  AudioError
+} from '@/types/voice-agent';
+import { BaseConversationalAgentAdapter, ConnectOptions } from './IConversationalAgentAdapter';
+import { GoogleLiveConfig } from '@/types/voice-config';
+
+interface GoogleSessionResponse {
+  access_token: string;
+  session_id: string;
+  expires_at: string;
+  model: string;
+  voice: string;
+  responseModality: 'AUDIO' | 'TEXT';
+}
+
+/** Gemini Live output audio: 16-bit PCM, mono, 24kHz (documented convention). */
+const OUTPUT_SAMPLE_RATE = 24000;
+/** Gemini Live input audio: 16-bit PCM, mono, 16kHz. */
+const INPUT_SAMPLE_RATE = 16000;
+const INPUT_CHUNK_SIZE = 4096;
+
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+function arrayBufferToBase64(buffer: ArrayBufferLike): string {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+function downsampleTo16k(input: Float32Array, inputRate: number): Float32Array {
+  if (inputRate === INPUT_SAMPLE_RATE) return input;
+  const ratio = inputRate / INPUT_SAMPLE_RATE;
+  const outLength = Math.round(input.length / ratio);
+  const output = new Float32Array(outLength);
+  for (let i = 0; i < outLength; i++) {
+    output[i] = input[Math.min(input.length - 1, Math.round(i * ratio))];
+  }
+  return output;
+}
+
+function floatTo16BitPCM(input: Float32Array): Int16Array {
+  const output = new Int16Array(input.length);
+  for (let i = 0; i < input.length; i++) {
+    const s = Math.max(-1, Math.min(1, input[i]));
+    output[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  return output;
+}
+
+export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
+  private _config: GoogleLiveConfig | null = null;
+  private _ws: WebSocket | null = null;
+  private _setupComplete = false;
+  private _setupCompleteResolve: (() => void) | null = null;
+  private _conversationId: string | null = null;
+  private _resumeSessionId: string | null = null;
+  private _sessionModel: string | null = null;
+
+  // Capture pipeline
+  private _inputStream: MediaStream | null = null;
+  private _captureContext: AudioContext | null = null;
+  private _captureProcessor: ScriptProcessorNode | null = null;
+  private _capturing = false;
+
+  // Playback pipeline
+  private _playbackContext: AudioContext | null = null;
+  private _playbackGain: GainNode | null = null;
+  private _nextPlayTime = 0;
+  private _activeSources: AudioBufferSourceNode[] = [];
+
+  // Streaming input/output transcript accumulation (Gemini streams transcription in chunks)
+  private _pendingInputText = '';
+  private _pendingOutputText = '';
+  private _pendingOutputId: string | null = null;
+
+  constructor() {
+    const metadata: ProviderMetadata = {
+      provider: 'google',
+      model: 'gemini-2.5-flash-native-audio-latest',
+      version: '1.0.0',
+      capabilities: ['streaming', 'interruption', 'toolCalling', 'realTimeAudio', 'voiceActivityDetection', 'customInstructions'],
+      latency: 400,
+      quality: 'high'
+    };
+    super('google', metadata);
+  }
+
+  async init(options: AdapterInitOptions): Promise<void> {
+    try {
+      this._options = options;
+      this._audioElement = options.audioElement;
+
+      await this._loadConfiguration();
+      if (options.providerConfig?.google && this._config) {
+        this._config = { ...this._config, ...options.providerConfig.google } as GoogleLiveConfig;
+      }
+
+      await this._registerStandardTools();
+      if (options.tools) options.tools.forEach(tool => this.registerTool(tool));
+
+      this._conversationId = uuidv4();
+    } catch (error) {
+      const connectionError = new ConnectionError(
+        `Failed to initialize Google Live adapter: ${error instanceof Error ? error.message : String(error)}`,
+        'google',
+        { error }
+      );
+      this._setError(connectionError);
+      throw connectionError;
+    }
+  }
+
+  private async _loadConfiguration(): Promise<void> {
+    try {
+      if (typeof window === 'undefined') {
+        const { getClientAIModelManager } = await import('./ClientAIModelManager');
+        const configWithMetadata = await getClientAIModelManager().getProviderConfig('google');
+        this._config = configWithMetadata.config as GoogleLiveConfig;
+      } else {
+        const response = await fetch('/api/ai/voice-config?provider=google');
+        if (!response.ok) throw new Error(`voice-config API returned ${response.status}`);
+        const data = await response.json();
+        if (!data.success || !data.config) throw new Error(data.error || 'voice-config API returned no config');
+        this._config = data.config as GoogleLiveConfig;
+      }
+      this._metadata = {
+        provider: 'google',
+        model: this._config.model,
+        capabilities: this._config.capabilities,
+        quality: 'high'
+      };
+    } catch (error) {
+      console.error('Failed to load Google Live configuration, using fallback defaults:', error);
+      const { getSerializerForProvider } = await import('./config-serializers');
+      this._config = getSerializerForProvider('google').getDefaultConfig() as GoogleLiveConfig;
+    }
+  }
+
+  async connect(options?: ConnectOptions): Promise<void> {
+    if (options?.resumeFromSessionId) {
+      this._conversationId = options.resumeFromSessionId;
+      this._resumeSessionId = options.resumeFromSessionId;
+    }
+
+    try {
+      this._setConnectionStatus('connecting');
+
+      let inputStream: MediaStream | null = null;
+      let inputMode: 'microphone' | 'text-only' | 'synthetic';
+      if (options?.syntheticInputStream) {
+        inputMode = 'synthetic';
+        inputStream = options.syntheticInputStream;
+      } else if (options?.audioInput === false) {
+        inputMode = 'text-only';
+      } else {
+        inputMode = 'microphone';
+        inputStream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 }
+        });
+      }
+      this._inputStream = inputStream;
+
+      const sessionData = await this._mintSession();
+      this._sessionModel = sessionData.model;
+
+      await this._openSocket(sessionData);
+
+      this._audioInputMode = inputMode;
+      if (inputStream) {
+        this._startCapture(inputStream);
+      }
+
+      this._logConnectionEvent('session_start', {
+        provider: 'google',
+        modelId: sessionData.model,
+        resumed: !!options?.resumeFromSessionId
+      });
+
+      this._setConnectionStatus('connected');
+      this._handleConnectionEvent({ type: 'connected', provider: 'google', timestamp: new Date() });
+    } catch (error) {
+      this._setConnectionStatus('error');
+      const connectionError = new ConnectionError(
+        `Failed to connect to Google Live: ${error instanceof Error ? error.message : String(error)}`,
+        'google',
+        { error }
+      );
+      this._setError(connectionError);
+      this._handleConnectionEvent({ type: 'error', provider: 'google', error: connectionError.message, timestamp: new Date() });
+      throw connectionError;
+    }
+  }
+
+  private async _mintSession(): Promise<GoogleSessionResponse> {
+    const params = new URLSearchParams();
+    if (this._options?.contextId) params.set('contextId', this._options.contextId);
+    if (this._options?.reflinkId) params.set('reflinkId', this._options.reflinkId);
+    if (this._resumeSessionId) params.set('resumeSessionId', this._resumeSessionId);
+
+    const response = await fetch(`/api/ai/google/session?${params.toString()}`);
+    if (!response.ok) {
+      throw new Error(`Failed to mint Google session: ${response.status} ${response.statusText}`);
+    }
+    return response.json();
+  }
+
+  private _openSocket(sessionData: GoogleSessionResponse): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=${encodeURIComponent(sessionData.access_token)}`;
+      const ws = new WebSocket(url);
+      this._ws = ws;
+
+      const timeout = setTimeout(() => {
+        reject(new Error('Timed out waiting for Google Live setupComplete'));
+      }, 15000);
+
+      ws.onopen = () => {
+        // Client's own setup message: locked fields (systemInstruction, tools,
+        // generationConfig) are enforced server-side from the ephemeral token
+        // regardless of what's sent here — the model id is echoed for parity.
+        ws.send(JSON.stringify({ setup: { model: sessionData.model.startsWith('models/') ? sessionData.model : `models/${sessionData.model}` } }));
+      };
+
+      this._setupCompleteResolve = () => {
+        clearTimeout(timeout);
+        resolve();
+      };
+
+      ws.onmessage = (event) => {
+        this._handleServerMessage(event.data).catch(err => console.error('Error handling Google Live message:', err));
+      };
+
+      ws.onerror = () => {
+        clearTimeout(timeout);
+        const connectionError = new ConnectionError('Google Live WebSocket error', 'google');
+        this._setError(connectionError);
+        reject(connectionError);
+      };
+
+      ws.onclose = () => {
+        clearTimeout(timeout);
+        if (this._connectionStatus === 'connected') {
+          this._logConnectionEvent('session_end', { endReason: 'provider_closed' });
+          this._setConnectionStatus('disconnected');
+          this._handleConnectionEvent({ type: 'disconnected', provider: 'google', timestamp: new Date() });
+        }
+      };
+    });
+  }
+
+  private async _handleServerMessage(raw: unknown): Promise<void> {
+    // Gemini Live delivers JSON as the frame payload, but browsers hand binary
+    // WebSocket frames back as Blob (or ArrayBuffer with binaryType set) rather
+    // than a string — normalize before parsing.
+    let text: string;
+    if (typeof raw === 'string') {
+      text = raw;
+    } else if (raw instanceof Blob) {
+      text = await raw.text();
+    } else if (raw instanceof ArrayBuffer) {
+      text = new TextDecoder().decode(raw);
+    } else {
+      return;
+    }
+
+    let msg: any;
+    try {
+      msg = JSON.parse(text);
+    } catch {
+      return;
+    }
+
+    if (msg.setupComplete && !this._setupComplete) {
+      this._setupComplete = true;
+      this._setupCompleteResolve?.();
+    }
+
+    if (msg.serverContent) {
+      const sc = msg.serverContent;
+
+      if (sc.interrupted) {
+        this._stopPlayback();
+        this._setSessionStatus('interrupted');
+      }
+
+      if (sc.inputTranscription?.text) {
+        // Streams word-by-word while the user speaks — accumulate and flush
+        // as one row once the model starts responding (see below), rather
+        // than emitting a transcript item per fragment.
+        this._pendingInputText += sc.inputTranscription.text;
+      }
+
+      const modelStartedResponding = !!(sc.outputTranscription?.text || sc.modelTurn?.parts?.length);
+      if (modelStartedResponding && this._pendingInputText.trim()) {
+        this._emitTranscript('user_speech', this._pendingInputText, { confidence: 1.0 });
+        this._pendingInputText = '';
+      }
+
+      if (sc.outputTranscription?.text) {
+        this._pendingOutputId = this._pendingOutputId ?? uuidv4();
+        this._pendingOutputText += sc.outputTranscription.text;
+        this._setSessionStatus('speaking');
+      }
+
+      for (const part of sc.modelTurn?.parts ?? []) {
+        if (part.inlineData?.data) {
+          this._playAudioChunk(part.inlineData.data);
+        } else if (typeof part.text === 'string' && !sc.outputTranscription) {
+          // Fallback path (TEXT response modality / no transcription configured)
+          this._pendingOutputId = this._pendingOutputId ?? uuidv4();
+          this._pendingOutputText += part.text;
+        }
+      }
+
+      if (sc.turnComplete) {
+        if (this._pendingInputText.trim()) {
+          // Model never produced output (e.g. interrupted before responding) —
+          // still flush the user's question so it isn't lost.
+          this._emitTranscript('user_speech', this._pendingInputText, { confidence: 1.0 });
+          this._pendingInputText = '';
+        }
+        if (this._pendingOutputText.trim()) {
+          this._emitTranscript('ai_response', this._pendingOutputText, undefined, this._pendingOutputId ?? undefined);
+        }
+        this._pendingOutputText = '';
+        this._pendingOutputId = null;
+        this._setSessionStatus(this._audioInputMode === 'text-only' ? 'idle' : 'listening');
+      }
+    }
+
+    if (msg.toolCall?.functionCalls) {
+      for (const call of msg.toolCall.functionCalls) {
+        await this._handleToolCall(call);
+      }
+    }
+  }
+
+  private async _handleToolCall(call: { id: string; name: string; args: any }): Promise<void> {
+    const callId = call.id || `${call.name}-${Date.now()}`;
+    // Live local transcript update only here — persistence (_logToolCall) happens once
+    // below, after execution, since the /log route dedupes by id and only persists a
+    // tool row once (matching the batch format's phase==='complete'-only persistence).
+    this._emitTranscript('tool_call', `Calling ${call.name}`, { toolName: call.name, toolArgs: call.args }, `tool-call-${callId}`);
+
+    const startTime = Date.now();
+    let responsePayload: unknown;
+    let success = true;
+    try {
+      responsePayload = await this._executeUnifiedTool(call.name, call.args ?? {});
+    } catch (error) {
+      success = false;
+      responsePayload = { error: error instanceof Error ? error.message : String(error) };
+    }
+    const executionTime = Date.now() - startTime;
+
+    this._emitTranscript(
+      'tool_result',
+      success ? 'Tool executed successfully' : `Error: ${(responsePayload as any)?.error}`,
+      { toolName: call.name, toolResult: responsePayload, duration: executionTime },
+      `tool-result-${callId}`
+    );
+    this._logToolCall(call.name, call.args, { success, result: responsePayload, executionTime }, callId);
+
+    this._ws?.send(JSON.stringify({
+      toolResponse: { functionResponses: [{ id: call.id, name: call.name, response: { result: responsePayload } }] }
+    }));
+  }
+
+  private _emitTranscript(
+    type: 'user_speech' | 'ai_response' | 'tool_call' | 'tool_result',
+    content: string,
+    metadata?: TranscriptItem['metadata'],
+    id?: string
+  ): void {
+    const item: TranscriptItem = {
+      id: id ?? uuidv4(),
+      type,
+      content,
+      timestamp: new Date(),
+      provider: 'google',
+      metadata
+    };
+    this._addTranscriptItem(item);
+    this._handleTranscriptEvent({ type: 'transcript_update', item, timestamp: new Date() });
+
+    if (type === 'user_speech' || type === 'ai_response') {
+      this._reportTranscriptToServer(item);
+    }
+  }
+
+  // ---- Audio capture (mic or synthetic -> realtimeInput.audio) ----
+
+  private _startCapture(stream: MediaStream): void {
+    try {
+      const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new AudioContextCtor();
+      this._captureContext = ctx;
+
+      const source = ctx.createMediaStreamSource(stream);
+      const processor = ctx.createScriptProcessor(INPUT_CHUNK_SIZE, 1, 1);
+      const silentGain = ctx.createGain();
+      silentGain.gain.value = 0;
+
+      processor.onaudioprocess = (e) => {
+        if (!this._capturing || this._isMuted || this._ws?.readyState !== WebSocket.OPEN) return;
+        const input = e.inputBuffer.getChannelData(0);
+        const downsampled = downsampleTo16k(input, ctx.sampleRate);
+        const pcm16 = floatTo16BitPCM(downsampled);
+        this._ws.send(JSON.stringify({
+          realtimeInput: { audio: { data: arrayBufferToBase64(pcm16.buffer), mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}` } }
+        }));
+      };
+
+      source.connect(processor);
+      processor.connect(silentGain);
+      silentGain.connect(ctx.destination);
+      this._captureProcessor = processor;
+      this._capturing = true;
+      this._setSessionStatus('listening');
+      this._handleAudioEvent({ type: 'audio_start', timestamp: new Date() });
+    } catch (error) {
+      const audioError = new AudioError(`Failed to start Google Live audio capture: ${error instanceof Error ? error.message : String(error)}`, 'google');
+      this._setError(audioError);
+      this._handleAudioEvent({ type: 'audio_error', error: audioError.message, timestamp: new Date() });
+    }
+  }
+
+  private _stopCapture(): void {
+    this._capturing = false;
+    this._captureProcessor?.disconnect();
+    this._captureProcessor = null;
+    if (this._captureContext && this._captureContext.state !== 'closed') {
+      this._captureContext.close().catch(() => {});
+    }
+    this._captureContext = null;
+  }
+
+  // ---- Audio playback (serverContent.modelTurn inlineData -> speakers) ----
+
+  private _playAudioChunk(base64Data: string): void {
+    try {
+      if (!this._playbackContext) {
+        const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+        const ctx = new AudioContextCtor();
+        this._playbackContext = ctx;
+        const gain = ctx.createGain();
+        gain.gain.value = this._isMuted ? 0 : this._volume;
+        gain.connect(ctx.destination);
+        this._playbackGain = gain;
+      }
+      const ctx = this._playbackContext;
+      const pcm16 = new Int16Array(base64ToArrayBuffer(base64Data));
+      const float32 = new Float32Array(pcm16.length);
+      for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 0x8000;
+
+      const buffer = ctx.createBuffer(1, float32.length, OUTPUT_SAMPLE_RATE);
+      buffer.copyToChannel(float32, 0);
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(this._playbackGain!);
+
+      const startAt = Math.max(ctx.currentTime, this._nextPlayTime);
+      source.start(startAt);
+      this._nextPlayTime = startAt + buffer.duration;
+      this._activeSources.push(source);
+      source.onended = () => {
+        this._activeSources = this._activeSources.filter(s => s !== source);
+      };
+    } catch (error) {
+      console.error('Failed to play Google Live audio chunk:', error);
+    }
+  }
+
+  private _stopPlayback(): void {
+    for (const source of this._activeSources) {
+      try { source.stop(); } catch { /* already stopped */ }
+    }
+    this._activeSources = [];
+    if (this._playbackContext) {
+      this._nextPlayTime = this._playbackContext.currentTime;
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    try {
+      this._setConnectionStatus('disconnected');
+      this._stopCapture();
+      this._stopPlayback();
+
+      if (this._playbackContext && this._playbackContext.state !== 'closed') {
+        await this._playbackContext.close().catch(() => {});
+      }
+      this._playbackContext = null;
+      this._playbackGain = null;
+
+      if (this._ws) {
+        this._logConnectionEvent('session_end', { endReason: 'user_disconnect' });
+        this._ws.close(1000, 'client disconnect');
+        this._ws = null;
+      }
+      this._setupComplete = false;
+      this._setupCompleteResolve = null;
+
+      this._handleConnectionEvent({ type: 'disconnected', provider: 'google', timestamp: new Date() });
+    } catch (error) {
+      const connectionError = new ConnectionError(`Error during disconnect: ${error instanceof Error ? error.message : String(error)}`, 'google', { error });
+      this._setError(connectionError);
+      throw connectionError;
+    }
+  }
+
+  async cleanup(): Promise<void> {
+    await this.disconnect();
+    this._transcript = [];
+    this._tools.clear();
+    this._lastError = null;
+  }
+
+  async startAudioInput(): Promise<void> {
+    if (this._capturing) return;
+    if (this._inputStream) {
+      this._startCapture(this._inputStream);
+    }
+  }
+
+  async stopAudioInput(): Promise<void> {
+    if (!this._capturing) return;
+    this._stopCapture();
+    this._setSessionStatus('idle');
+    this._handleAudioEvent({ type: 'audio_end', timestamp: new Date() });
+  }
+
+  async sendMessage(message: string): Promise<void> {
+    if (!this._ws || this._ws.readyState !== WebSocket.OPEN) {
+      throw new VoiceAgentError('No active Google Live session', 'google');
+    }
+    this._emitTranscript('user_speech', message, { confidence: 1.0 });
+    this._ws.send(JSON.stringify({
+      clientContent: { turns: [{ role: 'user', parts: [{ text: message }] }], turnComplete: true }
+    }));
+  }
+
+  async sendAudioData(audioData: ArrayBuffer): Promise<void> {
+    if (!this._ws || this._ws.readyState !== WebSocket.OPEN) {
+      throw new AudioError('No active Google Live session for audio data', 'google');
+    }
+    this._ws.send(JSON.stringify({
+      realtimeInput: { audio: { data: arrayBufferToBase64(audioData), mimeType: `audio/pcm;rate=${INPUT_SAMPLE_RATE}` } }
+    }));
+  }
+
+  // Playback here is raw Web Audio API (no HTMLAudioElement), so mute/volume
+  // must drive the playback gain node directly rather than the base class's
+  // _audioElement-based defaults.
+  mute(): void {
+    this._isMuted = true;
+    if (this._playbackGain) this._playbackGain.gain.value = 0;
+  }
+
+  unmute(): void {
+    this._isMuted = false;
+    if (this._playbackGain) this._playbackGain.gain.value = this._volume;
+  }
+
+  setVolume(volume: number): void {
+    this._volume = Math.max(0, Math.min(1, volume));
+    if (this._playbackGain && !this._isMuted) this._playbackGain.gain.value = this._volume;
+  }
+
+  async interrupt(): Promise<void> {
+    this._stopPlayback();
+    this._setSessionStatus('idle');
+  }
+
+  async updateConfig(config: Partial<AdapterInitOptions>): Promise<void> {
+    this._options = { ...this._options!, ...config };
+    if (config.providerConfig?.google && this._config) {
+      this._config = { ...this._config, ...config.providerConfig.google };
+    }
+  }
+
+  /** D49: the logical-conversation session id this adapter writes history under. */
+  public getConversationSessionId(): string | null {
+    return this._conversationId;
+  }
+
+  // ---- Standard tool registration (mirrors ElevenLabsAdapter/OpenAI pattern) ----
+
+  private async _registerStandardTools(): Promise<void> {
+    const { unifiedToolRegistry } = await import('@/lib/ai/tools/UnifiedToolRegistry');
+    unifiedToolRegistry.getAllToolDefinitions().forEach(toolDef => {
+      this.registerTool({
+        name: toolDef.name,
+        description: toolDef.description,
+        parameters: toolDef.parameters,
+        handler: async (args: any) => this._executeUnifiedTool(toolDef.name, args)
+      });
+    });
+  }
+
+  // ---- D49 leg lifecycle + persistence (baseline; see task 6.3 gap notes) ----
+
+  private _logConnectionEvent(eventType: 'session_start' | 'session_end' | 'disruption', data: Record<string, unknown>): void {
+    try {
+      fetch('/api/ai/conversation/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: this._conversationId,
+          provider: 'google',
+          reflinkId: this._options?.reflinkId,
+          conversationData: {
+            startTime: new Date().toISOString(),
+            entries: [{
+              id: `conn_${eventType}_${Date.now()}`,
+              timestamp: new Date().toISOString(),
+              type: 'connection_event',
+              provider: 'google',
+              data: { eventType, ...data }
+            }],
+            toolCallSummary: { totalCalls: 0, successfulCalls: 0, failedCalls: 0, clientCalls: 0, serverCalls: 0, averageExecutionTime: 0 },
+            conversationMetrics: { totalTranscriptItems: 0, totalConnectionEvents: 1, totalContextRequests: 0 }
+          }
+        })
+      }).catch(error => console.warn('Failed to log Google Live connection event:', error));
+    } catch (error) {
+      console.warn('Error logging Google Live connection event:', error);
+    }
+  }
+
+  private _reportTranscriptToServer(item: TranscriptItem): void {
+    try {
+      fetch('/api/ai/conversation/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcriptItem: { ...item, timestamp: item.timestamp.toISOString() },
+          sessionId: this._conversationId,
+          contextId: this._options?.contextId,
+          reflinkId: this._options?.reflinkId,
+          provider: 'google',
+          timestamp: new Date().toISOString()
+        })
+      }).catch(error => console.warn('Failed to report Google Live transcript to server:', error));
+    } catch (error) {
+      console.warn('Error reporting Google Live transcript:', error);
+    }
+  }
+
+  private _logToolCall(
+    toolName: string,
+    args: unknown,
+    result: { success: boolean; result: unknown; executionTime: number } | undefined,
+    callId: string
+  ): void {
+    try {
+      fetch('/api/ai/conversation/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: this._conversationId,
+          provider: 'google',
+          reflinkId: this._options?.reflinkId,
+          toolName,
+          toolArgs: args,
+          timestamp: new Date().toISOString(),
+          metadata: {
+            toolCallId: callId,
+            success: result?.success,
+            executionTime: result?.executionTime
+          }
+        })
+      }).catch(error => console.warn('Failed to log Google Live tool call:', error));
+    } catch (error) {
+      console.warn('Error logging Google Live tool call:', error);
+    }
+  }
+}
