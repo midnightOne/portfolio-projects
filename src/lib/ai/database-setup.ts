@@ -10,19 +10,23 @@ export interface DefaultAIConfig {
   modelConfig: {
     openai: string;
     anthropic: string;
+    google: string;
   };
   generalSettings: {
-    defaultProvider: 'openai' | 'anthropic';
+    defaultProvider: 'openai' | 'anthropic' | 'google';
     systemPrompt: string;
     temperature: number;
     maxTokens: number;
   };
 }
 
+// Config-layer seeds only (ai-admin 1.2): dropdown starting points, refreshed from
+// the providers' live model APIs — the run path resolves via the alias registry.
 export const DEFAULT_AI_CONFIG: DefaultAIConfig = {
   modelConfig: {
-    openai: 'gpt-4o,gpt-4o-mini,gpt-3.5-turbo',
-    anthropic: 'claude-3-5-sonnet-20241022,claude-3-5-haiku-20241022'
+    openai: 'gpt-4o,gpt-4o-mini',
+    anthropic: 'claude-sonnet-4-5-20250929,claude-haiku-4-5-20251001',
+    google: 'gemini-2.5-pro,gemini-2.5-flash'
   },
   generalSettings: {
     defaultProvider: 'openai',
@@ -37,29 +41,14 @@ export const DEFAULT_AI_CONFIG: DefaultAIConfig = {
  */
 export async function initializeAIConfiguration(): Promise<void> {
   try {
-    // Initialize model configuration for OpenAI
-    await prisma.aIModelConfig.upsert({
-      where: { provider: 'openai' },
-      update: {
-        models: DEFAULT_AI_CONFIG.modelConfig.openai
-      },
-      create: {
-        provider: 'openai',
-        models: DEFAULT_AI_CONFIG.modelConfig.openai
-      }
-    });
-
-    // Initialize model configuration for Anthropic
-    await prisma.aIModelConfig.upsert({
-      where: { provider: 'anthropic' },
-      update: {
-        models: DEFAULT_AI_CONFIG.modelConfig.anthropic
-      },
-      create: {
-        provider: 'anthropic',
-        models: DEFAULT_AI_CONFIG.modelConfig.anthropic
-      }
-    });
+    // Initialize model configuration for every provider
+    for (const [provider, models] of Object.entries(DEFAULT_AI_CONFIG.modelConfig)) {
+      await prisma.aIModelConfig.upsert({
+        where: { provider },
+        update: { models },
+        create: { provider, models }
+      });
+    }
 
     // Initialize general settings
     await prisma.aIGeneralSettings.upsert({
@@ -131,19 +120,21 @@ export async function validateAIConfiguration(): Promise<boolean> {
  */
 export async function getAIConfiguration() {
   try {
-    const [openaiConfig, anthropicConfig, generalSettings] = await Promise.all([
+    const [openaiConfig, anthropicConfig, googleConfig, generalSettings] = await Promise.all([
       prisma.aIModelConfig.findUnique({ where: { provider: 'openai' } }),
       prisma.aIModelConfig.findUnique({ where: { provider: 'anthropic' } }),
+      prisma.aIModelConfig.findUnique({ where: { provider: 'google' } }),
       prisma.aIGeneralSettings.findUnique({ where: { id: 'default' } })
     ]);
 
     return {
       modelConfig: {
         openai: openaiConfig?.models || '',
-        anthropic: anthropicConfig?.models || ''
+        anthropic: anthropicConfig?.models || '',
+        google: googleConfig?.models || ''
       },
       generalSettings: generalSettings ? {
-        defaultProvider: generalSettings.defaultProvider as 'openai' | 'anthropic',
+        defaultProvider: generalSettings.defaultProvider as 'openai' | 'anthropic' | 'google',
         systemPrompt: generalSettings.systemPrompt,
         temperature: generalSettings.temperature,
         maxTokens: generalSettings.maxTokens

@@ -200,7 +200,7 @@ export class AIServiceManager {
     const statuses: AIProviderStatus[] = [];
 
     // Check all possible provider types, not just configured ones
-    const allProviderTypes: AIProviderType[] = ['openai', 'anthropic'];
+    const allProviderTypes: AIProviderType[] = ['openai', 'anthropic', 'google'];
 
     // If not forcing refresh, try to get cached statuses first
     if (!forceRefresh) {
@@ -239,7 +239,9 @@ export class AIServiceManager {
           name: providerType,
           configured: false,
           connected: false,
-          error: `${providerType.toUpperCase()}_API_KEY environment variable not set`,
+          error: providerType === 'google'
+            ? 'GOOGLE_API_KEY (or GEMINI_API_KEY) environment variable not set'
+            : `${providerType.toUpperCase()}_API_KEY environment variable not set`,
           models: [],
           lastTested: new Date()
         };

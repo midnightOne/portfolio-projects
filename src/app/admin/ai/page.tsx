@@ -14,22 +14,30 @@ import { AdminLayout } from '@/components/admin/admin-layout';
 import { AdminPageLayout } from '@/components/admin/admin-page-layout';
 import { AIStatusIndicator } from '@/components/admin/ai-status-indicator';
 import { ModelAliasPanel } from '@/components/admin/ModelAliasPanel';
+import { ModelPricingPanel } from '@/components/admin/ModelPricingPanel';
 import { useToast } from '@/components/ui/toast';
 import { ConnectionStatus, ConfigurationStatus } from '@/components/ui/status-badge';
 import { HelpText, HelpSection } from '@/components/ui/help-text';
 import { ButtonLoadingState } from '@/components/ui/loading-indicator';
 
+type ChatProvider = 'openai' | 'anthropic' | 'google';
+
+const CHAT_PROVIDERS: Array<{ id: ChatProvider; label: string; envVar: string; modelPlaceholder: string }> = [
+  { id: 'openai', label: 'OpenAI', envVar: 'OPENAI_API_KEY', modelPlaceholder: 'gpt-4o, gpt-4o-mini' },
+  { id: 'anthropic', label: 'Anthropic', envVar: 'ANTHROPIC_API_KEY', modelPlaceholder: 'claude-haiku-4-5-20251001' },
+  { id: 'google', label: 'Google', envVar: 'GOOGLE_API_KEY / GEMINI_API_KEY', modelPlaceholder: 'gemini-2.5-flash' },
+];
+
+interface ProviderEnvStatus {
+  configured: boolean;
+  keyPreview: string;
+  environmentVariable: string;
+}
+
 interface EnvironmentStatus {
-  openai: {
-    configured: boolean;
-    keyPreview: string;
-    environmentVariable: string;
-  };
-  anthropic: {
-    configured: boolean;
-    keyPreview: string;
-    environmentVariable: string;
-  };
+  openai: ProviderEnvStatus;
+  anthropic: ProviderEnvStatus;
+  google: ProviderEnvStatus;
   summary: {
     hasAnyProvider: boolean;
     configuredProviders: string[];
@@ -38,18 +46,11 @@ interface EnvironmentStatus {
     totalAvailable: number;
   };
   warnings: string[];
-  setupInstructions: {
-    openai?: {
-      message: string;
-      documentation: string;
-      example: string;
-    };
-    anthropic?: {
-      message: string;
-      documentation: string;
-      example: string;
-    };
-  };
+  setupInstructions: Partial<Record<ChatProvider, {
+    message: string;
+    documentation: string;
+    example: string;
+  } | null>>;
 }
 
 interface ConnectionTestResult {
@@ -74,13 +75,10 @@ interface ConnectionTestResult {
   };
 }
 
-interface ModelConfig {
-  openai: string;
-  anthropic: string;
-}
+type ModelConfig = Record<ChatProvider, string>;
 
 interface GeneralSettings {
-  defaultProvider: 'openai' | 'anthropic';
+  defaultProvider: ChatProvider;
   systemPrompt: string;
   temperature: number;
   maxTokens: number;
@@ -93,7 +91,7 @@ function AISettingsContent() {
   
   // State management
   const [environmentStatus, setEnvironmentStatus] = useState<EnvironmentStatus | null>(null);
-  const [modelConfig, setModelConfig] = useState<ModelConfig>({ openai: '', anthropic: '' });
+  const [modelConfig, setModelConfig] = useState<ModelConfig>({ openai: '', anthropic: '', google: '' });
   const [generalSettings, setGeneralSettings] = useState<GeneralSettings>({
     defaultProvider: 'openai',
     systemPrompt: '',
@@ -150,7 +148,7 @@ function AISettingsContent() {
 
       // Update state with fetched data
       setEnvironmentStatus(envData.data);
-      setModelConfig(configData.data.modelConfig || { openai: '', anthropic: '' });
+      setModelConfig({ openai: '', anthropic: '', google: '', ...configData.data.modelConfig });
       setGeneralSettings(configData.data.generalSettings || {
         defaultProvider: 'openai',
         systemPrompt: '',
@@ -168,7 +166,7 @@ function AISettingsContent() {
     }
   };
 
-  const testConnection = async (provider: 'openai' | 'anthropic') => {
+  const testConnection = async (provider: ChatProvider) => {
     setTestingProvider(provider);
     
     try {
@@ -274,6 +272,9 @@ function AISettingsContent() {
 
       {/* Model alias registry (D4) */}
       <ModelAliasPanel />
+
+      {/* Model pricing table (D38) */}
+      <ModelPricingPanel />
 
       {/* Quick Navigation to AI Features */}
       <Card>
@@ -389,130 +390,75 @@ function AISettingsContent() {
                 links={[
                   { label: 'OpenAI API Keys', href: 'https://platform.openai.com/api-keys' },
                   { label: 'Anthropic API Keys', href: 'https://console.anthropic.com/settings/keys' },
+                  { label: 'Google AI Studio Keys', href: 'https://aistudio.google.com/apikey' },
                   { label: 'Environment Variables Guide', href: '/docs/environment-setup' }
                 ]}
               >
-                Set OPENAI_API_KEY and ANTHROPIC_API_KEY environment variables. Never commit API keys to your repository.
+                Set OPENAI_API_KEY, ANTHROPIC_API_KEY, and GOOGLE_API_KEY (or GEMINI_API_KEY) environment variables. Never commit API keys to your repository.
               </HelpSection>
             </HelpText>
           </CardHeader>
           <CardContent className="space-y-3">
             {environmentStatus && (
               <>
-                {/* OpenAI Status - Compact */}
-                <div className="flex items-center justify-between p-2 border rounded">
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium text-sm">OpenAI</div>
-                    <div className="text-xs text-muted-foreground truncate">
-                      {environmentStatus.openai.configured 
-                        ? `${environmentStatus.openai.keyPreview}`
-                        : 'OPENAI_API_KEY not set'
-                      }
-                    </div>
-                    {environmentStatus.setupInstructions.openai && (
-                      <div className="text-xs text-muted-foreground mt-1">
-                        <a 
-                          href={environmentStatus.setupInstructions.openai.documentation} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="underline flex items-center gap-1"
-                        >
-                          Get key <ExternalLink className="h-3 w-3" />
-                        </a>
+                {CHAT_PROVIDERS.map(({ id, label, envVar }) => (
+                  <div key={id} className="flex items-center justify-between p-2 border rounded" data-testid={`env-status-${id}`}>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-sm">{label}</div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {environmentStatus[id].configured
+                          ? `${environmentStatus[id].keyPreview}`
+                          : `${envVar} not set`
+                        }
                       </div>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 ml-2">
-                    <ConfigurationStatus 
-                      isConfigured={environmentStatus.openai.configured}
-                      label={environmentStatus.openai.configured ? 'Set' : 'Missing'}
-                    />
-                    {connectionStatus.get('openai') && (
-                      <ConnectionStatus
-                        isConnected={connectionStatus.get('openai')?.success || false}
-                        label={connectionStatus.get('openai')?.success ? 'OK' : 'Failed'}
-                      />
-                    )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => testConnection('openai')}
-                      disabled={!environmentStatus.openai.configured || testingProvider === 'openai'}
-                      className="text-xs px-2 py-1"
-                    >
-                      <ButtonLoadingState
-                        isLoading={testingProvider === 'openai'}
-                        loadingText="..."
-                      >
-                        Test
-                      </ButtonLoadingState>
-                    </Button>
-                  </div>
-                </div>
-                
-                {/* Anthropic Status - Compact */}
-                <div className="flex items-center justify-between p-2 border rounded">
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium text-sm">Anthropic</div>
-                    <div className="text-xs text-muted-foreground truncate">
-                      {environmentStatus.anthropic.configured 
-                        ? `${environmentStatus.anthropic.keyPreview}`
-                        : 'ANTHROPIC_API_KEY not set'
-                      }
+                      {environmentStatus.setupInstructions[id] && (
+                        <div className="text-xs text-muted-foreground mt-1">
+                          <a
+                            href={environmentStatus.setupInstructions[id]!.documentation}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline flex items-center gap-1"
+                          >
+                            Get key <ExternalLink className="h-3 w-3" />
+                          </a>
+                        </div>
+                      )}
                     </div>
-                    {environmentStatus.setupInstructions.anthropic && (
-                      <div className="text-xs text-muted-foreground mt-1">
-                        <a 
-                          href={environmentStatus.setupInstructions.anthropic.documentation} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="underline flex items-center gap-1"
-                        >
-                          Get key <ExternalLink className="h-3 w-3" />
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1 ml-2">
-                    <ConfigurationStatus 
-                      isConfigured={environmentStatus.anthropic.configured}
-                      label={environmentStatus.anthropic.configured ? 'Set' : 'Missing'}
-                    />
-                    {connectionStatus.get('anthropic') && (
-                      <ConnectionStatus
-                        isConnected={connectionStatus.get('anthropic')?.success || false}
-                        label={connectionStatus.get('anthropic')?.success ? 'OK' : 'Failed'}
+                    <div className="flex items-center gap-1 ml-2">
+                      <ConfigurationStatus
+                        isConfigured={environmentStatus[id].configured}
+                        label={environmentStatus[id].configured ? 'Set' : 'Missing'}
                       />
-                    )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => testConnection('anthropic')}
-                      disabled={!environmentStatus.anthropic.configured || testingProvider === 'anthropic'}
-                      className="text-xs px-2 py-1"
-                    >
-                      <ButtonLoadingState
-                        isLoading={testingProvider === 'anthropic'}
-                        loadingText="..."
+                      {connectionStatus.get(id) && (
+                        <ConnectionStatus
+                          isConnected={connectionStatus.get(id)?.success || false}
+                          label={connectionStatus.get(id)?.success ? 'OK' : 'Failed'}
+                        />
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => testConnection(id)}
+                        disabled={!environmentStatus[id].configured || testingProvider === id}
+                        className="text-xs px-2 py-1"
                       >
-                        Test
-                      </ButtonLoadingState>
-                    </Button>
+                        <ButtonLoadingState
+                          isLoading={testingProvider === id}
+                          loadingText="..."
+                        >
+                          Test
+                        </ButtonLoadingState>
+                      </Button>
+                    </div>
                   </div>
-                </div>
-                
+                ))}
+
                 {/* Error Messages - Compact */}
-                {connectionStatus.get('openai') && !connectionStatus.get('openai')?.success && (
-                  <div className="text-xs text-red-600 bg-red-50 p-2 rounded border">
-                    OpenAI: {connectionStatus.get('openai')?.data?.message}
+                {CHAT_PROVIDERS.filter(({ id }) => connectionStatus.get(id) && !connectionStatus.get(id)?.success).map(({ id, label }) => (
+                  <div key={`${id}-error`} className="text-xs text-red-600 bg-red-50 p-2 rounded border">
+                    {label}: {connectionStatus.get(id)?.data?.message}
                   </div>
-                )}
-                
-                {connectionStatus.get('anthropic') && !connectionStatus.get('anthropic')?.success && (
-                  <div className="text-xs text-red-600 bg-red-50 p-2 rounded border">
-                    Anthropic: {connectionStatus.get('anthropic')?.data?.message}
-                  </div>
-                )}
+                ))}
               </>
             )}
           </CardContent>
@@ -538,29 +484,19 @@ function AISettingsContent() {
             </HelpText>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="space-y-1">
-              <Label htmlFor="openai-models" className="text-sm">OpenAI Models</Label>
-              <Input
-                id="openai-models"
-                placeholder="gpt-4o, gpt-4o-mini"
-                value={modelConfig.openai}
-                onChange={(e) => setModelConfig(prev => ({ ...prev, openai: e.target.value }))}
-                disabled={!environmentStatus?.openai.configured}
-                className="text-sm"
-              />
-            </div>
-            
-            <div className="space-y-1">
-              <Label htmlFor="anthropic-models" className="text-sm">Anthropic Models</Label>
-              <Input
-                id="anthropic-models"
-                placeholder="claude-3-5-sonnet-20241022"
-                value={modelConfig.anthropic}
-                onChange={(e) => setModelConfig(prev => ({ ...prev, anthropic: e.target.value }))}
-                disabled={!environmentStatus?.anthropic.configured}
-                className="text-sm"
-              />
-            </div>
+            {CHAT_PROVIDERS.map(({ id, label, modelPlaceholder }) => (
+              <div key={id} className="space-y-1">
+                <Label htmlFor={`${id}-models`} className="text-sm">{label} Models</Label>
+                <Input
+                  id={`${id}-models`}
+                  placeholder={modelPlaceholder}
+                  value={modelConfig[id]}
+                  onChange={(e) => setModelConfig(prev => ({ ...prev, [id]: e.target.value }))}
+                  disabled={!environmentStatus?.[id].configured}
+                  className="text-sm"
+                />
+              </div>
+            ))}
           </CardContent>
         </Card>
 
@@ -588,7 +524,7 @@ function AISettingsContent() {
               <Label htmlFor="default-provider" className="text-sm">Default Provider</Label>
               <Select
                 value={generalSettings.defaultProvider}
-                onValueChange={(value: 'openai' | 'anthropic') => 
+                onValueChange={(value: ChatProvider) =>
                   setGeneralSettings(prev => ({ ...prev, defaultProvider: value }))
                 }
               >
@@ -596,12 +532,11 @@ function AISettingsContent() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="openai" disabled={!environmentStatus?.openai.configured}>
-                    OpenAI {!environmentStatus?.openai.configured && '(Not set)'}
-                  </SelectItem>
-                  <SelectItem value="anthropic" disabled={!environmentStatus?.anthropic.configured}>
-                    Anthropic {!environmentStatus?.anthropic.configured && '(Not set)'}
-                  </SelectItem>
+                  {CHAT_PROVIDERS.map(({ id, label }) => (
+                    <SelectItem key={id} value={id} disabled={!environmentStatus?.[id].configured}>
+                      {label} {!environmentStatus?.[id].configured && '(Not set)'}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

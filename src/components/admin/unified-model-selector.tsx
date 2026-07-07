@@ -178,6 +178,8 @@ export function UnifiedModelSelector({
         return 'OpenAI';
       case 'anthropic':
         return 'Anthropic';
+      case 'google':
+        return 'Google';
       default:
         return provider.charAt(0).toUpperCase() + provider.slice(1);
     }
@@ -248,7 +250,7 @@ export function UnifiedModelSelector({
     
     if (!hasConfiguredProviders) {
       message = "No AI providers configured";
-      helpText = "Set OPENAI_API_KEY or ANTHROPIC_API_KEY environment variables";
+      helpText = "Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_API_KEY environment variables";
     } else if (!hasConnectedProviders) {
       message = "No providers connected";
       helpText = "Check API keys and test connections in AI Settings";

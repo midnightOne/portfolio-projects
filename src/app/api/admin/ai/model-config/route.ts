@@ -89,13 +89,13 @@ export async function PUT(request: NextRequest) {
     // Update model configurations if provided
     if (body.modelConfig) {
       for (const [provider, modelsString] of Object.entries(body.modelConfig)) {
-        if (!['openai', 'anthropic'].includes(provider)) {
+        if (!['openai', 'anthropic', 'google'].includes(provider)) {
           return NextResponse.json({
             success: false,
             error: {
               message: `Invalid provider: ${provider}`,
               code: 'INVALID_PROVIDER',
-              details: 'Provider must be "openai" or "anthropic"'
+              details: 'Provider must be "openai", "anthropic", or "google"'
             }
           }, { status: 400 });
         }
@@ -135,13 +135,13 @@ export async function PUT(request: NextRequest) {
       const { defaultProvider, systemPrompt, temperature, maxTokens } = body.generalSettings;
       
       // Validate general settings
-      if (defaultProvider && !['openai', 'anthropic'].includes(defaultProvider)) {
+      if (defaultProvider && !['openai', 'anthropic', 'google'].includes(defaultProvider)) {
         return NextResponse.json({
           success: false,
           error: {
             message: 'Invalid default provider',
             code: 'INVALID_DEFAULT_PROVIDER',
-            details: 'Default provider must be "openai" or "anthropic"'
+            details: 'Default provider must be "openai", "anthropic", or "google"'
           }
         }, { status: 400 });
       }

@@ -31,19 +31,24 @@ export async function GET(request: NextRequest) {
           keyPreview: environmentStatus.anthropic.keyPreview,
           environmentVariable: 'ANTHROPIC_API_KEY'
         },
-        
+        google: {
+          configured: environmentStatus.google.configured,
+          keyPreview: environmentStatus.google.keyPreview,
+          environmentVariable: 'GOOGLE_API_KEY (or GEMINI_API_KEY)'
+        },
+
         // Overall status summary
         summary: {
           hasAnyProvider: environmentStatus.hasAnyProvider,
           configuredProviders: environmentStatus.configuredProviders,
           isFullyConfigured: environmentStatus.isFullyConfigured,
           totalConfigured: environmentStatus.configuredProviders.length,
-          totalAvailable: 2
+          totalAvailable: 3
         },
-        
+
         // Configuration warnings and guidance
         warnings: environmentStatus.warnings,
-        
+
         // Setup instructions for missing providers
         setupInstructions: {
           openai: environmentStatus.openai.configured ? null : {
@@ -52,9 +57,14 @@ export async function GET(request: NextRequest) {
             example: 'OPENAI_API_KEY=sk-...'
           },
           anthropic: environmentStatus.anthropic.configured ? null : {
-            message: 'Set ANTHROPIC_API_KEY environment variable', 
+            message: 'Set ANTHROPIC_API_KEY environment variable',
             documentation: 'https://console.anthropic.com/settings/keys',
             example: 'ANTHROPIC_API_KEY=sk-ant-...'
+          },
+          google: environmentStatus.google.configured ? null : {
+            message: 'Set GOOGLE_API_KEY (or GEMINI_API_KEY) environment variable',
+            documentation: 'https://aistudio.google.com/apikey',
+            example: 'GEMINI_API_KEY=AIza...'
           }
         }
       },

@@ -27,18 +27,18 @@ export async function POST(request: NextRequest) {
         error: {
           message: 'Provider parameter is required',
           code: 'MISSING_PROVIDER',
-          details: 'Request body must include "provider" field with value "openai" or "anthropic"'
+          details: 'Request body must include "provider" field with value "openai", "anthropic", or "google"'
         }
       }, { status: 400 });
     }
-    
-    if (!['openai', 'anthropic'].includes(provider)) {
+
+    if (!['openai', 'anthropic', 'google'].includes(provider)) {
       return NextResponse.json({
         success: false,
         error: {
           message: 'Invalid provider specified',
           code: 'INVALID_PROVIDER',
-          details: `Provider "${provider}" is not supported. Use "openai" or "anthropic"`
+          details: `Provider "${provider}" is not supported. Use "openai", "anthropic", or "google"`
         }
       }, { status: 400 });
     }
