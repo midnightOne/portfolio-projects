@@ -21,7 +21,6 @@ interface ProjectSummary {
   id: string;
   title: string;
   slug: string;
-  status: 'DRAFT' | 'PUBLISHED';
   visibility: 'PUBLIC' | 'PRIVATE';
   viewCount: number;
   createdAt: string;
@@ -241,9 +240,9 @@ export function AdminDashboard() {
                         <div className={`${FLEX.start} ${SPACING.gap.sm} mb-2`}>
                           <h3 className="font-medium">{project.title}</h3>
                           <Badge 
-                            variant={project.status === 'PUBLISHED' ? 'default' : 'secondary'}
+                            variant={project.visibility === 'PUBLIC' ? 'default' : 'secondary'}
                           >
-                            {project.status}
+                            {project.visibility}
                           </Badge>
                           {project.visibility === 'PRIVATE' && (
                             <Badge variant="outline">Private</Badge>

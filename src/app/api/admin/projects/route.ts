@@ -14,12 +14,10 @@ export async function GET(request: NextRequest) {
     const url = new URL(request.url);
     const limit = parseInt(url.searchParams.get('limit') || '10');
     const offset = parseInt(url.searchParams.get('offset') || '0');
-    const status = url.searchParams.get('status');
     const visibility = url.searchParams.get('visibility');
 
     // Build where clause
     const where: any = {};
-    if (status) where.status = status;
     if (visibility) where.visibility = visibility;
 
     // Get projects with media count
@@ -29,7 +27,6 @@ export async function GET(request: NextRequest) {
         id: true,
         title: true,
         slug: true,
-        status: true,
         visibility: true,
         viewCount: true,
         createdAt: true,
@@ -56,7 +53,6 @@ export async function GET(request: NextRequest) {
       id: project.id,
       title: project.title,
       slug: project.slug,
-      status: project.status,
       visibility: project.visibility,
       viewCount: project.viewCount,
       createdAt: project.createdAt.toISOString(),
@@ -97,7 +93,6 @@ export async function POST(request: NextRequest) {
       description,
       briefOverview,
       tags,
-      status = 'DRAFT',
       visibility = 'PRIVATE',
       workDate,
       articleContent,
@@ -138,7 +133,6 @@ export async function POST(request: NextRequest) {
         slug,
         description,
         briefOverview: briefOverview || description.substring(0, 150) + '...',
-        status,
         visibility,
         workDate: workDate ? new Date(workDate) : new Date(),
         viewCount: 0,
@@ -176,8 +170,7 @@ export async function POST(request: NextRequest) {
         id: project.id,
         title: project.title,
         slug: project.slug,
-        status: project.status,
-        visibility: project.visibility,
+          visibility: project.visibility,
         viewCount: project.viewCount,
         createdAt: project.createdAt.toISOString(),
         updatedAt: project.updatedAt.toISOString(),

@@ -22,14 +22,14 @@ export async function GET(request: NextRequest) {
       // Total projects count
       prisma.project.count(),
       
-      // Published projects count
+      // Public projects count (D7: visibility is the only publication axis)
       prisma.project.count({
-        where: { status: 'PUBLISHED' }
+        where: { visibility: 'PUBLIC' }
       }),
       
-      // Draft projects count
+      // Private projects count
       prisma.project.count({
-        where: { status: 'DRAFT' }
+        where: { visibility: 'PRIVATE' }
       }),
       
       // Total media files count

@@ -55,7 +55,6 @@ async function projectsHandler(request: NextRequest) {
 
   // Build where clause
   const where: any = {
-    status: 'PUBLISHED',
     visibility: 'PUBLIC',
   };
 
@@ -169,12 +168,11 @@ async function projectsHandler(request: NextRequest) {
     // Raw SQL query for full-text search with proper ordering
     const searchSql = `
       SELECT p.id, p.title, p.slug, p.description, p."briefOverview", p."workDate", 
-             p.status, p.visibility, p."viewCount", p."createdAt", p."updatedAt",
+             p.visibility, p."viewCount", p."createdAt", p."updatedAt",
              p."thumbnailImageId", p."metadataImageId",
              ts_rank(p.search_vector, to_tsquery('english', $1)) as search_rank
       FROM projects p
-      WHERE p.status = 'PUBLISHED' 
-        AND p.visibility = 'PUBLIC'
+      WHERE p.visibility = 'PUBLIC'
         AND p.search_vector @@ to_tsquery('english', $1)
         ${additionalWhere}
       ORDER BY search_rank DESC, p."createdAt" DESC
@@ -184,8 +182,7 @@ async function projectsHandler(request: NextRequest) {
     const countSql = `
       SELECT COUNT(*) as count
       FROM projects p
-      WHERE p.status = 'PUBLISHED' 
-        AND p.visibility = 'PUBLIC'
+      WHERE p.visibility = 'PUBLIC'
         AND p.search_vector @@ to_tsquery('english', $1)
         ${additionalWhere}
     `;
@@ -218,7 +215,6 @@ async function projectsHandler(request: NextRequest) {
             description: true,
             briefOverview: true,
             workDate: true,
-            status: true,
             visibility: true,
             viewCount: true,
             createdAt: true,
@@ -304,7 +300,6 @@ async function projectsHandler(request: NextRequest) {
             description: true,
             briefOverview: true,
             workDate: true,
-            status: true,
             visibility: true,
             viewCount: true,
             createdAt: true,

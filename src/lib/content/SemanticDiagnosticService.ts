@@ -882,7 +882,7 @@ export class SemanticDiagnosticService extends EventEmitter {
 
       // Get first published project as test project
       return await prisma.project.findFirst({
-        where: { status: 'PUBLISHED' },
+        where: { visibility: 'PUBLIC' },
         include: {
           articleContent: true,
           tags: true

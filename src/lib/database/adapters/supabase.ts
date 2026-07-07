@@ -227,7 +227,7 @@ export class SupabaseAdapter extends BaseDatabaseAdapter {
       await this.client.$executeRaw`
         CREATE POLICY IF NOT EXISTS "Public projects are viewable by everyone" 
         ON projects FOR SELECT 
-        USING (status = 'PUBLISHED' AND visibility = 'PUBLIC');
+        USING (visibility = 'PUBLIC');
       `;
 
       return { applied: true, warnings };
@@ -254,7 +254,7 @@ export class SupabaseAdapter extends BaseDatabaseAdapter {
     // Create performance indexes specific to our queries
     const indexes = [
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_projects_status_visibility 
-       ON projects(status, visibility) WHERE status = 'PUBLISHED'`,
+       ON projects(visibility) WHERE visibility = 'PUBLIC'`,
       
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_projects_search_vector_gin 
        ON projects USING gin(search_vector)`,

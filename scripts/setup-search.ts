@@ -79,7 +79,7 @@ async function setupSearch() {
     const testResult = await prisma.$queryRaw`
       SELECT id, title, search_vector IS NOT NULL as has_search_vector
       FROM projects 
-      WHERE status = 'PUBLISHED' 
+      WHERE visibility = 'PUBLIC' 
       LIMIT 3
     `;
     
@@ -90,7 +90,7 @@ async function setupSearch() {
       SELECT id, title, ts_rank(search_vector, to_tsquery('english', 'project:*')) as rank
       FROM projects 
       WHERE search_vector @@ to_tsquery('english', 'project:*')
-      AND status = 'PUBLISHED'
+      AND visibility = 'PUBLIC'
       ORDER BY rank DESC
       LIMIT 3
     `;

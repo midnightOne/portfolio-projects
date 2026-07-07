@@ -8,7 +8,6 @@ import { Prisma } from '@prisma/client';
 export interface SearchOptions {
   query?: string;
   tags?: string[];
-  status?: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
   visibility?: 'PUBLIC' | 'PRIVATE' | 'UNLISTED';
   sortBy?: 'relevance' | 'date' | 'title' | 'popularity';
   sortOrder?: 'asc' | 'desc';
@@ -31,7 +30,6 @@ export async function searchProjects(options: SearchOptions = {}): Promise<Searc
   const {
     query,
     tags = [],
-    status = 'PUBLISHED',
     visibility = 'PUBLIC',
     sortBy = 'relevance',
     sortOrder = 'desc',
@@ -43,7 +41,6 @@ export async function searchProjects(options: SearchOptions = {}): Promise<Searc
 
   // Build where clause
   const whereClause: Prisma.ProjectWhereInput = {
-    status,
     visibility,
   };
 
@@ -152,7 +149,6 @@ export async function getSearchSuggestions(query: string, limit: number = 5): Pr
 
   const projects = await prisma.project.findMany({
     where: {
-      status: 'PUBLISHED',
       visibility: 'PUBLIC',
       OR: [
         {
@@ -201,7 +197,6 @@ export async function getPopularSearchTerms(limit: number = 10): Promise<string[
     }),
     prisma.project.findMany({
       where: {
-        status: 'PUBLISHED',
         visibility: 'PUBLIC',
       },
       select: {

@@ -31,7 +31,6 @@ async function tagsHandler(request: NextRequest) {
           select: {
             projects: {
               where: {
-                status: 'PUBLISHED',
                 visibility: 'PUBLIC'
               }
             }

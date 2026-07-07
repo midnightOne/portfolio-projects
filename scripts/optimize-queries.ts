@@ -52,7 +52,7 @@ class QueryOptimizer {
     const beforeTime = await this.measureQuery(
       'Current Projects List',
       () => prisma.project.findMany({
-        where: { status: 'PUBLISHED', visibility: 'PUBLIC' },
+        where: { visibility: 'PUBLIC' },
         include: {
           tags: true,
           thumbnailImage: true,
@@ -69,7 +69,7 @@ class QueryOptimizer {
     const afterTime = await this.measureQuery(
       'Optimized Projects List',
       () => prisma.project.findMany({
-        where: { status: 'PUBLISHED', visibility: 'PUBLIC' },
+        where: { visibility: 'PUBLIC' },
         select: {
           id: true,
           title: true,
@@ -110,7 +110,7 @@ class QueryOptimizer {
 
     // Get a sample project
     const sampleProject = await prisma.project.findFirst({
-      where: { status: 'PUBLISHED', visibility: 'PUBLIC' },
+      where: { visibility: 'PUBLIC' },
     });
 
     if (!sampleProject) {
@@ -215,7 +215,7 @@ class QueryOptimizer {
       'Current Tag Filtering',
       () => prisma.project.findMany({
         where: {
-          status: 'PUBLISHED',
+          
           visibility: 'PUBLIC',
           tags: {
             some: {
@@ -236,7 +236,7 @@ class QueryOptimizer {
       'Optimized Tag Filtering',
       () => prisma.project.findMany({
         where: {
-          status: 'PUBLISHED',
+          
           visibility: 'PUBLIC',
           tags: {
             some: {
@@ -276,7 +276,7 @@ class QueryOptimizer {
       'Current Search Query',
       () => prisma.project.findMany({
         where: {
-          status: 'PUBLISHED',
+          
           visibility: 'PUBLIC',
           OR: [
             { title: { contains: searchTerm, mode: 'insensitive' } },
@@ -297,7 +297,7 @@ class QueryOptimizer {
       'Optimized Search Query',
       () => prisma.project.findMany({
         where: {
-          status: 'PUBLISHED',
+          
           visibility: 'PUBLIC',
           OR: [
             { title: { contains: searchTerm, mode: 'insensitive' } },

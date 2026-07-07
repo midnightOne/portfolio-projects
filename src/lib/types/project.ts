@@ -8,12 +8,6 @@ import { z } from 'zod';
 // ENUMS
 // ============================================================================
 
-export const ProjectStatus = {
-  DRAFT: 'DRAFT',
-  PUBLISHED: 'PUBLISHED',
-  ARCHIVED: 'ARCHIVED',
-} as const;
-
 export const ProjectVisibility = {
   PUBLIC: 'PUBLIC',
   PRIVATE: 'PRIVATE',
@@ -47,7 +41,6 @@ export const AnalyticsEvent = {
 // ZOD SCHEMAS
 // ============================================================================
 
-export const ProjectStatusSchema = z.enum(['DRAFT', 'PUBLISHED', 'ARCHIVED']);
 export const ProjectVisibilitySchema = z.enum(['PUBLIC', 'PRIVATE', 'UNLISTED']);
 export const MediaTypeSchema = z.enum(['IMAGE', 'VIDEO', 'GIF', 'WEBM', 'AUDIO', 'DOCUMENT']);
 export const InteractiveTypeSchema = z.enum(['CANVAS', 'IFRAME', 'WEBXR', 'EMBED']);
@@ -171,7 +164,6 @@ export const ProjectSchema = z.object({
   description: z.string().optional(),
   briefOverview: z.string().optional(),
   workDate: z.date().optional(),
-  status: ProjectStatusSchema.default('DRAFT'),
   visibility: ProjectVisibilitySchema.default('PUBLIC'),
   viewCount: z.number().int().default(0),
   createdAt: z.date(),
@@ -186,7 +178,6 @@ export const CreateProjectSchema = z.object({
   description: z.string().optional(),
   briefOverview: z.string().optional(),
   workDate: z.date().optional(),
-  status: ProjectStatusSchema.default('DRAFT'),
   visibility: ProjectVisibilitySchema.default('PUBLIC'),
   thumbnailImageId: z.string().cuid().optional(),
   metadataImageId: z.string().cuid().optional(),
@@ -200,7 +191,6 @@ export const UpdateProjectSchema = CreateProjectSchema.partial().extend({
 // TYPESCRIPT TYPES
 // ============================================================================
 
-export type ProjectStatus = z.infer<typeof ProjectStatusSchema>;
 export type ProjectVisibility = z.infer<typeof ProjectVisibilitySchema>;
 export type MediaType = z.infer<typeof MediaTypeSchema>;
 export type InteractiveType = z.infer<typeof InteractiveTypeSchema>;

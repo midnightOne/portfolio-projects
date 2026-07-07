@@ -132,7 +132,7 @@ export async function GET(request: NextRequest) {
     // Get projects that need initial ingestion
     const projects = await prisma.project.findMany({
       where: {
-        status: 'PUBLISHED'
+        visibility: 'PUBLIC'
       },
       select: {
         id: true,

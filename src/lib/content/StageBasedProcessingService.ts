@@ -1284,7 +1284,7 @@ export class StageBasedProcessingService extends EventEmitter {
     switch (request.scope) {
       case 'all':
         return await prisma.project.findMany({
-          where: { status: 'PUBLISHED' },
+          where: { visibility: 'PUBLIC' },
           include: {
             articleContent: true,
             tags: true

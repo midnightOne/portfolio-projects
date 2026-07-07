@@ -137,7 +137,7 @@ export async function runDatabasePerformanceTest(): Promise<{
     (async () => {
       const start = performance.now();
       await prisma.project.findMany({
-        where: { status: 'PUBLISHED', visibility: 'PUBLIC' },
+        where: { visibility: 'PUBLIC' },
         select: {
           id: true,
           title: true,
@@ -154,7 +154,6 @@ export async function runDatabasePerformanceTest(): Promise<{
       const start = performance.now();
       await prisma.project.findMany({
         where: { 
-          status: 'PUBLISHED',
           visibility: 'PUBLIC'
         },
         orderBy: { viewCount: 'desc' },

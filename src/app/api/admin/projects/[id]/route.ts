@@ -74,7 +74,6 @@ export async function PUT(
       contentType,
       thumbnailImageId,
       tags,
-      status,
       visibility,
       workDate
     } = updates;
@@ -86,7 +85,6 @@ export async function PUT(
         title,
         description,
         briefOverview,
-        status: status || undefined,
         visibility: visibility || undefined,
         workDate: workDate ? new Date(workDate) : undefined,
         thumbnailImageId: thumbnailImageId !== undefined ? thumbnailImageId : undefined,

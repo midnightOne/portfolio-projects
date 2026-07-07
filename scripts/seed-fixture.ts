@@ -87,7 +87,6 @@ async function main() {
       description: 'Verification fixture: ceramics kiln automation with thermal regulation, ESP32 firmware, and a glaze chemistry database.',
       briefOverview: 'Deterministic verification fixture project (kiln controller)',
       workDate: new Date('2025-11-01'),
-      status: 'PUBLISHED',
       visibility: 'PUBLIC',
       tags: { connect: [{ id: fixtureTag.id }] },
     },

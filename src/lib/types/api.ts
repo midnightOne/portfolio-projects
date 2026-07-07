@@ -3,7 +3,7 @@
  */
 
 import { z } from 'zod';
-import { ProjectStatusSchema, ProjectVisibilitySchema, MediaTypeSchema } from './project';
+import { ProjectVisibilitySchema, MediaTypeSchema } from './project';
 
 // ============================================================================
 // API REQUEST SCHEMAS
@@ -13,7 +13,6 @@ import { ProjectStatusSchema, ProjectVisibilitySchema, MediaTypeSchema } from '.
 export const SearchProjectsSchema = z.object({
   query: z.string().optional(),
   tags: z.array(z.string()).optional(),
-  status: ProjectStatusSchema.optional(),
   visibility: ProjectVisibilitySchema.optional(),
   sortBy: z.enum(['relevance', 'date', 'title', 'popularity']).default('relevance'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
@@ -39,8 +38,7 @@ export const TrackAnalyticsSchema = z.object({
 export const BulkUpdateProjectsSchema = z.object({
   projectIds: z.array(z.string().cuid()),
   updates: z.object({
-    status: ProjectStatusSchema.optional(),
-    visibility: ProjectVisibilitySchema.optional(),
+      visibility: ProjectVisibilitySchema.optional(),
     tags: z.array(z.string()).optional(),
   }),
 });

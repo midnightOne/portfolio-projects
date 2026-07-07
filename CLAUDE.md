@@ -34,7 +34,6 @@ npm test               # jest
 npm run diagnostics    # semantic system health (also :quick :t3 :sse :comprehensive)
 npm run db:migrate     # prisma migrate dev
 npm run db:seed        # base seed
-npm run db:setup-pgvector
 npm run seed:fixture   # verification fixture project + reflink (scripts/seed-fixture.ts)
 npm run check:semantic # assert fixture semantic state vs fixtures/expected-semantic.json (--no-live skips the OpenAI query)
 npm run check:gateway  # static: no cost-incurring route ships without withAIGateway (D33)
@@ -42,7 +41,7 @@ npm run check:specs    # spec hygiene: status headers, duplicate Requirement N, 
 npm run verify         # umbrella: type-check + check:gateway + check:specs + check:semantic --no-live
 ```
 
-**Fixture needs ingestion to get embeddings.** `npm run seed:fixture` creates the fixture *project* but not its chunk embeddings — those come from the ingestion pipeline. After a fresh `db:reset`/`seed:fixture`, ingest the fixture per-project (POST `/api/admin/semantic/processing/start` with `scope:'project'`, `projectId`, all four stages `immediate`) before `check:semantic`'s live query will pass. `scope:'all'` currently throws (pre-existing `ProjectAIIndex` bug, resolves with D37 Phase 3.6) — use per-project.
+**Fixture needs ingestion to get embeddings.** `npm run seed:fixture` creates the fixture *project* but not its chunk embeddings — those come from the ingestion pipeline. After a fresh `db:reset`/`seed:fixture`, ingest the fixture per-project (POST `/api/admin/semantic/processing/start` with `scope:'project'`, `projectId`, all four stages `immediate`) before `check:semantic`'s live query will pass. `scope:'all'` no longer throws (the `ProjectAIIndex` upsert crash was removed with D37), but it still persists all projects' chunks against one entity (semantic-content task 6.2, open) — use per-project. Stage objects need `enabled: true` alongside `stage`/`mode`.
 
 Planned (verification spec, land with their phases): `check:models`, `livefire:semantic|chat`.
 
@@ -75,5 +74,5 @@ Until the harness items exist (they land with Phases 0–3), approximate: seed d
 - One owner per concept — check the spec's contracts table before adding an API or model.
 - Future-proofing (registry D47/D48, outlines in `.kiro/specs/_backlog/`): core libs (`src/lib/{ai,voice,navigation,content}`) never import from `src/app/**`; no hardcoded prompts/model IDs in core libs; F-I-D and client tools stay optional per session; conversational policy is assembled in exactly one server-side place. A node-graph conversation engine and platform extraction plug in later through these seams.
 - Test selectors: reuse `SemanticIDRegistry` semantic IDs where present; else `data-testid`.
-- Hygiene debris (root test scripts, `test-*` pages) is being hard-deleted in Phase 3 — don't add new debris; scratch work goes outside the repo.
+- Hygiene debris (root test scripts, `test-*` pages) was hard-deleted in Phase 3 (D42) — don't add new debris; scratch work goes outside the repo.
 - Update this file when commands, env, or the verification flow change — staleness here is a defect (verification spec Req 1.1).

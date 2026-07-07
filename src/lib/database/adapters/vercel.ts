@@ -242,7 +242,7 @@ export class VercelAdapter extends BaseDatabaseAdapter {
         FROM projects p
         LEFT JOIN media_items m ON p.id = m.project_id
         LEFT JOIN downloadable_files d ON p.id = d.project_id
-        WHERE p.status = 'PUBLISHED' AND p.visibility = 'PUBLIC'
+        WHERE p.visibility = 'PUBLIC'
         GROUP BY p.id, p.title, p.view_count;
       `;
 
@@ -263,7 +263,7 @@ export class VercelAdapter extends BaseDatabaseAdapter {
     const serverlessIndexes = [
       // Fast project lookups
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_projects_slug_status 
-       ON projects(slug) WHERE status = 'PUBLISHED'`,
+       ON projects(slug) WHERE visibility = 'PUBLIC'`,
       
       // Efficient tag filtering
       `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_project_tags_composite 

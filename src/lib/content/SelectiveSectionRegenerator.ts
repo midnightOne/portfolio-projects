@@ -167,7 +167,7 @@ export class SelectiveSectionRegenerator {
   private async estimateAllProjects(): Promise<RegenerationEstimate> {
     const projects = await prisma.project.findMany({
       where: {
-        status: 'PUBLISHED',
+        visibility: 'PUBLIC',
         articleContent: {
           isNot: null
         }
@@ -451,7 +451,7 @@ export class SelectiveSectionRegenerator {
   ): Promise<void> {
     const projects = await prisma.project.findMany({
       where: {
-        status: 'PUBLISHED',
+        visibility: 'PUBLIC',
         articleContent: {
           isNot: null
         }

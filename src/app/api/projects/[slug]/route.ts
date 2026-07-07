@@ -64,7 +64,6 @@ async function projectDetailHandler(request: NextRequest, context: RouteContext)
     () => prisma.project.findUnique({
       where: {
         slug,
-        status: 'PUBLISHED',
         visibility: 'PUBLIC',
       },
       select: {
@@ -74,7 +73,6 @@ async function projectDetailHandler(request: NextRequest, context: RouteContext)
         description: true,
         briefOverview: true,
         workDate: true,
-        status: true,
         visibility: true,
         viewCount: true,
         createdAt: true,
@@ -215,7 +213,6 @@ async function projectDetailHandler(request: NextRequest, context: RouteContext)
   const relatedProjects = await profileQuery(
     () => prisma.project.findMany({
       where: {
-        status: 'PUBLISHED',
         visibility: 'PUBLIC',
         id: { not: project.id },
         // Use tag filter for better performance

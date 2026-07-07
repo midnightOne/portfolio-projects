@@ -262,7 +262,6 @@ export class BackendToolService {
               { slug: projectId },
               { id: projectId }
             ],
-            status: 'PUBLISHED',
             visibility: 'PUBLIC'
           },
           select: {
@@ -374,7 +373,6 @@ export class BackendToolService {
       // Fetch projects directly from database instead of HTTP call to avoid hanging
       const projects = await prisma.project.findMany({
         where: {
-          status: 'PUBLISHED',
           visibility: 'PUBLIC'
         },
         select: {
@@ -384,7 +382,6 @@ export class BackendToolService {
           description: true,
           briefOverview: true,
           workDate: true,
-          status: true,
           visibility: true,
           viewCount: true,
           createdAt: true,
@@ -534,7 +531,6 @@ export class BackendToolService {
       // Fetch projects directly from database instead of HTTP call to avoid hanging
       const projects = await prisma.project.findMany({
         where: {
-          status: 'PUBLISHED',
           visibility: includePrivate ? undefined : 'PUBLIC'
         },
         select: {
@@ -544,7 +540,6 @@ export class BackendToolService {
           description: true,
           briefOverview: true,
           workDate: true,
-          status: true,
           visibility: true,
           viewCount: true,
           createdAt: true,

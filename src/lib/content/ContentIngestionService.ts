@@ -139,7 +139,7 @@ export class ContentIngestionService extends EventEmitter {
     try {
       // Get all projects to process
       const projects = await prisma.project.findMany({
-        where: { status: 'PUBLISHED' },
+        where: { visibility: 'PUBLIC' },
         include: {
           articleContent: true,
           tags: true

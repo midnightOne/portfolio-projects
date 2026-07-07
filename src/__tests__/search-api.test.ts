@@ -46,7 +46,6 @@ describe('Search API', () => {
         description: 'A portfolio built with React',
         briefOverview: 'Modern React application',
         workDate: new Date('2024-01-01'),
-        status: 'PUBLISHED',
         visibility: 'PUBLIC',
         viewCount: 10,
         createdAt: new Date(),
@@ -78,7 +77,6 @@ describe('Search API', () => {
     expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          status: 'PUBLISHED',
           visibility: 'PUBLIC',
           OR: expect.arrayContaining([
             expect.objectContaining({
@@ -147,7 +145,6 @@ describe('Search API', () => {
     expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          status: 'PUBLISHED',
           visibility: 'PUBLIC',
           OR: expect.arrayContaining([
             expect.objectContaining({
@@ -179,7 +176,6 @@ describe('Search API', () => {
     expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          status: 'PUBLISHED',
           visibility: 'PUBLIC'
         })
       })
@@ -264,7 +260,6 @@ describe('Search Performance', () => {
         description: 'Test description',
         briefOverview: 'Test overview',
         workDate: new Date(),
-        status: 'PUBLISHED',
         visibility: 'PUBLIC',
         viewCount: 5,
         createdAt: new Date(),

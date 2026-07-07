@@ -156,7 +156,6 @@ async function main() {
       description: 'A modern portfolio website built with Next.js and TypeScript, featuring a clean design and responsive layout.',
       briefOverview: 'Modern portfolio showcasing web development projects',
       workDate: new Date('2024-01-15'),
-      status: 'PUBLISHED',
       visibility: 'PUBLIC',
       viewCount: 42,
       tags: {
@@ -179,7 +178,6 @@ async function main() {
       description: 'A full-stack task management application with real-time updates, user authentication, and collaborative features.',
       briefOverview: 'Collaborative task management with real-time updates',
       workDate: new Date('2024-03-20'),
-      status: 'PUBLISHED',
       visibility: 'PUBLIC',
       viewCount: 28,
       tags: {
@@ -201,7 +199,6 @@ async function main() {
       description: 'A comprehensive e-commerce solution with payment processing, inventory management, and admin dashboard.',
       briefOverview: 'Full-featured e-commerce platform',
       workDate: new Date('2024-02-10'),
-      status: 'PUBLISHED',
       visibility: 'PUBLIC',
       viewCount: 67,
       tags: {

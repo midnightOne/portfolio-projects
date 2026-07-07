@@ -37,7 +37,6 @@ interface ProjectFormData {
   description: string;
   briefOverview: string;
   tags: string[];
-  status: 'DRAFT' | 'PUBLISHED';
   visibility: 'PUBLIC' | 'PRIVATE';
   workDate: string;
   articleContent: string;
@@ -51,8 +50,6 @@ interface SaveControlsProps {
   lastSaveTime: Date | null;
   onSave: () => void;
   onBack: () => void;
-  status: 'DRAFT' | 'PUBLISHED';
-  onStatusChange: (status: 'DRAFT' | 'PUBLISHED') => void;
   visibility: 'PUBLIC' | 'PRIVATE';
   onVisibilityChange: (visibility: 'PUBLIC' | 'PRIVATE') => void;
   error?: string | null;
@@ -90,7 +87,6 @@ export function EnhancedProjectEditor({ projectId, mode, onSaveControlsChange }:
     description: '',
     briefOverview: '',
     tags: [],
-    status: 'DRAFT',
     visibility: 'PRIVATE',
     workDate: new Date().toISOString().split('T')[0],
     articleContent: '',
@@ -188,7 +184,6 @@ export function EnhancedProjectEditor({ projectId, mode, onSaveControlsChange }:
         JSON.stringify(formData.articleContentJson) !== JSON.stringify(project.articleContent?.jsonContent) ||
         formData.contentType !== (project.articleContent?.contentType || 'json') ||
         JSON.stringify(formData.tags.sort()) !== JSON.stringify(project.tags.map(t => t.name).sort()) ||
-        formData.status !== (project.status as string) ||
         formData.visibility !== (project.visibility as string);
 
       setHasUnsavedChanges(hasChanges);
@@ -214,14 +209,12 @@ export function EnhancedProjectEditor({ projectId, mode, onSaveControlsChange }:
         lastSaveTime,
         onSave: handleSave,
         onBack: () => router.push('/admin/projects'),
-        status: formData.status,
-        onStatusChange: (status) => handleFormDataChange({ status }),
         visibility: formData.visibility,
         onVisibilityChange: (visibility) => handleFormDataChange({ visibility }),
         error
       });
     }
-  }, [saving, hasUnsavedChanges, lastSaveTime, formData.status, formData.visibility, error, onSaveControlsChange, router]);
+  }, [saving, hasUnsavedChanges, lastSaveTime, formData.visibility, error, onSaveControlsChange, router]);
 
   const fetchProject = async () => {
     if (!projectId) return;
@@ -244,7 +237,6 @@ export function EnhancedProjectEditor({ projectId, mode, onSaveControlsChange }:
         description: projectData.description || '',
         briefOverview: projectData.briefOverview || '',
         tags: projectData.tags?.map((t: any) => t.name) || [],
-        status: projectData.status || 'DRAFT',
         visibility: projectData.visibility || 'PRIVATE',
         workDate: projectData.workDate ? new Date(projectData.workDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
         articleContent: projectData.articleContent?.content || '',
@@ -324,7 +316,6 @@ export function EnhancedProjectEditor({ projectId, mode, onSaveControlsChange }:
           description: projectData.description || '',
           briefOverview: projectData.briefOverview || '',
           tags: projectData.tags?.map((t: any) => t.name) || [],
-          status: projectData.status || 'DRAFT',
           visibility: projectData.visibility || 'PRIVATE',
           workDate: projectData.workDate ? new Date(projectData.workDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
           articleContent: projectData.articleContent?.content || '',

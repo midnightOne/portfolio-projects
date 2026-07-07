@@ -104,14 +104,14 @@ class PerformanceAnalyzer {
       {
         name: 'Projects List (Basic)',
         query: () => prisma.project.findMany({
-          where: { status: 'PUBLISHED', visibility: 'PUBLIC' },
+          where: { visibility: 'PUBLIC' },
           take: 20,
         }),
       },
       {
         name: 'Projects List (With Relations)',
         query: () => prisma.project.findMany({
-          where: { status: 'PUBLISHED', visibility: 'PUBLIC' },
+          where: { visibility: 'PUBLIC' },
           include: {
             tags: true,
             thumbnailImage: true,
@@ -124,7 +124,7 @@ class PerformanceAnalyzer {
         name: 'Projects with Tag Filter',
         query: () => prisma.project.findMany({
           where: {
-            status: 'PUBLISHED',
+            
             visibility: 'PUBLIC',
             tags: { some: { name: { in: ['React', 'TypeScript'] } } },
           },
@@ -136,7 +136,7 @@ class PerformanceAnalyzer {
         name: 'Project Search',
         query: () => prisma.project.findMany({
           where: {
-            status: 'PUBLISHED',
+            
             visibility: 'PUBLIC',
             OR: [
               { title: { contains: 'project', mode: 'insensitive' } },
@@ -150,7 +150,7 @@ class PerformanceAnalyzer {
         name: 'Single Project Detail',
         query: async () => {
           const project = await prisma.project.findFirst({
-            where: { status: 'PUBLISHED', visibility: 'PUBLIC' },
+            where: { visibility: 'PUBLIC' },
           });
           if (!project) return null;
           
@@ -221,7 +221,7 @@ class PerformanceAnalyzer {
           EXPLAIN (ANALYZE, BUFFERS) 
           SELECT p.id, p.title, p.slug 
           FROM projects p 
-          WHERE p.status = 'PUBLISHED' AND p.visibility = 'PUBLIC' 
+          WHERE p.visibility = 'PUBLIC' 
           ORDER BY p."viewCount" DESC 
           LIMIT 10
         `;
@@ -301,7 +301,7 @@ class PerformanceAnalyzer {
     query?: string;
   }) {
     const where: any = {
-      status: 'PUBLISHED',
+      
       visibility: 'PUBLIC',
     };
 
@@ -352,7 +352,7 @@ class PerformanceAnalyzer {
   private async simulateProjectDetailAPI() {
     // Get a random published project
     const project = await prisma.project.findFirst({
-      where: { status: 'PUBLISHED', visibility: 'PUBLIC' },
+      where: { visibility: 'PUBLIC' },
     });
 
     if (!project) return null;
@@ -372,7 +372,7 @@ class PerformanceAnalyzer {
       }),
       prisma.project.findMany({
         where: {
-          status: 'PUBLISHED',
+          
           visibility: 'PUBLIC',
           id: { not: project.id },
         },

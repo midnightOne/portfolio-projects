@@ -13,8 +13,6 @@ interface SaveControlsProps {
   lastSaveTime: Date | null;
   onSave: () => void;
   onBack: () => void;
-  status: 'DRAFT' | 'PUBLISHED';
-  onStatusChange: (status: 'DRAFT' | 'PUBLISHED') => void;
   visibility: 'PUBLIC' | 'PRIVATE';
   onVisibilityChange: (visibility: 'PUBLIC' | 'PRIVATE') => void;
   error?: string | null;

@@ -540,7 +540,6 @@ class ProjectContentProvider implements ContentSourceProvider {
         const { prisma } = await import('@/lib/prisma');
         const projectCount = await prisma.project.count({
           where: {
-            status: 'PUBLISHED',
             visibility: 'PUBLIC'
           }
         });
