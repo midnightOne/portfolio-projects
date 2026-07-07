@@ -874,8 +874,91 @@ export class ContentSearchService implements ContentProvider {
       }
     }
 
-    // If semantic search failed or returned few results, supplement with metadata search using raw SQL
-    if (results.length < limit / 2) {
+    // Full-text half (D29 hybrid retrieval): ALWAYS runs — exact keywords
+    // (project names, tech terms) must rank even when cosine similarity is weak.
+    // Fused with the semantic half via reciprocal-rank fusion below.
+    const semanticOrderedIds = new Set(results.map(r => r.id));
+    const fullTextRanked: string[] = [];
+    const fullTextRankValue = new Map<string, number>();
+    try {
+      const ftStart = Date.now();
+      const ftRows = await prisma.$queryRaw<Array<{ id: string; rank: number }>>`
+        SELECT c.id, ts_rank(c.search_vector, websearch_to_tsquery('english', ${query}))::float AS rank
+        FROM context_chunks c
+        WHERE c.search_vector @@ websearch_to_tsquery('english', ${query})
+          AND c.tier <= ${maxTier}
+        ORDER BY rank DESC
+        LIMIT ${limit}
+      `;
+      hybridTimings.fullTextSearchTime = Date.now() - ftStart;
+
+      const existingById = new Map(results.map(r => [r.id, r]));
+      const missingIds = ftRows.map(r => r.id).filter(id => !existingById.has(id));
+
+      if (missingIds.length > 0) {
+        const ftChunks = await prisma.contextChunk.findMany({
+          where: { id: { in: missingIds } },
+          include: { entity: true }
+        });
+        const ftChunkMap = new Map(ftChunks.map(chunk => [chunk.id, chunk]));
+        for (const id of missingIds) {
+          const chunk = ftChunkMap.get(id);
+          if (!chunk || !chunk.entity) continue;
+          if (!this._matchesFilters(chunk, filters)) continue;
+          if (!this._matchesScope(chunk, scope)) continue;
+          results.push({
+            id: chunk.id,
+            entityId: chunk.entityId,
+            entityType: chunk.entity.entityType,
+            entitySlug: chunk.entity.slug,
+            entityTitle: chunk.entity.title,
+            tier: chunk.tier,
+            chunkId: chunk.chunkId,
+            title: chunk.title,
+            content: chunk.content,
+            tokenCount: chunk.tokenCount,
+            similarity: 0, // replaced by the fused score below
+            metadata: chunk.metadata as any,
+            tags: chunk.entity.tags as string[],
+            technologies: chunk.entity.technologies as string[],
+            createdAt: chunk.createdAt
+          });
+        }
+      }
+      for (const row of ftRows) {
+        fullTextRanked.push(row.id);
+        fullTextRankValue.set(row.id, row.rank);
+      }
+    } catch (error) {
+      console.error('Full-text search failed (continuing with semantic-only):', error);
+    }
+
+    // Weighted union (D29): semantic hits KEEP their cosine similarity (the
+    // spread feeds importance-ranking and MMR unchanged); full-text-only hits —
+    // exact keywords the semantic half missed — slot in with a ts_rank-derived
+    // similarity in a strong band; items found by BOTH halves get a small
+    // agreement bonus. Deterministic, and natural-language ranking is untouched.
+    if (fullTextRanked.length > 0) {
+      const fusionStart = Date.now();
+      const maxRank = Math.max(...Array.from(fullTextRankValue.values()), 1e-9);
+      const AGREEMENT_BONUS = 0.05;
+      for (const r of results) {
+        if (semanticOrderedIds.has(r.id) && fullTextRankValue.has(r.id)) {
+          r.similarity = Math.min(0.99, r.similarity + AGREEMENT_BONUS);
+        } else if (!semanticOrderedIds.has(r.id) && fullTextRankValue.has(r.id)) {
+          // 0.55–0.90 band: above the metadata-fallback default, below a
+          // confident semantic top hit
+          const norm = (fullTextRankValue.get(r.id) as number) / maxRank;
+          r.similarity = 0.55 + 0.35 * norm;
+        }
+      }
+      results.sort((a, b) => b.similarity - a.similarity);
+      hybridTimings.fusionTime = Date.now() - fusionStart;
+    }
+
+    // Last resort: nothing from either half (e.g. embeddings unavailable AND no
+    // tsquery match) — fall back to ILIKE metadata search.
+    if (results.length === 0) {
       try {
         const metadataSearchStart = Date.now();
         const metadataResults = await this._performMetadataSearchRawSQL(
@@ -886,14 +969,7 @@ export class ContentSearchService implements ContentProvider {
           limit
         );
         hybridTimings.metadataSearchTime = Date.now() - metadataSearchStart;
-
-        // Time the result merging
-        const mergingStart = Date.now();
-        const existingIds = new Set(results.map(r => r.id));
-
         for (const result of metadataResults) {
-          if (existingIds.has(result.id)) continue;
-
           results.push({
             id: result.id,
             entityId: result.entityId,
@@ -912,8 +988,6 @@ export class ContentSearchService implements ContentProvider {
             createdAt: result.createdAt
           });
         }
-        hybridTimings.mergingTime = Date.now() - mergingStart;
-
       } catch (error) {
         console.error('Metadata search failed:', error);
       }
@@ -924,8 +998,9 @@ export class ContentSearchService implements ContentProvider {
       vectorSearch: hybridTimings.vectorSearchTime ? `${hybridTimings.vectorSearchTime}ms` : 'skipped',
       chunkFetch: hybridTimings.chunkFetchTime ? `${hybridTimings.chunkFetchTime}ms` : 'skipped',
       processing: hybridTimings.processingTime ? `${hybridTimings.processingTime}ms` : 'skipped',
+      fullTextSearch: hybridTimings.fullTextSearchTime !== undefined ? `${hybridTimings.fullTextSearchTime}ms` : 'skipped',
+      fusion: hybridTimings.fusionTime !== undefined ? `${hybridTimings.fusionTime}ms` : 'skipped',
       metadataSearch: hybridTimings.metadataSearchTime ? `${hybridTimings.metadataSearchTime}ms` : 'skipped',
-      merging: hybridTimings.mergingTime ? `${hybridTimings.mergingTime}ms` : 'skipped',
       totalResults: results.length
     });
 
