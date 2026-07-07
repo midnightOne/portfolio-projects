@@ -944,53 +944,8 @@ The platform has processed over $2M in transactions in its first year, with 99.9
   console.log(`Created ${await prisma.voiceProviderConfig.count()} voice provider configurations`);
   console.log(`Created ${await prisma.aIReflink.count()} AI reflinks`);
 
-  // Optional: Auto-index projects for immediate demo readiness
-  // This ensures the project indexing admin interface shows data right away
-  try {
-    console.log('🤖 Auto-indexing projects for AI features...');
-    
-    // Import the project indexer (only if available)
-    const { projectIndexer } = await import('../src/lib/services/project-indexer');
-    
-    // Index all created projects
-    const projects = [project1, project2, project3];
-    let indexedCount = 0;
-    
-    for (const project of projects) {
-      try {
-        await projectIndexer.indexProject(project.id);
-        indexedCount++;
-        console.log(`   ✓ Indexed: ${project.title}`);
-      } catch (error) {
-        console.log(`   ⚠ Failed to index ${project.title}:`, error instanceof Error ? error.message : 'Unknown error');
-      }
-    }
-    
-    console.log(`🎯 Auto-indexed ${indexedCount}/${projects.length} projects`);
-  } catch (error) {
-    console.log('ℹ️  Skipping auto-indexing (indexer not available during seed)');
-  }
-
-  // Seed hierarchical content system
-  try {
-    console.log('📥 Seeding hierarchical content system...');
-    const { ContentIngestionPipeline } = await import('../src/lib/services/content-ingestion');
-    const pipeline = new ContentIngestionPipeline();
-    
-    const results = await pipeline.ingestAllContent();
-    const successful = results.filter(r => r.success);
-    const failed = results.filter(r => !r.success);
-
-    console.log(`✅ Hierarchical content: ${successful.length} entities ingested successfully`);
-    if (failed.length > 0) {
-      console.log(`⚠️  Hierarchical content: ${failed.length} entities failed to ingest`);
-      failed.forEach(result => {
-        console.log(`   - ${result.entityType}:${result.slug} - ${result.error}`);
-      });
-    }
-  } catch (error) {
-    console.log('⚠️  Skipping hierarchical content seeding:', error instanceof Error ? error.message : 'Unknown error');
-  }
+  // Semantic ingestion is NOT run at seed time (D27/D37 — legacy pipelines removed).
+  // Ingest per-project via POST /api/admin/semantic/processing/start after seeding.
 }
 
 main()
