@@ -430,15 +430,6 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                             case 'focusElement':
                                 result = await this._openaiFocusElement(parameters);
                                 break;
-                            case 'fillFormField':
-                                result = await this._openaiFillFormField(parameters);
-                                break;
-                            case 'submitForm':
-                                result = await this._openaiSubmitForm(parameters);
-                                break;
-                            case 'animateElement':
-                                result = await this._openaiAnimateElement(parameters);
-                                break;
                             case 'ui_intent':
                                 result = await this._openaiUIIntent(parameters);
                                 break;
@@ -1191,19 +1182,7 @@ Navigation Flow:
         return await this._executeToolCallUnified('focusElement', parameters);
     }
 
-    // _openaiReportUIState method removed - deprecated tool
-
-    private async _openaiFillFormField(parameters: any): Promise<string> {
-        return await this._executeToolCallUnified('fillFormField', parameters);
-    }
-
-    private async _openaiSubmitForm(parameters: any): Promise<string> {
-        return await this._executeToolCallUnified('submitForm', parameters);
-    }
-
-    private async _openaiAnimateElement(parameters: any): Promise<string> {
-        return await this._executeToolCallUnified('animateElement', parameters);
-    }
+    // fillFormField/submitForm/animateElement removed (D18/D19, Phase 3 task 3.1)
 
     /**
      * Log tool call completion for monitoring

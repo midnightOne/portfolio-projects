@@ -27,10 +27,9 @@ jest.mock('@openai/agents/realtime', () => ({
 }));
 
 // Mock UI Navigation Tools
-jest.mock('../UINavigationTools', () => ({
+jest.mock('@/lib/ai/tools/client-tools', () => ({
+  ...jest.requireActual('@/lib/ai/tools/client-tools'),
   uiNavigationTools: {
-    navigateTo: jest.fn().mockResolvedValue({ success: true, message: 'Navigation successful' }),
-    showProjectDetails: jest.fn().mockResolvedValue({ success: true, message: 'Project shown' }),
     scrollIntoView: jest.fn().mockResolvedValue({ success: true, message: 'Scrolled to element' }),
     highlightText: jest.fn().mockResolvedValue({ success: true, message: 'Text highlighted' }),
     clearHighlights: jest.fn().mockResolvedValue({ success: true, message: 'Highlights cleared' })
@@ -82,8 +81,6 @@ describe('OpenAIRealtimeAdapter', () => {
           name: 'Portfolio Assistant',
           instructions: expect.stringContaining('You are a helpful AI assistant'),
           tools: expect.arrayContaining([
-            expect.objectContaining({ name: 'navigateTo' }),
-            expect.objectContaining({ name: 'showProjectDetails' }),
             expect.objectContaining({ name: 'scrollIntoView' }),
             expect.objectContaining({ name: 'highlightText' }),
             expect.objectContaining({ name: 'clearHighlights' }),

@@ -32,10 +32,7 @@ export {
   scrollIntoViewToolDefinition,
   highlightTextToolDefinition,
   clearHighlightsToolDefinition,
-  focusElementToolDefinition,
-  fillFormFieldToolDefinition,
-  submitFormToolDefinition,
-  animateElementToolDefinition
+  focusElementToolDefinition
 } from './client-tools';
 
 export {

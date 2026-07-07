@@ -330,7 +330,7 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
           throw new Error(`Client-side tool '${toolName}' cannot be executed in server environment`);
         }
 
-        const { uiNavigationTools } = await import('./UINavigationTools');
+        const { uiNavigationTools } = await import('@/lib/ai/tools/client-tools');
         const uiToolHandler = (uiNavigationTools as any)[toolName];
         
         if (typeof uiToolHandler === 'function') {

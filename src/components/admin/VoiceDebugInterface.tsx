@@ -864,7 +864,7 @@ function VoiceDebugContent() {
                   size="sm"
                   onClick={async () => {
                     try {
-                      const { uiNavigationTools } = await import('@/lib/voice/UINavigationTools');
+                      const { uiNavigationTools } = await import('@/lib/ai/tools/client-tools');
                       const result = await uiNavigationTools.scrollIntoView(
                         { selector: '#projects', behavior: 'smooth' },
                         `debug-session-${selectedProvider}`

@@ -19,7 +19,7 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
         uiManager.initialize();
         
         // Initialize UINavigationTools
-        const { uiNavigationTools } = await import('@/lib/voice/UINavigationTools');
+        const { uiNavigationTools } = await import('@/lib/ai/tools/client-tools');
         
         // Expose globally for debugging and integration tests
         if (typeof window !== 'undefined') {
