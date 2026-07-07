@@ -71,6 +71,8 @@ export interface TranscriptItem {
     toolArgs?: any;
     toolResult?: any;
     audioUrl?: string;
+    /** Internal reasoning/thinking trace, kept separate from the visible answer (D22 amendment). */
+    reasoning?: string;
   };
 }
 

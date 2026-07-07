@@ -789,6 +789,17 @@ function VoiceDebugContent() {
                             <p className="text-sm whitespace-pre-wrap">{item.content}</p>
                           )}
 
+                          {item.type === 'ai_response' && item.metadata?.reasoning && (
+                            <details className="mt-2">
+                              <summary className="text-xs text-muted-foreground cursor-pointer select-none">
+                                Reasoning (hidden by default — never spoken)
+                              </summary>
+                              <p className="text-xs text-muted-foreground whitespace-pre-wrap mt-1 pl-2 border-l-2 border-gray-300 dark:border-gray-600">
+                                {item.metadata.reasoning}
+                              </p>
+                            </details>
+                          )}
+
                           {item.metadata && (
                             <div className="mt-2 pt-2 border-t border-gray-200">
                               <div className="text-xs text-muted-foreground flex gap-3 flex-wrap">

@@ -84,6 +84,7 @@ export class GoogleLiveSerializer implements VoiceConfigSerializer<GoogleLiveCon
       responseModality: 'AUDIO',
       transcription: { input: true, output: true },
       maxSessionSeconds: 600,
+      enableReasoning: false,
       capabilities: ['streaming', 'interruption', 'toolCalling', 'realTimeAudio', 'voiceActivityDetection', 'customInstructions'],
       apiKeyEnvVar: 'GOOGLE_API_KEY',
     };
@@ -136,6 +137,12 @@ export class GoogleLiveSerializer implements VoiceConfigSerializer<GoogleLiveCon
           default: 600,
           minimum: 30,
           maximum: 3600,
+        },
+        enableReasoning: {
+          type: 'boolean',
+          title: 'Enable reasoning (thinking)',
+          description: 'Off by default for real-time voice (adds latency). When on, the reasoning trace is captured separately and stored/displayed as collapsible, never spoken.',
+          default: false,
         },
       },
     };

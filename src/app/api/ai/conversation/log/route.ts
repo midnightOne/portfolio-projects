@@ -96,7 +96,7 @@ interface ConversationLogResponse {
  * never stored here. Idempotent per adapter item id (retries are safe).
  */
 type PersistableEntry =
-  | { kind: 'transcript'; id?: string; type?: string; content?: string; timestamp?: string | Date; duration?: number }
+  | { kind: 'transcript'; id?: string; type?: string; content?: string; timestamp?: string | Date; duration?: number; reasoning?: string }
   | { kind: 'tool'; id?: string; toolName?: string; args?: unknown; result?: unknown; success?: boolean; executionTime?: number; timestamp?: string | Date };
 
 async function persistVoiceEntries(
@@ -134,6 +134,7 @@ async function persistVoiceEntries(
           metadata: {
             transcriptItemId: itemId,
             voiceData: entry.duration ? { duration: entry.duration } : undefined,
+            reasoning: entry.reasoning,
           },
         });
         persisted++;
@@ -312,6 +313,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           content: transcriptItem.content,
           timestamp: transcriptItem.timestamp || body.timestamp,
           duration: transcriptItem.metadata?.duration,
+          reasoning: transcriptItem.metadata?.reasoning,
         }]);
         console.log(`Individual transcript item received for session ${sessionId}:`, {
           provider,
@@ -494,6 +496,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           content: entry.data.content,
           timestamp: entry.data.timestamp || entry.timestamp,
           duration: entry.data.metadata?.duration,
+          reasoning: entry.data.metadata?.reasoning,
         });
       } else if (entry.type === 'tool_call' && entry.data?.phase === 'complete') {
         persistable.push({

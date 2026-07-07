@@ -28,6 +28,13 @@ import {
 import { BaseConversationalAgentAdapter, ConnectOptions } from './IConversationalAgentAdapter';
 import { GoogleLiveConfig } from '@/types/voice-config';
 
+// Global reference for debugging (temporary for testing, matches OpenAIRealtimeAdapter's pattern)
+let globalGoogleLiveAdapter: GoogleLiveAdapter | null = null;
+
+export function getGlobalGoogleLiveAdapter(): GoogleLiveAdapter | null {
+  return globalGoogleLiveAdapter;
+}
+
 interface GoogleSessionResponse {
   access_token: string;
   session_id: string;
@@ -102,6 +109,7 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
   private _pendingInputText = '';
   private _pendingOutputText = '';
   private _pendingOutputId: string | null = null;
+  private _pendingReasoningText = '';
 
   constructor() {
     const metadata: ProviderMetadata = {
@@ -113,6 +121,24 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
       quality: 'high'
     };
     super('google', metadata);
+
+    globalGoogleLiveAdapter = this;
+    if (typeof window !== 'undefined') {
+      (window as any).getGlobalGoogleLiveAdapter = () => globalGoogleLiveAdapter;
+    } else if (typeof globalThis !== 'undefined') {
+      (globalThis as any).getGlobalGoogleLiveAdapter = () => globalGoogleLiveAdapter;
+    }
+  }
+
+  /** Dev/debug only: inspect the playback pipeline state without ears. */
+  public getPlaybackDebugInfo(): { contextState: string | null; nextPlayTime: number; activeSourceCount: number; volume: number; muted: boolean } {
+    return {
+      contextState: this._playbackContext?.state ?? null,
+      nextPlayTime: this._nextPlayTime,
+      activeSourceCount: this._activeSources.length,
+      volume: this._volume,
+      muted: this._isMuted
+    };
   }
 
   async init(options: AdapterInitOptions): Promise<void> {
@@ -167,6 +193,14 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
   }
 
   async connect(options?: ConnectOptions): Promise<void> {
+    // Must run synchronously, before any `await`, so browsers associate the
+    // AudioContext with the click that invoked connect() — created lazily
+    // inside the (async) WebSocket message handler, it starts 'suspended'
+    // under autoplay policy and every scheduled buffer plays silently with
+    // no error. This is why audio worked for input (mic capture, gated by
+    // the getUserMedia permission grant instead) but never for output.
+    this._ensurePlaybackContext();
+
     if (options?.resumeFromSessionId) {
       this._conversationId = options.resumeFromSessionId;
       this._resumeSessionId = options.resumeFromSessionId;
@@ -335,6 +369,13 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
       for (const part of sc.modelTurn?.parts ?? []) {
         if (part.inlineData?.data) {
           this._playAudioChunk(part.inlineData.data);
+        } else if (part.thought && typeof part.text === 'string') {
+          // Internal reasoning trace (generationConfig.thinkingConfig) — arrives
+          // in its own serverContent messages (no outputTranscription alongside
+          // it), never the spoken/transcribed answer. Captured separately so it
+          // can be stored and displayed as labeled, collapsible reasoning rather
+          // than leaking into the visible response.
+          this._pendingReasoningText += part.text;
         } else if (typeof part.text === 'string' && !sc.outputTranscription) {
           // Fallback path (TEXT response modality / no transcription configured)
           this._pendingOutputId = this._pendingOutputId ?? uuidv4();
@@ -350,10 +391,16 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
           this._pendingInputText = '';
         }
         if (this._pendingOutputText.trim()) {
-          this._emitTranscript('ai_response', this._pendingOutputText, undefined, this._pendingOutputId ?? undefined);
+          this._emitTranscript(
+            'ai_response',
+            this._pendingOutputText,
+            this._pendingReasoningText.trim() ? { reasoning: this._pendingReasoningText.trim() } : undefined,
+            this._pendingOutputId ?? undefined
+          );
         }
         this._pendingOutputText = '';
         this._pendingOutputId = null;
+        this._pendingReasoningText = '';
         this._setSessionStatus(this._audioInputMode === 'text-only' ? 'idle' : 'listening');
       }
     }
@@ -467,18 +514,25 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
 
   // ---- Audio playback (serverContent.modelTurn inlineData -> speakers) ----
 
+  /** Must be called synchronously from a user-gesture call stack (see connect()). */
+  private _ensurePlaybackContext(): void {
+    if (this._playbackContext) return;
+    const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+    const ctx = new AudioContextCtor();
+    this._playbackContext = ctx;
+    const gain = ctx.createGain();
+    gain.gain.value = this._isMuted ? 0 : this._volume;
+    gain.connect(ctx.destination);
+    this._playbackGain = gain;
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(err => console.warn('Google Live playback AudioContext resume failed:', err));
+    }
+  }
+
   private _playAudioChunk(base64Data: string): void {
     try {
-      if (!this._playbackContext) {
-        const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
-        const ctx = new AudioContextCtor();
-        this._playbackContext = ctx;
-        const gain = ctx.createGain();
-        gain.gain.value = this._isMuted ? 0 : this._volume;
-        gain.connect(ctx.destination);
-        this._playbackGain = gain;
-      }
-      const ctx = this._playbackContext;
+      this._ensurePlaybackContext();
+      const ctx = this._playbackContext!;
       const pcm16 = new Int16Array(base64ToArrayBuffer(base64Data));
       const float32 = new Float32Array(pcm16.length);
       for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 0x8000;

@@ -48,6 +48,8 @@ export interface ConversationMessage {
         transcriptItemId?: string;
         /** Gateway request id (text path) — cross-reference to the AIUsageLog ledger row. */
         requestId?: string;
+        /** Internal reasoning/thinking trace, stored separately from `content` (D22 amendment) — never the spoken answer, rendered collapsed by default. */
+        reasoning?: string;
     };
 }
 
@@ -152,6 +154,8 @@ export interface ConversationMetadata {
 
 export interface MessageMetadata {
     processingTime?: number;
+    /** Internal reasoning/thinking trace, stored separately from the message content (D22 amendment). */
+    reasoning?: string;
     voiceData?: {
         duration?: number;
         audioUrl?: string;
@@ -348,6 +352,7 @@ export class ConversationHistoryManager {
                             contextUsed: message.metadata?.contextUsed,
                             transcriptItemId: message.metadata?.transcriptItemId,
                             requestId: message.metadata?.requestId,
+                            reasoning: message.metadata?.reasoning,
                             navigationCommands: message.metadata?.navigationCommands ? JSON.stringify(message.metadata.navigationCommands) : undefined,
                             performanceMetrics: {
                                 totalProcessingTime: message.metadata?.processingTime

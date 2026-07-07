@@ -203,6 +203,17 @@ export function GoogleLiveConfigPanel({
             <HelpText>Base system instructions — the session mint route appends tool-usage and language-policy guidance</HelpText>
           </div>
 
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>Enable Reasoning (Thinking)</Label>
+              <HelpText>Off by default — real-time voice favors low latency. When on, the reasoning trace is captured separately and stored/displayed as collapsible, never spoken aloud.</HelpText>
+            </div>
+            <Switch
+              checked={config.enableReasoning}
+              onCheckedChange={(checked) => handleConfigChange('enableReasoning', checked)}
+            />
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Response Modality</Label>

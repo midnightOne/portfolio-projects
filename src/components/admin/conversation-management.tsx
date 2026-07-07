@@ -274,6 +274,7 @@ export default function ConversationManagement() {
                     <p><strong>Time:</strong> ${new Date(step.timestamp).toLocaleString()}</p>
                     <p><strong>Content:</strong></p>
                     <div>${step.message.content}</div>
+                    ${step.message.metadata?.reasoning ? `<details><summary>Reasoning (hidden by default — never spoken)</summary><pre>${step.message.metadata.reasoning}</pre></details>` : ''}
                     ${step.debugInfo ? `
                       <div class="debug">
                         <h4>Debug Info:</h4>

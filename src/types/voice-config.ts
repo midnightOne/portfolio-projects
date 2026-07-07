@@ -214,6 +214,17 @@ export interface GoogleLiveConfig extends BaseVoiceProviderConfig {
   };
   /** Session duration cap in seconds, enforced via ephemeral-token expiry at mint. */
   maxSessionSeconds: number;
+  /**
+   * Thinking/reasoning mode (owner, 2026-07-07). Defaults OFF for real-time
+   * voice: thinking adds latency and, on this model, its trace only reliably
+   * separates from the spoken answer via the `thought` part flag — leaving it
+   * on is a deliberate opt-in, not the voice-first default. When false, the
+   * mint route sets `thinkingConfig.thinkingBudget: 0` (fully disabled); when
+   * true, dynamic thinking + `includeThoughts` so the trace is captured and
+   * stored as separate, collapsible `metadata.reasoning` rather than displayed
+   * inline with the answer.
+   */
+  enableReasoning: boolean;
   capabilities: VoiceCapability[];
   apiKeyEnvVar?: string;
   baseUrlEnvVar?: string;

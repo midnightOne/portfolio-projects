@@ -120,6 +120,12 @@ async function mintEphemeralToken(
         ...(config.responseModality === 'AUDIO'
           ? { speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: config.voice } } } }
           : {}),
+        // Off by default for real-time voice: thinking adds latency and its
+        // trace only separates from the spoken answer via the `thought` part
+        // flag on the adapter side (D22 amendment, owner 2026-07-07).
+        thinkingConfig: config.enableReasoning
+          ? { includeThoughts: true }
+          : { thinkingBudget: 0 },
       },
       systemInstruction: { parts: [{ text: systemInstructions }] },
       tools: functionDeclarations.length ? [{ functionDeclarations }] : undefined,
