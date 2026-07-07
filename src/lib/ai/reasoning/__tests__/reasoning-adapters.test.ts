@@ -27,7 +27,7 @@ jest.mock('openai', () => ({
 }));
 
 import { AnthropicReasoningAdapter } from '../anthropic-adapter';
-import { GoogleReasoningAdapter } from '../google-adapter';
+import { GoogleReasoningAdapter, stripUnsupportedSchemaKeys } from '../google-adapter';
 import { OpenAIReasoningAdapter } from '../openai-adapter';
 import { getReasoningAdapterForModel } from '../index';
 
@@ -209,6 +209,65 @@ describe('OpenAIReasoningAdapter', () => {
     expect(result.content).toBe('Answer.');
     expect(result.usage).toEqual({ inputTokens: 20, outputTokens: 8 });
     expect(result.provider).toBe('openai');
+  });
+});
+
+describe('stripUnsupportedSchemaKeys', () => {
+  it('strips additionalProperties, $schema, examples, default', () => {
+    const out = stripUnsupportedSchemaKeys({
+      type: 'object',
+      additionalProperties: false,
+      $schema: 'http://json-schema.org/draft-07/schema#',
+      properties: { q: { type: 'string', examples: ['x'], default: 'y' } },
+    });
+    expect(out.additionalProperties).toBeUndefined();
+    expect(out.$schema).toBeUndefined();
+    expect((out.properties as any).q.examples).toBeUndefined();
+    expect((out.properties as any).q.default).toBeUndefined();
+  });
+
+  it('coerces numeric enum values to strings regardless of declared type', () => {
+    const out = stripUnsupportedSchemaKeys({
+      type: 'object',
+      properties: { maxTier: { type: 'number', enum: [1, 2, 3] } },
+    });
+    expect((out.properties as any).maxTier.enum).toEqual(['1', '2', '3']);
+  });
+
+  it('coerces numeric enum values nested inside array items', () => {
+    const out = stripUnsupportedSchemaKeys({
+      type: 'object',
+      properties: { includeTiers: { type: 'array', items: { type: 'number', enum: [0, 1, 2, 3] } } },
+    });
+    expect((out.properties as any).includeTiers.items.enum).toEqual(['0', '1', '2', '3']);
+  });
+
+  // Regression (2026-07-07): Gemini Live accepted ui_intent's `oneOf` union at
+  // token-mint time but crashed server-side (WS close 1011) the moment the
+  // model tried to construct a call against it — reproduced live via the C0
+  // fake-mic driver against a real homepage session (reliably, not a flake).
+  it('flattens a oneOf union of object variants into one permissive schema', () => {
+    const out = stripUnsupportedSchemaKeys({
+      type: 'object',
+      properties: {
+        target: {
+          type: 'object',
+          oneOf: [
+            { type: 'object', properties: { type: { type: 'string', enum: ['project'] }, id: { type: 'string' } }, required: ['type', 'id'] },
+            { type: 'object', properties: { type: { type: 'string', enum: ['section'] }, id: { type: 'string' }, projectId: { type: 'string' } }, required: ['type', 'id'] },
+            { type: 'object', properties: { type: { type: 'string', enum: ['route'] }, id: { type: 'string' } }, required: ['type', 'id'] },
+          ],
+        },
+      },
+    });
+    const target = (out.properties as any).target;
+    expect(target.oneOf).toBeUndefined();
+    expect(target.type).toBe('object');
+    // Union of all variant properties, same-key enums merged rather than overwritten
+    expect(Object.keys(target.properties).sort()).toEqual(['id', 'projectId', 'type']);
+    expect(target.properties.type.enum.sort()).toEqual(['project', 'route', 'section']);
+    // Only fields every variant required survive (the shared discriminator + id)
+    expect(target.required.sort()).toEqual(['id', 'type']);
   });
 });
 

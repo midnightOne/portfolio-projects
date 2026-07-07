@@ -65,33 +65,50 @@ client-side into one row per turn), `content_search` and `ui_intent` tool calls 
 `toolResponse.functionResponses`, and full persistence (leg-tagged messages, `[tool:name] ok` rows with
 `debugInfo`, one assistant row per finalized turn) — verified via `GET /api/ai/conversation/log?sessionId=`.
 
-**Real gaps found (this session, not hypothetical):**
-- **Argument schema drift.** Asked to navigate via `ui_intent`, the model called it with
-  `{ target: { route: 'projects' } }` instead of the documented `{ target: { type: 'route', id: 'projects' } }`.
-  The tool executed "successfully" (empty result, no error) but the shape mismatch means the call is a
-  silent no-op rather than a real navigation — worse than an explicit failure. OpenAI/ElevenLabs did not
-  exhibit this in prior drills. Candidate fixes for D41: tighter `enum`/`required` constraints in the
-  function-declaration schema (Gemini's dialect already strips `additionalProperties`, so schemas are
-  looser than intended by the time they reach the model), or a thin server-side shape-normalizer for
-  `ui_intent` args specifically before dispatch.
-- **Native-audio "thinking" narration leaks into the spoken/transcribed response.** Rather than a direct
-  conversational answer, `outputTranscription` carried the model's step-by-step reasoning verbatim
-  ("**Initiating the Search**... I've set a `maxTier=3`..."), which is not something a visitor should hear
-  a portfolio narrator say. This looks like a "thinking" mode default for this preview model rather than
-  an adapter bug — worth an explicit `thinkingConfig` (if the Live API exposes one for this model) or a
-  stronger system-instruction constraint ("never narrate your tool-use process") before this ships past
-  internal testing.
+**Real bugs found and fixed (this session and the next, via live-fire + a human listening to the
+result — several only reproduced on the actual homepage with real portfolio UI state, not the
+isolated admin debug page):**
+- **`oneOf` union schemas crash the Live API server-side.** `ui_intent`'s polymorphic `target`
+  (`{type:'project'|'section'|'route'|'modal'|'element', ...}`) is declared as a JSON-Schema `oneOf` of
+  five variants. Gemini's Schema dialect has no `oneOf`/`anyOf` support: the malformed declaration was
+  *accepted* at token-mint time but crashed the session (WS close **1011 "Internal error occurred"**)
+  the instant the model tried to construct a call against it — reproduced reliably (not a flake) via the
+  C0 driver on the live homepage. This is also what caused the "argument schema drift" first suspected as
+  a model weakness (`{route:'projects'}`, `{sectionId:'projects'}` guesses) — once the schema was fixed
+  the model emitted the exact correct shape (`{type:'section', id:'projects'}`) with no further drift.
+  **Fixed**: `stripUnsupportedSchemaKeys` (`lib/ai/reasoning/google-adapter.ts`) now flattens `oneOf`/`anyOf`
+  into one permissive merged object schema (properties unioned, same-key enums combined, `required` reduced
+  to the intersection across variants — the shared `type`/`id` discriminator). Covered by unit tests in
+  `reasoning-adapters.test.ts`. **Any future tool schema using `oneOf`/`anyOf` for Gemini needs this same
+  flattening — grep for it before adding one.**
+- **No audio output** (owner-reported from actually listening, not caught by any automated drill).
+  `_playAudioChunk` created the playback `AudioContext` lazily inside the async WS message handler —
+  outside any user-gesture call stack, so browser autoplay policy left it `'suspended'`: every buffer was
+  scheduled silently with no error thrown. Input worked (mic capture is gated by the separate getUserMedia
+  permission grant), output never did. **Fixed**: the context is now created + resumed as the first
+  synchronous statement in `connect()`. Lesson for any future raw-Web-Audio-API playback (not an
+  `<audio>` element or WebRTC track): the context must be born inside the click handler's call stack.
+- **Internal reasoning leaking into the visible/persisted answer.** Gemini emits its thinking trace as
+  `part.thought === true` entries in `serverContent.modelTurn.parts`, in messages with no
+  `outputTranscription` alongside them. The adapter's fallback text-accumulation path only checked
+  `!sc.outputTranscription`, so it wrongly captured thought text as the spoken answer — this produced
+  narration like `"**Initiating the Search**... I've set a maxTier=3..."` instead of a direct response.
+  **Fixed**: thought parts route to a separate accumulator, stored as `metadata.reasoning` (never mixed
+  into `content`), rendered as a collapsed `<details>` in both the live debug transcript and admin replay.
+  New `GoogleLiveConfig.enableReasoning` (default **false**, real-time voice favors latency): off sets
+  `thinkingConfig.thinkingBudget: 0` at mint (disables thinking at the source); on sets `includeThoughts: true`.
 - **`enum` values must be strings regardless of the property's declared `type`.** Gemini's Schema proto
   enum field is `repeated string`; two registry tools (`content_search.maxTier`, `content_get.includeTiers`)
-  declare `type: 'number'` with a numeric `enum`. Fixed in the shared `stripUnsupportedSchemaKeys` sanitizer
-  (`lib/ai/reasoning/google-adapter.ts`, also used by `UnifiedToolRegistry.getGoogleToolsArray()`) by
-  coercing enum array values to strings — otherwise `auth_tokens.create`/`generateContent` reject the whole
+  declare `type: 'number'` with a numeric `enum`. **Fixed** in the same `stripUnsupportedSchemaKeys`
+  sanitizer by coercing enum array values to strings — otherwise `auth_tokens.create` rejects the whole
   tool declaration with a 400.
 
 **Not run:** cross-provider resume onto/from Gemini (5b.4 precedent: OpenAI↔OpenAI exercised the resume
 mechanics; Gemini's disruption-watcher/auto-reconnect was not built in this pass — task 6 scope was the
 adapter + admin config + tool-calling smoke test, not full D49 parity). Audio *quality* (voice naturalness,
-latency feel) needs a human listener; turn mechanics are covered by the driver above.
+latency feel) was owner-verified by listening; the WS-close-1011/schema findings above came from that same
+listen, not from an automated check — worth remembering that some classes of bug only surface with a human
+in the loop or by testing against real UI state (see the homepage fake-mic drill note in task 9).
 
 ## 3. Session lifecycle
 

@@ -136,10 +136,51 @@ function safeParseJson(raw: string): unknown {
 }
 
 /**
+ * Merge a `oneOf`/`anyOf` union of object variants into one permissive object
+ * schema: properties are unioned (same-key enums combined rather than one
+ * overwriting another), `required` is the intersection across variants (only
+ * fields every variant needs — e.g. a shared `type` discriminator).
+ */
+function flattenUnion(node: Record<string, unknown>, variants: unknown[]): Record<string, unknown> {
+  const mergedProps: Record<string, any> = {};
+  let commonRequired: Set<string> | null = null;
+
+  for (const variant of variants) {
+    if (!variant || typeof variant !== 'object') continue;
+    const v = variant as Record<string, unknown>;
+    const props = (v.properties ?? {}) as Record<string, any>;
+    for (const [k, propSchema] of Object.entries(props)) {
+      const existing = mergedProps[k];
+      if (existing && Array.isArray(existing.enum) && Array.isArray(propSchema?.enum)) {
+        existing.enum = Array.from(new Set([...existing.enum, ...propSchema.enum]));
+      } else if (!existing) {
+        mergedProps[k] = { ...propSchema };
+      }
+    }
+    const req = new Set((v.required as string[] | undefined) ?? []);
+    commonRequired = commonRequired === null ? req : new Set([...commonRequired].filter(x => req.has(x)));
+  }
+
+  const { oneOf: _oneOf, anyOf: _anyOf, ...rest } = node;
+  return {
+    ...rest,
+    type: 'object',
+    properties: mergedProps,
+    required: Array.from(commonRequired ?? []),
+  };
+}
+
+/**
  * Gemini's schema dialect rejects some JSON-Schema keys (e.g. additionalProperties,
  * $schema), and its `enum` field is `repeated string` — numeric enums (e.g. a
  * `maxTier` param typed `enum: [1, 2, 3]`) must be coerced to strings or the
  * auth_tokens/generateContent call fails with "Invalid value ... (TYPE_STRING)".
+ * It also has no `oneOf`/`anyOf` support — the Live API accepted a `oneOf` union
+ * (ui_intent's polymorphic `target`) at token-mint time but crashed server-side
+ * (WS close 1011 "Internal error") the moment the model tried to construct a
+ * call against it, so unions are flattened into one permissive object schema
+ * instead of rejected outright — client-side validation still narrows per
+ * target.type afterward, this only loosens what the model itself sees.
  */
 export function stripUnsupportedSchemaKeys(schema: Record<string, unknown>): Record<string, unknown> {
   const UNSUPPORTED = new Set(['additionalProperties', '$schema', 'examples', 'default']);
@@ -148,8 +189,13 @@ export function stripUnsupportedSchemaKeys(schema: Record<string, unknown>): Rec
       return key === 'enum' ? node.map(v => String(v)) : node.map(v => walk(v));
     }
     if (node && typeof node === 'object') {
+      let obj = node as Record<string, unknown>;
+      const union = (obj.oneOf ?? obj.anyOf) as unknown[] | undefined;
+      if (Array.isArray(union)) {
+        obj = flattenUnion(obj, union);
+      }
       const out: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(node)) {
+      for (const [k, v] of Object.entries(obj)) {
         if (UNSUPPORTED.has(k)) continue;
         out[k] = walk(v, k);
       }

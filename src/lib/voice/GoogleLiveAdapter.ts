@@ -301,12 +301,19 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
         reject(connectionError);
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         clearTimeout(timeout);
+        console.warn(`Google Live WebSocket closed: code=${event.code} reason=${event.reason || '(none)'}`);
         if (this._connectionStatus === 'connected') {
-          this._logConnectionEvent('session_end', { endReason: 'provider_closed' });
+          this._logConnectionEvent('session_end', { endReason: 'provider_closed', closeCode: event.code, closeReason: event.reason });
+          this._logEvent('error', `Google Live connection closed unexpectedly (code ${event.code})`, { code: event.code, reason: event.reason });
           this._setConnectionStatus('disconnected');
-          this._handleConnectionEvent({ type: 'disconnected', provider: 'google', timestamp: new Date() });
+          this._handleConnectionEvent({
+            type: 'disconnected',
+            provider: 'google',
+            error: event.code !== 1000 ? `Connection closed (code ${event.code}): ${event.reason || 'no reason given'}` : undefined,
+            timestamp: new Date()
+          });
         }
       };
     });

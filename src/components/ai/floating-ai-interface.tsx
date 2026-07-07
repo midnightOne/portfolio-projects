@@ -1181,7 +1181,7 @@ export function FloatingAIInterface({
               {/* Provider Indicator (for premium users) */}
               {isFeatureEnabled('voice_ai') && activeProvider && (
                 <div className="text-xs text-muted-foreground bg-muted/20 px-2 py-1 rounded-full">
-                  {activeProvider === 'openai' ? 'GPT' : 'EL'}
+                  {activeProvider === 'openai' ? 'GPT' : activeProvider === 'google' ? 'GML' : 'EL'}
                 </div>
               )}
 
