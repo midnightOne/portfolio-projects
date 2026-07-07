@@ -58,7 +58,9 @@ async function handleGET(request: NextRequest, ctx: GatewayContext) {
     const reflinkId = searchParams.get('reflinkId');
     const requestedAgentId = searchParams.get('agentId');
     const requestedVoiceId = searchParams.get('voiceId');
-    
+    // D49 5b.4: cross-provider resume — brief this leg from the shared store
+    const resumeSessionId = searchParams.get('resumeSessionId');
+
     // Load configuration from ClientAIModelManager
     const clientAIManager = getClientAIModelManager();
     let config: ElevenLabsConfig;
@@ -99,6 +101,21 @@ async function handleGET(request: NextRequest, ctx: GatewayContext) {
       reflinkId || undefined,
       'Initial conversation setup'
     );
+
+    // D49 5b.3/5b.4: harness briefing for a resumed conversation (same
+    // buildResumeBriefing as the OpenAI mint — one code path, any provider)
+    if (resumeSessionId) {
+      try {
+        const { buildResumeBriefing } = await import('@/lib/ai/resume-briefing');
+        const briefing = await buildResumeBriefing(resumeSessionId);
+        if (briefing) {
+          promptData.agent_prompt += briefing;
+          promptData.first_message = ''; // no fresh-session greeting on resume
+        }
+      } catch (error) {
+        console.error('Failed to build resume briefing (continuing without):', error);
+      }
+    }
 
     // Get all tool definitions from unified registry (no duplicates)
     const allToolDefinitions = unifiedToolRegistry.getAllToolDefinitions();

@@ -39,6 +39,8 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
   private _reconnectAttempts: number = 0;
   private _maxReconnectAttempts: number = 3;
   private _conversationId: string | null = null;
+  /** D49: session id being resumed — forwarded to the token route for the harness briefing. */
+  private _resumeSessionId: string | null = null;
   private _isRecording: boolean = false;
 
   constructor() {
@@ -195,6 +197,14 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
         'Text-only sessions are not supported on the ElevenLabs provider',
         'elevenlabs'
       );
+    }
+
+    // D49 cross-provider resume: adopt the interrupted conversation's session id
+    // so history continues in the same conversation; the token route briefs
+    // this leg via resumeSessionId.
+    if (options?.resumeFromSessionId) {
+      this._conversationId = options.resumeFromSessionId;
+      this._resumeSessionId = options.resumeFromSessionId;
     }
 
     try {
@@ -732,8 +742,17 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
     });
   }
 
+  /** D49: the logical-conversation session id this adapter writes history under. */
+  public getConversationSessionId(): string | null {
+    return this._conversationId;
+  }
+
   private async _getConversationToken(): Promise<ElevenLabsTokenResponse> {
-    const response = await fetch('/api/ai/elevenlabs/token', {
+    const tokenUrl = new URL('/api/ai/elevenlabs/token', window.location.origin);
+    if (this._resumeSessionId) {
+      tokenUrl.searchParams.set('resumeSessionId', this._resumeSessionId);
+    }
+    const response = await fetch(tokenUrl.toString(), {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',

@@ -503,8 +503,11 @@ model AIConversation {
   totalCost     Decimal                 @default(0.0000) @map("total_cost") @db.Decimal(10, 4)
   startedAt     DateTime                @default(now()) @map("started_at")
   lastMessageAt DateTime?               @map("last_message_at")
+  /// D49 latest-state snapshot: {instructions?, tools?, provider?, modelAlias?, nodeId? (D47 later), updatedAt}
+  latestState   Json?                   @map("latest_state")
   metadata      Json                    @default("{}")
   messages      AIConversationMessage[]
+  legs          AIConversationLeg[]
   reflink       AIReflink?              @relation(fields: [reflinkId], references: [id])
 
   @@index([reflinkId])
@@ -513,9 +516,33 @@ model AIConversation {
   @@map("ai_conversations")
 }
 
+/// D49: one provider session ("leg") of a logical conversation. A conversation
+/// may span several legs across providers/models; markers in the message stream
+/// record disruptions and resumes.
+model AIConversationLeg {
+  id                String         @id @default(cuid())
+  conversationId    String         @map("conversation_id")
+  provider          String
+  modelAlias        String?        @map("model_alias")
+  modelId           String?        @map("model_id")
+  providerSessionId String?        @map("provider_session_id")
+  startedAt         DateTime       @default(now()) @map("started_at")
+  endedAt           DateTime?      @map("ended_at")
+  /// user_disconnect | disruption | provider_switch | duration_cap | error | superseded
+  endReason         String?        @map("end_reason")
+  metadata          Json           @default("{}")
+  conversation      AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([startedAt])
+  @@map("ai_conversation_legs")
+}
+
 model AIConversationMessage {
   id             String         @id @default(cuid())
   conversationId String         @map("conversation_id")
+  /// D49: which provider leg produced this message (null = pre-legs rows / text path)
+  legId          String?        @map("leg_id")
   role           String
   content        String
   tokensUsed     Int?           @map("tokens_used")
@@ -527,6 +554,7 @@ model AIConversationMessage {
   conversation   AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@index([conversationId])
+  @@index([legId])
   @@index([timestamp])
   @@index([role])
   @@map("ai_conversation_messages")

@@ -52,12 +52,26 @@ export async function GET(request: NextRequest) {
         lastMessageAt: conversation.lastMessageAt,
         messageCount: conversation.messageCount,
         totalTokens: conversation.totalTokens,
-        totalCost: conversation.totalCost
+        totalCost: conversation.totalCost,
+        latestState: conversation.latestState ?? null
       },
+      // D49 5b.2: provider legs — a multi-leg conversation reads as one timeline
+      legs: (conversation.legs ?? []).map((leg) => ({
+        id: leg.id,
+        provider: leg.provider,
+        modelAlias: leg.modelAlias,
+        modelId: leg.modelId,
+        startedAt: leg.startedAt,
+        endedAt: leg.endedAt,
+        endReason: leg.endReason
+      })),
       timeline: conversation.messages.map((msg, index) => ({
         step: index + 1,
         timestamp: msg.timestamp,
-        type: msg.role === 'user' ? 'input' : 'response',
+        type: (msg.metadata as any)?.markerType
+          ? 'marker'
+          : msg.role === 'user' ? 'input' : msg.role === 'system' ? 'system' : 'response',
+        legId: msg.legId ?? null,
         message: {
           id: msg.id,
           role: msg.role,

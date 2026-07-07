@@ -30,6 +30,8 @@ interface ConversationalAgentContextType {
   // Connection management
   connect: (options?: ConnectOptions) => Promise<void>;
   disconnect: () => Promise<void>;
+  /** D49: resume the current conversation on another (or the same) provider. */
+  resumeOnProvider: (provider: VoiceProvider, options?: ConnectOptions) => Promise<void>;
   isConnected: boolean;
   audioInputMode: AudioInputMode | null;
   
@@ -126,8 +128,10 @@ export function ConversationalAgentProvider({
   });
 
   // Refs for cleanup
-  const initializationRef = useRef<Promise<void> | null>(null);
+  const initializationRef = useRef<Promise<IConversationalAgentAdapter | null> | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
+  /** Live adapter for event handlers (state is stale inside useCallback([], …) closures). */
+  const adapterRef = useRef<IConversationalAgentAdapter | null>(null);
 
   // Register adapters on mount
   useEffect(() => {
@@ -240,17 +244,16 @@ export function ConversationalAgentProvider({
   /**
    * Initialize voice provider
    */
-  const initializeProvider = async (provider: VoiceProvider) => {
+  const initializeProvider = async (provider: VoiceProvider): Promise<IConversationalAgentAdapter | null> => {
     console.log('initializeProvider called with:', provider);
-    
+
     // Prevent multiple simultaneous initializations
     if (initializationRef.current) {
       console.log('Already initializing, waiting...');
-      await initializationRef.current;
-      return;
+      return await initializationRef.current;
     }
 
-    const initPromise = (async () => {
+    const initPromise = (async (): Promise<IConversationalAgentAdapter | null> => {
       try {
         console.log('Starting voice provider initialization...');
         setLastError(null);
@@ -296,6 +299,7 @@ export function ConversationalAgentProvider({
         
         // Update state
         setCurrentAdapter(adapter);
+        adapterRef.current = adapter;
         setActiveProvider(provider);
         setAvailableTools(adapter.getAvailableTools());
         setIsInitialized(true);
@@ -324,25 +328,27 @@ export function ConversationalAgentProvider({
         };
 
         console.log(`ConversationalAgentProvider: Initialized with ${provider} provider`);
-        
+        return adapter;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown initialization error';
         setLastError(errorMessage);
         setIsInitialized(false);
         console.error('Failed to initialize conversational agent:', error);
-        
+
         // Update error state
         setVoiceAgentState(prev => ({
           ...prev,
           lastError: errorMessage,
           errorCount: prev.errorCount + 1
         }));
+        return null;
       }
     })();
 
     initializationRef.current = initPromise;
-    await initPromise;
+    const adapter = await initPromise;
     initializationRef.current = null;
+    return adapter;
   };
 
   /**
@@ -361,6 +367,11 @@ export function ConversationalAgentProvider({
     setIsConnected(event.type === 'connected');
     if (event.type === 'disconnected' || event.type === 'error') {
       setAudioInputMode(null);
+    }
+    // D49: the adapter can reconnect internally (auto-resume) — refresh the
+    // input mode from the live adapter instead of leaving the pre-drop value.
+    if (event.type === 'connected' && adapterRef.current) {
+      setAudioInputMode(adapterRef.current.getAudioInputMode());
     }
 
     if (event.error) {
@@ -522,8 +533,31 @@ export function ConversationalAgentProvider({
    */
   const disconnect = async () => {
     if (!currentAdapter) return;
-    
+
     await currentAdapter.disconnect();
+  };
+
+  /**
+   * D49 5b.4: resume the current logical conversation on another (or the same)
+   * provider — the deliberate-switch trigger of the one resume code path. The
+   * new leg is briefed by the mint route from the conversation store.
+   */
+  const resumeOnProvider = async (provider: VoiceProvider, options?: ConnectOptions) => {
+    const sessionId = currentAdapter?.getConversationSessionId?.() ?? null;
+    if (!sessionId) {
+      throw new Error('No active conversation to resume');
+    }
+    if (currentAdapter && isConnected) {
+      await currentAdapter.disconnect();
+    }
+    const adapter = provider === activeProvider
+      ? currentAdapter
+      : await initializeProvider(provider);
+    if (!adapter) {
+      throw new Error(`Failed to initialize ${provider} for resume`);
+    }
+    await adapter.connect({ ...(options ?? {}), resumeFromSessionId: sessionId });
+    setAudioInputMode(adapter.getAudioInputMode());
   };
 
   /**
@@ -662,6 +696,7 @@ export function ConversationalAgentProvider({
     // Connection management
     connect,
     disconnect,
+    resumeOnProvider,
     isConnected,
     audioInputMode,
 

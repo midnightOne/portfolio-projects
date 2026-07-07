@@ -183,13 +183,36 @@ Findings from the Phase 3 session that the manifest/ledgers did not predict:
 16. **OpenAI Realtime's connect-time `response.create` (no input, no language
     pin in instructions) greets in a random language** (observed German, then
     Arabic on consecutive sessions), and the conversation tends to stick to it.
-    Feeds ai-assistant 5d (start frame should pin the response language) — not
-    patched here.
+    *Fixed same day (owner request): a strict LANGUAGE POLICY block (English by
+    default, switch only on explicit request) is appended in the mint route —
+    greeting and answers verified English across subsequent drills.*
+17. **The SDK's history items carry `itemId`, not `id`** — the adapter's
+    `(item as any).id || 'item-'+index` fallback meant EVERY item was keyed by
+    index, so after a D49 resume the new session's history (indexes restarting
+    at 0) collided with already-processed ids and the live transcript froze
+    (owner-observed). Real `itemId`s are now used (index fallback is
+    leg-epoch-scoped). Same fix surfaced NAV_CONTEXT frames rendering/persisting
+    as "User" rows — now filtered from transcript + persistence.
+18. **Closing a RealtimeSession stops the tracks of a caller-supplied
+    MediaStream** — after a resume the D53 driver's emulated mic was dead
+    (`readyState: 'ended'`) and the new leg was deaf. The transport now receives
+    a clone; the driver's original survives any number of legs.
+19. **Voice tool calls routed through the generic branch (content_search,
+    content_get, …) emitted no tool_call/tool_result transcript items** — the
+    admin live transcript showed only wrapper-routed tools (ui_describe et al.)
+    while the store got everything (owner-observed "tool calls missing"). All
+    tools now route through `_executeToolCallUnified`. Dark-mode transcript
+    readability fixed in the same pass (explicit dark: variants).
 
 **HOLDs still standing (do not delete before their named tasks):**
-`connectionDiagnostics.ts` (ai-assistant 5b.3) ·
-`conversation-replay.tsx` (5b.2) · `reflink-status-indicator.tsx` (access-and-cost 8) ·
-`VoiceConnectionTester.tsx` (ai-assistant 6 / ui-system 1.2) · `config-validation.ts` (ai-assistant 6).
+`reflink-status-indicator.tsx` (access-and-cost 8) ·
+`VoiceConnectionTester.tsx` (ai-assistant 6 / ui-system 1.2) · `config-validation.ts` (ai-assistant 6) ·
+`connectionDiagnostics.ts` (inspected at 5b.3 2026-07-07: pre-flight test suite, no heartbeat/disruption
+logic to harvest — D49 detection was built from adapter peer-connection polling instead; the file is
+only imported by `VoiceConnectionTester.tsx`, so its delete/keep decision rides task 6 with the tester).
+**Resolved 2026-07-07 (Phase 4 Block C):** `conversation-replay.tsx` — DELETED at 5b.2 (step-through
+playback gimmick, no marker/leg support; replay markers render in the mounted `conversation-management.tsx`
+popup; nothing harvested).
 `lib/ai/extensions/` was deleted per section F (no spec support).
 **Resolved 2026-07-07 (Phase 4 Block A):** `lib/ai/editors/*` — DELETED at ai-admin 4.3 (never wired;
 the Tiptap AI panel calls the endpoints directly; adapter-layer migration made the server side

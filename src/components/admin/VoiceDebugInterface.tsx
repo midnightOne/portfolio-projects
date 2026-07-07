@@ -699,15 +699,15 @@ function VoiceDebugContent() {
                   <div className="space-y-3">
                     {state.transcript.map((item, index) => (
                       <div key={`${item.id}-${index}`} className="space-y-1">
-                        <div className={`p-3 rounded text-sm ${item.type === 'user_speech'
-                            ? 'bg-blue-50 border-l-4 border-blue-400'
+                        <div className={`p-3 rounded text-sm text-foreground ${item.type === 'user_speech'
+                            ? 'bg-blue-50 dark:bg-blue-950/40 border-l-4 border-blue-400 dark:border-blue-600'
                             : item.type === 'ai_response'
-                              ? 'bg-green-50 border-l-4 border-green-400'
+                              ? 'bg-green-50 dark:bg-green-950/40 border-l-4 border-green-400 dark:border-green-600'
                               : item.type === 'tool_call'
-                                ? 'bg-orange-50 border-l-4 border-orange-400'
+                                ? 'bg-orange-50 dark:bg-orange-950/40 border-l-4 border-orange-400 dark:border-orange-600'
                                 : item.type === 'tool_result'
-                                  ? 'bg-purple-50 border-l-4 border-purple-400'
-                                  : 'bg-gray-50 border-l-4 border-gray-400'
+                                  ? 'bg-purple-50 dark:bg-purple-950/40 border-l-4 border-purple-400 dark:border-purple-600'
+                                  : 'bg-gray-50 dark:bg-gray-900/60 border-l-4 border-gray-400 dark:border-gray-600'
                           }`}>
                           <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
@@ -738,30 +738,30 @@ function VoiceDebugContent() {
 
                           {item.type === 'tool_call' ? (
                             <div className="space-y-2">
-                              <p className="text-sm font-medium text-orange-700">
+                              <p className="text-sm font-medium text-orange-700 dark:text-orange-300">
                                 🔧 Calling: {item.metadata?.toolName || 'Unknown Tool'}
                               </p>
                               {item.metadata?.toolArgs && (
-                                <div className="bg-orange-100 rounded p-2">
-                                  <p className="text-xs font-medium text-orange-800 mb-1">Arguments:</p>
-                                  <pre className="text-xs text-orange-700 whitespace-pre-wrap">
+                                <div className="bg-orange-100 dark:bg-orange-950/60 rounded p-2">
+                                  <p className="text-xs font-medium text-orange-800 dark:text-orange-200 mb-1">Arguments:</p>
+                                  <pre className="text-xs text-orange-700 dark:text-orange-300 whitespace-pre-wrap">
                                     {JSON.stringify(item.metadata.toolArgs, null, 2)}
                                   </pre>
                                 </div>
                               )}
                               {item.content && (
-                                <p className="text-sm text-orange-600 italic">{item.content}</p>
+                                <p className="text-sm text-orange-600 dark:text-orange-300 italic">{item.content}</p>
                               )}
                             </div>
                           ) : item.type === 'tool_result' ? (
                             <div className="space-y-2">
-                              <p className="text-sm font-medium text-purple-700">
+                              <p className="text-sm font-medium text-purple-700 dark:text-purple-300">
                                 ✅ Result from: {item.metadata?.toolName || 'Unknown Tool'}
                               </p>
                               {item.metadata?.toolResult && (
-                                <div className="bg-purple-100 rounded p-2">
-                                  <p className="text-xs font-medium text-purple-800 mb-1">Result:</p>
-                                  <pre className="text-xs text-purple-700 whitespace-pre-wrap">
+                                <div className="bg-purple-100 dark:bg-purple-950/60 rounded p-2">
+                                  <p className="text-xs font-medium text-purple-800 dark:text-purple-200 mb-1">Result:</p>
+                                  <pre className="text-xs text-purple-700 dark:text-purple-300 whitespace-pre-wrap">
                                     {typeof item.metadata.toolResult === 'string'
                                       ? item.metadata.toolResult
                                       : JSON.stringify(item.metadata.toolResult, null, 2)}
@@ -769,7 +769,7 @@ function VoiceDebugContent() {
                                 </div>
                               )}
                               {item.content && (
-                                <p className="text-sm text-purple-600">{item.content}</p>
+                                <p className="text-sm text-purple-600 dark:text-purple-300">{item.content}</p>
                               )}
                             </div>
                           ) : (

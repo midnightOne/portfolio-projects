@@ -35,6 +35,8 @@ async function handleGET(request: NextRequest, ctx: GatewayContext) {
     const { searchParams } = new URL(request.url);
     const contextId = searchParams.get('contextId');
     const reflinkId = searchParams.get('reflinkId');
+    // D49 5b.3: adapter session id of an interrupted conversation to resume
+    const resumeSessionId = searchParams.get('resumeSessionId');
 
     console.log('GET /api/ai/openai/session - Request URL:', request.url);
     console.log('Search params:', Object.fromEntries(searchParams.entries()));
@@ -232,7 +234,11 @@ CONTENT SEARCH WORKFLOW:
 
 The UIManager handles all the complexity - just tell it your intent declaratively!
 
-Always be helpful, professional, and accurate. If you don't know something, say so rather than guessing.`;
+Always be helpful, professional, and accurate. If you don't know something, say so rather than guessing.
+
+LANGUAGE POLICY (strict):
+- ALWAYS speak and answer in English by default — including your very first greeting and any turn where the visitor's language seems ambiguous or the audio was unclear. Never guess a language from acoustics.
+- Switch to another language ONLY when the visitor explicitly asks you to (e.g. "let's speak German"), and switch back on request.`;
 
     // TODO: Inject actual context from ContextProviderService based on contextId and reflinkId
     if (contextId) {
@@ -292,6 +298,23 @@ Always be helpful, professional, and accurate. If you don't know something, say 
       }
     } else {
       console.log('No reflink ID provided, personalized context not loaded for reflink: ', reflinkId);
+    }
+
+    // D49 5b.3: harness briefing — the new leg is briefed from ground truth
+    // (conversation store snapshot + bounded recap), never from provider memory.
+    if (resumeSessionId) {
+      try {
+        const { buildResumeBriefing } = await import('@/lib/ai/resume-briefing');
+        const briefing = await buildResumeBriefing(resumeSessionId);
+        if (briefing) {
+          systemInstructions += briefing;
+          console.log(`Resume briefing injected for session ${resumeSessionId} (${briefing.length} chars)`);
+        } else {
+          console.warn(`Resume requested but no conversation found for session ${resumeSessionId}`);
+        }
+      } catch (error) {
+        console.error('Failed to build resume briefing (continuing without):', error);
+      }
     }
 
     console.log('System instructions:', systemInstructions);
@@ -582,7 +605,11 @@ CONTENT SEARCH WORKFLOW:
 
 The UIManager handles all the complexity - just tell it your intent declaratively!
 
-Always be helpful, professional, and accurate. If you don't know something, say so rather than guessing.`;
+Always be helpful, professional, and accurate. If you don't know something, say so rather than guessing.
+
+LANGUAGE POLICY (strict):
+- ALWAYS speak and answer in English by default — including your very first greeting and any turn where the visitor's language seems ambiguous or the audio was unclear. Never guess a language from acoustics.
+- Switch to another language ONLY when the visitor explicitly asks you to (e.g. "let's speak German"), and switch back on request.`;
 
     if (body.contextId) {
       // TODO: Load context from ContextProviderService

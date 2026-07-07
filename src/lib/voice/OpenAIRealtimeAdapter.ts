@@ -58,6 +58,18 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     /** call_id → tool name, captured at output_item.added (arguments.done events carry no name). */
     private _pendingToolNames: Map<string, string> = new Map();
     private _silentAudioContext: AudioContext | null = null;
+    // ---- D49 session continuity (task 5b) ----
+    /** Options of the live connect, reused verbatim by auto-resume. */
+    private _lastConnectOptions: ConnectOptions | undefined;
+    /** True while a user-requested disconnect runs — suppresses disruption handling. */
+    private _intentionalDisconnect = false;
+    /** Poller watching the peer connection for silent drops (WebRTC surfaces no reliable close event here). */
+    private _disruptionWatcher: ReturnType<typeof setInterval> | null = null;
+    private _resumeInProgress = false;
+    /** Model id returned by the mint route for the current leg. */
+    private _mintedModel: string | null = null;
+    /** Bumped per RealtimeSession creation — scopes index-fallback item ids to a leg. */
+    private _sessionEpoch = 0;
 
     // Analytics and debugging properties
     private _conversationAnalytics: {
@@ -432,9 +444,11 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                                 result = await this._openaiUIDescribe(parameters);
                                 break;
                             default:
-                                // Fallback to generic execution for unknown tools
-                                const genericResult = await this._executeUnifiedTool(toolDef.name, parameters);
-                                result = typeof genericResult === 'string' ? genericResult : JSON.stringify(genericResult);
+                                // Generic tools (content_search, content_get, …) go through the
+                                // same path as the wrapped ones so tool_call/tool_result transcript
+                                // items are emitted — they were silently missing from the live
+                                // transcript before (owner finding 2026-07-07).
+                                result = await this._executeToolCallUnified(toolDef.name, parameters);
                         }
 
                         console.log(`OpenAI tool execution completed: ${toolDef.name}`, result);
@@ -574,8 +588,11 @@ Navigation Flow:
             if (!inputStream) {
                 throw new ConnectionError('Synthetic input requires a MediaStream', 'openai');
             }
+            // Hand the transport a CLONE: the SDK stops the supplied tracks when a
+            // session closes, which would permanently kill the driver's emulated
+            // mic and leave a resumed session deaf (observed in the 7.3b drill).
             const transport = new OpenAIRealtimeWebRTC({
-                mediaStream: inputStream,
+                mediaStream: inputStream.clone(),
                 audioElement: this._options?.audioElement,
             });
             this._session = new RealtimeSession(this._agent, { transport });
@@ -594,6 +611,7 @@ Navigation Flow:
         }
 
         this._sessionInputKind = inputKind;
+        this._sessionEpoch++;
         this._setupEventListeners();
     }
 
@@ -805,13 +823,18 @@ Navigation Flow:
             try {
                 const item = history[index];
 
-                // Safely extract item ID with error handling
+                // Safely extract item ID with error handling. The SDK's field is
+                // `itemId` (not `id`) — the old `id`-only read made EVERY item fall
+                // back to `item-${index}`, so after a D49 resume the new session's
+                // history (indexes restarting at 0) collided with already-processed
+                // ids and was silently skipped (owner-observed 2026-07-07: transcript
+                // frozen after reconnect).
                 let itemId: string;
                 try {
-                    itemId = (item as any).id || `item-${index}`;
+                    itemId = (item as any).itemId || (item as any).id || `item-${this._sessionEpoch}-${index}`;
                 } catch (error) {
                     console.warn('Error accessing item ID, using fallback:', error);
-                    itemId = `item-${index}-${Date.now()}`;
+                    itemId = `item-${this._sessionEpoch}-${index}-${Date.now()}`;
                 }
 
                 // Skip items we've already processed
@@ -890,6 +913,13 @@ Navigation Flow:
                     content: content.substring(0, 50),
                     hasContent: content.length > 0
                 });
+
+                // NAV_CONTEXT frames are harness-injected context (D55), not visitor
+                // speech — never show or persist them as user turns. (They surfaced
+                // as "User" rows once real itemIds fixed the dedupe.)
+                if (content.trimStart().startsWith('NAV_CONTEXT')) {
+                    continue;
+                }
 
                 // Only add items with content or update existing items that now have content
                 if (content.trim().length > 0) {
@@ -1238,6 +1268,136 @@ Navigation Flow:
         }
     }
 
+    // ---- D49 session continuity helpers (task 5b) ----
+
+    /** Fire-and-forget connection_event to /api/ai/conversation/log (leg lifecycle + markers). */
+    private _logConnectionEvent(
+        eventType: 'session_start' | 'session_end' | 'disruption',
+        data: Record<string, unknown>
+    ): void {
+        try {
+            fetch('/api/ai/conversation/log', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sessionId: this._generateSessionId(),
+                    provider: 'openai',
+                    reflinkId: this._options?.reflinkId,
+                    conversationData: {
+                        startTime: new Date().toISOString(),
+                        entries: [{
+                            id: `conn_${eventType}_${Date.now()}`,
+                            timestamp: new Date().toISOString(),
+                            type: 'connection_event',
+                            provider: 'openai',
+                            data: { eventType, ...data },
+                        }],
+                        toolCallSummary: { totalCalls: 0, successfulCalls: 0, failedCalls: 0, clientCalls: 0, serverCalls: 0, averageExecutionTime: 0 },
+                        conversationMetrics: { totalTranscriptItems: 0, totalConnectionEvents: 1, totalContextRequests: 0 },
+                    },
+                    metadata: { reportType: 'real-time', clientTimestamp: new Date().toISOString() },
+                }),
+            }).catch((error) => console.warn('Failed to log connection event:', error));
+        } catch (error) {
+            console.warn('Error logging connection event:', error);
+        }
+    }
+
+    private _getPeerConnection(): RTCPeerConnection | null {
+        try {
+            return (this._session as any)?.transport?.connectionState?.peerConnection ?? null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Watch the RTCPeerConnection for silent drops. WebRTC gives no reliable
+     * "closed" callback through the SDK surface here, so poll connectionState;
+     * disconnected/failed/closed without an intentional disconnect = disruption.
+     */
+    private _startDisruptionWatcher(): void {
+        this._stopDisruptionWatcher();
+        this._disruptionWatcher = setInterval(() => {
+            if (!this._isConnected || this._intentionalDisconnect || this._resumeInProgress) return;
+            const pc = this._getPeerConnection();
+            const state = pc?.connectionState;
+            if (state === 'disconnected' || state === 'failed' || state === 'closed') {
+                console.warn(`OpenAIRealtimeAdapter: peer connection ${state} without user intent — treating as disruption`);
+                void this._handleDisruption(
+                    state === 'failed' ? 'provider_error' : 'network',
+                    { peerConnectionState: state, online: typeof navigator !== 'undefined' ? navigator.onLine : undefined }
+                );
+            }
+        }, 2000);
+    }
+
+    private _stopDisruptionWatcher(): void {
+        if (this._disruptionWatcher) {
+            clearInterval(this._disruptionWatcher);
+            this._disruptionWatcher = null;
+        }
+    }
+
+    /**
+     * D49 resume — one code path for recovery and deliberate switches: write the
+     * disruption marker, then reconnect with resumeFromSessionId so the mint
+     * route briefs the new leg from ground truth. Two attempts, then give up
+     * with an error event (the pill can offer manual retry / D50 apology clip).
+     */
+    private async _handleDisruption(issueType: string, diagnostics: Record<string, unknown>): Promise<void> {
+        if (this._resumeInProgress) return;
+        this._resumeInProgress = true;
+        this._stopDisruptionWatcher();
+        this._isConnected = false;
+        this._connectionStatus = 'reconnecting';
+        this._logConnectionEvent('disruption', { provider: 'openai', issueType, diagnostics });
+        this._emitConnectionEvent('reconnecting', `Connection lost (${issueType}) — resuming`);
+
+        try {
+            try { this._session?.close(); } catch { /* already dead */ }
+
+            const delaysMs = [1000, 3000];
+            for (let attempt = 0; attempt < delaysMs.length; attempt++) {
+                await new Promise((r) => setTimeout(r, delaysMs[attempt]));
+                try {
+                    await this.connect({
+                        ...(this._lastConnectOptions ?? {}),
+                        resumeFromSessionId: this._generateSessionId(),
+                    });
+                    console.log(`OpenAIRealtimeAdapter: resume succeeded on attempt ${attempt + 1}`);
+                    return;
+                } catch (error) {
+                    console.warn(`OpenAIRealtimeAdapter: resume attempt ${attempt + 1} failed:`, error);
+                }
+            }
+            this._connectionStatus = 'error';
+            this._emitConnectionEvent('error', 'Resume failed after disruption — manual reconnect required');
+        } finally {
+            this._resumeInProgress = false;
+        }
+    }
+
+    /** D49: the logical-conversation session id this adapter writes history under. */
+    public getConversationSessionId(): string | null {
+        return this._sessionId;
+    }
+
+    /**
+     * Drill helper (verification 7.3b): kill the transport WITHOUT the intent
+     * flag, exactly like a network drop. The disruption watcher must detect it
+     * and drive the resume flow.
+     */
+    public forceDropConnection(): void {
+        const pc = this._getPeerConnection();
+        if (pc) {
+            console.warn('OpenAIRealtimeAdapter: forceDropConnection (drill) — closing peer connection');
+            pc.close();
+        } else {
+            console.warn('OpenAIRealtimeAdapter: forceDropConnection — no peer connection to drop');
+        }
+    }
+
     /**
      * Log tool call for debugging purposes
      */
@@ -1465,10 +1625,17 @@ Navigation Flow:
         const synthetic = !!options?.syntheticInputStream;
         const wantsMic = !synthetic && options?.audioInput !== false;
         const inputKind: 'mic' | 'silent' | 'synthetic' = synthetic ? 'synthetic' : wantsMic ? 'mic' : 'silent';
-        console.log(`OpenAIRealtimeAdapter: Connect called (input: ${inputKind})`);
+        const resuming = !!options?.resumeFromSessionId;
+        console.log(`OpenAIRealtimeAdapter: Connect called (input: ${inputKind}${resuming ? ', resuming' : ''})`);
 
         if (!this._session) {
             throw new ConnectionError('Session not initialized', 'openai');
+        }
+
+        // D49: adopt the interrupted conversation's identity — history continues
+        // in the same conversation row; the mint route briefs the new leg.
+        if (resuming) {
+            this._sessionId = options!.resumeFromSessionId!;
         }
 
         try {
@@ -1497,8 +1664,10 @@ Navigation Flow:
             // The transport is fixed at session construction, so a mode switch
             // (mic <-> text-only <-> synthetic) requires recreating the session
             // before connecting. A synthetic reconnect with a NEW driver stream
-            // also needs a rebuild.
+            // also needs a rebuild, and a resume always rebuilds (the previous
+            // RealtimeSession was closed by the disruption/disconnect).
             if (
+                resuming ||
                 this._sessionInputKind !== inputKind ||
                 (inputKind === 'synthetic' && this._syntheticInputStream !== options?.syntheticInputStream)
             ) {
@@ -1520,6 +1689,10 @@ Navigation Flow:
                 console.log('OpenAIRealtimeAdapter: Including reflinkId in session request:', this._options.reflinkId);
             }
 
+            if (resuming) {
+                sessionUrl.searchParams.set('resumeSessionId', this._sessionId!);
+            }
+
             console.log('OpenAIRealtimeAdapter: Session request URL:', sessionUrl.toString());
 
             // Get session token from our API (which includes context injection)
@@ -1535,7 +1708,9 @@ Navigation Flow:
                 throw new Error(error.error || 'Failed to get session token');
             }
 
-            const { client_secret } = await response.json();
+            const mintResponse = await response.json();
+            const { client_secret } = mintResponse;
+            this._mintedModel = mintResponse.model ?? null;
             console.log('OpenAIRealtimeAdapter: Session token received, connecting...');
 
             // Connect to OpenAI Realtime using the client_secret
@@ -1552,6 +1727,19 @@ Navigation Flow:
             this._isConnected = true;
             this._connectionStatus = 'connected';
             this._audioInputMode = inputKind === 'mic' ? 'microphone' : inputKind === 'silent' ? 'text-only' : 'synthetic';
+
+            // D49: leg lifecycle — the server starts a leg (and writes the
+            // session_resumed marker when resuming), then watch for silent drops.
+            this._lastConnectOptions = options;
+            this._intentionalDisconnect = false;
+            this._logConnectionEvent('session_start', {
+                provider: 'openai',
+                modelAlias: 'default-realtime',
+                modelId: this._mintedModel ?? undefined,
+                providerSessionId: mintResponse.session_id,
+                resumed: resuming,
+            });
+            this._startDisruptionWatcher();
 
             // Initialize conversation tracking
             this._conversationStartTime = new Date();
@@ -1643,6 +1831,11 @@ Navigation Flow:
     async disconnect(): Promise<void> {
         if (this._session && this._isConnected) {
             try {
+                // D49: user-requested disconnect — not a disruption
+                this._intentionalDisconnect = true;
+                this._stopDisruptionWatcher();
+                this._logConnectionEvent('session_end', { provider: 'openai', endReason: 'user_disconnect' });
+
                 // Report final conversation data before disconnecting
                 if (this._conversationAnalytics && this._conversationAnalytics.messageCount > 0) {
                     await this._reportConversationDataToServer();

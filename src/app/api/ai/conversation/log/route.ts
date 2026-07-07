@@ -110,6 +110,8 @@ async function persistVoiceEntries(
     reflinkId,
     { conversationMode: 'voice' }
   );
+  // D49 5b: tag rows with the conversation's open provider leg (null pre-legs)
+  const legId = await conversationHistoryManager.getOpenLegId(conversationId);
 
   for (const entry of entries) {
     try {
@@ -128,6 +130,7 @@ async function persistVoiceEntries(
           content: entry.content,
           timestamp: entry.timestamp ? new Date(entry.timestamp) : new Date(),
           inputMode: 'voice', // D58: every voice transcription is labeled 'voice'
+          legId: legId ?? undefined,
           metadata: {
             transcriptItemId: itemId,
             voiceData: entry.duration ? { duration: entry.duration } : undefined,
@@ -144,6 +147,7 @@ async function persistVoiceEntries(
             content: `[tool:${entry.toolName}] ${entry.success === false ? 'failed' : 'ok'}`,
             timestamp: entry.timestamp ? new Date(entry.timestamp) : new Date(),
             inputMode: 'voice',
+            legId: legId ?? undefined,
             metadata: {
               transcriptItemId: itemId,
               processingTime: entry.executionTime,
@@ -161,6 +165,68 @@ async function persistVoiceEntries(
     }
   }
   return persisted;
+}
+
+/**
+ * D49 5b: leg lifecycle + markers, driven by adapter connection events.
+ *   session_start  → start a leg (ends any dangling one); when `resumed`, a
+ *                    session_resumed marker is written with the new leg id
+ *   session_end    → end the open leg (endReason from the event, default user_disconnect)
+ *   disruption     → session_disruption marker + end the open leg ('disruption')
+ */
+async function handleLegEvent(
+  sessionId: string,
+  reflinkId: string | undefined,
+  data: {
+    eventType?: string;
+    provider?: string;
+    modelAlias?: string;
+    modelId?: string;
+    providerSessionId?: string;
+    resumed?: boolean;
+    endReason?: string;
+    issueType?: string;
+    diagnostics?: Record<string, unknown>;
+    briefingSummary?: string;
+  }
+): Promise<void> {
+  const conversationId = await conversationHistoryManager.getOrCreateConversationId(
+    sessionId,
+    reflinkId,
+    { conversationMode: 'voice' }
+  );
+
+  if (data.eventType === 'session_start') {
+    const leg = await conversationHistoryManager.startLeg(conversationId, {
+      provider: data.provider ?? 'unknown',
+      modelAlias: data.modelAlias,
+      modelId: data.modelId,
+      providerSessionId: data.providerSessionId,
+    });
+    if (data.resumed) {
+      await conversationHistoryManager.recordSessionMarker(conversationId, {
+        type: 'session_resumed',
+        legId: leg.id,
+        provider: data.provider,
+        modelAlias: data.modelAlias,
+        briefingSummary: data.briefingSummary,
+      });
+    }
+  } else if (data.eventType === 'session_end') {
+    await conversationHistoryManager.endLeg(
+      conversationId,
+      (data.endReason as import('@/lib/services/ai/conversation-history-manager').LegEndReason) ?? 'user_disconnect'
+    );
+  } else if (data.eventType === 'disruption') {
+    const legId = await conversationHistoryManager.getOpenLegId(conversationId);
+    await conversationHistoryManager.recordSessionMarker(conversationId, {
+      type: 'session_disruption',
+      legId: legId ?? undefined,
+      issueType: data.issueType,
+      diagnostics: data.diagnostics,
+    });
+    await conversationHistoryManager.endLeg(conversationId, 'disruption');
+  }
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse<ConversationLogResponse>> {
@@ -405,6 +471,18 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
       }
     });
 
+    // D49 5b: leg lifecycle + disruption/resume markers from connection events
+    // (processed BEFORE message persistence so new messages tag the right leg)
+    for (const entry of conversationData.entries) {
+      if (entry.type === 'connection_event' && entry.data?.eventType) {
+        try {
+          await handleLegEvent(sessionId, reflinkId, { ...entry.data, provider: entry.data.provider ?? entry.provider ?? provider });
+        } catch (legError) {
+          console.error('[conversation/log] leg event failed (continuing):', legError);
+        }
+      }
+    }
+
     // Persist batch entries into the unified store (task 2b.2 / D58)
     const persistable: PersistableEntry[] = [];
     for (const entry of conversationData.entries) {
@@ -429,7 +507,6 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           timestamp: entry.timestamp,
         });
       }
-      // connection_event markers belong to D49 5b.2, not here
     }
     const persistedCount = await persistVoiceEntries(sessionId, reflinkId, persistable);
     console.log(`[conversation/log] persisted ${persistedCount}/${persistable.length} entries for session ${sessionId}`);

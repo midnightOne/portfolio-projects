@@ -30,6 +30,8 @@ export interface ConversationMessage {
     content: string;
     timestamp: Date;
     inputMode: 'text' | 'voice' | 'hybrid';
+    /** D49: provider leg that produced this message (voice path); null on the text path today. */
+    legId?: string;
     metadata?: {
         tokensUsed?: number;
         cost?: number;
@@ -59,13 +61,66 @@ export interface ConversationRecord {
     totalCost: number;
     startedAt: Date;
     lastMessageAt?: Date;
+    /** D49 latest-state snapshot (null until the first leg/updateSession writes it). */
+    latestState?: LatestStateSnapshot | null;
     metadata: ConversationMetadata;
     messages: ConversationMessageRecord[];
+    /** D49 provider legs, oldest first (present when loaded with legs). */
+    legs?: ConversationLegRecord[];
+}
+
+// ---- D49 session continuity types (task 5b) ----
+
+export interface ConversationLegRecord {
+    id: string;
+    conversationId: string;
+    provider: string;
+    modelAlias?: string | null;
+    modelId?: string | null;
+    providerSessionId?: string | null;
+    startedAt: Date;
+    endedAt?: Date | null;
+    endReason?: LegEndReason | null;
+    metadata?: Record<string, unknown>;
+}
+
+export type LegEndReason =
+    | 'user_disconnect'
+    | 'disruption'
+    | 'provider_switch'
+    | 'duration_cap'
+    | 'error'
+    | 'superseded';
+
+/** What a new leg needs to be briefed with — updated on every leg start and updateSession. */
+export interface LatestStateSnapshot {
+    provider?: string;
+    modelAlias?: string;
+    instructions?: string;
+    activeTools?: string[];
+    /** D47 node pointer, later. */
+    nodeId?: string;
+    updatedAt: string;
+}
+
+export type SessionMarkerType = 'session_disruption' | 'session_resumed';
+
+export interface SessionMarker {
+    type: SessionMarkerType;
+    /** disruption: network | provider_error | token_expiry | watchdog | reload | forced_drill */
+    issueType?: string;
+    diagnostics?: Record<string, unknown>;
+    /** resumed: the new leg's identity */
+    legId?: string;
+    provider?: string;
+    modelAlias?: string;
+    briefingSummary?: string;
 }
 
 export interface ConversationMessageRecord {
     id: string;
     conversationId: string;
+    legId?: string;
     role: 'user' | 'assistant' | 'system';
     content: string;
     tokensUsed?: number;
@@ -279,6 +334,7 @@ export class ConversationHistoryManager {
                 const messageRecord = await tx.aIConversationMessage.create({
                     data: {
                         conversationId,
+                        legId: message.legId,
                         role: message.role,
                         content: message.content,
                         tokensUsed: message.metadata?.tokensUsed,
@@ -442,6 +498,176 @@ export class ConversationHistoryManager {
         return created.id;
     }
 
+    // ---- D49 session continuity (task 5b) ----
+
+    /**
+     * Start a new provider leg. Any dangling open leg on the conversation is
+     * closed first (endReason 'superseded') so there is exactly one open leg.
+     */
+    async startLeg(
+        conversationId: string,
+        leg: {
+            provider: string;
+            modelAlias?: string;
+            modelId?: string;
+            providerSessionId?: string;
+            metadata?: Record<string, unknown>;
+        }
+    ): Promise<ConversationLegRecord> {
+        await prisma.aIConversationLeg.updateMany({
+            where: { conversationId, endedAt: null },
+            data: { endedAt: new Date(), endReason: 'superseded' }
+        });
+        const created = await prisma.aIConversationLeg.create({
+            data: {
+                conversationId,
+                provider: leg.provider,
+                modelAlias: leg.modelAlias,
+                modelId: leg.modelId,
+                providerSessionId: leg.providerSessionId,
+                metadata: (leg.metadata ?? {}) as any
+            }
+        });
+        await this.updateLatestState(conversationId, {
+            provider: leg.provider,
+            modelAlias: leg.modelAlias,
+        });
+        return created as unknown as ConversationLegRecord;
+    }
+
+    /** Close the conversation's open leg (no-op when none is open). */
+    async endLeg(conversationId: string, endReason: LegEndReason): Promise<void> {
+        await prisma.aIConversationLeg.updateMany({
+            where: { conversationId, endedAt: null },
+            data: { endedAt: new Date(), endReason }
+        });
+    }
+
+    /** The currently open leg id, for tagging incoming messages. */
+    async getOpenLegId(conversationId: string): Promise<string | null> {
+        const leg = await prisma.aIConversationLeg.findFirst({
+            where: { conversationId, endedAt: null },
+            orderBy: { startedAt: 'desc' },
+            select: { id: true }
+        });
+        return leg?.id ?? null;
+    }
+
+    /**
+     * Write a D49 marker event (session_disruption / session_resumed) into the
+     * conversation history itself — replay shows a failed-and-recovered
+     * conversation without the owner having been present. Markers are system
+     * rows with metadata.markerType; they carry no modality label (not speech,
+     * not typed text).
+     */
+    async recordSessionMarker(conversationId: string, marker: SessionMarker): Promise<void> {
+        const content = marker.type === 'session_disruption'
+            ? `[session_disruption] ${marker.issueType ?? 'unknown'}`
+            : `[session_resumed] ${marker.provider ?? 'unknown'}${marker.modelAlias ? ` (${marker.modelAlias})` : ''}`;
+        await prisma.$transaction([
+            prisma.aIConversationMessage.create({
+                data: {
+                    conversationId,
+                    legId: marker.legId,
+                    role: 'system',
+                    content,
+                    timestamp: new Date(),
+                    metadata: {
+                        markerType: marker.type,
+                        issueType: marker.issueType,
+                        diagnostics: marker.diagnostics,
+                        provider: marker.provider,
+                        modelAlias: marker.modelAlias,
+                        briefingSummary: marker.briefingSummary
+                    } as any
+                }
+            }),
+            prisma.aIConversation.update({
+                where: { id: conversationId },
+                data: { messageCount: { increment: 1 }, lastMessageAt: new Date() }
+            })
+        ]);
+    }
+
+    /** Merge fields into the conversation's latest-state snapshot (cheap write, D49). */
+    async updateLatestState(
+        conversationId: string,
+        patch: Partial<Omit<LatestStateSnapshot, 'updatedAt'>>
+    ): Promise<void> {
+        const existing = await prisma.aIConversation.findUnique({
+            where: { id: conversationId },
+            select: { latestState: true }
+        });
+        const current = (existing?.latestState ?? {}) as Partial<LatestStateSnapshot>;
+        await prisma.aIConversation.update({
+            where: { id: conversationId },
+            data: {
+                latestState: {
+                    ...current,
+                    ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)),
+                    updatedAt: new Date().toISOString()
+                } as any
+            }
+        });
+    }
+
+    /**
+     * Everything a new leg needs to continue an interrupted conversation:
+     * the latest-state snapshot + a bounded recap of recent turns. Ground truth
+     * only — provider-side memory from earlier legs is gone and never assumed.
+     */
+    async getResumeBriefing(
+        sessionId: string,
+        recapTurns = 8
+    ): Promise<{
+        conversationId: string;
+        snapshot: LatestStateSnapshot | null;
+        recentTurns: Array<{ role: string; content: string }>;
+        lastDisruption?: { issueType?: string; at?: Date };
+    } | null> {
+        const conversation = await prisma.aIConversation.findFirst({
+            where: { sessionId },
+            select: { id: true, latestState: true }
+        });
+        if (!conversation) return null;
+
+        const recent = await prisma.aIConversationMessage.findMany({
+            where: { conversationId: conversation.id, role: { in: ['user', 'assistant'] } },
+            orderBy: { timestamp: 'desc' },
+            take: recapTurns,
+            select: { role: true, content: true }
+        });
+        const lastMarker = await prisma.aIConversationMessage.findFirst({
+            where: {
+                conversationId: conversation.id,
+                metadata: { path: ['markerType'], equals: 'session_disruption' }
+            },
+            orderBy: { timestamp: 'desc' },
+            select: { timestamp: true, metadata: true }
+        });
+
+        return {
+            conversationId: conversation.id,
+            snapshot: (conversation.latestState as unknown as LatestStateSnapshot | null) ?? null,
+            recentTurns: recent.reverse().map((m) => ({
+                role: m.role,
+                content: m.content.length > 600 ? `${m.content.slice(0, 600)}…` : m.content
+            })),
+            lastDisruption: lastMarker
+                ? { issueType: (lastMarker.metadata as any)?.issueType, at: lastMarker.timestamp }
+                : undefined
+        };
+    }
+
+    /** Legs for a conversation, oldest first (admin replay). */
+    async getLegs(conversationId: string): Promise<ConversationLegRecord[]> {
+        const legs = await prisma.aIConversationLeg.findMany({
+            where: { conversationId },
+            orderBy: { startedAt: 'asc' }
+        });
+        return legs as unknown as ConversationLegRecord[];
+    }
+
     async getConversationBySessionId(sessionId: string): Promise<ConversationRecord | null> {
         try {
             const conversation = await prisma.aIConversation.findFirst({
@@ -449,6 +675,9 @@ export class ConversationHistoryManager {
                 include: {
                     messages: {
                         orderBy: { timestamp: 'asc' }
+                    },
+                    legs: {
+                        orderBy: { startedAt: 'asc' }
                     }
                 }
             });
@@ -470,6 +699,9 @@ export class ConversationHistoryManager {
                 include: {
                     messages: {
                         orderBy: { timestamp: 'asc' }
+                    },
+                    legs: {
+                        orderBy: { startedAt: 'asc' }
                     }
                 }
             });
@@ -818,8 +1050,10 @@ export class ConversationHistoryManager {
             totalCost: Number(conversation.totalCost),
             startedAt: conversation.startedAt,
             lastMessageAt: conversation.lastMessageAt,
+            latestState: (conversation.latestState as LatestStateSnapshot | null) ?? null,
             metadata: conversation.metadata as ConversationMetadata,
-            messages: conversation.messages?.map((msg: any) => this.mapPrismaMessageToRecord(msg)) || []
+            messages: conversation.messages?.map((msg: any) => this.mapPrismaMessageToRecord(msg)) || [],
+            legs: conversation.legs?.map((leg: any) => leg as ConversationLegRecord)
         };
     }
 
@@ -827,6 +1061,7 @@ export class ConversationHistoryManager {
         return {
             id: message.id,
             conversationId: message.conversationId,
+            legId: message.legId ?? undefined,
             role: message.role,
             content: message.content,
             tokensUsed: message.tokensUsed,

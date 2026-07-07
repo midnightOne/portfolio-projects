@@ -206,6 +206,8 @@ export default function ConversationManagement() {
         // Open replay in new window or modal
         const replayWindow = window.open('', '_blank', 'width=1200,height=800');
         if (replayWindow) {
+          const legs: any[] = data.data.legs ?? [];
+          const legIndex = new Map(legs.map((leg: any, i: number) => [leg.id, i + 1]));
           replayWindow.document.write(`
             <html>
               <head>
@@ -215,6 +217,11 @@ export default function ConversationManagement() {
                   .step { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
                   .user { background-color: #f0f8ff; }
                   .assistant { background-color: #f8f8f8; }
+                  .system { background-color: #f5f0ff; font-size: 13px; }
+                  .marker { background-color: #fff3f0; border: 2px dashed #d9534f; font-size: 13px; }
+                  .marker.resumed { background-color: #f0fff4; border-color: #28a745; }
+                  .leg-chip { display: inline-block; padding: 1px 8px; border-radius: 10px; background: #e8eef7; font-size: 11px; margin-left: 6px; }
+                  .legs { background: #fafafa; border: 1px solid #eee; padding: 10px 15px; border-radius: 5px; margin: 15px 0; font-size: 13px; }
                   .debug { background-color: #fff8dc; margin-top: 10px; font-size: 12px; }
                   pre { white-space: pre-wrap; word-wrap: break-word; }
                 </style>
@@ -228,10 +235,42 @@ export default function ConversationManagement() {
                   <strong>Tokens:</strong> ${data.data.conversation.totalTokens}<br>
                   <strong>Cost:</strong> $${data.data.conversation.totalCost.toFixed(4)}
                 </div>
+                ${legs.length > 0 ? `
+                  <div class="legs">
+                    <strong>Session legs (D49):</strong>
+                    <ol>
+                      ${legs.map((leg: any) => `
+                        <li>
+                          <strong>${leg.provider}</strong>${leg.modelId ? ` / ${leg.modelId}` : ''}${leg.modelAlias ? ` (${leg.modelAlias})` : ''}
+                          — ${new Date(leg.startedAt).toLocaleTimeString()} → ${leg.endedAt ? new Date(leg.endedAt).toLocaleTimeString() : 'open'}
+                          ${leg.endReason ? ` · end: ${leg.endReason}` : ''}
+                        </li>
+                      `).join('')}
+                    </ol>
+                  </div>
+                ` : ''}
                 <hr>
-                ${data.data.timeline.map((step: any) => `
-                  <div class="step ${step.message.role}">
-                    <h3>Step ${step.step} - ${step.type} (${step.message.role})</h3>
+                ${data.data.timeline.map((step: any) => {
+                  const markerType = step.message.metadata?.markerType;
+                  const stepClass = step.type === 'marker'
+                    ? `marker ${markerType === 'session_resumed' ? 'resumed' : ''}`
+                    : step.message.role;
+                  const legNo = step.legId && legIndex.has(step.legId) ? `<span class="leg-chip">leg ${legIndex.get(step.legId)}</span>` : '';
+                  if (step.type === 'marker') {
+                    return `
+                      <div class="step ${stepClass}">
+                        <h3>${markerType === 'session_resumed' ? '🟢 Session resumed' : '🔴 Session disruption'}${legNo}</h3>
+                        <p><strong>Time:</strong> ${new Date(step.timestamp).toLocaleString()}</p>
+                        <div>${step.message.content}</div>
+                        ${step.message.metadata?.issueType ? `<p><strong>Issue:</strong> ${step.message.metadata.issueType}</p>` : ''}
+                        ${step.message.metadata?.provider ? `<p><strong>New leg:</strong> ${step.message.metadata.provider}${step.message.metadata.modelAlias ? ` (${step.message.metadata.modelAlias})` : ''}</p>` : ''}
+                        ${step.message.metadata?.diagnostics ? `<details><summary>Diagnostics</summary><pre>${JSON.stringify(step.message.metadata.diagnostics, null, 2)}</pre></details>` : ''}
+                      </div>
+                    `;
+                  }
+                  return `
+                  <div class="step ${stepClass}">
+                    <h3>Step ${step.step} - ${step.type} (${step.message.role})${step.message.mode ? ` · ${step.message.mode}` : ''}${legNo}</h3>
                     <p><strong>Time:</strong> ${new Date(step.timestamp).toLocaleString()}</p>
                     <p><strong>Content:</strong></p>
                     <div>${step.message.content}</div>
@@ -251,7 +290,8 @@ export default function ConversationManagement() {
                       </div>
                     ` : ''}
                   </div>
-                `).join('')}
+                `;
+                }).join('')}
               </body>
             </html>
           `);

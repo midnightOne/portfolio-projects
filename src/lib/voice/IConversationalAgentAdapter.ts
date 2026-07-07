@@ -39,6 +39,14 @@ export interface ConnectOptions {
    * Supplied by SyntheticMicDriver so automated agents exercise the real voice path.
    */
   syntheticInputStream?: MediaStream;
+  /**
+   * D49 resume: continue the logical conversation identified by this adapter
+   * session id. The adapter adopts the id (history continues in the same
+   * conversation) and asks the mint route for a harness briefing
+   * (`resumeSessionId` param). One code path serves connection recovery and
+   * deliberate provider/model switches.
+   */
+  resumeFromSessionId?: string;
 }
 
 export interface IConversationalAgentAdapter {
@@ -93,6 +101,13 @@ export interface IConversationalAgentAdapter {
   // Provider-specific methods (optional)
   getProviderSpecificState?(): any;
   executeProviderSpecificAction?(action: string, params?: any): Promise<any>;
+
+  /**
+   * D49: the adapter's logical-conversation session id (the key the
+   * conversation store is written under), or null before first use. A resume —
+   * same or different provider — passes this id as ConnectOptions.resumeFromSessionId.
+   */
+  getConversationSessionId?(): string | null;
   
   // Event handling (internal - called by the adapter implementation)
   _handleConnectionEvent(event: import('@/types/voice-agent').ConnectionEvent): void;
