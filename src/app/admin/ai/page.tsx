@@ -13,6 +13,7 @@ import { AlertCircle, ExternalLink, Loader2, Database, MessageSquare, SlidersHor
 import { AdminLayout } from '@/components/admin/admin-layout';
 import { AdminPageLayout } from '@/components/admin/admin-page-layout';
 import { AIStatusIndicator } from '@/components/admin/ai-status-indicator';
+import { ModelAliasPanel } from '@/components/admin/ModelAliasPanel';
 import { useToast } from '@/components/ui/toast';
 import { ConnectionStatus, ConfigurationStatus } from '@/components/ui/status-badge';
 import { HelpText, HelpSection } from '@/components/ui/help-text';
@@ -270,6 +271,9 @@ function AISettingsContent() {
     <div className="space-y-6">
       {/* AI Status Overview */}
       <AIStatusIndicator variant="detailed" showActions={true} />
+
+      {/* Model alias registry (D4) */}
+      <ModelAliasPanel />
 
       {/* Quick Navigation to AI Features */}
       <Card>

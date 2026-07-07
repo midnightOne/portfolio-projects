@@ -49,6 +49,24 @@ export async function resolveModelAlias(alias: ModelAliasName): Promise<Resolved
   return hit;
 }
 
+/**
+ * Resolve a config-supplied value that may be either a role alias or a
+ * concrete model id (D4: config stores aliases by default; admins may pin a
+ * concrete id). Unknown values pass through as {provider:'openai', modelId}.
+ */
+export async function resolveAliasOrModelId(value: string): Promise<ResolvedModel> {
+  const map = await (async () => {
+    try {
+      return await loadAliases();
+    } catch {
+      return new Map<string, ResolvedModel>();
+    }
+  })();
+  const hit = map.get(value);
+  if (hit) return hit;
+  return { alias: value as ModelAliasName, provider: 'openai', modelId: value };
+}
+
 /** Test hook: drop the per-instance memo. */
 export function __clearModelAliasCache(): void {
   cache = null;

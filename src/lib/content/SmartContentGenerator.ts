@@ -57,10 +57,13 @@ export class SmartContentGenerator {
   private openai: OpenAI | null;
   private summaryService = getSummaryGenerationService();
   private t3Chunker: T3HeadingBoundedChunking;
-  private embeddingModel = 'text-embedding-3-small';
+  // resolved via 'default-embedding' alias when needed (D4); kept for interface compat
+  private embeddingModel = '';
   private embeddingDimensions = 1536;
 
   // Cost tracking (approximate costs in USD)
+  // Pre-flight estimate constants only (real spend rides the ledger + pricing.ts, D38);
+  // consolidation into estimateCost() is semantic-content task 2.2.
   private readonly EMBEDDING_COST_PER_1K_TOKENS = 0.00002;
   private readonly GPT4_MINI_COST_PER_1K_TOKENS = 0.00015;
 
@@ -980,7 +983,7 @@ Key Sections: ${enhancedIndex.hierarchicalSections
 Focus on the main purpose, key technologies, and primary outcomes.`;
 
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: (await (await import('@/lib/ai/model-registry')).resolveModelAlias('default-cheap')).modelId,
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 200,
         temperature: 0.6
@@ -1010,7 +1013,7 @@ ${type === 'concise'
           : 'Include technical details, implementation notes, and specific outcomes.'}`;
 
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: (await (await import('@/lib/ai/model-registry')).resolveModelAlias('default-cheap')).modelId,
         messages: [{ role: 'user', content: prompt }],
         max_tokens: maxTokens,
         temperature: 0.6

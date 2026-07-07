@@ -50,7 +50,8 @@ export class BudgetAwareAIOperations {
     cost: number;
     batchId?: string; // Returned if using batch mode
   }> {
-    const model = options.model || 'text-embedding-3-small';
+    const { resolveAliasOrModelId } = await import('@/lib/ai/model-registry');
+    const model = (await resolveAliasOrModelId(options.model || 'default-embedding')).modelId;
     const inputs = Array.isArray(options.input) ? options.input : [options.input];
     
     // Estimate tokens (rough approximation: 1 token ≈ 4 characters)
@@ -162,7 +163,8 @@ export class BudgetAwareAIOperations {
     tokensUsed: number;
     cost: number;
   }> {
-    const model = options.model || 'gpt-4o-mini';
+    const { resolveAliasOrModelId } = await import('@/lib/ai/model-registry');
+    const model = (await resolveAliasOrModelId(options.model || 'default-cheap')).modelId;
     const maxTokens = options.maxTokens || 200;
     const temperature = options.temperature || 0.3;
 

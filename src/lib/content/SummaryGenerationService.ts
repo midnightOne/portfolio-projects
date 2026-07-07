@@ -92,7 +92,7 @@ export class SummaryGenerationService {
   private readonly DEFAULT_CONFIGS: Record<string, Omit<SummaryGenerationConfig, 'id' | 'createdAt' | 'updatedAt'>> = {
     'default-balanced': {
       name: 'Balanced Quality',
-      model: 'gpt-4o-mini',
+      model: 'default-cheap', // D4 alias — resolved at call time
       temperature: 0.3,
       t1SystemPrompt: `You are a technical writer creating concise project summaries. 
 
@@ -125,8 +125,8 @@ Create a concise summary (100-200 words) of this section's main points and techn
     },
     
     'high-quality': {
-      name: 'High Quality (GPT-4o)',
-      model: 'gpt-4o',
+      name: 'High Quality',
+      model: 'default-chat', // D4 alias — resolved at call time
       temperature: 0.2,
       t1SystemPrompt: `You are an expert technical writer with deep understanding of software development.
 
@@ -158,7 +158,7 @@ Create a comprehensive summary (150-300 words) that preserves all technical deta
     
     'cost-optimized': {
       name: 'Cost Optimized',
-      model: 'gpt-4o-mini',
+      model: 'default-cheap', // D4 alias — resolved at call time
       temperature: 0.4,
       t1SystemPrompt: `Create a brief project summary based only on the provided content. Focus on main purpose and key technologies. 50-80 words.`,
       t2SystemPrompt: `Summarize this section's key points and technical details. Stay factual and preserve important terms. 100-150 words.`,
@@ -499,8 +499,8 @@ Create a comprehensive summary (150-300 words) that preserves all technical deta
       case 'high': score -= 0.3; break;
     }
 
-    // Model quality bonus
-    if (config.model.includes('gpt-4o')) {
+    // Model quality bonus: the higher-quality role alias
+    if (config.model === 'default-chat' || config.model === 'default-reasoning') {
       score += 0.05;
     }
 

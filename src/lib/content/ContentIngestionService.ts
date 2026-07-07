@@ -98,10 +98,12 @@ export class ContentIngestionService extends EventEmitter {
   private indexMaintenance: IndexMaintenanceService;
   private smartGenerator: SmartContentGenerator;
   private openai: OpenAI;
-  private embeddingModel = 'text-embedding-3-small';
+  private embeddingModel: string | null = null; // resolved via 'default-embedding' alias (D4)
   private embeddingDimensions = 1536;
   
   // Cost tracking (approximate costs in USD)
+  // Pre-flight estimate constants only (real spend rides the ledger + pricing.ts, D38);
+  // consolidation into estimateCost() is semantic-content task 2.2.
   private readonly EMBEDDING_COST_PER_1K_TOKENS = 0.00002; // $0.02 per 1M tokens
   private readonly GPT4_MINI_COST_PER_1K_TOKENS = 0.00015; // $0.15 per 1M input tokens
   
@@ -684,7 +686,7 @@ Brief Overview: ${project.briefOverview || 'N/A'}
 Focus on the key innovation, technology, or impact. Make it engaging and specific.`;
 
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: (await (await import('@/lib/ai/model-registry')).resolveModelAlias('default-cheap')).modelId,
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 100,
         temperature: 0.7
@@ -717,7 +719,7 @@ Content Preview: ${project.articleContent?.content?.substring(0, 500) || 'N/A'}
 Each bullet should be 15-25 words and highlight different aspects: technical challenge, solution approach, and measurable impact.`;
 
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: (await (await import('@/lib/ai/model-registry')).resolveModelAlias('default-cheap')).modelId,
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 200,
         temperature: 0.7
@@ -754,7 +756,7 @@ Content: ${project.articleContent?.content?.substring(0, 1000) || 'N/A'}
 Include: technical architecture, key features, implementation details, technologies used, and measurable outcomes. Be specific and technical.`;
 
       const response = await this.openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: (await (await import('@/lib/ai/model-registry')).resolveModelAlias('default-cheap')).modelId,
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 300,
         temperature: 0.6
@@ -777,6 +779,10 @@ Include: technical architecture, key features, implementation details, technolog
     }
 
     try {
+      if (!this.embeddingModel) {
+        const { resolveModelAlias } = await import('@/lib/ai/model-registry');
+        this.embeddingModel = (await resolveModelAlias('default-embedding')).modelId;
+      }
       const response = await this.openai.embeddings.create({
         model: this.embeddingModel,
         input: content,
