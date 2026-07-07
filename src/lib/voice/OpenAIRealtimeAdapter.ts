@@ -51,7 +51,12 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     protected _isRecording: boolean = false;
     protected _isInitialized: boolean = false;
     private _config: OpenAIRealtimeConfig | null = null;
-    private _sessionIsMicless: boolean = false;
+    /** Input kind the current RealtimeSession was constructed for. */
+    private _sessionInputKind: 'mic' | 'silent' | 'synthetic' = 'mic';
+    /** D53 emulated-microphone stream when _sessionInputKind === 'synthetic'. */
+    private _syntheticInputStream: MediaStream | null = null;
+    /** call_id → tool name, captured at output_item.added (arguments.done events carry no name). */
+    private _pendingToolNames: Map<string, string> = new Map();
     private _silentAudioContext: AudioContext | null = null;
 
     // Analytics and debugging properties
@@ -106,54 +111,23 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     /**
      * Add conversational context to tool results to encourage natural follow-up
      */
-    private _addConversationalContext(toolName: string, result: string, parameters: any): string {
-        try {
-            const parsedResult = typeof result === 'string' ? JSON.parse(result) : result;
-            
-            switch (toolName) {
-                case 'ui_intent':
-                    if (parsedResult.success) {
-                        const target = parameters.target;
-                        if (target?.type === 'project' && target?.id) {
-                            return `Tool execution successful. I've opened the ${target.id} project for you. Now I should tell you about what you're seeing in this project and its key features.`;
-                        } else if (target?.type === 'section' && target?.id) {
-                            return `Tool execution successful. I've navigated to the ${target.id} section. Now I should explain what's important about this part of the portfolio.`;
-                        } else if (target?.type === 'route') {
-                            return `Tool execution successful. I've taken you to the ${target.id} page. Now I should describe what's available here.`;
-                        }
-                        return `Tool execution successful. Navigation completed. Now I should describe what you're seeing.`;
-                    }
-                    break;
-                    
-                case 'ui_describe':
-                    return `Tool execution successful. Based on what I can see on the current page, I should now help you understand what's available and how I can assist you further.`;
-                    
-                case 'searchProjects':
-                    if (parsedResult.results && parsedResult.results.length > 0) {
-                        const count = parsedResult.results.length;
-                        const query = parameters.query || 'your search';
-                        return `Tool execution successful. I found ${count} project${count === 1 ? '' : 's'} matching "${query}". Now I should tell you about the most relevant ones.`;
-                    } else {
-                        return `Tool execution successful. I didn't find any projects matching that search. Now I should suggest some alternatives or tell you about other available projects.`;
-                    }
-                    
-                case 'loadProjectContext':
-                    const projectId = parameters.projectId;
-                    return `Tool execution successful. I've loaded detailed information about the ${projectId} project. Now I should share the key highlights and technical details with you.`;
-                    
-                case 'content_search':
-                    if (parsedResult.results && parsedResult.results.length > 0) {
-                        const count = parsedResult.results.length;
-                        return `Tool execution successful. I found ${count} relevant content item${count === 1 ? '' : 's'} that should help answer your question. Now I should explain what I found.`;
-                    }
-                    break;
-            }
-        } catch (error) {
-            console.warn('Failed to parse tool result for conversational context:', error);
-        }
-        
-        // Default conversational prompt
-        return `Tool execution successful. Now I should explain what this means and how it relates to what you're looking for.`;
+    private _addConversationalContext(toolName: string, result: string, _parameters: any): string {
+        // D57 finding (2026-07-07): this used to REPLACE the tool payload with a
+        // canned "Tool execution successful…" sentence — the model never saw a
+        // single content_search result (the shape check `.results` didn't even
+        // match the API's `.items`) and truthfully reported "nothing found" after
+        // successful retrievals. The real payload is now ALWAYS returned to the
+        // model; the conversational nudge is appended as guidance, never a
+        // substitute for data.
+        const nudges: Record<string, string> = {
+            ui_intent: 'Navigation done — briefly tell the user what they are now seeing.',
+            ui_describe: 'Ground your answer in this actual UI state.',
+            searchProjects: 'Summarize the most relevant matches conversationally.',
+            loadProjectContext: 'Share the key highlights and technical details.',
+            content_search: 'Answer from these results and mention which project they come from. If items is empty, say honestly that nothing was found.',
+        };
+        const nudge = nudges[toolName];
+        return nudge ? `${result}\n\n[guidance] ${nudge}` : result;
     }
 
     /**
@@ -568,7 +542,7 @@ Navigation Flow:
             this._options = options;
 
             // Create the realtime session using loaded configuration
-            this._createRealtimeSession(false);
+            this._createRealtimeSession('mic');
 
             this._isInitialized = true;
             console.log('OpenAIRealtimeAdapter: Initialization complete');
@@ -582,30 +556,44 @@ Navigation Flow:
     }
 
     /**
-     * (Re)create the RealtimeSession for the requested input mode.
+     * (Re)create the RealtimeSession for the requested input kind.
      *
-     * micless=false: default WebRTC transport (SDK acquires the microphone on connect).
-     * micless=true:  custom WebRTC transport fed a silent MediaStream so the browser
-     *                never requests mic permission — the user interacts via text
-     *                (sendMessage) and the model may still speak through audioElement.
+     * 'mic':       default WebRTC transport (SDK acquires the microphone on connect).
+     * 'silent':    custom WebRTC transport fed a silent MediaStream so the browser
+     *              never requests mic permission — the user interacts via text
+     *              (sendMessage) and the model may still speak through audioElement.
+     * 'synthetic': custom WebRTC transport fed the D53 SyntheticMicDriver stream —
+     *              TTS-generated speech drives the real voice path with no human mic.
      */
-    private _createRealtimeSession(micless: boolean): void {
+    private _createRealtimeSession(inputKind: 'mic' | 'silent' | 'synthetic', inputStream?: MediaStream): void {
         if (!this._agent) {
             throw new ConnectionError('Agent not initialized', 'openai');
         }
 
-        if (micless) {
+        if (inputKind === 'synthetic') {
+            if (!inputStream) {
+                throw new ConnectionError('Synthetic input requires a MediaStream', 'openai');
+            }
+            const transport = new OpenAIRealtimeWebRTC({
+                mediaStream: inputStream,
+                audioElement: this._options?.audioElement,
+            });
+            this._session = new RealtimeSession(this._agent, { transport });
+            this._syntheticInputStream = inputStream;
+        } else if (inputKind === 'silent') {
             const transport = new OpenAIRealtimeWebRTC({
                 mediaStream: this._createSilentInputStream(),
                 audioElement: this._options?.audioElement,
             });
             this._session = new RealtimeSession(this._agent, { transport });
+            this._syntheticInputStream = null;
         } else {
             // Server-injected config is authoritative; we only re-define tool wrappers.
             this._session = new RealtimeSession(this._agent, {});
+            this._syntheticInputStream = null;
         }
 
-        this._sessionIsMicless = micless;
+        this._sessionInputKind = inputKind;
         this._setupEventListeners();
     }
 
@@ -738,6 +726,10 @@ Navigation Flow:
             // Don't emit transcript here - it will be emitted in _executeToolCallUnified
             // This method is just for conversation logging
             const parsedArgs = functionCallItem.arguments ? JSON.parse(functionCallItem.arguments) : {};
+
+            if (functionCallItem.call_id && functionCallItem.name) {
+                this._pendingToolNames.set(functionCallItem.call_id, functionCallItem.name);
+            }
 
             const toolCallData = {
                 sessionId: this._sessionId || 'unknown',
@@ -1213,20 +1205,29 @@ Navigation Flow:
      */
     private _logToolCallCompletion(event: any) {
         try {
-            const conversationId = this._sessionId || 'unknown';
+            // Persist the completed tool call through the route's supported
+            // individual-tool format. (The previous payload — `conversationId` +
+            // `type: 'tool_call_completion'` — was a shape the route never
+            // accepted; every voice tool call 400'd and none persisted. Found
+            // 2026-07-07 by the D53 fake-mic drill.)
+            let parsedArgs: unknown = event.arguments;
+            try {
+                parsedArgs = event.arguments ? JSON.parse(event.arguments) : {};
+            } catch { /* keep raw string */ }
 
-            // Log to conversation logger for monitoring
             fetch('/api/ai/conversation/log', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    conversationId,
-                    type: 'tool_call_completion',
-                    message: 'Tool call arguments completed',
-                    data: {
-                        call_id: event.call_id,
-                        arguments: event.arguments,
-                        event_type: event.type
+                    sessionId: this._generateSessionId(),
+                    provider: 'openai',
+                    timestamp: new Date().toISOString(),
+                    toolName: event.name || this._pendingToolNames.get(event.call_id) || 'unknown_tool',
+                    toolArgs: parsedArgs,
+                    metadata: {
+                        toolCallId: event.call_id,
+                        success: true,
+                        reportType: 'real-time'
                     }
                 })
             }).catch(error => {
@@ -1461,8 +1462,10 @@ Navigation Flow:
     }
 
     async connect(options?: ConnectOptions): Promise<void> {
-        const wantsMic = options?.audioInput !== false;
-        console.log(`OpenAIRealtimeAdapter: Connect called (audioInput: ${wantsMic ? 'microphone' : 'text-only'})`);
+        const synthetic = !!options?.syntheticInputStream;
+        const wantsMic = !synthetic && options?.audioInput !== false;
+        const inputKind: 'mic' | 'silent' | 'synthetic' = synthetic ? 'synthetic' : wantsMic ? 'mic' : 'silent';
+        console.log(`OpenAIRealtimeAdapter: Connect called (input: ${inputKind})`);
 
         if (!this._session) {
             throw new ConnectionError('Session not initialized', 'openai');
@@ -1492,10 +1495,15 @@ Navigation Flow:
             }
 
             // The transport is fixed at session construction, so a mode switch
-            // (mic <-> text-only) requires recreating the session before connecting.
-            if (this._sessionIsMicless !== !wantsMic) {
-                console.log('OpenAIRealtimeAdapter: Recreating session for input mode change');
-                this._createRealtimeSession(!wantsMic);
+            // (mic <-> text-only <-> synthetic) requires recreating the session
+            // before connecting. A synthetic reconnect with a NEW driver stream
+            // also needs a rebuild.
+            if (
+                this._sessionInputKind !== inputKind ||
+                (inputKind === 'synthetic' && this._syntheticInputStream !== options?.syntheticInputStream)
+            ) {
+                console.log(`OpenAIRealtimeAdapter: Recreating session for input change (${this._sessionInputKind} -> ${inputKind})`);
+                this._createRealtimeSession(inputKind, options?.syntheticInputStream);
             }
 
             console.log('OpenAIRealtimeAdapter: Getting session token...');
@@ -1543,7 +1551,7 @@ Navigation Flow:
 
             this._isConnected = true;
             this._connectionStatus = 'connected';
-            this._audioInputMode = wantsMic ? 'microphone' : 'text-only';
+            this._audioInputMode = inputKind === 'mic' ? 'microphone' : inputKind === 'silent' ? 'text-only' : 'synthetic';
 
             // Initialize conversation tracking
             this._conversationStartTime = new Date();

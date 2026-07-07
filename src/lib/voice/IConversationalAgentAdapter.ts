@@ -24,12 +24,21 @@ import {
  * 'text-only'  — session established without microphone access (silent input track);
  *                the user types, the model may still speak. Required for clients
  *                without a mic, denied permissions, and automated e2e drivers.
+ * 'synthetic'  — dev/test only (D53): an emulated microphone track carrying
+ *                TTS-generated speech (SyntheticMicDriver) drives the REAL
+ *                provider voice path with no human speaker.
  */
-export type AudioInputMode = 'microphone' | 'text-only';
+export type AudioInputMode = 'microphone' | 'text-only' | 'synthetic';
 
 export interface ConnectOptions {
   /** Capture microphone input. Defaults to true (voice session). Pass false for a text-only session. */
   audioInput?: boolean;
+  /**
+   * Dev/test only (D53, verification 4.4): use this MediaStream as the session's
+   * input track instead of the microphone (no getUserMedia). Overrides audioInput.
+   * Supplied by SyntheticMicDriver so automated agents exercise the real voice path.
+   */
+  syntheticInputStream?: MediaStream;
 }
 
 export interface IConversationalAgentAdapter {

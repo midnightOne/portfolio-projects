@@ -157,6 +157,35 @@ Findings from the Phase 3 session that the manifest/ledgers did not predict:
     `"Project"` fail with 42P01 at runtime only (Prisma template SQL is not
     schema-checked). Caught by the live MCP client returning empty search.
 
+### Phase 4 Block C execution surprises (appended 2026-07-07)
+
+14. **The voice path REPLACED tool results with canned sentences — the realtime
+    model never saw a single `content_search` result.** `OpenAIRealtimeAdapter.
+    _addConversationalContext` substituted "Tool execution successful. Now I
+    should explain what I found." for the actual payload of `ui_intent`/
+    `ui_describe`/`searchProjects`/`loadProjectContext`/`content_search` (its
+    shape check `.results` didn't even match the API's `.items`, so
+    content_search always fell through to the generic string). The model then
+    honestly told users nothing was found after successful retrievals — the
+    likely root cause of the 2026-07-03 "realtime answers from world knowledge"
+    observation (5c.6 note). Found by the first D53 fake-mic drill; fixed per
+    D57: the payload is always returned, the conversational nudge is appended
+    as `[guidance]`, never a substitute. Verified live: same question now yields
+    a fixture-grounded voice answer.
+15. **Voice tool calls never persisted — `_logToolCallCompletion` had sent a
+    payload shape (`conversationId` + `type: 'tool_call_completion'`) that
+    `/api/ai/conversation/log` never supported**; every call 400'd since
+    creation, silently (fire-and-forget catch). Fixed to the route's individual
+    tool format (sessionId + toolName resolved via a call_id→name map captured
+    at `output_item.added`, since `function_call_arguments.done` carries no
+    name). Verified live: `[tool:content_search] ok` rows now land voice-labeled
+    in the conversation store.
+16. **OpenAI Realtime's connect-time `response.create` (no input, no language
+    pin in instructions) greets in a random language** (observed German, then
+    Arabic on consecutive sessions), and the conversation tends to stick to it.
+    Feeds ai-assistant 5d (start frame should pin the response language) — not
+    patched here.
+
 **HOLDs still standing (do not delete before their named tasks):**
 `connectionDiagnostics.ts` (ai-assistant 5b.3) ·
 `conversation-replay.tsx` (5b.2) · `reflink-status-indicator.tsx` (access-and-cost 8) ·

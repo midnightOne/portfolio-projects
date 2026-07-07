@@ -2,7 +2,7 @@
 
 **Status:** current
 **Owner domain:** agentic e2e verification infrastructure
-**Last verified against code:** 2026-07-02 (`e2d75b4`)
+**Last verified against code:** 2026-07-07 (Phase 4 Block C0 session)
 **Sequencing rule (D46): each item lands with or before the phase whose features it verifies — this ledger is deliberately interleaved with the roadmap, not a phase of its own.**
 
 ---
@@ -31,11 +31,11 @@
   - [x] 3.3 Negative test verified: with `DEV_VERIFICATION=false` and no admin session the envelope is absent and behavior unchanged
   - _Requirements: 4_
 
-- [ ] 4. Test doubles — *4.1/4.2 done with Phase 2 (2026-07-05); 4.3/4.4 with Phase 3/voice*
+- [ ] 4. Test doubles — *4.1/4.2 done with Phase 2 (2026-07-05); 4.4 done with Phase 4 Block C (2026-07-07); 4.3 open*
   - [x] 4.1 `FakeReasoningAdapter` behind the D39 factory (`src/lib/ai/reasoning/`); `AI_FAKE_MODE=reasoning` selection + production guard (`src/lib/ai/fake-mode.ts`)
   - [x] 4.2 Fake embedding provider (sha256 unit vectors) behind `default-embedding` (`src/lib/ai/embeddings.ts`); verified deterministic, 1536-dim, unit-norm, production-guarded
   - [ ] 4.3 `FakeVoiceAdapter` behind the adapter registry (post-D21 single provider) — bypasses the provider entirely (deterministic transcripts/tool round-trips, no network)
-  - [ ] 4.4 **Synthesized-audio input driver (D53) — dev-only voice e2e:** feed TTS-generated speech into an **emulated microphone track** so an automated agent (no human mic) exercises the *real* provider native-voice path (mic track → STT → model → TTS out). Distinct from 4.3: this drives the real provider, not a fake. Gated to dev/test via `AI_FAKE_MODE`/env, never production. Pairs with the mic-less text path (D52) to give full text-**and**-voice e2e coverage without a human; validates the D51 mode state machine. — *lands with the voice work (ai-assistant task 5c / 6 / 9)*
+  - [x] 4.4 **Synthesized-audio input driver (D53) — DONE 2026-07-07 (Phase 4 Block C0, pulled forward by owner).** `SyntheticMicDriver` (`src/lib/voice/dev/`) plays TTS audio (server route `/api/dev/fake-mic/tts`: 404s in production, admin/DEV_VERIFICATION only, gateway-wrapped + ledger-metered via new `default-tts` alias → `gpt-4o-mini-tts`) into a `MediaStreamAudioDestinationNode` handed to the adapter as `ConnectOptions.syntheticInputStream` (OpenAI adapter builds its WebRTC transport on it; `AudioInputMode` gains `'synthetic'`). "Fake Mic" panel on `/admin/ai/voice-debug` (renders only when the dev route answers; `window.__syntheticMic` exposed for scripted runs). **Verified live 2026-07-07:** scripted question spoken into a real OpenAI Realtime session → whisper STT transcribed it verbatim → model called `content_search`/`content_get` → answer grounded in fixture-kiln content (dual-thermocouple/PID/4 Hz) → all turns + tool rows persisted `voice`-labeled to the conversation store; TTS spend metered (~$0.0003/utterance). **Gotcha encoded in the driver:** a silent destination track lets Opus DTX stop packets and the provider's server VAD never emits `speech_stopped` — the driver keeps a perpetual −66 dB noise floor. Two production bugs found & fixed by the first drill (D57 — see manifest surprises 14/15 and ai-assistant ledger).
   - _Requirements: 3_
 
 - [ ] 5. Telemetry read formalization — *with Phase 3 (D26 consolidation)*

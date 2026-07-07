@@ -64,6 +64,8 @@ Planned (verification spec, land with their phases): `check:models`, `livefire:s
 
 Until the harness items exist (they land with Phases 0–3), approximate: seed data, drive the UI via preview tooling, read `/admin/ai/debug` + semantic dashboard, and say explicitly what could not be verified.
 
+**Voice e2e without a human mic (D53, verification 4.4):** the "Fake Mic" panel on `/admin/ai/voice-debug` speaks TTS-generated audio into an emulated microphone track feeding the REAL OpenAI Realtime session (mic → provider STT → model → TTS out). Connect with `[data-testid="fake-mic-connect"]`, script a question, `[data-testid="fake-mic-speak"]`; turns + tool rows persist voice-labeled and are readable via `GET /api/ai/conversation/log?sessionId=…`. Dev only: the TTS route (`/api/dev/fake-mic/tts`, alias `default-tts`) 404s in production. Audio QUALITY still needs human ears; turn mechanics don't.
+
 ## Owner judgment log (article source)
 
 [docs/article-notes-design-judgment.md](docs/article-notes-design-judgment.md) records the owner's design/UX decisions and intuitions as raw material for the portfolio article. **When the owner expresses a design judgment, UX decision, or architectural intuition in a session, append it there** — follow the file's conventions (💡 owner / 🤝 collaborative attribution, lightly cleaned quotes, an *Angle:* note for the article, registry pointer, per-session sections). It is also useful *input*: read it when a task involves judgment calls the owner has already reasoned about — it encodes their intuition. Not a spec; never normative.

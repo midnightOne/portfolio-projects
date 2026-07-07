@@ -13,7 +13,8 @@ export type ModelAliasName =
   | 'default-cheap'
   | 'default-reasoning'
   | 'default-embedding'
-  | 'default-realtime';
+  | 'default-realtime'
+  | 'default-tts';
 
 export interface ResolvedModel {
   alias: ModelAliasName;

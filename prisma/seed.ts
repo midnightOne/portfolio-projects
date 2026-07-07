@@ -753,6 +753,7 @@ The platform has processed over $2M in transactions in its first year, with 99.9
     { alias: 'default-reasoning', provider: 'openai', modelId: 'gpt-4o' },
     { alias: 'default-embedding', provider: 'openai', modelId: 'text-embedding-3-small' },
     { alias: 'default-realtime', provider: 'openai', modelId: 'gpt-realtime' },
+    { alias: 'default-tts', provider: 'openai', modelId: 'gpt-4o-mini-tts' },
   ];
   for (const a of modelAliases) {
     await prisma.aIModelAlias.upsert({
@@ -769,6 +770,7 @@ The platform has processed over $2M in transactions in its first year, with 99.9
     { modelId: 'text-embedding-3-small', provider: 'openai', inputPerMTokUsd: 0.02, outputPerMTokUsd: 0 },
     { modelId: 'text-embedding-3-large', provider: 'openai', inputPerMTokUsd: 0.13, outputPerMTokUsd: 0 },
     { modelId: 'gpt-realtime', provider: 'openai', inputPerMTokUsd: 4, outputPerMTokUsd: 16, notes: 'text tokens only; audio token pricing lands with voice metering (Phase 4)' },
+    { modelId: 'gpt-4o-mini-tts', provider: 'openai', inputPerMTokUsd: 0.6, outputPerMTokUsd: 12, notes: 'TTS: text-in / audio-out; speech endpoint returns no usage, so callers meter estimated tokens' },
     { modelId: 'claude-sonnet-4-5-20250929', provider: 'anthropic', inputPerMTokUsd: 3, outputPerMTokUsd: 15 },
     { modelId: 'claude-haiku-4-5-20251001', provider: 'anthropic', inputPerMTokUsd: 1, outputPerMTokUsd: 5 },
     { modelId: 'gemini-2.5-flash', provider: 'google', inputPerMTokUsd: 0.3, outputPerMTokUsd: 2.5 },

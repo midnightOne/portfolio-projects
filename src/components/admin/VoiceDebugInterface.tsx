@@ -31,6 +31,7 @@ import { ContextMonitor } from './ContextMonitor';
 import { ToolCallMonitor } from './ToolCallMonitor';
 import { IntegrationValidator } from './IntegrationValidator';
 import { ConversationStateInspector } from './ConversationStateInspector';
+import { FakeMicPanel } from './FakeMicPanel';
 
 interface VoiceDebugInterfaceProps { }
 
@@ -459,6 +460,9 @@ function VoiceDebugContent() {
           </div>
         )}
       </div>
+
+      {/* Fake mic (D53) — renders only when the dev TTS route is available */}
+      <FakeMicPanel />
 
       {/* Main Layout - Two Columns */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
