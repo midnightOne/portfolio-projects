@@ -2,7 +2,7 @@
 
 **Status:** current — describes implemented system
 **Owner domain:** admin shell, project editor, homepage composer, admin project APIs
-**Last verified against code:** 2026-07-02 (`e2d75b4`)
+**Last verified against code:** 2026-07-07 (Phase 3 consolidation session)
 
 ---
 
@@ -17,7 +17,7 @@ src/app/admin/
   media/                         # media library (owned by `media` spec, hosted in this shell)
   ai/                            # ai-admin + ai-assistant debug surfaces (hosted here)
   semantic/                      # semantic dashboard (owned by `semantic-content`, hosted here)
-src/components/admin/            # shell components, tables, form patterns
+src/components/admin/            # shell components (per-page tables/forms; no shared table/form primitives — see §5)
 src/components/projects/EnhancedProjectEditor*  # the one editor (D10)
 ```
 
@@ -57,4 +57,4 @@ All admin routes revalidate the NextAuth session server-side.
 
 ## 5. UX conventions
 
-shadcn/ui primitives; consistent table pattern (search + filters + row actions); confirmation dialogs for destructive actions; optimistic UI only where a failed write is recoverable; toasts for save results. Desktop-first (D14) with responsive collapse.
+shadcn/ui primitives; each admin page composes its own table/form from shadcn parts (search + filters + row actions as a convention, not a shared component — the never-adopted `admin-table`/`admin-form`/`admin-actions` primitives were deleted in Phase 3, manifest correction #2); confirmation dialogs for destructive actions; optimistic UI only where a failed write is recoverable; toasts for save results. Desktop-first (D14) with responsive collapse.

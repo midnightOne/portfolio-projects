@@ -1,9 +1,9 @@
 # Phase 3 dead-code cleanup manifest
 
-**Status:** current — input for the Phase 3 hygiene/consolidation session (D42 hard delete)
+**Status:** executed 2026-07-06/07 — waves 1–4 + hygiene + section F/G complete; §"Execution surprises" below records findings
 **Owner domain:** cross-cutting (execution detail for roadmap 3.x tasks across specs)
 **Source:** owner-run reachability tool output, 2026-07-06 (85 orphans, 2 test-only, 124 unused imports, 52 never-instantiated) + spot verification the same day
-**Last verified against code:** 2026-07-06 (staging)
+**Last verified against code:** 2026-07-07 (post-execution)
 
 **Tool caveat (binding):** the graph's entry roots are the app tree. `scripts/`, `prisma/seed*`, Jest setup, and TypeScript **module augmentation** are invisible to it. Every "orphan" is a *candidate*: before deleting, grep for dynamic `import()`, string-based references, jest `moduleNameMapper`, and script/seed usage. After each batch: `npm run type-check && npm run build && npm test`.
 
@@ -84,3 +84,58 @@ Every orphan was checked against the live specs' open tasks and `_backlog/` outl
 1. `ai-admin` requirements/design/tasks: the editor abstraction (`lib/ai/editors/`) is claimed as implemented but was **never wired** — annotate Already-implemented now ("files exist, unwired — resolution at task 4.3"); final wire-or-delete decision belongs to task 4.3 (cross-reference §2). The extension architecture (`lib/ai/extensions/`) has no spec support at all — delete in Phase 3.
 2. `admin-cms` design §5: shared admin table/form/action patterns exist as files but are **not adopted** — either adopt during Phase 3 UI touch or delete the claim with the files.
 3. `ai-assistant`: conversation replay is real but lives inside `conversation-management.tsx`; the standalone `conversation-replay.tsx` is a dead twin (no spec change needed — D49's replay work should build on the mounted component).
+
+---
+
+## Execution surprises (appended 2026-07-07, post-execution)
+
+Findings from the Phase 3 session that the manifest/ledgers did not predict:
+
+1. **Nothing in production persists conversations.** The only writers to
+   `AIConversation`/`AIConversationMessage` were the two Gen-1 pipelines this
+   phase deleted; `/api/ai/chat` (text) and the voice adapters' `/api/ai/conversation/log`
+   POST (a non-persisting stub — console + debug events only, TODO since creation)
+   write nothing. Replay/analytics UIs therefore show only historical rows until
+   D49 task 5b lands leg-aware persistence. Deliberately NOT patched here — 5b.1
+   owns the schema design.
+2. **The admin conversation analytics UI never matched its mock.** The UI's
+   `ConversationAnalytics` interface matched `conversationHistoryManager.getConversationStats()`
+   almost exactly, not the mock's shape — the tab was silently broken. Re-pointing
+   the route at real aggregates fixed it as a side effect of D26.
+3. **`prisma/seed.ts` was a hidden consumer of both Gen-1 pipelines** (dynamic
+   `import()` inside try/catch — exactly the reachability-tool blind spot the
+   caveat warned about). Resolved as semantic-content 6.5 (auto-ingestion dropped).
+4. **The scope-all bug (6.2) split as predicted**: the `projectAIIndex.upsert`
+   crash died with D37 (verified live), but the flat-checkpoint accumulation
+   persisted all 4 projects' chunks (79) under the LAST project's entity —
+   worse than "fails": it silently mis-attributes. 6.2 remains open with the
+   sharper diagnosis.
+5. **`stages` require `enabled: true`.** `processing/start` silently skips every
+   stage without it (logs "Skipping disabled stage", operation "completes" as a
+   no-op and stays `queued` in the queue view — compounding bug 6.3). Documented
+   in CLAUDE.md; a validation error would be better (small follow-up).
+6. **No sitemap exists.** portfolio-core's Already-implemented claimed one;
+   there is no `sitemap.ts`/`sitemap.xml` anywhere. Ledger task 4.1 re-premised
+   to "create one".
+7. **The 29-test-page count was low**: 40 test/demo/debug page dirs existed
+   (plus a mixed tracked/untracked state that made the first `git rm` glob
+   abort silently — worth knowing for future sweeps: `git rm` aborts the whole
+   batch on one bad pathspec).
+8. **`/admin/ai/voice-test` + duplicate `/api/ai/openai/token`** were a
+   self-contained SDK experiment pair (weather-tool demo) — deleted under
+   D16/D26 beyond the manifest's explicit list.
+9. **project-indexer split, not deleted**: its Tiptap hierarchical parsing is
+   the live structure reader for 5 semantic services — extracted to
+   `src/lib/content/HierarchicalContentParser.ts` as the D48 content-source
+   entry point (satisfies semantic-content 3.6); only the ProjectAIIndex
+   persistence half died.
+10. **Unused-imports estimate collapsed**: the sweep found ~121 removals across
+    123 files — but most of the tool's original 124 were in files already
+    hard-deleted by waves 1–4.
+
+**HOLDs still standing (do not delete before their named tasks):**
+`lib/ai/editors/*` (ai-admin 4.3) · `connectionDiagnostics.ts` (ai-assistant 5b.3) ·
+`conversation-replay.tsx` (5b.2) · `reflink-status-indicator.tsx` (access-and-cost 8) ·
+`VoiceConnectionTester.tsx` (ai-assistant 6 / ui-system 1.2) · `config-validation.ts` (ai-assistant 6).
+`lib/ai/extensions/` was deleted per section F (no spec support).
+

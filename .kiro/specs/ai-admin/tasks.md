@@ -2,28 +2,28 @@
 
 **Status:** current
 **Owner domain:** model registry, pricing, reasoning adapters, editing AI
-**Last verified against code:** 2026-07-02 (`e2d75b4`)
+**Last verified against code:** 2026-07-07 (Phase 3 consolidation session)
 **Ledger regenerated from code truth per D36. The completed ai-architecture-redesign work (env keys, `AIModelConfig`, `AIGeneralSettings`, admin AI settings page) is history, not tasks.**
 
 ---
 
 ## Already implemented (verified on branch)
 
-Env-based provider keys with status/masking/test-connection; OpenAI + Anthropic providers behind `service-manager`/`provider-factory`; canonical editing endpoints (`edit-content`, `improve-content`, `process-prompt`, `suggest-tags`) with structured responses; editor abstraction with Tiptap adapter, selection-targeted edits, review-before-apply; `AIModelConfig`/`AIGeneralSettings` persistence; admin AI settings UI; error handler + availability checker + per-instance status cache.
+Env-based provider keys with status/masking/test-connection; OpenAI + Anthropic providers behind `service-manager`/`provider-factory`; canonical editing endpoints (`edit-content`, `improve-content`, `process-prompt`, `suggest-tags`) with structured responses; **editor abstraction (`lib/ai/editors/`): files exist but are UNWIRED — zero component imports; the Tiptap AI panel talks to the endpoints directly. Wire-or-delete decision belongs to task 4.3 (Phase 3 manifest cross-reference §2)**; `AIModelConfig`/`AIGeneralSettings` persistence; admin AI settings UI; error handler + availability checker + per-instance status cache. Since Phase 2: `AIModelAlias`/`AIModelPricing` tables + `resolveModelAlias()` (`src/lib/ai/model-registry.ts`, 5 aliases, fail-closed) feed the gateway/chat/embeddings paths.
 
 ## Open tasks
 
 ### Phase 3
 
-- [ ] 1. Model registry + role aliases (D4)
+- [ ] 1. Model registry + role aliases (D4) — *seed shipped with Phase 2 (`model-registry.ts` + `AIModelAlias` rows); remaining: admin UI, dropdowns, refresh endpoints, hardcoded-ID sweep (~120 refs in 25 files as of 2026-07-07, heaviest: elevenlabs/token route, CostEstimationService, chunking-config UI, providers)*
   - [ ] 1.1 Alias mapping storage + `resolveModel(alias)`; admin UI for alias assignment
   - [ ] 1.2 Remove hardcoded model IDs/enums across code (incl. voice serializers, ElevenLabs agent ID with `ai-assistant` task 5); dropdowns read the registry
   - [ ] 1.3 Provider model-list refresh endpoints wired to registry
   - [ ] 1.4 Acceptance: grep finds no model IDs outside seed/config; voice + chat + embeddings resolve via aliases
   - _Requirements: 2_
 
-- [ ] 2. Fix Anthropic capability table (D40) — cheap, do with task 1
-  - [ ] 2.1 `tool use: yes, vision: yes, JSON via tool-forcing`; delete the false capability gating
+- [x] 2. Fix Anthropic capability table (D40) — **verified resolved 2026-07-07**
+  - [x] 2.1 No false capability gating exists in live code (the false table lived in the archived Gen-1 spec docs, corrected by regeneration; the admin UI's Anthropic `disabled` props gate on env-key presence, which is correct). The D39 reasoning-adapter layer (task 4.2) implements Anthropic tool use when it lands.
   - _Requirements: 4.2_
 
 ### Phase 2 (pricing is needed by the gateway ledger — build early)

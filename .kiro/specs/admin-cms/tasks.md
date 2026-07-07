@@ -2,7 +2,7 @@
 
 **Status:** current
 **Owner domain:** admin shell, project editor, homepage composer, admin project APIs
-**Last verified against code:** 2026-07-02 (`e2d75b4`)
+**Last verified against code:** 2026-07-07 (Phase 3 consolidation session)
 **Ledger regenerated from code truth per D36.**
 
 ---
@@ -13,17 +13,16 @@ Admin shell with sidebar navigation and session gating; projects dashboard with 
 
 ## Open tasks
 
-- [ ] 1. Delete legacy editors (D10) — *Phase 3*
-  - [ ] 1.1 Remove `project-editor.tsx`, `unified-project-editor.tsx`, `project-preview-editor.tsx` and any dead imports/exports
-  - [ ] 1.2 Type-check + build green; editor route unaffected
+- [x] 1. Delete legacy editors (D10) — **done 2026-07-06**
+  - [x] 1.1 All three deleted, plus `project-display.tsx` and the never-adopted shared admin primitives (`admin-table`/`admin-form`/`admin-actions`/`floating-save-bar`/`inline-editable` + test) — verified `enhanced-project-editor` imports none of them
+  - [x] 1.2 Type-check + build green; `/admin/projects/editor/[[...id]]` routes only `EnhancedProjectEditor`
   - _Requirements: 3.1_
 
-- [ ] 2. Remove draft/published remnants from admin UI (D7) — *Phase 3, with portfolio-core task 1*
-  - [ ] 2.1 Grep admin components for `status` badges/filters; remove or map to visibility
+- [x] 2. Remove draft/published remnants from admin UI (D7) — **done 2026-07-06, with portfolio-core task 1**
+  - [x] 2.1 Status selector removed from the editor save bar (visibility control remains); dashboard badge shows visibility; admin projects API status filter/fields dropped; stats count public/private
   - _Requirements: 3.5_
 
-- [ ] 3. Purge Novel leftovers (D6) — *Phase 3*
-  - [ ] 3.1 Delete `NovelContent`/`NovelBlock`/`AINovelIntegration` types and any `novel` imports/deps if still present
+- [x] 3. Purge Novel leftovers (D6) — **verified clean 2026-07-06**: grep finds no `NovelContent`/`NovelBlock`/`AINovelIntegration` or `novel` deps anywhere; nothing to delete
   - _Requirements: 3.6_
 
 - [ ] 4. Admin shell hosts new panels — *Phase 2/4, coordinate*

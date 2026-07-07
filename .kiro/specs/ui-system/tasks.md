@@ -2,7 +2,7 @@
 
 **Status:** current
 **Owner domain:** theming, component layer, GSAP orchestration, wave hero, layout
-**Last verified against code:** 2026-07-02 (`e2d75b4`)
+**Last verified against code:** 2026-07-07 (Phase 3 consolidation session)
 **Ledger regenerated from code truth per D36.**
 
 ---
@@ -13,9 +13,9 @@ Light/dark theme system with tokens, persistence, and flicker-free switching; cu
 
 ## Open tasks
 
-- [ ] 1. Remove public `test-*` pages (D16/D42) — *Phase 3, with the repo-wide hygiene sweep*
-  - [ ] 1.1 Delete the ~29 `src/app/test-*` routes (theme/wave/tiptap/animation testbeds)
-  - [ ] 1.2 Where a testbed is still genuinely useful, fold it into an admin-gated playground page (at most one per subsystem)
+- [x] 1. Remove public `test-*` pages (D16/D42) — **done 2026-07-06**
+  - [x] 1.1 All 40 test/demo/debug page dirs deleted (38 `test-*` + `theme-demo` + `debug-nav-context`)
+  - [x] 1.2 Nothing folded — every subsystem already has its D16 admin playground: wave hero → admin wave config panel with live preview; voice → `/admin/ai/voice-debug`; chat → `/admin/ai/debug`. Theme/animation testbeds judged not worth an admin page (theme switching is exercised by the real UI).
   - _Requirements: Cancelled section; registry D16_
 
 - [ ] 2. Reduced-motion audit — *Phase 3 verification*

@@ -2,33 +2,33 @@
 
 **Status:** current
 **Owner domain:** visitor AI runtime
-**Last verified against code:** 2026-07-02 (`e2d75b4`)
+**Last verified against code:** 2026-07-07 (Phase 3 consolidation session)
 **Ledger regenerated from code truth per D36 — the old client-side-ai tasks.md (141KB, colliding numbering) is archived, not carried.**
 
 ---
 
 ## Already implemented (verified on branch)
 
-OpenAI Realtime + ElevenLabs adapters behind `IConversationalAgentAdapter` with WebRTC and ephemeral tokens; server-side prompt/tool injection at token mint; `UnifiedToolRegistry` with client/server contexts and `/api/ai/tools/execute`; declarative `ui_intent`/`ui_describe` via `UIManager` + `SemanticIDRegistry` (imperative tools and internal "MCP" library deleted on branch); semantic server tools (`content_search`, `content_get`, `content_getHierarchy`, `content_searchSection`, `content_getRelated`); F-I-D passive context (`PassiveFIDManager`, `ContextFrameManager`, `/api/ai/context/fid`); conversation logging via `conversation-history-manager`; pill UI with subtitle narration; admin voice config (`VoiceProviderConfig` CRUD); admin debug surfaces (currently on the duplicate provider — see task 1).
+OpenAI Realtime + ElevenLabs adapters behind `IConversationalAgentAdapter` with WebRTC and ephemeral tokens; server-side prompt/tool injection at token mint; `UnifiedToolRegistry` with client/server contexts and `/api/ai/tools/execute`; declarative `ui_intent`/`ui_describe` via `UIManager` + `SemanticIDRegistry` (imperative tools and internal "MCP" library deleted on branch); semantic server tools (`content_search`, `content_get`, `content_getHierarchy`, `content_searchSection`, `content_getRelated`); F-I-D passive context (`PassiveFIDManager`, `ContextFrameManager`, `/api/ai/context/fid`); conversation logging via `conversation-history-manager`; pill UI with subtitle narration; admin voice config (`VoiceProviderConfig` CRUD); admin debug surfaces on the production provider (duplicate provider deleted, Phase 3 task 1); admin AI debug page drives `/api/ai/chat` and renders the per-turn `_debug` envelope (system prompt, context string, retrieval/tool traces, usage, timings).
 
 ## Open tasks
 
 ### Phase 3 — consolidation
 
-- [ ] 1. Single conversational-agent provider (D21)
-  - [ ] 1.1 Migrate admin debug components (`VoiceDebugInterface`, `ContextMonitor`, `ToolCallMonitor`, …) to `components/providers/conversational-agent-provider.tsx`
-  - [ ] 1.2 Delete `src/contexts/ConversationalAgentContext.tsx` + `src/hooks/useConversationalAgent.ts` re-export
-  - [ ] 1.3 Debug pages functional against persisted-log replay
+- [x] 1. Single conversational-agent provider (D21) — **done 2026-07-06**
+  - [x] 1.1 5 admin debug components (`VoiceDebugInterface`, `ContextMonitor`, `ToolCallMonitor`, `ConversationStateInspector`, `AdminDebugTest`) migrated to the production `conversational-agent-provider` (+ `ReflinkSessionProvider`)
+  - [x] 1.2 `src/contexts/ConversationalAgentContext.tsx` deleted (no re-export hook existed)
+  - [x] 1.3 `/admin/ai/debug` rewritten as a production chat tester over `/api/ai/chat` with live `_debug` inspection + persisted-log browser; replay stays at `/admin/ai/conversations` (verified live against real persisted conversations)
   - _Requirements: 3.4, 10.1_
 
-- [ ] 2. Delete Gen-1 conversation stack
-  - [ ] 2.1 Remove `conversation-manager.ts`, `unified-conversation-manager.ts`, `conversation-transport.ts`, `context-manager.ts`; remove the `/api/ai/conversation` POST pipeline (keep read-only history/transcript/replay re-pointed at `conversation-history-manager`)
-  - [ ] 2.2 Fold `context-injector.ts` into `context-provider.ts`; update its 5 importing routes
-  - [ ] 2.3 Audit `/api/ai/context/{load,inject,cache}` + `/api/ai/context` — delete anything not called by adapters or F-I-D
-  - [ ] 2.4 Salvage pass BEFORE deleting `unified-conversation-manager.ts` (owner-reviewed 2026-07-06, full code review):
-    - [ ] 2.4a Move `ConversationMessage` / `ConversationInput` / `ConversationOptions` types out (imported by `conversation-history-manager`) — sever the type entanglement
-    - [ ] 2.4b Debug-parity check: the `_debug` envelope must expose the assembled **system prompt + context string** per turn (the old manager's per-turn debug snapshots did; retrieval/tool/model traces already covered) — this is the one admin-debug workflow deletion would otherwise lose
-    - [ ] 2.4c Optional salvage ideas noted, not ported: per-message `inputMode` tagging (already covered by `transportMode` in the history manager / D49 leg-tagged messages), tone/length user preferences (revisit as D47 node guidance, not here)
+- [x] 2. Delete Gen-1 conversation stack — **done 2026-07-06**
+  - [x] 2.1 All four Gen-1 modules deleted; `/api/ai/conversation` POST pipeline removed; the 8 read routes (analytics/cleanup/debug/export/history/log/replay + admin debug) re-pointed at `conversation-history-manager` — analytics went from mock to real aggregates; transcript mocks (search/transcripts/transcript/[sessionId]) deleted per D26 (zero consumers)
+  - [x] 2.2 `context-injector.ts` folded into `context-provider.ts` (generateSessionToken / validateAndFilterContext / generateElevenLabsPrompt); importing routes re-pointed (elevenlabs/token, tools/execute, voice/session-init — the other 2 importers were the deleted load/inject routes)
+  - [x] 2.3 `/api/ai/context/{load,inject,cache}` + `/api/ai/context` mock deleted (nothing but dead hooks and admin test-buttons called them; buttons re-pointed at `/api/ai/tools/execute` content_search); `/api/ai/context/fid` kept (F-I-D)
+  - [x] 2.4 Salvage pass done:
+    - [x] 2.4a `ConversationMessage`/`NavigationCommand` moved into `conversation-history-manager`; `ConversationInput`/`ConversationOptions` were imported but unused — dropped
+    - [x] 2.4b `_debug` envelope now exposes `systemPrompt` + `contextString` per turn (gateway + `/api/ai/chat`); verified live (1915/1097 chars on the smoke)
+    - [x] 2.4c Noted, not ported (as specified)
   - **Lineage note (do not re-litigate):** the unified manager (created 2025-08-28 "3.1 Build mode-agnostic conversation pipeline") was the intended production text+voice pipeline; it was superseded in Sept 2025 by client-direct adapters + declarative navigation, and its removal was ordered by 2025's own streamlined-architecture requirement (archived `_archive/client-side-ai/requirements.md` — "use production client-side endpoints for accurate testing", "remove redundant conversation managers"). Its intent shipped properly as `/api/ai/chat` (gateway + reasoning adapter + tool loop, Phase 2) and its mode-agnostic ambition lives on in D45/D49. Disqualifiers verified by code review 2026-07-06: instance-memory singleton with `global` workaround (self-documented Vercel mismatch, D43), pre-tool-calling era (`[NavigateTo:…]` regex protocol, no `content_search`/RAG), hardcoded model IDs (D4), no gateway/metering, unfinished placeholders (voice returns `undefined`, hardcoded context sources/suggestions).
   - _Requirements: 9.1; design §3_
 
@@ -38,12 +38,13 @@ OpenAI Realtime + ElevenLabs adapters behind `IConversationalAgentAdapter` with 
   - [ ] 3.3 Agent smoke test: navigation + content search through both providers
   - _Requirements: 4.4_
 
-- [ ] 4. Delete mock endpoints (D26)
-  - [ ] 4.1 Remove `/api/ai/conversation/{analytics,search,transcripts}` mocks, `/api/admin/ai/voice-analytics*`, `/api/ai/context` mock, duplicate `/api/ai/openai/token`
+- [x] 4. Delete mock endpoints (D26) — **done 2026-07-06**
+  - [x] 4.1 analytics re-implemented real (admin UI consumes it); search/transcripts/transcript mocks deleted; `/api/admin/ai/voice-analytics*` (Math.random data) deleted with page + dashboard + sidebar link; `/api/ai/context` mock deleted; duplicate `/api/ai/openai/token` deleted with its only consumer (`/admin/ai/voice-test` SDK scratch page)
   - _Requirements: 9.2_
 
-- [ ] 5. Config hygiene
-  - [ ] 5.1 Remove hardcoded ElevenLabs fallback agent ID; `localhost:3000` fallbacks → env-derived origin
+- [ ] 5. Config hygiene — *5.1 agent-ID half done 2026-07-07*
+  - [x] 5.1a Hardcoded ElevenLabs fallback agent ID removed (adapter reads `NEXT_PUBLIC_ELEVENLABS_AGENT_ID` or fails closed; server-side agent resolution was already dynamic)
+  - [ ] 5.1b `localhost:3000` fallbacks: remaining 5 sites are env-first (`NEXTAUTH_URL`/`NEXT_PUBLIC_APP_URL`) with dev-only literal defaults — full removal rides the fetch-self cleanup
   - [ ] 5.2 Model references resolve via registry aliases (with `ai-admin` task set, D4)
   - _Requirements: 3.2_
 

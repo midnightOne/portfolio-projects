@@ -2,7 +2,7 @@
 
 **Status:** current
 **Owner domain:** media storage, upload, library, picker, providers
-**Last verified against code:** 2026-07-02 (`e2d75b4`)
+**Last verified against code:** 2026-07-07 (Phase 3 consolidation session)
 **Ledger regenerated from code truth per D36.**
 
 ---
@@ -13,7 +13,7 @@ Upload pipeline with validation and progress; Cloudinary provider integration; `
 
 ## Open tasks
 
-- [ ] 1. Delete `/api/media/test-cloudinary` diagnostic route (D42) — *Phase 3*
+- [x] 1. Delete `/api/media/test-cloudinary` diagnostic route (D42) — **done 2026-07-06** (with `scripts/test-cloudinary-display.ts` and the dead `cloudinary-image` component)
 - [ ] 2. Verify delete flows remove provider-side objects and clean project associations — *Phase 3 verification*
   - _Requirements: 3.2_
 

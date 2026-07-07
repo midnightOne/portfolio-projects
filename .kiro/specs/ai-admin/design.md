@@ -2,7 +2,7 @@
 
 **Status:** current — editing path implemented; registry/aliases/adapter-layer sections are target design (Phases 3–4)
 **Owner domain:** model registry, pricing, reasoning adapters, editing AI
-**Last verified against code:** 2026-07-02 (`e2d75b4`)
+**Last verified against code:** 2026-07-07 (Phase 3 consolidation session)
 
 ---
 
@@ -13,7 +13,7 @@ src/lib/ai/
   service-manager.ts, provider-factory.ts     # provider orchestration (current)
   providers/{openai,anthropic,base}-provider.ts
   error-handler.ts, status-cache.ts, availability-checker.ts, environment.ts
-  editors/                                    # editor abstraction: tiptap-adapter, selection-manager, content-parser
+  editors/                                    # editor abstraction files — EXIST BUT UNWIRED (zero component imports; the Tiptap AI panel calls the editing endpoints directly). Wire-or-delete at task 4.3 (Phase 3 manifest cross-reference §2). Sibling extensions/ was never wired either and was scheduled for deletion.
 src/app/api/admin/ai/
   edit-content, improve-content, process-prompt, suggest-tags   # canonical editing endpoints (D23)
   available-models, model-config, providers*, environment-status, test-connection, initialize

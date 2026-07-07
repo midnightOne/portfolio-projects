@@ -2,7 +2,7 @@
 
 **Status:** current
 **Owner domain:** T0–T3 semantic pipeline, search, budgets, dashboard
-**Last verified against code:** 2026-07-02 (`e2d75b4`)
+**Last verified against code:** 2026-07-07 (Phase 3 consolidation session)
 **Ledger regenerated per D36 (the old spec's duplicate "Task 15" is gone by regeneration). The semantic-system-fixes spec is archived; its unresolved items live here as verification tasks — branch commits (`2c4add4` "all stages work properly", `146dc21` HNSW reindexing, `5fa3417` duplicate-content fix) claim to have fixed most of them, unverified.**
 
 ---
@@ -25,10 +25,10 @@ T0–T3 heading-bounded generation with contextual prefixes and section hashes; 
 ### Phase 0 follow-ups — defects found by task 1 (2026-07-03)
 
 - [x] 6.1 ~~Parent-resolution heuristic corrupts hierarchy~~ **FIXED**: `StageBasedProcessingService` treated any `parentChunkId` starting with 'c' and ≥20 chars as a DB cuid, so slug-like logical IDs (e.g. `chrono-kiln-controller`) failed FK resolution and aborted chunking. Both `batchStoreChunks` and `storeValidatedChunk` now resolve map/DB-first with a strict cuid-pattern fallback.
-- [ ] 6.2 **`scope: 'all'` processing is structurally broken**: every stage assumes a single project (`projects[0]`, `request.projectId` undefined → `projectAIIndex.upsert` crash in chunking; `executeSummariesStage` comments "Assuming single project for now"; chunks from all projects accumulate into one flat checkpoint persisted against one entity). Fix = per-project persistence loop (or per-project sub-operations). Until then the dashboard's "process all" bulk action fails.
+- [ ] 6.2 **`scope: 'all'` processing is structurally broken** (crash half resolved by D37, 2026-07-06): the `projectAIIndex.upsert` throw is gone with the table, and scope-all chunking now runs to completion — but the flat-checkpoint accumulation persists all projects' chunks against ONE entity (verified live 2026-07-06: 79 chunks from 4 projects landed under the last project's entity). Fix = per-project persistence loop (or per-project sub-operations). Until then use per-project scope.
 - [ ] 6.3 **Queue entry status never updates without an SSE subscriber**: a completed operation stays `queued` in `JobQueueManager` unless a `?sse=true` subscription was attached (status transitions appear to ride the progress-subscription callback). Decouple queue status from SSE subscription.
 - [ ] 6.4 **Unauthenticated cost-incurring route**: `POST /api/admin/semantic/processing/start` (and the start of stage operations generally) has no session check while sibling routes (`processing/queue`) do — anyone who can reach the dev/staging server can trigger OpenAI spend. Gateway (Phase 2, D33) is the systemic fix; an interim `getServerSession` guard is cheap and worth it.
-- [ ] 6.5 `prisma/seed.ts` still ingests via the **legacy T0–T4 pipeline** (`ContentIngestionPipeline`) and `project-indexer`, producing tier-4 chunks (32 such rows existed in the old Neon dev DB). Swap seed to the stage-based pipeline or drop auto-ingestion from seed (goes with D27/D37 in Phase 3).
+- [x] 6.5 **done 2026-07-06 (Wave 1)**: auto-ingestion dropped from `prisma/seed.ts` (both the project-indexer and ContentIngestionPipeline blocks); ingestion is per-project via `POST /api/admin/semantic/processing/start` as documented in CLAUDE.md. 3 leftover tier-4 chunks deleted from the dev DB (D27).
 
 ### Phase 2 — cost unification
 
@@ -39,16 +39,16 @@ T0–T3 heading-bounded generation with contextual prefixes and section hashes; 
 
 ### Phase 3 — one index, hygiene
 
-- [ ] 3. Retire `ProjectAIIndex` (D37)
-  - [ ] 3.1 Data migration: `summary` → T1 chunk where missing; keywords/topics/technologies → `ContentEntity`/`ContextChunk.metadata`
-  - [ ] 3.2 Re-point `BackendToolService` + `/api/projects/search/ai-context` to `ContentSearchService`
-  - [ ] 3.3 Delete `project-indexer.ts`, legacy `src/lib/services/content-ingestion.ts` (T0–T4), `use-project-indexing.ts`, `project-indexing-integration.ts`, `/api/admin/ai/project-indexing/*`, `/admin/ai/project-indexing` page; remove legacy re-exports from `src/lib/content/index.ts`
-  - [ ] 3.4 Prisma migrations: drop `ContextChunk.projectIndexId`, then `ProjectAIIndex`
-  - [ ] 3.5 Acceptance: semantic search unaffected; `prisma migrate` clean; no imports of deleted modules
-  - [ ] 3.6 While in there: confirm ingestion reads content through a single content-source entry point (the Tiptap/`ArticleContent` reader) rather than scattered Prisma reads — the D48 content-source seam; extract the entry point if the refactor is trivial, otherwise note the gap in `_backlog/agentic-platform.md`
+- [x] 3. Retire `ProjectAIIndex` (D37) — **done 2026-07-06 (Wave 4)**
+  - [x] 3.1 Migration `20260707020000_retire_project_ai_index`: technologies → `content_entities.technologies` (where empty), keywords/topics → T1 chunk metadata, summary → new T1 chunk where missing; applied clean, zero drift
+  - [x] 3.2 `BackendToolService`'s aiIndex read removed (sectionsCount derived from heading hierarchy); `content-source-manager`'s project search now calls `ContentSearchService` directly (the `/api/projects/search/ai-context` fetch-self route deleted — its only consumer)
+  - [x] 3.3 All deleted (`content-ingestion.ts` + barrel died in Wave 1); plus `project-indexing-status.tsx`, `/api/projects/[slug]/index`, `/api/projects/index/batch`, sidebar link, 20 dead scripts incl. `setup-pgvector.ts` (superseded by D54 init migration)
+  - [x] 3.4 FK + column + `project_ai_index` table dropped in the same migration (data salvage runs first)
+  - [x] 3.5 Verified: fixture cleanup → 4-stage re-ingestion through the new write path (12/12 chunks, expected tier distribution, all embedded) → `check:semantic` PASSED incl. live canonical query; `migrate diff` zero drift; no imports of deleted modules (type-check green)
+  - [x] 3.6 The live hierarchical Tiptap parsing was extracted to `src/lib/content/HierarchicalContentParser.ts` — the single content-structure entry point the 7 semantic services consume (D48 seam). Non-structural reads (project metadata) still hit Prisma directly; acceptable, noted.
   - _Requirements: 8; registry D48(d)_
 
-- [ ] 4. Delete one-off diagnostic routes (D42): the 9 routes listed in design §5; keep `diagnostics`, `diagnostics/t3`, `dashboard`
+- [x] 4. Delete one-off diagnostic routes (D42) — **done 2026-07-06**: all 9 deleted; `diagnostics`, `diagnostics/t3`, `dashboard` kept (dashboard verified live post-D37: real per-project tier data)
 
 ### Phase 3 — retrieval quality
 
