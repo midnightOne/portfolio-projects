@@ -48,6 +48,7 @@ import {
   Shield,
   Bug,
   Mic,
+  MessagesSquare,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -487,6 +488,17 @@ export function AdminSidebar() {
                   <Link href="/admin/ai/voice-config" className="flex items-center gap-2">
                     <Settings className="size-4" />
                     <span>Voice Config</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isItemActive('/admin/ai/conversations')}
+                >
+                  <Link href="/admin/ai/conversations" className="flex items-center gap-2">
+                    <MessagesSquare className="size-4" />
+                    <span>Conversations</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

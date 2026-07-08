@@ -136,10 +136,17 @@ OpenAI Realtime + ElevenLabs adapters behind `IConversationalAgentAdapter` with 
       - **admin transcript browser** at `/admin/ai/conversations` (new `ConversationBrowser` + `GET
         /api/admin/ai/conversations/browse`): lists every stored conversation with provider/model (from the latest D49
         leg), reflink, time, message count, cost; lookup by exact conversationId **or** sessionId, filter by provider,
-        content, and date range; row → full timeline via `ConversationReplayViewer` (replay route + viewer now accept
-        `conversationId` directly, not only `sessionId`). Route verified live (admin-gated, 307→signin unauth); browse
-        query logic verified against the DB. UI browser-drive under an authenticated admin session is the one item left
-        to eyeball (couldn't start a competing dev server — another session was serving this `.next`).
+        content, and date range. **Layout (owner refinement 2026-07-08): three columns — left admin nav | middle
+        conversation list | right transcript panel.** The admin view shows the WHOLE selected conversation as a chat
+        (new `ConversationTranscriptPanel`, reuses the exported `ReplayStepCard`): every turn + tool call/result +
+        nav/error event + reasoning, scrollable, sticky beside the list — NOT the stepped Previous/Next dialog (that
+        stepper is reserved for the future homepage over-the-portfolio replay, per owner). The legacy
+        `conversation-management.tsx` (its own duplicate list + stepper + analytics/export/cleanup) was UNMOUNTED from
+        this page to keep the three-column view clean — the component still exists; its export/cleanup/analytics need a
+        new home if wanted. Added a **Conversations** entry to the admin left sidebar (AI Assistant group). Replay route
+        + viewer now accept `conversationId` directly. **Browser-verified live** (admin session, 1600px): sidebar link
+        present, 25-row list, selecting the "3D work" convo rendered all 6 steps (2 user, 2 tool calls with expandable
+        args, 2 AI) in the right panel; no console errors.
       - **tool-call latency / silent-gap UX.** Root-caused: NOT cascade and NOT reasoning — the active config is native
         s2s (`gemini-2.5-flash-native-audio-latest`, `responseModality:'AUDIO'`), reasoning off by default. Tool exec is
         already fast (measured `content_search` 536ms, `getProjectSummary` 431ms on the owner's "3D work" convo

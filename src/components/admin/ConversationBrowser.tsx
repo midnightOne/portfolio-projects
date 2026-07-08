@@ -33,7 +33,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Loader2, RefreshCw, Search, X } from 'lucide-react';
-import { ConversationReplayViewer } from './ConversationReplayViewer';
+import { ConversationTranscriptPanel } from './ConversationTranscriptPanel';
 
 interface ConversationRow {
   id: string;
@@ -65,7 +65,7 @@ export function ConversationBrowser() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
-  const [openConversationId, setOpenConversationId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Filters
   const [idQuery, setIdQuery] = useState('');
@@ -128,7 +128,9 @@ export function ConversationBrowser() {
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <Card>
+    <div className="flex flex-col xl:flex-row gap-4 items-start">
+      {/* Middle column: filters + conversation list */}
+      <Card className="w-full xl:flex-1 xl:min-w-0">
       <CardHeader className="pb-3">
         <CardTitle className="text-base flex items-center gap-2">
           <Search className="h-4 w-4" />
@@ -215,7 +217,12 @@ export function ConversationBrowser() {
                 </TableRow>
               )}
               {rows.map((row) => (
-                <TableRow key={row.id} className="cursor-pointer" onClick={() => setOpenConversationId(row.id)}>
+                <TableRow
+                  key={row.id}
+                  className={`cursor-pointer ${row.id === selectedId ? 'bg-muted' : ''}`}
+                  onClick={() => setSelectedId(row.id)}
+                  data-testid="conv-browse-row"
+                >
                   <TableCell className="text-xs whitespace-nowrap">
                     {new Date(row.startedAt).toLocaleString()}
                   </TableCell>
@@ -245,7 +252,7 @@ export function ConversationBrowser() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={(e) => { e.stopPropagation(); setOpenConversationId(row.id); }}
+                      onClick={(e) => { e.stopPropagation(); setSelectedId(row.id); }}
                     >
                       View
                     </Button>
@@ -271,11 +278,18 @@ export function ConversationBrowser() {
           </div>
         )}
       </CardContent>
+      </Card>
 
-      <ConversationReplayViewer
-        conversationId={openConversationId}
-        onClose={() => setOpenConversationId(null)}
-      />
-    </Card>
+      {/* Right column: full transcript of the selected conversation (read as a
+          chat, not stepped). Sticky so it stays in view while the list scrolls. */}
+      <Card className="w-full xl:w-[460px] xl:shrink-0 xl:sticky xl:top-4">
+        <CardContent className="p-4 h-[70vh] xl:h-[calc(100vh-7rem)]">
+          <ConversationTranscriptPanel
+            conversationId={selectedId}
+            onClose={() => setSelectedId(null)}
+          />
+        </CardContent>
+      </Card>
+    </div>
   );
 }

@@ -20,7 +20,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 
-interface ReplayStep {
+export interface ReplayStep {
   step: number;
   timestamp: string;
   type: 'marker' | 'input' | 'system' | 'response' | 'navigation' | 'error';
@@ -45,7 +45,7 @@ interface ReplayStep {
   } | null;
 }
 
-interface ReplayData {
+export interface ReplayData {
   conversation: {
     id: string;
     sessionId: string;
@@ -81,7 +81,7 @@ interface ConversationReplayViewerProps {
   onClose: () => void;
 }
 
-const TYPE_STYLES: Record<string, string> = {
+export const TYPE_STYLES: Record<string, string> = {
   input: 'bg-blue-50 dark:bg-blue-950/40 border-blue-400 dark:border-blue-600',
   response: 'bg-green-50 dark:bg-green-950/40 border-green-400 dark:border-green-600',
   system: 'bg-purple-50 dark:bg-purple-950/40 border-purple-400 dark:border-purple-600',
@@ -90,7 +90,7 @@ const TYPE_STYLES: Record<string, string> = {
   marker: 'bg-orange-50 dark:bg-orange-950/40 border-2 border-dashed border-orange-400 dark:border-orange-600',
 };
 
-const TYPE_LABELS: Record<string, string> = {
+export const TYPE_LABELS: Record<string, string> = {
   input: 'User',
   response: 'AI',
   system: 'Tool',
@@ -211,7 +211,7 @@ export function ConversationReplayViewer({ sessionId, conversationId, onClose }:
   );
 }
 
-function ReplayStepCard({ step, legIndex }: { step: ReplayStep; legIndex: Map<string, number> }) {
+export function ReplayStepCard({ step, legIndex }: { step: ReplayStep; legIndex: Map<string, number> }) {
   const markerType = step.message.metadata?.markerType;
 
   return (
