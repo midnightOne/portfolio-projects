@@ -115,7 +115,7 @@ describeOrSkip('ClientAIModelManager Integration Tests', () => {
     expect(saved.provider).toBe('elevenlabs');
     expect(saved.name).toBe('TestElevenLabs');
     expect(saved.isDefault).toBe(false);
-    expect(saved.config.agentId).toBe('test-agent-123');
+    expect((saved.config as any).agentId).toBe('test-agent-123');
     
     // Retrieve configuration
     const retrieved = await manager.getProviderConfig('elevenlabs', 'TestElevenLabs');

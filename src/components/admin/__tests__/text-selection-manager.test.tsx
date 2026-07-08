@@ -202,7 +202,7 @@ describe('TextSelectionManager', () => {
       const manager = useTextSelectionManager();
       return (
         <div data-testid="test-child">
-          {manager && manager.applyChange ? 'Manager connected' : 'No manager'}
+          {typeof manager.applyChange === 'function' ? 'Manager connected' : 'No manager'}
         </div>
       );
     };

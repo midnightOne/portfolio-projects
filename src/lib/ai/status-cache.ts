@@ -294,6 +294,12 @@ export class AIStatusCache {
       }
     }, intervalMs);
 
+    // A background convenience must never hold the process open (Node runtimes
+    // + jest teardown); browsers have no unref.
+    if (typeof this.backgroundRefreshTimer.unref === 'function') {
+      this.backgroundRefreshTimer.unref();
+    }
+
     // Set next refresh time
     this.stats.nextBackgroundRefresh = new Date(Date.now() + intervalMs);
   }

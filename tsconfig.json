@@ -7,11 +7,13 @@
       "esnext"
     ],
     "types": [
-      "node"
+      "node",
+      "jest",
+      "@testing-library/jest-dom"
     ],
     "allowJs": true,
     "skipLibCheck": true,
-    "strict": false,
+    "strict": true,
     "noEmit": true,
     "esModuleInterop": true,
     "module": "esnext",
@@ -30,20 +32,14 @@
         "./src/*"
       ]
     },
-    // Suppress TypeScript warnings
+    // Beyond-strict lint flags: still off — candidates for a later ramp.
+    // (Phase 5.2 landed `strict: true`; these are additive extras.)
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "exactOptionalPropertyTypes": false,
     "noImplicitReturns": false,
     "noFallthroughCasesInSwitch": false,
-    "noUncheckedIndexedAccess": false,
-    "strictNullChecks": false,
-    "strictFunctionTypes": false,
-    "strictBindCallApply": false,
-    "strictPropertyInitialization": false,
-    "noImplicitAny": false,
-    "noImplicitThis": false,
-    "alwaysStrict": false
+    "noUncheckedIndexedAccess": false
   },
   "include": [
     "next-env.d.ts",
@@ -52,11 +48,7 @@
     ".next/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules",
-    "**/__tests__/**",
-    "**/*.test.ts",
-    "**/*.test.tsx",
-    "src/__tests__/**"
+    "node_modules"
   ],
   "ts-node": {
     "compilerOptions": {

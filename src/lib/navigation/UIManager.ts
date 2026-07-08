@@ -410,7 +410,7 @@ export class UIManager {
   private _lastVisibleAnchors: string[] = [];
 
   // State synchronization system
-  private _stateSubscribers: Map<string, (state: Partial<UIState>) => void> = new Map();
+  private _stateSubscribers: Map<string, (state: UIState) => void> = new Map();
   private _componentStateProviders: Map<string, () => Partial<UIState>> = new Map();
   private _stateUpdateQueue: Array<{ source: string; update: Partial<UIState>; timestamp: number }> = [];
   private _lastStateSync: number = 0;
@@ -776,7 +776,7 @@ export class UIManager {
     // Get enhanced navigation context with F-I-D integration
     const navigationContext: NavigationContext = {
       currentRoute: route,
-      currentProject: this._getProjectParam(),
+      currentProject: this._getProjectParam() ?? null,
       modalStack: [...this._modalStack],
       visibleSections: this._currentUIState.visibleAnchors,
       canNavigate: this.canAcceptNewRequest()
@@ -1142,7 +1142,7 @@ export class UIManager {
       visibleAnchors: state.visibleAnchors,
       activeFilters: state.activeFilters,
       currentRoute: state.currentRoute,
-      currentProject: currentProject,
+      currentProject: currentProject ?? undefined,
       currentModal: state.modalStack && state.modalStack.length > 0 ? state.modalStack[state.modalStack.length - 1].id : undefined,
       lastUserAction: convertedLastUserAction
     };
@@ -1180,7 +1180,8 @@ export class UIManager {
   /**
    * Subscribe to state changes
    */
-  subscribeToState(subscriberId: string, callback: (state: Partial<UIState>) => void): void {
+  // _notifyStateSubscribers always emits the FULL current state
+  subscribeToState(subscriberId: string, callback: (state: UIState) => void): void {
     this._stateSubscribers.set(subscriberId, callback);
   }
 
@@ -1340,7 +1341,8 @@ export class UIManager {
   /**
    * Set background update callback for sending non-interrupting updates
    */
-  setBackgroundUpdateCallback(callback: BackgroundUpdateCallback): void {
+  // null clears the callback (adapter disconnect path)
+  setBackgroundUpdateCallback(callback: BackgroundUpdateCallback | null): void {
     this._backgroundUpdateCallback = callback;
   }
 
@@ -2312,7 +2314,7 @@ export class UIManager {
         
         const navigationContext: NavigationContext = {
           currentRoute,
-          currentProject,
+          currentProject: currentProject ?? null,
           modalStack: [...this._modalStack],
           visibleSections: this._currentUIState.visibleAnchors,
           canNavigate: true
@@ -2553,7 +2555,7 @@ export class UIManager {
     const sections = await this._detectAvailableSections();
 
     // Determine available transitions
-    const transitions = this._detectAvailableTransitions(route, projectParam);
+    const transitions = this._detectAvailableTransitions(route, projectParam ?? undefined);
 
     return {
       epoch: this._currentEpoch,
@@ -3263,7 +3265,7 @@ export class UIManager {
   /**
    * Plan navigation to a specific route
    */
-  private _planRouteNavigation(routeId: string, currentState: UIState, behavior: Required<UIIntentParams['behavior']>): NavigationStep[] {
+  private _planRouteNavigation(routeId: string, currentState: UIState, behavior: Required<NonNullable<UIIntentParams['behavior']>>): NavigationStep[] {
     const steps: NavigationStep[] = [];
     const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
 
@@ -3327,7 +3329,7 @@ export class UIManager {
    * While declarative section navigation is preferred, explicit modal operations
    * are useful for internal use and edge cases
    */
-  private _planModalNavigation(modalId: string, currentState: UIState, behavior: Required<UIIntentParams['behavior']>): NavigationStep[] {
+  private _planModalNavigation(modalId: string, currentState: UIState, behavior: Required<NonNullable<UIIntentParams['behavior']>>): NavigationStep[] {
     const steps: NavigationStep[] = [];
     
     // Handle explicit close operations
@@ -3358,7 +3360,7 @@ export class UIManager {
   /**
    * Plan navigation to a specific project
    */
-  private _planProjectNavigation(projectId: string, currentState: UIState, behavior: Required<UIIntentParams['behavior']>): NavigationStep[] {
+  private _planProjectNavigation(projectId: string, currentState: UIState, behavior: Required<NonNullable<UIIntentParams['behavior']>>): NavigationStep[] {
     const steps: NavigationStep[] = [];
     const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
     const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
@@ -3501,7 +3503,7 @@ export class UIManager {
   /**
    * Plan navigation to a specific section
    */
-  private _planSectionNavigation(sectionId: string, currentState: UIState, behavior: Required<UIIntentParams['behavior']>): NavigationStep[] {
+  private _planSectionNavigation(sectionId: string, currentState: UIState, behavior: Required<NonNullable<UIIntentParams['behavior']>>): NavigationStep[] {
     const steps: NavigationStep[] = [];
 
     // Declarative modal closing: If navigating to a section, close any blocking modals first
@@ -3565,7 +3567,7 @@ export class UIManager {
   /**
    * Plan navigation to a specific element
    */
-  private _planElementNavigation(elementId: string, currentState: UIState, behavior: Required<UIIntentParams['behavior']>): NavigationStep[] {
+  private _planElementNavigation(elementId: string, currentState: UIState, behavior: Required<NonNullable<UIIntentParams['behavior']>>): NavigationStep[] {
     const steps: NavigationStep[] = [];
 
     // Create focus/scroll step
@@ -3799,7 +3801,12 @@ export class UIManager {
     target?: string;
     requires?: string[];
   }> {
-    const transitions = [];
+    const transitions: Array<{
+      id: string;
+      kind: 'route' | 'open' | 'close' | 'tab';
+      target?: string;
+      requires?: string[];
+    }> = [];
 
     // Route transitions (always available)
     transitions.push(

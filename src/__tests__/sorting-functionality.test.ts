@@ -33,7 +33,10 @@ import { GET } from '@/app/api/projects/route';
 
 import { prisma } from '@/lib/database/connection';
 
-const mockPrisma = prisma as jest.Mocked<typeof prisma>;
+const mockPrisma = prisma as unknown as {
+  project: { findMany: jest.Mock; count: jest.Mock };
+  $queryRawUnsafe: jest.Mock;
+};
 
 describe('Projects API Sorting', () => {
   beforeEach(() => {

@@ -925,7 +925,7 @@ export class SmartContentGenerator {
         return current;
       }
       current = current.parentSectionId ?
-        allSections.find(s => s.id === current!.parentSectionId) : null;
+        allSections.find(s => s.id === current!.parentSectionId) : undefined;
     }
     return null;
   }

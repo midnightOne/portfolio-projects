@@ -976,7 +976,7 @@ export function WaveEngine({
           // This error is expected if React has already removed the node
           console.error('Canvas removal error (may be expected during React unmount):', error);
           console.log('Error details:', {
-            message: error.message,
+            message: error instanceof Error ? error.message : String(error),
             canvasExists: !!canvas,
             parentExists: !!canvas.parentNode,
             isConnected: canvas.isConnected,

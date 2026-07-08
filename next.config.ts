@@ -8,9 +8,9 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: false,
   },
   eslint: {
-    // Warning: This allows production builds to successfully complete even if
-    // your project has ESLint errors.
-    ignoreDuringBuilds: true,
+    // ESLint runs during builds (Phase 5.1) — errors fail the build,
+    // warnings pass.
+    ignoreDuringBuilds: false,
   },
   // Reduce build output verbosity
   logging: {

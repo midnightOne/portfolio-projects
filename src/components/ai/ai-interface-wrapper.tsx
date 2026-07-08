@@ -192,7 +192,7 @@ function AIInterfaceContent({
         onPositionChange={setPosition}
         mode={mode}
         onModeChange={setMode}
-        currentNarration={currentNarration}
+        currentNarration={currentNarration ?? undefined}
         placeholder="Ask me about my work..."
         onTextSubmit={handleTextSubmit}
         onQuickAction={handleQuickAction}

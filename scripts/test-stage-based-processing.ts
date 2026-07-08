@@ -141,7 +141,7 @@ async function testStageBasedProcessing() {
         stages: stageConfigs
       });
     } catch (error) {
-      console.log('✅ Invalid scope error handled:', error.message);
+      console.log('✅ Invalid scope error handled:', error instanceof Error ? error.message : String(error));
     }
 
     // Test 7: Checkpoint system simulation

@@ -46,8 +46,8 @@ const mockFetch = fetch as jest.MockedFunction<typeof fetch>;
 
 describe('Progressive Loading Integration', () => {
   const mockTags = [
-    { id: '1', name: 'React', color: '#61dafb' },
-    { id: '2', name: 'TypeScript', color: '#3178c6' },
+    { id: '1', name: 'React', color: '#61dafb', createdAt: new Date() },
+    { id: '2', name: 'TypeScript', color: '#3178c6', createdAt: new Date() },
   ];
 
   const mockProjects = [
@@ -172,7 +172,7 @@ describe('Progressive Loading Integration', () => {
   it('should show projects when loaded', () => {
     render(
       <ProjectGrid
-        projects={mockProjects}
+        projects={mockProjects as any}
         loading={false}
         onProjectClick={jest.fn()}
       />

@@ -284,7 +284,7 @@ class UnifiedConversationLogger {
       // Limit session history
       if (this.activeSessions.size > this.maxSessionHistory) {
         const oldestSessionId = this.activeSessions.keys().next().value;
-        this.activeSessions.delete(oldestSessionId);
+        if (oldestSessionId !== undefined) this.activeSessions.delete(oldestSessionId);
       }
     }
     return session;

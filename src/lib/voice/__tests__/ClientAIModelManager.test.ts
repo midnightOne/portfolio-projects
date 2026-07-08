@@ -318,7 +318,7 @@ describe('ClientAIModelManager', () => {
         description: 'Test'
       };
       
-      const result = manager.validateConfig('openai', invalidConfig);
+      const result = manager.validateConfig('openai', invalidConfig as any);
       
       expect(result.valid).toBe(false);
       expect(result.errors.length).toBeGreaterThan(0);

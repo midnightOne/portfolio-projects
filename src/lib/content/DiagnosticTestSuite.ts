@@ -314,8 +314,9 @@ export class DiagnosticTestSuite {
         persistenceIssues.push('Chunk persistence failed');
       }
 
-      if (t3Test?.details?.persistedT3Chunks < chunksGenerated) {
-        persistenceIssues.push(`Only ${t3Test.details.persistedT3Chunks}/${chunksGenerated} chunks persisted`);
+      const persistedT3Chunks = t3Test?.details?.persistedT3Chunks;
+      if (persistedT3Chunks !== undefined && persistedT3Chunks < chunksGenerated) {
+        persistenceIssues.push(`Only ${persistedT3Chunks}/${chunksGenerated} chunks persisted`);
       }
 
       return {

@@ -2,7 +2,7 @@
 
 **Status:** current
 **Owner domain:** agentic e2e verification infrastructure
-**Last verified against code:** 2026-07-07 (Phase 4 Block C0 session)
+**Last verified against code:** 2026-07-08 (Phase 5 session)
 **Sequencing rule (D46): each item lands with or before the phase whose features it verifies — this ledger is deliberately interleaved with the roadmap, not a phase of its own.**
 
 ---
@@ -59,7 +59,9 @@
   - [ ] 7.4 `check:models` joins the wave here (Phase 3.4 dependency)
   - _Requirements: 7_
 
-- [ ] 8. `npm run check:models` + CI adoption — *Phase 5 folds `npm run verify` into GitHub Actions*
+- [~] 8. `npm run check:models` + CI adoption — CI HALF DONE 2026-07-08 (Phase 5); `check:models` still open (needs Phase 3.4-style registry check design)
+  - [x] 8.1 **CI workflow prepared** (`.github/workflows/ci.yml`, roadmap 5.1): typecheck (strict, tests included) + lint + check:gateway + check:specs + jest + build on PR and staging-branch pushes; `pgvector/pgvector:pg16` service container + `prisma migrate deploy` + base/fixture seed; `AI_FAKE_MODE=reasoning,voice,embeddings` keeps provider spend out of CI. **Not yet activated** — it only runs once pushed, and pushing is an explicit owner decision. Local proxy verified 2026-07-08: `npm test` 63/63 suites 806/806 tests with clean exit, `type-check` 0 errors under `strict:true`, `next build` green with `eslint.ignoreDuringBuilds` removed.
+  - [x] 8.2 **Jest baseline debt retired** (roadmap 5.3, 2026-07-08): 34 failing suites → 0. Every repair/deletion catalogued in `00-overview/phase3-cleanup-manifest.md` (mangled machine-imports across 5 files; jsdom Request polyfill; 5 Gen-1 suites hard-deleted per D42; two REAL component bugs found and fixed — ProjectTimeline UTC month labels, ProgressiveLoadingBar unclamped percentage; jest exit hang root-caused to worker_threads MessagePorts + singleton interval timers, fixed with unref + polyfill removal). NEW suites cover Phase 4 load-bearing logic: gateway step-4 reflink containment, ledger watchdog trip-in-transaction, tool-latency bucketing, ClipPlayer fit/cutoff selection, voice-clips strict voice matching.
   - _Requirements: 6; roadmap 5.1–5.3_
 
 ## Backlog

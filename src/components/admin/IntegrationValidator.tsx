@@ -451,7 +451,7 @@ export function IntegrationValidator({ onValidationComplete }: IntegrationValida
                 
                 {result.details && result.details.length > 0 && (
                   <div className="space-y-1">
-                    {result.details.map((detail, index) => (
+                    {result.details.map((detail: string, index: number) => (
                       <div key={index} className="text-xs bg-background/50 p-2 rounded">
                         {detail}
                       </div>

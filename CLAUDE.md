@@ -28,9 +28,9 @@ Local PostgreSQL 16 + pgvector 0.6 runs inside **WSL Ubuntu-24.04**; `DATABASE_U
 
 ```bash
 npm run dev            # dev server (Turbopack), http://localhost:3000
-npm run type-check     # tsc --noEmit   (note: strict:false until Phase 5)
-npm run build          # production build (ESLint currently bypassed — Phase 5 fixes)
-npm test               # jest
+npm run type-check     # tsc --noEmit (strict:true, tests included — Phase 5.2)
+npm run build          # production build (ESLint enforced — errors fail the build)
+npm test               # jest — fully green is the floor since Phase 5.3; failures are work items, not baseline
 npm run diagnostics    # semantic system health (also :quick :t3 :sse :comprehensive)
 npm run db:migrate     # prisma migrate dev
 npm run db:seed        # base seed

@@ -55,10 +55,11 @@ async function createVectorIndexes() {
       `;
       console.log('   ✅ HNSW index created successfully');
     } catch (error) {
-      if (error.message?.includes('already exists')) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('already exists')) {
         console.log('   ℹ️  HNSW index already exists');
       } else {
-        console.log('   ❌ HNSW index creation failed:', error.message);
+        console.log('   ❌ HNSW index creation failed:', message);
         
         // Fallback to IVFFlat
         console.log('\n   Trying IVFFlat index as fallback...');
@@ -70,10 +71,11 @@ async function createVectorIndexes() {
           `;
           console.log('   ✅ IVFFlat index created successfully');
         } catch (fallbackError) {
-          if (fallbackError.message?.includes('already exists')) {
+          const fallbackMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+          if (fallbackMessage.includes('already exists')) {
             console.log('   ℹ️  IVFFlat index already exists');
           } else {
-            console.log('   ❌ IVFFlat index creation also failed:', fallbackError.message);
+            console.log('   ❌ IVFFlat index creation also failed:', fallbackMessage);
           }
         }
       }

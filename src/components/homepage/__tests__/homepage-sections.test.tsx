@@ -2,7 +2,8 @@
  * Basic tests for homepage section components
  */
 
-import { describe, it, expect } from '@jest/globals';
+// NOTE: no '@jest/globals' imports here — importing `expect` from it drops the
+// jest-dom matcher type augmentation (toBeInTheDocument etc.); use the globals.
 import { render, screen } from '@testing-library/react';
 import { HeroSection } from '../hero-section';
 import { AboutSection } from '../about-section';

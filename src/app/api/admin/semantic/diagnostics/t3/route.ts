@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     const projectId = searchParams.get('projectId');
 
     // Get current T3 chunk statistics
-    const t3Stats = await getT3ChunkStatistics(projectId);
+    const t3Stats = await getT3ChunkStatistics(projectId ?? undefined);
     
     // Get recent T3-related logs
     const recentT3Logs = logger.getRecentLogs(20, 'info', 'T3Generation');

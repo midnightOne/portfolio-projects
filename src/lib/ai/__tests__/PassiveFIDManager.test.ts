@@ -222,9 +222,11 @@ describe('PassiveFIDManager', () => {
 
   describe('Memory Management', () => {
     it('should enforce cache size limits', async () => {
-      const testManager = new (class extends PassiveFIDManager {
-        protected readonly MAX_CACHE_SIZE = 2;
-      })();
+      // The constructor is private — take a fresh singleton and shrink its
+      // cache bound at runtime.
+      (PassiveFIDManager as any).instance = null;
+      const testManager = PassiveFIDManager.getInstance();
+      (testManager as any).MAX_CACHE_SIZE = 2;
 
       for (let i = 0; i < 5; i++) {
         await testManager.getOrFetchContext({

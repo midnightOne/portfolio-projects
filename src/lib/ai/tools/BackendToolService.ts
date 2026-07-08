@@ -447,7 +447,7 @@ export class BackendToolService {
           // Check individual terms
           else {
             let termMatches = 0;
-            queryTerms.forEach(term => {
+            queryTerms.forEach((term: string) => {
               if (titleLower.includes(term)) termMatches += 2;
               else if (descLower.includes(term)) termMatches += 1;
               else if (project.tags.some((tag: string) => tag.toLowerCase().includes(term))) termMatches += 1;
@@ -489,7 +489,7 @@ export class BackendToolService {
 
       // Apply tag filtering (case-insensitive)
       if (tags && tags.length > 0) {
-        const tagsLower = tags.map(t => t.toLowerCase());
+        const tagsLower = tags.map((t: string) => t.toLowerCase());
         searchResults = searchResults.filter((project: any) =>
           project.tags.some((tag: string) => tagsLower.includes(tag.toLowerCase()))
         );
@@ -1528,7 +1528,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
     // Clean up old cache entries (simple cleanup)
     if (this._requestCache.size > 100) {
       const oldestKey = this._requestCache.keys().next().value;
-      this._requestCache.delete(oldestKey);
+      if (oldestKey !== undefined) this._requestCache.delete(oldestKey);
     }
   }
 

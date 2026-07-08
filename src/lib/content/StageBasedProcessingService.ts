@@ -446,13 +446,14 @@ export class StageBasedProcessingService extends EventEmitter {
         } catch (error) {
           console.error(`[ExecuteProcessing] Stage ${stage} failed:`, error);
           
+          const stageErrorMessage = error instanceof Error ? error.message : String(error);
           progress.stageProgress[stage].status = 'failed';
-          progress.stageProgress[stage].errors.push(error.message);
+          progress.stageProgress[stage].errors.push(stageErrorMessage);
           progress.errors.push({
             stage,
             itemId: 'stage',
             itemTitle: `Stage: ${stage}`,
-            error: error.message,
+            error: stageErrorMessage,
             retryable: true,
             timestamp: new Date()
           });
@@ -581,7 +582,7 @@ export class StageBasedProcessingService extends EventEmitter {
 
       } catch (error) {
         console.error(`[ChunkingStage] Error processing project ${project.id}:`, error);
-        stageProgress.errors.push(`Project ${project.id}: ${error.message}`);
+        stageProgress.errors.push(`Project ${project.id}: ${error instanceof Error ? error.message : String(error)}`);
         throw error;
       }
     }
@@ -747,7 +748,7 @@ export class StageBasedProcessingService extends EventEmitter {
 
       } catch (error) {
         console.error(`[SummariesStage] Error generating summary for ${chunk.chunkId}:`, error);
-        stageProgress.errors.push(`Chunk ${chunk.chunkId}: ${error.message}`);
+        stageProgress.errors.push(`Chunk ${chunk.chunkId}: ${error instanceof Error ? error.message : String(error)}`);
         throw error;
       }
     }
@@ -867,15 +868,16 @@ export class StageBasedProcessingService extends EventEmitter {
         return {
           tier: dbChunk.tier,
           chunkId: dbChunk.chunkId,
-          title: dbChunk.title,
+          title: dbChunk.title ?? undefined,
           content: dbChunk.content,
           tokenCount: dbChunk.tokenCount,
-          parentChunkId: parentChunkId || null,
-          rootChunkId: dbChunk.rootChunkId || null,
-          sectionGroup: dbChunk.sectionGroup || null,
-          derivationPath: dbChunk.derivation_path || null, // Note: No @map in schema, stays snake_case
-          sectionBounded: dbChunk.tier === 3 ? true : dbChunk.sectionBounded, // T3 chunks are always section-bounded
-          metadata: dbChunk.metadata as any || {}
+          parentChunkId: parentChunkId ?? undefined,
+          // A null DB root means this chunk IS the root (T0 self-pointer)
+          rootChunkId: dbChunk.rootChunkId ?? dbChunk.chunkId,
+          sectionGroup: dbChunk.sectionGroup ?? undefined,
+          derivationPath: dbChunk.derivation_path ?? '', // Note: No @map in schema, stays snake_case
+          sectionBounded: dbChunk.tier === 3 ? true : (dbChunk.sectionBounded ?? undefined), // T3 chunks are always section-bounded
+          metadata: (dbChunk.metadata as any) || {}
         };
       });
     }
@@ -952,7 +954,7 @@ export class StageBasedProcessingService extends EventEmitter {
 
         } catch (error) {
           console.error(`[EmbeddingsStage] Error generating embedding for ${chunk.chunkId}:`, error);
-          stageProgress.errors.push(`Chunk ${chunk.chunkId}: ${error.message}`);
+          stageProgress.errors.push(`Chunk ${chunk.chunkId}: ${error instanceof Error ? error.message : String(error)}`);
           throw error;
         }
       }
@@ -1069,15 +1071,16 @@ export class StageBasedProcessingService extends EventEmitter {
       allChunks = dbChunks.map(dbChunk => ({
         tier: dbChunk.tier,
         chunkId: dbChunk.chunkId,
-        title: dbChunk.title,
+        title: dbChunk.title ?? undefined,
         content: dbChunk.content,
         tokenCount: dbChunk.tokenCount,
-        parentChunkId: dbChunk.parentChunkId || null,
-        rootChunkId: dbChunk.rootChunkId || null,
-        sectionGroup: dbChunk.sectionGroup || null,
-        derivationPath: dbChunk.derivation_path || null, // Note: No @map in schema, stays snake_case
-        sectionBounded: dbChunk.tier === 3 ? true : dbChunk.sectionBounded, // T3 chunks are always section-bounded
-        metadata: dbChunk.metadata as any || {}
+        parentChunkId: dbChunk.parentChunkId ?? undefined,
+        // A null DB root means this chunk IS the root (T0 self-pointer)
+        rootChunkId: dbChunk.rootChunkId ?? dbChunk.chunkId,
+        sectionGroup: dbChunk.sectionGroup ?? undefined,
+        derivationPath: dbChunk.derivation_path ?? '', // Note: No @map in schema, stays snake_case
+        sectionBounded: dbChunk.tier === 3 ? true : (dbChunk.sectionBounded ?? undefined), // T3 chunks are always section-bounded
+        metadata: (dbChunk.metadata as any) || {}
       }));
     }
 
@@ -1100,7 +1103,7 @@ export class StageBasedProcessingService extends EventEmitter {
         this.validateChunk(chunk);
       } catch (error) {
         console.error(`[ValidationStage] Validation failed for chunk ${chunk.chunkId}:`, error);
-        stageProgress.errors.push(`Chunk ${chunk.chunkId}: ${error.message}`);
+        stageProgress.errors.push(`Chunk ${chunk.chunkId}: ${error instanceof Error ? error.message : String(error)}`);
         throw error;
       }
     }
@@ -1476,7 +1479,7 @@ export class StageBasedProcessingService extends EventEmitter {
         }
         
         // Resolve rootChunkId: 'metadata' to T0's database UUID
-        let resolvedRootChunkId = chunk.rootChunkId;
+        let resolvedRootChunkId: string | null = chunk.rootChunkId;
         if (chunk.rootChunkId === 'metadata' && t0DbId) {
           resolvedRootChunkId = t0DbId;
         }
@@ -1563,7 +1566,7 @@ export class StageBasedProcessingService extends EventEmitter {
     });
 
     // Resolve parent chunk ID from logical ID to database UUID
-    let resolvedParentChunkId = null;
+    let resolvedParentChunkId: string | null = null;
     if (chunk.parentChunkId && chunk.tier >= 1) {
       // T1+ chunks need parent resolution (T1 → T0, T2+ → T1 or other T2s).
       // Look up by logical chunkId first — slugs can look cuid-like ("chrono-kiln-controller"
@@ -1588,7 +1591,7 @@ export class StageBasedProcessingService extends EventEmitter {
     }
 
     // Resolve rootChunkId: 'metadata' to T0's database UUID
-    let resolvedRootChunkId = chunk.rootChunkId;
+    let resolvedRootChunkId: string | null = chunk.rootChunkId;
     if (chunk.rootChunkId === 'metadata') {
       const t0Chunk = await prisma.contextChunk.findFirst({
         where: {
@@ -1617,8 +1620,8 @@ export class StageBasedProcessingService extends EventEmitter {
       tokenCount: chunk.tokenCount,
       embedding: chunk.embedding,
       metadata: chunk.metadata,
-      parentChunkId: resolvedParentChunkId,
-      rootChunkId: resolvedRootChunkId,
+      parentChunkId: resolvedParentChunkId ?? undefined,
+      rootChunkId: resolvedRootChunkId ?? undefined,
       sectionGroup: chunk.sectionGroup,
       derivationPath: chunk.derivationPath
     });

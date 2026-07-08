@@ -24,7 +24,8 @@ import { VoiceConfigurationList } from '@/components/admin/voice-config/VoiceCon
 import { VoiceConfigImportExport } from '@/components/admin/voice-config/VoiceConfigImportExport';
 import { VoiceProviderConfig } from '@/types/voice-config';
 
-type VoiceConfigProvider = 'openai' | 'elevenlabs' | 'google';
+// Must stay in sync with VoiceConfigurationList's union (cascade tab, task 9.4)
+type VoiceConfigProvider = 'openai' | 'elevenlabs' | 'google' | 'cascade';
 
 interface VoiceConfigRecord {
   id: string;

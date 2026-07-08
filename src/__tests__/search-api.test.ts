@@ -36,7 +36,10 @@ jest.mock('@/lib/utils/api-utils', () => ({
 
 import { prisma } from '@/lib/database/connection';
 
-const mockPrisma = prisma as jest.Mocked<typeof prisma> & { $queryRawUnsafe: jest.Mock };
+const mockPrisma = prisma as unknown as {
+  project: { findMany: jest.Mock; count: jest.Mock };
+  $queryRawUnsafe: jest.Mock;
+};
 
 const fullProject = (overrides: Record<string, unknown> = {}) => ({
   id: '1',

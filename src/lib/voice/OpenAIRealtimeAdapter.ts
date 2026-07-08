@@ -233,7 +233,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 capabilities: ['streaming', 'interruption', 'toolCalling', 'realTimeAudio', 'voiceActivityDetection'],
                 apiKeyEnvVar: 'OPENAI_API_KEY',
                 baseUrlEnvVar: 'OPENAI_BASE_URL',
-            } as OpenAIRealtimeConfig;
+            } as unknown as OpenAIRealtimeConfig;
 
             // Initialize with fallback configuration
             await this._initializeAgent();
@@ -1559,7 +1559,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                             console.log('Extracted text from content part:', text.substring(0, 50));
                             return text;
                         })
-                        .filter(text => text && text.trim().length > 0)
+                        .filter((text: string) => text && text.trim().length > 0)
                         .join(' ');
 
                     if (textContent) {
@@ -2090,7 +2090,8 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     }
 
     async updateConfig(config: Partial<AdapterInitOptions>): Promise<void> {
-        // Store the new config for future use
+        // Store the new config for future use (init() must have run first)
+        if (!this._options) return;
         this._options = { ...this._options, ...config };
 
         // If we need to update the session config, we would need to reconnect

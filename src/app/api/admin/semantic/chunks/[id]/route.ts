@@ -57,7 +57,7 @@ export async function GET(
     }
 
     // Fetch siblings (chunks with same parent)
-    let siblings = [];
+    let siblings: Array<{ id: string; tier: number; title: string | null; chunkId: string }> = [];
     if (chunk.parentChunkId) {
       siblings = await prisma.contextChunk.findMany({
         where: {
@@ -196,7 +196,7 @@ export async function PUT(
     });
 
     // Fetch siblings
-    let siblings = [];
+    let siblings: Array<{ id: string; tier: number; title: string | null; chunkId: string }> = [];
     if (updatedChunk.parentChunkId) {
       siblings = await prisma.contextChunk.findMany({
         where: {

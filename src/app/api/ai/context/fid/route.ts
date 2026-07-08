@@ -54,8 +54,7 @@ export async function POST(request: NextRequest) {
 
       case 'complete':
       default:
-        result = await contextFrameManager.getCompleteContext(config);
-        result.type = 'complete';
+        result = { ...(await contextFrameManager.getCompleteContext(config)), type: 'complete' };
         break;
     }
 
@@ -121,8 +120,7 @@ export async function GET(request: NextRequest) {
 
       case 'complete':
       default:
-        result = await contextFrameManager.getCompleteContext(config);
-        result.type = 'complete';
+        result = { ...(await contextFrameManager.getCompleteContext(config)), type: 'complete' };
         break;
     }
 

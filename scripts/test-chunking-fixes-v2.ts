@@ -96,7 +96,7 @@ async function testChunkingFixesV2() {
             } else if (progressData.status === 'failed') {
               console.log('❌ Operation failed');
               if (progressData.errors && progressData.errors.length > 0) {
-                console.log('Errors:', progressData.errors.map(e => e.error).join(', '));
+                console.log('Errors:', progressData.errors.map((e: { error: string }) => e.error).join(', '));
               }
               break;
             }
@@ -108,7 +108,7 @@ async function testChunkingFixesV2() {
             }
           }
         } catch (error) {
-          console.log(`Check ${i + 1}: Error -`, error.message);
+          console.log(`Check ${i + 1}: Error -`, error instanceof Error ? error.message : String(error));
         }
       }
 

@@ -220,8 +220,8 @@ export interface AdapterInitOptions {
   onAudioEvent: AudioEventCallback;
   onToolEvent: ToolEventCallback;
   
-  // Audio configuration
-  audioElement: HTMLAudioElement;
+  // Audio configuration (optional: the provider may run before the element mounts)
+  audioElement?: HTMLAudioElement;
   audioConfig?: Partial<AudioConfig>;
   
   // Provider-specific configuration

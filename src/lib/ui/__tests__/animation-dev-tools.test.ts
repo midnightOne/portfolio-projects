@@ -100,7 +100,7 @@ describe('Animation Development Tools', () => {
     
     // Set up global objects
     global.document = document;
-    global.window = window;
+    global.window = window as unknown as Window & typeof globalThis;
     (global as any).globalThis = global;
 
     // Mock performance API
@@ -125,7 +125,7 @@ describe('Animation Development Tools', () => {
     testElement = document.getElementById('test-element') as HTMLElement;
 
     // Mock process.env for development mode
-    process.env.NODE_ENV = 'development';
+    (process.env as { NODE_ENV?: string }).NODE_ENV = 'development';
     
     // Initialize global dev tools
     (global as any).__uiAnimationDevTools = AnimationDevTools;
@@ -431,8 +431,8 @@ describe('Animation Development Tools', () => {
       const systemInfo = AnimationDevTools.getSystemInfo();
 
       expect(systemInfo).toBeDefined();
-      expect(systemInfo.plugins).toBeDefined();
-      expect(systemInfo.animations).toBeDefined();
+      expect((systemInfo as any).plugins).toBeDefined();
+      expect((systemInfo as any).animations).toBeDefined();
       expect(systemInfo.performance).toBeDefined();
       expect(systemInfo.availableAnimations).toBeDefined();
       expect(systemInfo.availablePlugins).toBeDefined();

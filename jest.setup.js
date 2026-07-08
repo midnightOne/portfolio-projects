@@ -15,11 +15,11 @@ if (typeof globalThis.ReadableStream === 'undefined') {
   globalThis.WritableStream = WritableStream
   globalThis.TransformStream = TransformStream
 }
-if (typeof globalThis.MessagePort === 'undefined') {
-  const { MessagePort, MessageChannel } = require('node:worker_threads')
-  globalThis.MessagePort = MessagePort
-  globalThis.MessageChannel = MessageChannel
-}
+// NOTE: deliberately NOT polyfilling MessageChannel/MessagePort from
+// node:worker_threads — real worker_threads ports are active libuv handles
+// that keep the process alive, and React's scheduler grabs MessageChannel
+// when it exists (24 leaked ports = jest hanging at exit). Nothing in the
+// suites needs a real port; scheduler falls back to setTimeout without it.
 if (typeof globalThis.Request === 'undefined') {
   const { Request, Response, Headers, FormData, File } = require('undici')
   globalThis.Request = Request

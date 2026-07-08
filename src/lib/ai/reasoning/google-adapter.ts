@@ -158,7 +158,7 @@ function flattenUnion(node: Record<string, unknown>, variants: unknown[]): Recor
       }
     }
     const req = new Set((v.required as string[] | undefined) ?? []);
-    commonRequired = commonRequired === null ? req : new Set([...commonRequired].filter(x => req.has(x)));
+    commonRequired = commonRequired === null ? req : new Set(Array.from(commonRequired as Set<string>).filter((x) => req.has(x)));
   }
 
   const { oneOf: _oneOf, anyOf: _anyOf, ...rest } = node;

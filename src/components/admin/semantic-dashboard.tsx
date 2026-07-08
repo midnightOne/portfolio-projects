@@ -309,10 +309,13 @@ export function SemanticDashboard() {
         case 'totalCost':
           comparison = a.totalCost - b.totalCost;
           break;
-        case 'healthStatus':
-          const statusOrder = { healthy: 0, outdated: 1, incomplete: 2, error: 3 };
-          comparison = statusOrder[a.healthStatus] - statusOrder[b.healthStatus];
+        case 'healthStatus': {
+          // Unlisted statuses (no-content, tree-invalid, corrupted, ...) sort
+          // with the worst bucket.
+          const statusOrder: Record<string, number> = { healthy: 0, outdated: 1, incomplete: 2, error: 3 };
+          comparison = (statusOrder[a.healthStatus] ?? 3) - (statusOrder[b.healthStatus] ?? 3);
           break;
+        }
       }
 
       return sortOrder === 'asc' ? comparison : -comparison;

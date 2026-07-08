@@ -2,7 +2,8 @@
  * Integration tests for rate limiting admin pages
  */
 
-import { describe, it, expect } from '@jest/globals';
+// NOTE: no '@jest/globals' imports here — importing `expect` from it drops the
+// jest-dom matcher type augmentation (toBeInTheDocument etc.); use the globals.
 import { render } from '@testing-library/react';
 import { RateLimitingDashboard } from '@/components/admin/rate-limiting-dashboard';
 import { ReflinksManager } from '@/components/admin/reflinks-manager';

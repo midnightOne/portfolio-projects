@@ -39,10 +39,10 @@ const month = new Date().toISOString().slice(0, 7);
 /** Build the tx object recordUsage's transaction callback runs against. */
 function makeTx(globalRow: Partial<Record<string, unknown>> = {}) {
   const tx = {
-    aIUsageLog: { create: jest.fn(async () => ({ id: 'ledger-row-1' })) },
-    aIReflink: { update: jest.fn(async () => ({})) },
-    aIGlobalLimits: { update: jest.fn(async () => ({})) },
-    $queryRaw: jest.fn(async () => [
+    aIUsageLog: { create: (jest.fn() as jest.Mock).mockResolvedValue({ id: 'ledger-row-1' }) },
+    aIReflink: { update: (jest.fn() as jest.Mock).mockResolvedValue({}) },
+    aIGlobalLimits: { update: (jest.fn() as jest.Mock).mockResolvedValue({}) },
+    $queryRaw: (jest.fn() as jest.Mock).mockResolvedValue([
       {
         status: 'active',
         day_spend_usd: 0,

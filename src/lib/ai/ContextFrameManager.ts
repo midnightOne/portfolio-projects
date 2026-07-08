@@ -134,7 +134,8 @@ export interface ContextSwapConfig {
 export class ContextFrameManager {
   private static instance: ContextFrameManager;
 
-  private contentSearchService: ContentSearchService;
+  // Only assigned on the server (see constructor) — callers behind isServer
+  private contentSearchService!: ContentSearchService;
   private currentFrameContext: FrameContext | null = null;
   private currentIndexContext: IndexContext | null = null;
   private currentDetailsContext: DetailsContext | null = null;
@@ -426,7 +427,7 @@ export class ContextFrameManager {
             entityId: '', // Will be populated from database
             entityType: '',
             tier: item.tier,
-            title: item.title,
+            title: item.title ?? null,
             content: item.content,
             tokenCount: item.tokenEstimate,
             metadata: item.metadata

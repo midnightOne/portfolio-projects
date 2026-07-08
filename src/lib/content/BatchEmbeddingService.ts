@@ -385,7 +385,8 @@ export class BatchEmbeddingService {
       where.projectIds = { has: options.projectId };
     }
 
-    const jobs = await (prisma as any).batchEmbeddingJob.findMany({ where });
+    // prisma cast keeps the delegate untyped — annotate the rows ourselves
+    const jobs: Array<Record<string, any>> = await (prisma as any).batchEmbeddingJob.findMany({ where });
 
     const completed = jobs.filter(j => j.status === 'completed');
     const failed = jobs.filter(j => j.status === 'failed');
@@ -423,7 +424,7 @@ export class BatchEmbeddingService {
       orderBy: { createdAt: 'desc' }
     });
 
-    return jobs.map(job => ({
+    return jobs.map((job: Record<string, any>) => ({
       id: job.batchId,
       status: job.status as any,
       createdAt: job.createdAt,

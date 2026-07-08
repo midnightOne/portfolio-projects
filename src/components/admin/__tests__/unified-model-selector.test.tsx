@@ -7,11 +7,14 @@ import { ToastProvider } from '@/components/ui/toast';
 const render = (ui: React.ReactElement) => rtlRender(ui, { wrapper: ToastProvider });
 
 // The selector reads the admin session — supply one without a SessionProvider.
+// STABLE identity: the component refetches on [session] changes, so a fresh
+// object per render loops it into infinite fetching.
+const mockSession = {
+  data: { user: { id: 'admin-user', role: 'admin' } },
+  status: 'authenticated',
+};
 jest.mock('next-auth/react', () => ({
-  useSession: () => ({
-    data: { user: { id: 'admin-user', role: 'admin' } },
-    status: 'authenticated',
-  }),
+  useSession: () => mockSession,
 }));
 
 // The component also runs an AI-availability probe on mount; the real checker
@@ -33,6 +36,14 @@ const jsonRes = (payload: unknown, ok = true, status = 200) => ({
 
 // Mock fetch globally
 global.fetch = jest.fn();
+
+// Radix Select needs these DOM APIs that jsdom lacks
+beforeAll(() => {
+  Element.prototype.scrollIntoView = jest.fn();
+  (Element.prototype as any).hasPointerCapture = jest.fn(() => false);
+  (Element.prototype as any).setPointerCapture = jest.fn();
+  (Element.prototype as any).releasePointerCapture = jest.fn();
+});
 
 const mockSuccessResponse = {
   success: true,
@@ -167,7 +178,7 @@ describe('UnifiedModelSelector', () => {
     render(<UnifiedModelSelector />);
 
     await waitFor(() => {
-      expect(screen.getByText('No AI providers configured - check environment variables')).toBeInTheDocument();
+      expect(screen.getByText('No AI providers configured')).toBeInTheDocument();
     });
   });
 

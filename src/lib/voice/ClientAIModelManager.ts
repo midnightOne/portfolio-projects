@@ -780,6 +780,12 @@ export class ClientAIModelManager {
         console.warn('Auto-reload failed:', error);
       });
     }, this.options.reloadInterval);
+
+    // A background convenience must never hold the process open (Node runtimes
+    // + jest teardown); browsers have no unref.
+    if (typeof (this.reloadTimer as NodeJS.Timeout).unref === 'function') {
+      (this.reloadTimer as NodeJS.Timeout).unref();
+    }
   }
 }
 

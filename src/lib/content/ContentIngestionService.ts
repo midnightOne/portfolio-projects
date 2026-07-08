@@ -1113,8 +1113,10 @@ Include: technical architecture, key features, implementation details, technolog
    */
   async cleanupOrphanedChunks(): Promise<number> {
     const result = await prisma.contextChunk.deleteMany({
+      // The relation is required in the schema, so Prisma's types reject a
+      // null filter — but legacy rows from before the FK can still be orphaned.
       where: {
-        entity: null
+        entity: { is: null } as never
       }
     });
 

@@ -28,7 +28,8 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/components/ui/toast';
 
-type VoiceConfigProvider = 'openai' | 'elevenlabs' | 'google';
+// Must stay in sync with VoiceConfigurationList's union (cascade tab, task 9.4)
+type VoiceConfigProvider = 'openai' | 'elevenlabs' | 'google' | 'cascade';
 
 interface VoiceConfigRecord {
   id: string;

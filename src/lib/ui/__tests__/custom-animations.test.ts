@@ -95,7 +95,7 @@ describe('Custom Animation System', () => {
     
     // Set up global objects
     global.document = document;
-    global.window = window;
+    global.window = window as unknown as Window & typeof globalThis;
     (global as any).globalThis = global;
 
     // Mock performance API
@@ -137,7 +137,7 @@ describe('Custom Animation System', () => {
           'test-animation': {
             name: 'Test Animation',
             duration: 0.5,
-            create: jest.fn(() => mockTimeline),
+            create: jest.fn(() => mockTimeline) as any,
           },
         },
         register: jest.fn(),
@@ -374,7 +374,7 @@ describe('Custom Animation System', () => {
             create: jest.fn(() => {
               throw new Error('Animation failed');
             }),
-            fallback: jest.fn(() => mockTimeline),
+            fallback: jest.fn(() => mockTimeline) as any,
           },
         },
         register: jest.fn(),

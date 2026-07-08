@@ -166,7 +166,7 @@ function printDiagnosticResult(result: any, verbose: boolean = false): void {
     console.log('\n' + '-'.repeat(40));
     console.log('RECOMMENDATIONS:');
     console.log('-'.repeat(40));
-    const uniqueRecommendations = [...new Set(recommendations)];
+    const uniqueRecommendations = [...new Set(recommendations)] as string[];
     uniqueRecommendations.slice(0, 10).forEach((rec: string) => {
       console.log(`• ${rec}`);
     });

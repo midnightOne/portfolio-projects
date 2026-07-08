@@ -74,8 +74,10 @@ describe('ClickableMediaUpload', () => {
     // the assembled textContent.
     expect(
       screen.getByText((_, el) =>
-        el?.className?.includes?.('text-gray-500') &&
-        /Test Image\s*\(\d+(\.\d+)? KB\)/.test(el?.textContent ?? '')
+        Boolean(
+          el?.className?.includes?.('text-gray-500') &&
+          /Test Image\s*\(\d+(\.\d+)? KB\)/.test(el?.textContent ?? '')
+        )
       )
     ).toBeInTheDocument();
   });

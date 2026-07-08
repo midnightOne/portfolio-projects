@@ -246,3 +246,26 @@ historical dupes merged). `AIConversation.sessionId` is now UNIQUE with adopt-on
 the dev server's first read of that provider config, or restart; and a drill value below a zod floor
 (maxSessionSeconds min 30) makes deserialize throw and the route silently falls back to serializer
 defaults - check the server log for "using fallback" before trusting a config-driven drill.
+
+**Appended 2026-07-08 (Phase 5.3 test triage):** the protected jest baseline (34F suites) is dead —
+`npm test` green is the new floor. What the debt actually was, for the record:
+- FIVE test files carried machine-mangled import blocks (dozens of duplicate `import { expect } from
+  'playwright/test'` / `import { it } from 'node:test'` / `import { it } from 'zod/v4/locales'` lines
+  layered over jest suites — an auto-import fixer run amok in 2025). Under jest, node:test suites
+  report "0 tests" and zod's `it` (a locale export) makes a suite "contain no tests".
+- jsdom suites importing `next/server` crashed at import (`Request is not defined`) — jest.setup now
+  polyfills WHATWG Request/Response/Headers/streams from undici.
+- Deleted as Gen-1 (D42): OpenAIRealtimeAdapter suite (asserted deleted imperative nav tools +
+  client-side instructions; the D53 fake-mic driver is the real coverage), task-1-verification
+  (pre-squash migration filenames), search-focus-final/-fix (superseded iterations of the same
+  debugging session; -improved survives), homepage-navigation (hardcoded 'John Doe' copy vs the
+  config-driven homepage).
+- REAL component bugs found by the triage and fixed in source: ProjectTimeline month headers re-parsed
+  'YYYY-MM-01' as UTC and labeled local-time groups a month early for UTC-negative viewers;
+  ProgressiveLoadingBar's percentage label didn't clamp 0-100 like the bar width it describes.
+- Gotchas for future suites: `/api/projects` memoizes responses per query-param set at module level —
+  duplicate params across tests silently serve cached results (0 prisma calls); NavigationBar resets
+  an UNFOCUSED search input to the `searchQuery` prop, so tests must `.focus()` before typing;
+  partial per-tag framer-motion/lucide-react mocks break whenever a component adopts a new tag — use
+  Proxy passthrough mocks; the AIStatusCache and AIAvailabilityChecker singletons leak state across
+  tests unless cleared.
