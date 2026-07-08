@@ -3,23 +3,24 @@
  * by design: connection-state clips must play precisely when no adapter
  * connection exists (Req 13.2).
  *
- * Caching strategy (owner, 2026-07-08): after the manifest loads, clips are
- * decoded in the background in PRIORITY order — most-used category first,
- * interleaved round-robin across categories (filler[0], disruption[0],
- * resume_failed[0], greeting[0], filler[1], …) — so something playable exists
- * for every trigger as early as possible. play() RANDOMIZES among the clips
- * of that tag that are ALREADY loaded; if none are loaded yet it awaits the
- * first one. Cutoff is INSTANT on demand (Req 13.1 — the moment real model
- * audio arrives).
+ * Anticipatory filler (owner, 2026-07-08): the manifest carries measured
+ * per-tool median latencies AND per-clip durations, so the host can play a
+ * filler THE INSTANT a slow tool call starts — picking a clip whose LENGTH
+ * FITS the expected gap ("that length and shorter"); when nothing fits, a
+ * few hundred ms of silence beats a clip that gets chopped. One clip per
+ * silence gap — staggered back-to-back clips are worse than silence.
  *
- * Every playback reports through the injected `onClipPlayed` callback so the
- * host can log an honest `clip_played` history event (Req 13.5) — a clip is
- * not model speech and must never be mistaken for it in replay.
+ * Caching: clips decode in the background in priority order (most-used
+ * category first, round-robin across categories); play() selects among
+ * ALREADY-LOADED variants. Cutoff is INSTANT on demand (Req 13.1).
+ *
+ * Every playback reports through `onClipPlayed` so the host can log an honest
+ * `clip_played` history event (Req 13.5) with played-vs-total durations.
  */
 
 export type ClipTag = 'filler' | 'disruption' | 'resume_failed' | 'greeting';
 
-/** Preload priority: most-used category first (fillers fire every tool call). */
+/** Preload priority: most-used category first (fillers fire every slow tool call). */
 const TAG_PRIORITY: ClipTag[] = ['filler', 'disruption', 'resume_failed', 'greeting'];
 
 interface ManifestClip {
@@ -27,6 +28,7 @@ interface ManifestClip {
   tag: string;
   text: string;
   url: string;
+  durationMs: number | null;
 }
 
 export interface ClipPlayedInfo {
@@ -34,18 +36,32 @@ export interface ClipPlayedInfo {
   tag: ClipTag;
   text: string;
   voiceId: string;
-  durationMs: number;
+  /** How long the clip actually played. */
+  playedMs: number;
+  /** Full clip length (decoded), when known. */
+  clipLengthMs: number | null;
   /** True when playback was cut off before the clip finished. */
   cutOff: boolean;
+}
+
+export interface PlayOptions {
+  /**
+   * Only pick clips whose known length ≤ this (+ nothing at all when none
+   * fit) — the anticipatory path passes the expected tool gap here.
+   */
+  maxDurationMs?: number;
+  /** Pick only among already-decoded clips (the instant path). Default true. */
+  loadedOnly?: boolean;
 }
 
 export class ClipPlayer {
   private _provider: string | null = null;
   private _manifest: { voiceId: string; clips: ManifestClip[] } | null = null;
   private _manifestPromise: Promise<void> | null = null;
+  private _toolLatencies: Record<string, number> = {};
   private _buffers = new Map<string, AudioBuffer>(); // keyed by clip url
   private _context: AudioContext | null = null;
-  private _current: { source: AudioBufferSourceNode; startedAt: number; info: Omit<ClipPlayedInfo, 'durationMs' | 'cutOff'> } | null = null;
+  private _current: { source: AudioBufferSourceNode; startedAt: number; lengthMs: number | null; info: Omit<ClipPlayedInfo, 'playedMs' | 'clipLengthMs' | 'cutOff'> } | null = null;
   private _onClipPlayed?: (info: ClipPlayedInfo) => void;
   private _preloadRun = 0; // invalidates a background preload when the provider changes
 
@@ -70,13 +86,21 @@ export class ClipPlayer {
       .then((r) => r.json())
       .then((data) => {
         if (run !== this._preloadRun) return;
-        if (data?.success && data.voiceId && Array.isArray(data.clips)) {
-          this._manifest = { voiceId: data.voiceId, clips: data.clips };
-          void this._preloadInPriorityOrder(run);
+        if (data?.success) {
+          this._toolLatencies = data.toolLatencies ?? {};
+          if (data.voiceId && Array.isArray(data.clips)) {
+            this._manifest = { voiceId: data.voiceId, clips: data.clips };
+            void this._preloadInPriorityOrder(run);
+          }
         }
       })
       .catch((err) => console.warn('[ClipPlayer] manifest load failed:', err));
     return this._manifestPromise;
+  }
+
+  /** Measured median execution ms for a tool, when known (from the manifest). */
+  getExpectedToolMs(toolName: string): number | null {
+    return this._toolLatencies[toolName] ?? null;
   }
 
   hasClips(tag: ClipTag): boolean {
@@ -88,22 +112,40 @@ export class ClipPlayer {
   }
 
   /**
-   * Play a random clip of the tag from the ALREADY-LOADED pool (falling back
-   * to awaiting the first fetch when nothing is cached yet). No-ops when the
-   * manifest has nothing for the tag — clips are progressive enhancement,
-   * never a dependency. Any playing clip is cut off first (never overlap).
+   * Play a clip of the tag, honoring the length constraint: among candidates
+   * that FIT (length ≤ maxDurationMs), the LONGEST wins (covers the most gap);
+   * when none fit, nothing plays — a short silence beats a chopped clip. With
+   * no constraint, a random loaded variant plays. Any playing clip is cut off
+   * first (never overlap).
    */
-  async play(tag: ClipTag): Promise<boolean> {
+  async play(tag: ClipTag, options?: PlayOptions): Promise<boolean> {
     if (this._manifestPromise) await this._manifestPromise;
     const manifest = this._manifest;
     if (!manifest) return false;
-    const pool = manifest.clips.filter((c) => c.tag === tag);
+    const loadedOnly = options?.loadedOnly ?? true;
+
+    let pool = manifest.clips.filter((c) => c.tag === tag);
+    if (loadedOnly) {
+      const loaded = pool.filter((c) => this._buffers.has(c.url));
+      // Nothing decoded yet and no length constraint (connection clips):
+      // awaiting the first fetch beats silence. The constrained instant path
+      // stays loaded-only.
+      if (loaded.length === 0 && options?.maxDurationMs !== undefined) return false;
+      if (loaded.length > 0) pool = loaded;
+    }
     if (pool.length === 0) return false;
 
-    const loaded = pool.filter((c) => this._buffers.has(c.url));
-    const clip = loaded.length > 0
-      ? loaded[Math.floor(Math.random() * loaded.length)]
-      : pool[0]; // nothing cached yet — take the first and await its fetch
+    let clip: ManifestClip;
+    if (options?.maxDurationMs !== undefined) {
+      const fitting = pool.filter((c) => {
+        const len = this._knownLengthMs(c);
+        return len !== null && len <= options.maxDurationMs!;
+      });
+      if (fitting.length === 0) return false; // silence beats a chopped clip
+      clip = fitting.reduce((a, b) => (this._knownLengthMs(a)! >= this._knownLengthMs(b)! ? a : b));
+    } else {
+      clip = pool[Math.floor(Math.random() * pool.length)];
+    }
 
     try {
       const buffer = await this._getBuffer(clip);
@@ -119,6 +161,7 @@ export class ClipPlayer {
       const entry = {
         source,
         startedAt: Date.now(),
+        lengthMs: Math.round(buffer.duration * 1000),
         info: { phraseId: clip.phraseId, tag, text: clip.text, voiceId: manifest.voiceId },
       };
       this._current = entry;
@@ -157,15 +200,27 @@ export class ClipPlayer {
     this._buffers.clear();
   }
 
+  /** Decoded length when cached, else the manifest's provider-reported length. */
+  private _knownLengthMs(clip: ManifestClip): number | null {
+    const buffer = this._buffers.get(clip.url);
+    if (buffer) return Math.round(buffer.duration * 1000);
+    return clip.durationMs;
+  }
+
   /**
    * Background decode, one clip at a time: categories in usage-priority
    * order, one clip per category per round, so the FIRST clip of every
-   * category is available before any category's second variant.
+   * category is available before any category's second variant. Within
+   * filler, shortest first — short clips fit the most gaps.
    */
   private async _preloadInPriorityOrder(run: number): Promise<void> {
     const manifest = this._manifest;
     if (!manifest) return;
-    const byTag = TAG_PRIORITY.map((tag) => manifest.clips.filter((c) => c.tag === tag));
+    const byTag = TAG_PRIORITY.map((tag) =>
+      manifest.clips
+        .filter((c) => c.tag === tag)
+        .sort((a, b) => (a.durationMs ?? Infinity) - (b.durationMs ?? Infinity))
+    );
     const maxLen = Math.max(0, ...byTag.map((l) => l.length));
     for (let round = 0; round < maxLen; round++) {
       for (const list of byTag) {
@@ -179,7 +234,12 @@ export class ClipPlayer {
 
   private _report(entry: NonNullable<typeof this._current>, cutOff: boolean): void {
     try {
-      this._onClipPlayed?.({ ...entry.info, durationMs: Date.now() - entry.startedAt, cutOff });
+      this._onClipPlayed?.({
+        ...entry.info,
+        playedMs: Date.now() - entry.startedAt,
+        clipLengthMs: entry.lengthMs,
+        cutOff,
+      });
     } catch (err) {
       console.warn('[ClipPlayer] onClipPlayed callback failed:', err);
     }

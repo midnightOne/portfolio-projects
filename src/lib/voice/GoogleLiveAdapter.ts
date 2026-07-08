@@ -756,6 +756,10 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
       reflinkId: this._options?.reflinkId,
       toolName,
       toolArgs: args,
+      // Persist the RESULT too — absent until 2026-07-08, which made every
+      // Gemini tool row replay as result:"null" (the model saw the real data;
+      // the log didn't). The route slices to 8KB.
+      toolResult: result?.result,
       timestamp: new Date().toISOString(),
       metadata: {
         toolCallId: callId,

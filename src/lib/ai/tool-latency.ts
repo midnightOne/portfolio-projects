@@ -106,8 +106,8 @@ export async function buildToolLatencyGuidance(): Promise<string> {
     );
   }
   lines.push(
-    '- Tools not listed: treat as INSTANT (call silently). If any call ever runs long, the system plays its own filler audio — you never need to cover silence yourself.',
-    '- Style: filler, when used at all, is CONTEXT-DEPENDENT like human speech — vary it, tie it to the topic, keep it to one short clause. Speak like someone who already knows this portfolio, not like a system doing a lookup.'
+    '- Tools not listed: treat as INSTANT (call silently). The system plays its own short pre-recorded filler the moment a slow call starts — generic filler is COVERED for you; you never need to fill silence yourself.',
+    '- Style: when you do speak before a slower call, prefer something CONTEXT-RELEVANT over generic filler (the generic kind is what the pre-recorded clips are for) — tie it to the topic, vary it, keep it to one short clause. Speak like someone who already knows this portfolio, not like a system doing a lookup.'
   );
 
   return lines.join('\n');

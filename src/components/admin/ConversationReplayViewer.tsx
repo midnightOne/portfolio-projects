@@ -228,7 +228,18 @@ export function ReplayStepCard({ step, legIndex }: { step: ReplayStep; legIndex:
           )}
           {step.message.mode && <Badge variant="outline" className="text-xs">{step.message.mode}</Badge>}
         </div>
-        <span className="text-xs text-muted-foreground">{new Date(step.timestamp).toLocaleTimeString()}</span>
+        <span className="text-xs text-muted-foreground">
+          {/* The row timestamp is turn-END; firstAudioAt is when the visitor
+              actually started HEARING this turn (9b.5) — the honest latency. */}
+          {step.message.metadata?.firstAudioAt && (
+            <span title="Turn onset — first audible audio chunk">
+              🔊 {new Date(step.message.metadata.firstAudioAt).toLocaleTimeString(undefined, { hour12: false })}
+              <span className="opacity-60">.{String(new Date(step.message.metadata.firstAudioAt).getMilliseconds()).padStart(3, '0')}</span>
+              {' → '}
+            </span>
+          )}
+          {new Date(step.timestamp).toLocaleTimeString()}
+        </span>
       </div>
 
       {step.type === 'marker' ? (
@@ -265,7 +276,7 @@ export function ReplayStepCard({ step, legIndex }: { step: ReplayStep; legIndex:
         </details>
       )}
 
-      {(step.type === 'navigation' || step.type === 'error') && step.message.metadata?.detail && (
+      {(step.type === 'navigation' || step.type === 'error' || step.type === 'clip') && step.message.metadata?.detail && (
         <details className="mt-2">
           <summary className="text-xs text-muted-foreground cursor-pointer select-none">Detail</summary>
           <pre className="text-xs whitespace-pre-wrap mt-1 bg-black/5 dark:bg-white/5 rounded p-2">

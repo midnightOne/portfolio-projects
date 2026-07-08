@@ -153,12 +153,15 @@ async function persistVoiceEntries(
         persisted++;
       } else if (entry.kind === 'tool') {
         if (!entry.toolName) continue;
+        // Execution ms in the label (owner, 2026-07-08): turn timestamps are
+        // end-of-turn, so per-call latency must be readable in the row itself.
+        const ms = typeof entry.executionTime === 'number' ? ` (${Math.round(entry.executionTime)}ms)` : '';
         await conversationHistoryManager.addMessage(
           conversationId,
           {
             id: itemId,
             role: 'system',
-            content: `[tool:${entry.toolName}] ${entry.success === false ? 'failed' : 'ok'}`,
+            content: `[tool:${entry.toolName}] ${entry.success === false ? 'failed' : 'ok'}${ms}`,
             timestamp: entry.timestamp ? new Date(entry.timestamp) : new Date(),
             inputMode: 'voice',
             legId: legId ?? undefined,
@@ -378,6 +381,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           id: (body.metadata as any)?.toolCallId,
           toolName: body.toolName,
           args: body.toolArgs,
+          // Was silently absent for Google sessions until 2026-07-08 — replay
+          // showed result:"null" for every Gemini tool call.
+          result: (body as any).toolResult,
           success: (body.metadata as any)?.success,
           executionTime: (body.metadata as any)?.executionTime,
           timestamp: body.timestamp,

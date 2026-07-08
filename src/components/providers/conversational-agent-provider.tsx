@@ -145,6 +145,10 @@ export function ConversationalAgentProvider({
   const clipPlayerRef = useRef<ClipPlayer | null>(null);
   const fillerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const modelSpeakingRef = useRef(false);
+  /** ONE clip per silence gap (owner, 2026-07-08 — staggered back-to-back
+   *  clips in multi-tool turns are worse than silence). Reset when the model
+   *  actually speaks. */
+  const clipPlayedThisGapRef = useRef(false);
   const lastConnStatusRef = useRef<string>('disconnected');
 
   // Register adapters on mount
@@ -165,6 +169,12 @@ export function ConversationalAgentProvider({
     const player = new ClipPlayer((info) => {
       const sessionId = adapterRef.current?.getConversationSessionId?.();
       if (!sessionId) return;
+      // Played-vs-total in the LABEL (owner, 2026-07-08): turn timestamps are
+      // end-of-turn, so the row itself must tell the latency story — how much
+      // of the clip the visitor actually heard before the model cut in.
+      const played = (info.playedMs / 1000).toFixed(1);
+      const total = info.clipLengthMs ? (info.clipLengthMs / 1000).toFixed(1) : '?';
+      const timing = info.cutOff ? `played ${played}s of ${total}s, cut off by model speech` : `played in full (${total}s)`;
       void fetch('/api/ai/conversation/log', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -173,8 +183,8 @@ export function ConversationalAgentProvider({
           provider: adapterRef.current?.provider,
           event: {
             type: 'clip_played',
-            label: `Clip: "${info.text}"${info.cutOff ? ' (cut off by model speech)' : ''}`,
-            detail: { phraseId: info.phraseId, tag: info.tag, voiceId: info.voiceId, durationMs: info.durationMs, cutOff: info.cutOff },
+            label: `Clip: "${info.text}" — ${timing}`,
+            detail: { phraseId: info.phraseId, tag: info.tag, voiceId: info.voiceId, playedMs: info.playedMs, clipLengthMs: info.clipLengthMs, cutOff: info.cutOff },
           },
           timestamp: new Date().toISOString(),
         }),
@@ -195,22 +205,59 @@ export function ConversationalAgentProvider({
     }
   }, [activeProvider]);
 
-  // D50 tool-latency filler (Req 13.1): when a tool call runs and the model
-  // isn't audibly speaking shortly after, play a random cached filler. The
-  // debug emitter is the one adapter-independent signal — the base adapter
-  // emits tool_call_start for every provider's unified tool path.
+  // D50 tool-latency filler (Req 13.1, owner-shaped 2026-07-08): ANTICIPATORY.
+  // The manifest carries measured per-tool medians and per-clip lengths, so
+  // when a tool with a long expected duration starts, a filler clip that FITS
+  // the expected gap plays THE INSTANT the call is made — no silence timer.
+  // Rules: one clip per silence gap (staggered clips are worse than silence);
+  // when no clip fits the gap, a few hundred ms of silence beats a chopped
+  // clip; unknown/short tools only get the fallback overrun timer. The debug
+  // emitter is the one adapter-independent signal — the base adapter emits
+  // tool_call_start for every provider's unified tool path.
   useEffect(() => {
-    const onToolStart = () => {
-      if (fillerTimerRef.current || modelSpeakingRef.current) return;
-      if (!adapterRef.current?.isConnected()) return;
+    /** Below this expected gap, silence is acceptable — play nothing. */
+    const MIN_GAP_FOR_CLIP_MS = 500;
+    /** A clip may outlive the expected gap by this much (small anticipated cutoff). */
+    const FIT_TOLERANCE_MS = 400;
+    /** Fallback for unknown/underestimated tools: cover a real overrun. */
+    const OVERRUN_MS = 1200;
+
+    const armOverrunFallback = () => {
+      if (fillerTimerRef.current) return;
       fillerTimerRef.current = setTimeout(() => {
         fillerTimerRef.current = null;
-        // Re-check at fire time: the model may have started its own filler.
-        if (!modelSpeakingRef.current && adapterRef.current?.isConnected()) {
-          void clipPlayerRef.current?.play('filler');
-        }
-      }, 1200);
+        if (modelSpeakingRef.current || clipPlayedThisGapRef.current) return;
+        if (!adapterRef.current?.isConnected() || clipPlayerRef.current?.isPlaying) return;
+        clipPlayedThisGapRef.current = true;
+        void clipPlayerRef.current?.play('filler');
+      }, OVERRUN_MS);
     };
+
+    const onToolStart = (event: { data?: { toolName?: string } }) => {
+      if (modelSpeakingRef.current || clipPlayedThisGapRef.current) return;
+      if (!adapterRef.current?.isConnected()) return;
+      const player = clipPlayerRef.current;
+      if (!player || player.isPlaying) return;
+
+      const toolName = event?.data?.toolName;
+      const expected = toolName ? player.getExpectedToolMs(toolName) : null;
+
+      if (expected !== null && expected >= MIN_GAP_FOR_CLIP_MS) {
+        // Anticipatory path: play NOW, length-fitted to the expected gap.
+        clipPlayedThisGapRef.current = true; // claim the gap before the async play
+        void player.play('filler', { maxDurationMs: expected + FIT_TOLERANCE_MS }).then((played) => {
+          if (!played) {
+            // Nothing fits — accept the short silence, but still cover a
+            // genuine overrun.
+            clipPlayedThisGapRef.current = false;
+            armOverrunFallback();
+          }
+        });
+      } else {
+        armOverrunFallback();
+      }
+    };
+
     debugEventEmitter.on('tool_call_start', onToolStart);
     return () => {
       debugEventEmitter.off('tool_call_start', onToolStart);
@@ -536,8 +583,11 @@ export function ConversationalAgentProvider({
   const handleAudioEvent = useCallback((event: AudioEvent) => {
     // Model speech lifecycle (9b): speech_start is the D50 clip CUTOFF — the
     // instant real model audio arrives, any filler/greeting stops (Req 13.1).
+    // Real speech also closes the current silence gap: the one-clip-per-gap
+    // budget resets so the NEXT silence window may get its own clip.
     if (event.type === 'speech_start') {
       modelSpeakingRef.current = true;
+      clipPlayedThisGapRef.current = false;
       if (fillerTimerRef.current) {
         clearTimeout(fillerTimerRef.current);
         fillerTimerRef.current = null;

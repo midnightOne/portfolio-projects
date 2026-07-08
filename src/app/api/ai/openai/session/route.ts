@@ -221,6 +221,7 @@ Use these tools for intelligent content discovery and detailed information retri
    }
 
 CONTENT SEARCH BEST PRACTICES:
+- RELEVANCE HONESTY: results carry a score and facets. A weak match (score below ~0.6, or facets that do not mention what was asked) is NOT an answer — when the visitor asks for something specific and the results do not actually contain it, SAY the portfolio does not have that, instead of presenting the closest result as if it matched. Never navigate to a project as an answer it is not.
 - ALWAYS get UI state with ui_describe before content searches for context awareness
 - Use content_search for discovery, content_get for detailed retrieval
 - Combine search results with navigation guidance using returned navTargets
@@ -602,6 +603,7 @@ Use these tools for intelligent content discovery and detailed information retri
    }
 
 CONTENT SEARCH BEST PRACTICES:
+- RELEVANCE HONESTY: results carry a score and facets. A weak match (score below ~0.6, or facets that do not mention what was asked) is NOT an answer — when the visitor asks for something specific and the results do not actually contain it, SAY the portfolio does not have that, instead of presenting the closest result as if it matched. Never navigate to a project as an answer it is not.
 - ALWAYS get UI state with ui_describe before content searches for context awareness
 - Use content_search for discovery, content_get for detailed retrieval
 - Combine search results with navigation guidance using returned navTargets

@@ -53,6 +53,9 @@ export interface ClipManifestEntry {
   tag: string;
   text: string;
   url: string;
+  /** Clip length in ms (provider-reported at upload) — drives length-fitting:
+   *  the player picks a clip that FITS the expected tool gap (owner, 2026-07-08). */
+  durationMs: number | null;
   updatedAt: string;
 }
 
@@ -60,6 +63,10 @@ export interface ClipManifest {
   provider: string;
   voiceId: string | null;
   clips: ClipManifestEntry[];
+  /** Median execution ms per tool (measured) — lets the client play a filler
+   *  clip THE INSTANT a slow tool call starts, instead of waiting out a
+   *  silence timer (owner, 2026-07-08). */
+  toolLatencies: Record<string, number>;
 }
 
 /**
@@ -210,11 +217,24 @@ export async function regenerateClips(opts?: { sessionProvider?: string }): Prom
 export async function getClipManifest(sessionProvider: string): Promise<ClipManifest> {
   const targets = await getClipTargets();
   const target = targets.find((t) => t.sessionProvider === sessionProvider);
-  if (!target) return { provider: sessionProvider, voiceId: null, clips: [] };
+
+  // Tool medians ride the manifest so the player can fire a fitting clip THE
+  // INSTANT a slow tool call starts (not after a silence timer).
+  const { getToolLatencyStats } = await import('./tool-latency');
+  const toolLatencies: Record<string, number> = {};
+  try {
+    for (const stat of await getToolLatencyStats()) {
+      toolLatencies[stat.toolName] = stat.medianMs;
+    }
+  } catch (error) {
+    console.error('[voice-clips] tool latency stats failed (manifest continues):', error);
+  }
+
+  if (!target) return { provider: sessionProvider, voiceId: null, clips: [], toolLatencies };
 
   const clips = await prisma.voiceClip.findMany({
     where: { voiceId: target.voiceId, phrase: { enabled: true } },
-    select: { phraseId: true, text: true, url: true, updatedAt: true, phrase: { select: { tag: true, sortOrder: true } } },
+    select: { phraseId: true, text: true, url: true, durationMs: true, updatedAt: true, phrase: { select: { tag: true, sortOrder: true } } },
   });
 
   clips.sort((a, b) => a.phrase.tag.localeCompare(b.phrase.tag) || a.phrase.sortOrder - b.phrase.sortOrder);
@@ -227,8 +247,10 @@ export async function getClipManifest(sessionProvider: string): Promise<ClipMani
       text: c.text,
       // CDN URL, versioned by the media provider — changes on regeneration.
       url: c.url,
+      durationMs: c.durationMs,
       updatedAt: c.updatedAt.toISOString(),
     })),
+    toolLatencies,
   };
 }
 
