@@ -147,6 +147,17 @@ OpenAI Realtime + ElevenLabs adapters behind `IConversationalAgentAdapter` with 
         + viewer now accept `conversationId` directly. **Browser-verified live** (admin session, 1600px): sidebar link
         present, 25-row list, selecting the "3D work" convo rendered all 6 steps (2 user, 2 tool calls with expandable
         args, 2 AI) in the right panel; no console errors.
+      - **Analytics/export/cleanup re-homed (owner refinement 2026-07-08):** new `ConversationAdminTools` +
+        `ConversationsView` wrapper sit ABOVE the browser. Analytics is a **collapsible** bar whose collapsed header
+        still shows the at-a-glance totals inline (conversations · msgs · tokens · cost), expanding to full tiles +
+        mode/performance/recent-activity breakdowns + a date filter + destructive age-based cleanup. **Export is a
+        persistent button opening an options modal** (format json/csv, optional date range, include-debug-data toggle);
+        cleanup remounts the browser via a `refreshKey`. **Layout bug fixed in the same pass:** the fixed-width
+        transcript panel exposed a missing `min-w-0` on shadcn's `SidebarInset` — the content area grew to max-content
+        and pushed the page into ~214px of horizontal overflow (Export button off-screen). Added `min-w-0` to
+        `SidebarInset` (canonical fix; internal `overflow-x-auto` regions now scroll instead of expanding the page).
+        Browser-verified: overflow 0, Export on-screen, analytics collapse/expand + export modal + CSV download (200,
+        57KB) all work.
       - **tool-call latency / silent-gap UX.** Root-caused: NOT cascade and NOT reasoning — the active config is native
         s2s (`gemini-2.5-flash-native-audio-latest`, `responseModality:'AUDIO'`), reasoning off by default. Tool exec is
         already fast (measured `content_search` 536ms, `getProjectSummary` 431ms on the owner's "3D work" convo
