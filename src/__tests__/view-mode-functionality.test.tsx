@@ -47,7 +47,7 @@ describe('View Mode Functionality', () => {
     render(<NavigationBar {...mockProps} />);
 
     const gridButton = screen.getByRole('button', { name: /grid/i });
-    const timelineButton = screen.getByRole('button', { name: /list/i });
+    const timelineButton = screen.getByRole('button', { name: /timeline/i });
 
     expect(gridButton).toBeInTheDocument();
     expect(timelineButton).toBeInTheDocument();
@@ -57,7 +57,7 @@ describe('View Mode Functionality', () => {
     render(<NavigationBar {...mockProps} viewMode="grid" />);
 
     const gridButton = screen.getByRole('button', { name: /grid/i });
-    const timelineButton = screen.getByRole('button', { name: /list/i });
+    const timelineButton = screen.getByRole('button', { name: /timeline/i });
 
     // Grid button should have 'default' variant (active)
     expect(gridButton).toHaveClass('bg-primary'); // or whatever active class
@@ -68,7 +68,7 @@ describe('View Mode Functionality', () => {
     render(<NavigationBar {...mockProps} viewMode="timeline" />);
 
     const gridButton = screen.getByRole('button', { name: /grid/i });
-    const timelineButton = screen.getByRole('button', { name: /list/i });
+    const timelineButton = screen.getByRole('button', { name: /timeline/i });
 
     // Timeline button should have 'default' variant (active)
     expect(timelineButton).toHaveClass('bg-primary');
@@ -89,7 +89,7 @@ describe('View Mode Functionality', () => {
   it('calls onViewModeChange when timeline button is clicked', async () => {
     render(<NavigationBar {...mockProps} viewMode="grid" />);
 
-    const timelineButton = screen.getByRole('button', { name: /list/i });
+    const timelineButton = screen.getByRole('button', { name: /timeline/i });
     fireEvent.click(timelineButton);
 
     await waitFor(() => {
@@ -182,7 +182,7 @@ describe('View Mode Functionality', () => {
     render(<NavigationBar {...mockProps} isLoading={true} />);
 
     const gridButton = screen.getByRole('button', { name: /grid/i });
-    const timelineButton = screen.getByRole('button', { name: /list/i });
+    const timelineButton = screen.getByRole('button', { name: /timeline/i });
 
     expect(gridButton).toBeDisabled();
     expect(timelineButton).toBeDisabled();
@@ -192,7 +192,7 @@ describe('View Mode Functionality', () => {
     render(<NavigationBar {...mockProps} canSearch={false} />);
 
     const gridButton = screen.getByRole('button', { name: /grid/i });
-    const timelineButton = screen.getByRole('button', { name: /list/i });
+    const timelineButton = screen.getByRole('button', { name: /timeline/i });
 
     expect(gridButton).toBeDisabled();
     expect(timelineButton).toBeDisabled();
@@ -253,7 +253,7 @@ describe('View Mode Functionality', () => {
     expect(mockProps.onSearchChange).toHaveBeenCalledWith('test');
 
     // Switch view mode
-    const timelineButton = screen.getByRole('button', { name: /list/i });
+    const timelineButton = screen.getByRole('button', { name: /timeline/i });
     fireEvent.click(timelineButton);
 
     expect(mockProps.onViewModeChange).toHaveBeenCalledWith('timeline');

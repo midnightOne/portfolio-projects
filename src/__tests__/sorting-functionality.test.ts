@@ -2,23 +2,8 @@
  * Tests for sorting functionality in the projects API
  */
 
-// Mock Next.js server components
-Object.defineProperty(globalThis, 'Request', {
-  value: class MockRequest {
-    constructor(public url: string, public init?: RequestInit) {}
-  },
-});
-
-Object.defineProperty(globalThis, 'Response', {
-  value: class MockResponse {
-    constructor(public body?: any, public init?: ResponseInit) {}
-    static json(data: any) {
-      return new MockResponse(JSON.stringify(data), {
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-  },
-});
+// NOTE: Request/Response come from the jest.setup undici polyfill — do not
+// stub them here (a partial stub breaks NextResponse.json at import time).
 
 // Mock the database connection
 jest.mock('@/lib/database/connection', () => ({
@@ -131,9 +116,25 @@ describe('Projects API Sorting', () => {
     );
   });
 
-  it('handles invalid sort options by defaulting to relevance', async () => {
+  it('rejects invalid sort options with a validation error', async () => {
     const request = createMockRequest({
       sortBy: 'invalid',
+      sortOrder: 'desc',
+    });
+
+    // The schema is a strict enum now — unknown sort options 400 instead of
+    // silently defaulting.
+    const response = await GET(request);
+
+    expect(response.status).toBe(400);
+    expect(mockPrisma.project.findMany).not.toHaveBeenCalled();
+  });
+
+  it('respects sort order parameter', async () => {
+    // Distinct params from the other title test — the route memoizes
+    // responses per query-param set, so a duplicate would hit that cache.
+    const request = createMockRequest({
+      sortBy: 'title',
       sortOrder: 'desc',
     });
 
@@ -141,22 +142,7 @@ describe('Projects API Sorting', () => {
 
     expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        orderBy: { createdAt: 'desc' },
-      })
-    );
-  });
-
-  it('respects sort order parameter', async () => {
-    const request = createMockRequest({
-      sortBy: 'title',
-      sortOrder: 'asc',
-    });
-
-    await GET(request);
-
-    expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orderBy: { title: 'asc' },
+        orderBy: { title: 'desc' },
       })
     );
   });
@@ -164,6 +150,7 @@ describe('Projects API Sorting', () => {
   it('defaults sort order to desc when not specified', async () => {
     const request = createMockRequest({
       sortBy: 'date',
+      limit: '15', // unique params — avoid the route's response cache
     });
 
     await GET(request);

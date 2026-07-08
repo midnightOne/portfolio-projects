@@ -7,16 +7,19 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { NavigationBar } from '@/components/layout/navigation-bar';
 import type { Tag } from '@/lib/types/project';
 
-// Mock framer-motion
-jest.mock('framer-motion', () => ({
-  motion: {
-    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
-    button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
-    span: ({ children, ...props }: any) => <span {...props}>{children}</span>,
-  },
-  AnimatePresence: ({ children }: any) => children,
-  useReducedMotion: () => false,
-}));
+// Mock framer-motion: Proxy passthrough — ANY motion.<tag> renders the plain
+// element (per-tag partial mocks broke on tags like motion.h3 in empty states).
+jest.mock("framer-motion", () => {
+  const React = require("react");
+  const motion = new Proxy({}, {
+    get: (_t, tag) => ({ children, ...props }: any) => React.createElement(String(tag), props, children),
+  });
+  return {
+    motion,
+    AnimatePresence: ({ children }: any) => children,
+    useReducedMotion: () => false,
+  };
+});
 
 const mockTags: Tag[] = [
   { id: '1', name: 'React', color: '#61dafb', createdAt: new Date() },

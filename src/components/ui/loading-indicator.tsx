@@ -109,7 +109,8 @@ export function ProgressiveLoadingBar({
       </div>
       {showPercentage && (
         <div className="text-xs text-muted-foreground mt-1 text-center">
-          {Math.round(progress)}%
+          {/* clamp like the bar width — a 150% label over a full bar lies */}
+          {Math.round(Math.min(100, Math.max(0, progress)))}%
         </div>
       )}
     </div>

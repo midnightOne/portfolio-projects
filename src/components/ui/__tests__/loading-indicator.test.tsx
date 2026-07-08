@@ -1,26 +1,34 @@
 import { render, screen } from '@testing-library/react';
 import { LoadingIndicator, LoadingOverlay, ProgressiveLoadingBar } from '../loading-indicator';
 
-// Mock framer-motion
-jest.mock('framer-motion', () => ({
-  motion: {
-    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
-    span: ({ children, ...props }: any) => <span {...props}>{children}</span>,
-  },
-}));
+// Mock framer-motion: Proxy passthrough — ANY motion.<tag> renders the plain
+// element (per-tag partial mocks broke on tags like motion.h3 in empty states).
+jest.mock("framer-motion", () => {
+  const React = require("react");
+  const motion = new Proxy({}, {
+    get: (_t, tag) => ({ children, ...props }: any) => React.createElement(String(tag), props, children),
+  });
+  return {
+    motion,
+    AnimatePresence: ({ children }: any) => children,
+    useReducedMotion: () => false,
+  };
+});
 
 describe('LoadingIndicator', () => {
   it('should render with default props', () => {
     render(<LoadingIndicator />);
     
-    const spinner = screen.getByRole('generic');
+    // Query by the spinner's distinctive classes — role 'generic' matches
+    // every div in the tree.
+    const spinner = document.querySelector('.border-t-transparent');
     expect(spinner).toHaveClass('w-6', 'h-6');
   });
 
   it('should render with custom size', () => {
     render(<LoadingIndicator size="lg" />);
     
-    const spinner = screen.getByRole('generic');
+    const spinner = document.querySelector('.border-t-transparent');
     expect(spinner).toHaveClass('w-8', 'h-8');
   });
 
@@ -39,8 +47,9 @@ describe('LoadingIndicator', () => {
   it('should apply custom className', () => {
     render(<LoadingIndicator className="custom-class" />);
     
-    const container = screen.getByRole('generic').parentElement;
-    expect(container).toHaveClass('custom-class');
+    const container = document.querySelector('.custom-class');
+    expect(container).toBeInTheDocument();
+    expect(container!.querySelector('.border-t-transparent')).toBeInTheDocument();
   });
 });
 
@@ -66,8 +75,8 @@ describe('LoadingOverlay', () => {
   it('should apply custom className', () => {
     render(<LoadingOverlay isVisible={true} className="custom-overlay" />);
     
-    const overlay = screen.getByText('Loading...').closest('div');
-    expect(overlay).toHaveClass('custom-overlay');
+    // The class lands on the outer overlay, not the closest ancestor div
+    expect(document.querySelector('.custom-overlay')).toBeInTheDocument();
   });
 });
 
@@ -75,9 +84,8 @@ describe('ProgressiveLoadingBar', () => {
   it('should render with correct progress', () => {
     render(<ProgressiveLoadingBar progress={50} />);
     
-    // The progress bar should be rendered
-    const progressBar = screen.getByRole('generic');
-    expect(progressBar).toBeInTheDocument();
+    // The filled bar carries bg-primary inside the track
+    expect(document.querySelector('.bg-primary')).toBeInTheDocument();
   });
 
   it('should show percentage when showPercentage is true', () => {
@@ -107,7 +115,6 @@ describe('ProgressiveLoadingBar', () => {
   it('should apply custom className', () => {
     render(<ProgressiveLoadingBar progress={50} className="custom-progress" />);
     
-    const container = screen.getByRole('generic').parentElement;
-    expect(container).toHaveClass('custom-progress');
+    expect(document.querySelector('.custom-progress')).toBeInTheDocument();
   });
 });

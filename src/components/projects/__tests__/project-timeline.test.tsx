@@ -4,14 +4,19 @@ import { ProjectTimeline } from '../project-timeline';
 import type { ProjectWithRelations } from '@/lib/types/project';
 import { describe, it, beforeEach } from '@jest/globals';
 
-// Mock framer-motion to avoid animation issues in tests
-jest.mock('framer-motion', () => ({
-  motion: {
-    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
-  },
-  AnimatePresence: ({ children }: any) => children,
-  useReducedMotion: () => false,
-}));
+// Mock framer-motion: Proxy passthrough — ANY motion.<tag> renders the plain
+// element (per-tag partial mocks broke on tags like motion.h3 in empty states).
+jest.mock('framer-motion', () => {
+  const React = require('react');
+  const motion = new Proxy({}, {
+    get: (_t, tag) => ({ children, ...props }: any) => React.createElement(String(tag), props, children),
+  });
+  return {
+    motion,
+    AnimatePresence: ({ children }: any) => children,
+    useReducedMotion: () => false,
+  };
+});
 
 const mockProjects: ProjectWithRelations[] = [
   {
@@ -107,8 +112,8 @@ describe('ProjectTimeline', () => {
       />
     );
 
-    // Should show skeleton loading elements
-    expect(screen.getAllByText(/animate-pulse/i)).toBeTruthy();
+    // Should show skeleton loading elements (animate-pulse is a class, not text)
+    expect(document.querySelector('.animate-pulse')).toBeInTheDocument();
   });
 
   it('renders empty state when no projects', () => {
@@ -192,10 +197,9 @@ describe('ProjectTimeline', () => {
       />
     );
 
-    const projectCard = screen.getByText('Project 1').closest('.group');
-    expect(projectCard).toBeInTheDocument();
-
-    fireEvent.click(projectCard!);
+    // The click handler lives on the CardContent INSIDE the .group wrapper —
+    // click the title so the event bubbles up into it.
+    fireEvent.click(screen.getByText('Project 1'));
 
     await waitFor(() => {
       expect(mockOnProjectClick).toHaveBeenCalledWith('project-1');
@@ -212,9 +216,10 @@ describe('ProjectTimeline', () => {
       />
     );
 
-    // Should highlight search terms (though exact implementation may vary)
-    expect(screen.getByText('Project 1')).toBeInTheDocument();
-    expect(screen.getByText('Project 2')).toBeInTheDocument();
+    // Highlighting wraps matches in <mark>, splitting the text nodes — match
+    // on assembled textContent instead of a single text node.
+    expect(screen.getAllByText((_, el) => el?.textContent === 'Project 1').length).toBeGreaterThan(0);
+    expect(screen.getAllByText((_, el) => el?.textContent === 'Project 2').length).toBeGreaterThan(0);
   });
 
   it('displays thumbnails correctly', () => {
@@ -247,8 +252,8 @@ describe('ProjectTimeline', () => {
       />
     );
 
-    // Each year should show 1 project
-    expect(screen.getByText('1 project')).toBeInTheDocument();
+    // Each of the two year groups shows its own count
+    expect(screen.getAllByText('1 project')).toHaveLength(2);
   });
 
   it('sorts projects within groups by date (newest first)', () => {
@@ -285,7 +290,9 @@ describe('ProjectTimeline', () => {
     const projectWithoutWorkDate = {
       ...mockProjects[0],
       workDate: undefined,
-      createdAt: new Date('2023-03-15'),
+      // Local-time constructor — an ISO string would be UTC midnight and
+      // display as March 14 in UTC-negative timezones.
+      createdAt: new Date(2023, 2, 15),
     };
 
     render(

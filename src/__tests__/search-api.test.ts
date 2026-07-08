@@ -1,6 +1,11 @@
 /**
- * Integration tests for search API functionality
- * Tests the full-text search implementation in the API
+ * Integration tests for search API functionality.
+ *
+ * Search queries run through PostgreSQL full-text search as raw SQL
+ * ($queryRawUnsafe with to_tsquery + ts_rank), then hydrate the matched ids
+ * via findMany — the old Prisma where.OR full-text path is gone. Note the
+ * route memoizes responses per query-param set, so every test uses a
+ * distinct parameter combination.
  */
 
 import { NextRequest } from 'next/server';
@@ -13,6 +18,7 @@ jest.mock('@/lib/database/connection', () => ({
       findMany: jest.fn(),
       count: jest.fn(),
     },
+    $queryRawUnsafe: jest.fn(),
   },
 }));
 
@@ -30,7 +36,36 @@ jest.mock('@/lib/utils/api-utils', () => ({
 
 import { prisma } from '@/lib/database/connection';
 
-const mockPrisma = prisma as jest.Mocked<typeof prisma>;
+const mockPrisma = prisma as jest.Mocked<typeof prisma> & { $queryRawUnsafe: jest.Mock };
+
+const fullProject = (overrides: Record<string, unknown> = {}) => ({
+  id: '1',
+  title: 'React Portfolio',
+  slug: 'react-portfolio',
+  description: 'A portfolio built with React',
+  briefOverview: 'Modern React application',
+  workDate: new Date('2024-01-01'),
+  visibility: 'PUBLIC',
+  viewCount: 10,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  tags: [{ id: '1', name: 'React', color: '#61DAFB' }],
+  thumbnailImage: null,
+  mediaItems: [],
+  externalLinks: [],
+  downloadableFiles: [],
+  _count: { mediaItems: 0, downloadableFiles: 0, externalLinks: 0 },
+  ...overrides,
+});
+
+/** Queue the raw search + count responses (consumed in that order). */
+function mockSearchSql(rows: Array<{ id: string }>, count: number) {
+  mockPrisma.$queryRawUnsafe
+    .mockResolvedValueOnce(rows.map((r) => ({ ...r, search_rank: 0.5 })))
+    .mockResolvedValueOnce([{ count: String(count) }]);
+}
+
+const searchSqlCall = () => mockPrisma.$queryRawUnsafe.mock.calls[0];
 
 describe('Search API', () => {
   beforeEach(() => {
@@ -38,34 +73,11 @@ describe('Search API', () => {
   });
 
   it('should perform full-text search with query parameter', async () => {
-    const mockProjects = [
-      {
-        id: '1',
-        title: 'React Portfolio',
-        slug: 'react-portfolio',
-        description: 'A portfolio built with React',
-        briefOverview: 'Modern React application',
-        workDate: new Date('2024-01-01'),
-        visibility: 'PUBLIC',
-        viewCount: 10,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        tags: [{ id: '1', name: 'React', color: '#61DAFB' }],
-        thumbnailImage: null,
-        mediaItems: [],
-        externalLinks: [],
-        downloadableFiles: [],
-        _count: { mediaItems: 0, downloadableFiles: 0, externalLinks: 0 }
-      }
-    ];
-
-    mockPrisma.project.findMany.mockResolvedValue(mockProjects as any);
-    mockPrisma.project.count.mockResolvedValue(1);
+    mockSearchSql([{ id: '1' }], 1);
+    mockPrisma.project.findMany.mockResolvedValue([fullProject()] as any);
 
     const url = new URL('http://localhost:3000/api/projects?query=React&sortBy=relevance&sortOrder=desc&page=1&limit=20');
-    const request = new NextRequest(url);
-
-    const response = await GET(request);
+    const response = await GET(new NextRequest(url));
     const data = await response.json();
 
     expect(response.status).toBe(200);
@@ -73,223 +85,119 @@ describe('Search API', () => {
     expect(data.data.items).toHaveLength(1);
     expect(data.data.items[0].title).toBe('React Portfolio');
 
-    // Verify the search query was constructed correctly
+    // Full-text search rides raw SQL with prefix-matched tsquery terms
+    const [sql, ...params] = searchSqlCall();
+    expect(sql).toContain('to_tsquery');
+    expect(sql).toContain("visibility = 'PUBLIC'");
+    expect(params).toEqual(['React:*']);
+
+    // Matches are hydrated by id, not re-filtered by text
     expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({
-          visibility: 'PUBLIC',
-          OR: expect.arrayContaining([
-            expect.objectContaining({
-              searchVector: { search: 'React:*' }
-            }),
-            expect.objectContaining({
-              title: { contains: 'React', mode: 'insensitive' }
-            }),
-            expect.objectContaining({
-              description: { contains: 'React', mode: 'insensitive' }
-            }),
-            expect.objectContaining({
-              briefOverview: { contains: 'React', mode: 'insensitive' }
-            }),
-            expect.objectContaining({
-              tags: {
-                some: {
-                  name: { contains: 'React', mode: 'insensitive' }
-                }
-              }
-            })
-          ])
-        })
+        where: { id: { in: ['1'] } },
       })
     );
   });
 
   it('should handle multi-word search queries', async () => {
-    const mockProjects = [];
-    mockPrisma.project.findMany.mockResolvedValue(mockProjects as any);
-    mockPrisma.project.count.mockResolvedValue(0);
+    mockSearchSql([], 0);
+    mockPrisma.project.findMany.mockResolvedValue([] as any);
 
     const url = new URL('http://localhost:3000/api/projects?query=React TypeScript&sortBy=relevance');
-    const request = new NextRequest(url);
-
-    const response = await GET(request);
-    const data = await response.json();
+    const response = await GET(new NextRequest(url));
 
     expect(response.status).toBe(200);
-    expect(data.success).toBe(true);
-
-    // Verify multi-word search query processing
-    expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          OR: expect.arrayContaining([
-            expect.objectContaining({
-              searchVector: { search: 'React:* & TypeScript:*' }
-            })
-          ])
-        })
-      })
-    );
+    const [, ...params] = searchSqlCall();
+    expect(params).toEqual(['React:* & TypeScript:*']);
   });
 
   it('should combine search with tag filtering', async () => {
-    const mockProjects = [];
-    mockPrisma.project.findMany.mockResolvedValue(mockProjects as any);
-    mockPrisma.project.count.mockResolvedValue(0);
+    mockSearchSql([], 0);
+    mockPrisma.project.findMany.mockResolvedValue([] as any);
 
     const url = new URL('http://localhost:3000/api/projects?query=portfolio&tags=React,TypeScript');
-    const request = new NextRequest(url);
+    await GET(new NextRequest(url));
 
-    const response = await GET(request);
-
-    expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          visibility: 'PUBLIC',
-          OR: expect.arrayContaining([
-            expect.objectContaining({
-              searchVector: { search: 'portfolio:*' }
-            })
-          ]),
-          tags: {
-            some: {
-              name: {
-                in: ['React', 'TypeScript']
-              }
-            }
-          }
-        })
-      })
-    );
+    const [sql, ...params] = searchSqlCall();
+    expect(sql).toContain('_ProjectTags');
+    expect(params).toEqual(['portfolio:*', 'React', 'TypeScript']);
   });
 
   it('should handle empty search query', async () => {
-    const mockProjects = [];
-    mockPrisma.project.findMany.mockResolvedValue(mockProjects as any);
+    mockPrisma.project.findMany.mockResolvedValue([] as any);
     mockPrisma.project.count.mockResolvedValue(0);
 
     const url = new URL('http://localhost:3000/api/projects?query=&sortBy=date');
-    const request = new NextRequest(url);
+    await GET(new NextRequest(url));
 
-    const response = await GET(request);
-
+    // Empty query takes the regular Prisma path — no raw SQL, no OR clause
+    expect(mockPrisma.$queryRawUnsafe).not.toHaveBeenCalled();
     expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({
-          visibility: 'PUBLIC'
-        })
+        where: expect.objectContaining({ visibility: 'PUBLIC' }),
       })
     );
-
-    // Should not have OR clause for empty search
-    const whereClause = mockPrisma.project.findMany.mock.calls[0][0].where;
+    const whereClause = (mockPrisma.project.findMany.mock.calls[0][0] as any).where;
     expect(whereClause.OR).toBeUndefined();
   });
 
   it('should handle special characters in search query', async () => {
-    const mockProjects = [];
-    mockPrisma.project.findMany.mockResolvedValue(mockProjects as any);
-    mockPrisma.project.count.mockResolvedValue(0);
+    mockSearchSql([], 0);
+    mockPrisma.project.findMany.mockResolvedValue([] as any);
 
     const url = new URL('http://localhost:3000/api/projects?query=C%2B%2B'); // C++ encoded
-    const request = new NextRequest(url);
-
-    const response = await GET(request);
+    const response = await GET(new NextRequest(url));
 
     expect(response.status).toBe(200);
-    expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          OR: expect.arrayContaining([
-            expect.objectContaining({
-              title: { contains: 'C++', mode: 'insensitive' }
-            })
-          ])
-        })
-      })
-    );
+    const [, ...params] = searchSqlCall();
+    expect(params).toEqual(['C++:*']);
   });
 
-  it('should apply correct sorting for search results', async () => {
-    const mockProjects = [];
-    mockPrisma.project.findMany.mockResolvedValue(mockProjects as any);
-    mockPrisma.project.count.mockResolvedValue(0);
+  it('should order search results by rank, not the sort parameter', async () => {
+    mockSearchSql([], 0);
+    mockPrisma.project.findMany.mockResolvedValue([] as any);
 
     const url = new URL('http://localhost:3000/api/projects?query=test&sortBy=popularity&sortOrder=desc');
-    const request = new NextRequest(url);
+    await GET(new NextRequest(url));
 
-    const response = await GET(request);
-
-    expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orderBy: { viewCount: 'desc' }
-      })
-    );
+    const [sql] = searchSqlCall();
+    expect(sql).toContain('ORDER BY search_rank DESC');
   });
 
   it('should handle pagination with search', async () => {
-    const mockProjects = [];
-    mockPrisma.project.findMany.mockResolvedValue(mockProjects as any);
-    mockPrisma.project.count.mockResolvedValue(25);
+    mockSearchSql([{ id: '1' }], 25);
+    mockPrisma.project.findMany.mockResolvedValue([fullProject()] as any);
 
     const url = new URL('http://localhost:3000/api/projects?query=test&page=2&limit=10');
-    const request = new NextRequest(url);
-
-    const response = await GET(request);
+    const response = await GET(new NextRequest(url));
     const data = await response.json();
 
-    expect(mockPrisma.project.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        skip: 10, // (page 2 - 1) * limit 10
-        take: 10
-      })
-    );
-
+    const [sql] = searchSqlCall();
+    expect(sql).toContain('LIMIT 10 OFFSET 10');
     expect(data.data.totalCount).toBe(25);
     expect(data.data.hasMore).toBe(true);
   });
 });
 
 describe('Search Performance', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
   it('should use caching for repeated search queries', async () => {
-    const mockProjects = [
-      {
-        id: '1',
-        title: 'Test Project',
-        slug: 'test-project',
-        description: 'Test description',
-        briefOverview: 'Test overview',
-        workDate: new Date(),
-        visibility: 'PUBLIC',
-        viewCount: 5,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        tags: [],
-        thumbnailImage: null,
-        mediaItems: [],
-        externalLinks: [],
-        downloadableFiles: [],
-        _count: { mediaItems: 0, downloadableFiles: 0, externalLinks: 0 }
-      }
-    ];
+    mockSearchSql([{ id: '1' }], 1);
+    (prisma.project.findMany as jest.Mock).mockResolvedValue([fullProject({ title: 'Test Project', slug: 'test-project' })] as any);
 
-    mockPrisma.project.findMany.mockResolvedValue(mockProjects as any);
-    mockPrisma.project.count.mockResolvedValue(1);
+    const url = new URL('http://localhost:3000/api/projects?query=cachedrill&sortBy=relevance');
 
-    const url = new URL('http://localhost:3000/api/projects?query=test&sortBy=relevance');
-    const request1 = new NextRequest(url);
-    const request2 = new NextRequest(url);
-
-    // First request
-    const response1 = await GET(request1);
+    const response1 = await GET(new NextRequest(url));
     expect(response1.status).toBe(200);
 
-    // Second identical request should use cache
-    const response2 = await GET(request2);
+    const response2 = await GET(new NextRequest(url));
     expect(response2.status).toBe(200);
 
-    // Database should only be called once due to caching
-    expect(mockPrisma.project.findMany).toHaveBeenCalledTimes(1);
-    expect(mockPrisma.project.count).toHaveBeenCalledTimes(1);
+    // Second identical request served from the route's response cache
+    expect(mockPrisma.$queryRawUnsafe).toHaveBeenCalledTimes(2); // search + count, once
+    expect(prisma.project.findMany).toHaveBeenCalledTimes(1);
   });
 });

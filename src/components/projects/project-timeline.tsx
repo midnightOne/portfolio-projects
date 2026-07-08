@@ -49,19 +49,26 @@ function groupProjectsByPeriod(projects: ProjectWithRelations[], groupBy: 'year'
     groups.get(period)!.push(project);
   });
 
-  // Convert to array and sort by date (newest first)
+  // Convert to array and sort by date (newest first). The group keys came
+  // from LOCAL getFullYear/getMonth; re-parsing 'YYYY-MM-01' strings would go
+  // through UTC and shift the label a month back for UTC-negative viewers —
+  // construct local dates from the parts instead.
   return Array.from(groups.entries())
-    .map(([period, projects]) => ({
-      period: groupBy === 'year'
-        ? period
-        : new Date(period + '-01').toLocaleDateString('en-US', { year: 'numeric', month: 'long' }),
-      projects: projects.sort((a, b) => {
-        const dateA = new Date(a.workDate || a.createdAt);
-        const dateB = new Date(b.workDate || b.createdAt);
-        return dateB.getTime() - dateA.getTime();
-      }),
-      date: new Date(period + (groupBy === 'year' ? '-01-01' : '-01'))
-    }))
+    .map(([period, projects]) => {
+      const [year, month] = period.split('-').map(Number);
+      const periodDate = groupBy === 'year' ? new Date(year, 0, 1) : new Date(year, month - 1, 1);
+      return {
+        period: groupBy === 'year'
+          ? period
+          : periodDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long' }),
+        projects: projects.sort((a, b) => {
+          const dateA = new Date(a.workDate || a.createdAt);
+          const dateB = new Date(b.workDate || b.createdAt);
+          return dateB.getTime() - dateA.getTime();
+        }),
+        date: periodDate
+      };
+    })
     .sort((a, b) => b.date.getTime() - a.date.getTime());
 }
 

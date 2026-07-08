@@ -9,16 +9,19 @@ import { ProjectGrid } from '@/components/projects/project-grid';
 import { ProjectTimeline } from '@/components/projects/project-timeline';
 import type { Tag, ProjectWithRelations } from '@/lib/types/project';
 
-// Mock framer-motion
-jest.mock('framer-motion', () => ({
-  motion: {
-    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
-    button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
-    span: ({ children, ...props }: any) => <span {...props}>{children}</span>,
-  },
-  AnimatePresence: ({ children }: any) => children,
-  useReducedMotion: () => false,
-}));
+// Mock framer-motion: Proxy passthrough — ANY motion.<tag> renders the plain
+// element (per-tag partial mocks broke on tags like motion.h3 in empty states).
+jest.mock("framer-motion", () => {
+  const React = require("react");
+  const motion = new Proxy({}, {
+    get: (_t, tag) => ({ children, ...props }: any) => React.createElement(String(tag), props, children),
+  });
+  return {
+    motion,
+    AnimatePresence: ({ children }: any) => children,
+    useReducedMotion: () => false,
+  };
+});
 
 const mockTags: Tag[] = [
   { id: '1', name: 'React', color: '#61dafb', createdAt: new Date() },
@@ -147,7 +150,7 @@ describe('Sorting and View Mode Integration', () => {
       expect(screen.queryByText('Year')).not.toBeInTheDocument();
 
       // Switch to timeline view
-      const timelineButton = screen.getByRole('button', { name: /list/i });
+      const timelineButton = screen.getByRole('button', { name: /timeline/i });
       fireEvent.click(timelineButton);
 
       expect(mockProps.onViewModeChange).toHaveBeenCalledWith('timeline');
@@ -233,8 +236,8 @@ describe('Sorting and View Mode Integration', () => {
         />
       );
 
-      // Click project in grid view
-      const gridProject = screen.getByText('React Project');
+      // Click the card itself (role button with the aria-label)
+      const gridProject = screen.getByRole('button', { name: /View details for React Project/ });
       fireEvent.click(gridProject);
 
       await waitFor(() => {
@@ -253,9 +256,9 @@ describe('Sorting and View Mode Integration', () => {
         />
       );
 
-      // Click project in timeline view
-      const timelineProject = screen.getByText('React Project').closest('.group');
-      fireEvent.click(timelineProject!);
+      // Click the title — the handler is on the CardContent inside the
+      // .group wrapper, so the event must bubble up from within.
+      fireEvent.click(screen.getByText('React Project'));
 
       await waitFor(() => {
         expect(mockOnProjectClick).toHaveBeenCalledWith('react-project');

@@ -44,14 +44,19 @@ jest.mock('../project-timeline', () => ({
   )
 }));
 
-// Mock framer-motion
-jest.mock('framer-motion', () => ({
-  motion: {
-    div: ({ children, ...props }: any) => <div {...props}>{children}</div>,
-    section: ({ children, ...props }: any) => <section {...props}>{children}</section>,
-  },
-  AnimatePresence: ({ children }: any) => <>{children}</>,
-}));
+// Mock framer-motion: Proxy passthrough — ANY motion.<tag> renders the plain
+// element (per-tag partial mocks broke on tags like motion.h3 in empty states).
+jest.mock("framer-motion", () => {
+  const React = require("react");
+  const motion = new Proxy({}, {
+    get: (_t, tag) => ({ children, ...props }: any) => React.createElement(String(tag), props, children),
+  });
+  return {
+    motion,
+    AnimatePresence: ({ children }: any) => children,
+    useReducedMotion: () => false,
+  };
+});
 
 // Mock Lucide React icons
 jest.mock('lucide-react', () => ({
