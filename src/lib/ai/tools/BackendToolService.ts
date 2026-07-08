@@ -1408,9 +1408,11 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
    */
   private async _createNavigationTargetForContent(content: any, uiState?: any): Promise<any> {
     // Extract semantic identifiers from content
-    let sectionId = content.chunkId || content.id;
+    let sectionId: string | undefined = content.chunkId || content.id;
     let projectId = content.project;
-    
+    let tier: number | undefined = content.tier ?? content.facets?.tier;
+    let metadata: any = content.metadata;
+
     // If we don't have chunkId or project, query the database to get them
     if (!content.chunkId || !content.project) {
       try {
@@ -1419,11 +1421,12 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
           where: { id: content.id },
           include: { entity: true }
         });
-        
+
         if (chunk) {
-          // Use chunkId directly (now stores proper anchor IDs)
           sectionId = chunk.chunkId;
           projectId = chunk.entity?.entityType === 'PROJECT' ? chunk.entity.slug : undefined;
+          tier = chunk.tier;
+          metadata = chunk.metadata;
         }
       } catch (error) {
         console.warn('Failed to fetch chunk details for navigation target:', error);
@@ -1435,7 +1438,19 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         }
       }
     }
-    
+
+    // Chunk↔anchor contract (same rules as ContentSearchService):
+    // T2 chunkIds ARE heading anchor ids; T0/T1 have no anchor (project top);
+    // T3 resolves to its parent T2 section.
+    if (tier !== undefined && tier <= 1) {
+      sectionId = undefined;
+    } else if (tier === 3 && sectionId) {
+      sectionId =
+        metadata?.sectionId ??
+        metadata?.sectionGroup ??
+        sectionId.replace(/^section-/, '').replace(/-\d+$/, '');
+    }
+
     // Base navigation target
     const navTarget: any = {
       type: 'section',

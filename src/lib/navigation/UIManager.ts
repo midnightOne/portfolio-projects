@@ -240,9 +240,9 @@ function debounce<T extends (...args: any[]) => void>(
 export interface UIIntentParams {
   epoch?: number;                       // Client's last-known UI state version
   target:
-  | { type: "section"; id: string; projectId?: string }   // e.g., {type:"section", id:"contact", projectId:"aurora-avatar"}
+  | { type: "section"; id: string; projectId?: string; highlight?: { text?: string } }   // e.g., {type:"section", id:"contact", projectId:"aurora-avatar"}
   | { type: "route"; id: string }     // e.g., {type:"route", id:"home"}
-  | { type: "project"; id: string; sectionId?: string }   // e.g., {type:"project", id:"aurora-avatar", sectionId:"technical-details"}
+  | { type: "project"; id: string; sectionId?: string; highlight?: { text?: string } }   // e.g., {type:"project", id:"aurora-avatar", sectionId:"technical-details"}
   | { type: "modal"; id: string; parentContext?: string } // e.g., {type:"modal", id:"gallery"} or {type:"modal", id:"close"}
   | { type: "element"; id: string }   // tab, accordion, etc.
   // New semantic navigation types (with fallbacks for safety)
@@ -406,6 +406,9 @@ export class UIManager {
   // Consolidated UI state management (from UIStateManager)
   private _currentUIState: UIState;
   private _backgroundUpdateCallback: BackgroundUpdateCallback | null = null;
+  /** Client-side navigation bridge (next/navigation router.push) — full page
+   *  loads are never acceptable for AI-driven navigation. */
+  private _routeNavigator: ((path: string) => void) | null = null;
   private _intersectionObserver: IntersectionObserver | null = null;
   private _lastVisibleAnchors: string[] = [];
 
@@ -1690,6 +1693,11 @@ export class UIManager {
   /**
    * Unregister a modal handler
    */
+  /** Register the app router's push so route steps are client-side. */
+  registerRouteNavigator(navigate: ((path: string) => void) | null): void {
+    this._routeNavigator = navigate;
+  }
+
   unregisterModalHandler(context: string): void {
     this._modalHandlers.delete(context);
   }
@@ -2590,17 +2598,20 @@ export class UIManager {
 
       case 'project':
         // Handle complex project navigation scenarios
-        steps.push(...this._planComplexProjectNavigation(params.target.id, params.target.sectionId, currentState, defaultBehavior));
+        steps.push(...this._planComplexProjectNavigation(params.target.id, params.target.sectionId, currentState, defaultBehavior, params.target.highlight));
         break;
 
       case 'section':
         // Handle complex section navigation scenarios
         if (params.target.projectId) {
           // Navigate to project first, then section (handles project switching)
-          steps.push(...this._planComplexProjectNavigation(params.target.projectId, params.target.id, currentState, defaultBehavior));
+          steps.push(...this._planComplexProjectNavigation(params.target.projectId, params.target.id, currentState, defaultBehavior, params.target.highlight));
         } else {
           // Direct section navigation (within current context)
           steps.push(...this._planSectionNavigation(params.target.id, currentState, defaultBehavior));
+          if (params.target.highlight !== undefined) {
+            steps.push(this._createHighlightStep(params.target.id, params.target.highlight));
+          }
         }
         break;
 
@@ -2650,7 +2661,8 @@ export class UIManager {
     targetProjectId: string,
     targetSectionId: string | undefined,
     currentState: UIState,
-    behavior: any
+    behavior: any,
+    highlight?: { text?: string }
   ): NavigationStep[] {
     const steps: NavigationStep[] = [];
     const currentRoute = this._getCurrentRoute();
@@ -2735,6 +2747,10 @@ export class UIManager {
       if (this._timingConfig.animationMode !== 'instant') {
         steps.push(this._createDelayStep(this._timingConfig.scrollSettleDelay));
       }
+
+      // Guided-navigation emphasis: pulse the section (and the exact passage
+      // when the navTarget carries a snippet) so "show me where" actually shows
+      steps.push(this._createHighlightStep(targetSectionId, highlight));
     }
 
     return steps;
@@ -2889,6 +2905,25 @@ export class UIManager {
     };
   }
 
+  /** Selector for a section anchor: heading ids from the Tiptap renderer,
+   *  fixed modal anchors, or data-section wrappers. */
+  private _sectionSelector(sectionId: string): string {
+    const escaped = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(sectionId) : sectionId;
+    return `#${escaped}, [data-section="${escaped}"], [data-section-id="${escaped}"]`;
+  }
+
+  /** Modal article content loads async — poll for the anchor instead of
+   *  failing on the first miss. */
+  private async _waitForElement(selector: string, timeoutMs = 4000): Promise<Element | null> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const element = document.querySelector(selector);
+      if (element) return element;
+      if (Date.now() >= deadline) return null;
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+  }
+
   /**
    * Create a step for section scrolling
    */
@@ -2896,7 +2931,7 @@ export class UIManager {
     return {
       id: `scroll_to_${sectionId}`,
       type: 'scroll',
-      selector: `#${sectionId}, [data-section="${sectionId}"]`,
+      selector: this._sectionSelector(sectionId),
       timeout: this._timingConfig.stepTimeoutMs,
       execute: async () => {
         try {
@@ -2907,7 +2942,7 @@ export class UIManager {
             };
           }
 
-          const element = document.querySelector(`#${sectionId}, [data-section="${sectionId}"]`);
+          const element = await this._waitForElement(this._sectionSelector(sectionId));
           if (!element) {
             return {
               success: false,
@@ -2936,6 +2971,61 @@ export class UIManager {
             message: `Failed to scroll to section ${sectionId}`,
             error: error instanceof Error ? error.message : String(error)
           };
+        }
+      }
+    };
+  }
+
+  /**
+   * Guided-navigation emphasis after a section scroll (the "automatic
+   * highlighting" the tool docs promise). Best-effort: a failed highlight
+   * never fails the navigation. With a text snippet (T3 navTargets carry the
+   * passage), the exact text is marked; otherwise the section pulses.
+   */
+  private _createHighlightStep(sectionId: string, highlight?: { text?: string }): NavigationStep {
+    return {
+      id: `highlight_${sectionId}`,
+      type: 'highlight',
+      timeout: this._timingConfig.stepTimeoutMs,
+      execute: async () => {
+        try {
+          if (typeof window === 'undefined') {
+            return { success: true, message: 'Server-side, skipping highlight' };
+          }
+          // Dynamic import — client-tools imports UIManager the same way
+          const { uiNavigationTools } = await import('@/lib/ai/tools/client-tools');
+
+          // Fresh emphasis: previous highlights are stale context
+          await uiNavigationTools.clearHighlights({});
+
+          const element = document.querySelector(this._sectionSelector(sectionId));
+
+          if (highlight?.text && element) {
+            // The anchor is usually the heading; the passage lives in the
+            // siblings after it — search within the section's parent scope.
+            const scope = element.parentElement ?? element;
+            const scopeSelector = scope.id
+              ? `#${CSS.escape(scope.id)}`
+              : this._sectionSelector(sectionId);
+            const result = await uiNavigationTools.highlightText({
+              selector: scopeSelector,
+              text: highlight.text,
+            });
+            if (result.success && (result.data as { count?: number } | undefined)?.count) {
+              return { success: true, message: `Highlighted passage in ${sectionId}` };
+            }
+            // Passage not found verbatim — fall through to section pulse
+          }
+
+          if (element) {
+            await uiNavigationTools.highlightText({ selector: this._sectionSelector(sectionId) });
+            return { success: true, message: `Highlighted section ${sectionId}` };
+          }
+          return { success: true, message: `Nothing to highlight for ${sectionId} (non-fatal)` };
+        } catch (error) {
+          // Emphasis is sugar — never fail the navigation over it
+          console.warn('Highlight step failed (non-fatal):', error);
+          return { success: true, message: `Highlight skipped for ${sectionId}` };
         }
       }
     };
@@ -3297,7 +3387,24 @@ export class UIManager {
         execute: async () => {
           try {
             if (typeof window !== 'undefined') {
-              window.location.href = targetPath;
+              // A live voice session is wired through the background-update
+              // callback; a full page load would destroy it. Route changes
+              // also unmount the per-page AI provider, so while a session is
+              // active the honest answer is "stay here and use modals" — the
+              // model gets a clear failure it can act on instead of a dead
+              // connection the user has to notice.
+              if (this._backgroundUpdateCallback) {
+                return {
+                  success: false,
+                  message: `Route navigation to ${targetPath} would end the live voice session. Stay on this page — projects and sections can be opened here directly (use a project/section target instead).`,
+                  error: 'ROUTE_CHANGE_BLOCKED_DURING_VOICE_SESSION'
+                };
+              }
+              if (this._routeNavigator) {
+                this._routeNavigator(targetPath);
+              } else {
+                window.location.href = targetPath;
+              }
               return {
                 success: true,
                 message: `Navigated to ${targetPath}`,
@@ -3357,148 +3464,9 @@ export class UIManager {
     return steps;
   }
 
-  /**
-   * Plan navigation to a specific project
-   */
-  private _planProjectNavigation(projectId: string, currentState: UIState, behavior: Required<NonNullable<UIIntentParams['behavior']>>): NavigationStep[] {
-    const steps: NavigationStep[] = [];
-    const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
-    const searchParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
-    const currentProject = searchParams.get('project');
-
-    // If we're already viewing this project, no navigation needed
-    if (currentPath === '/projects' && currentProject === projectId) {
-      return steps;
-    }
-
-    // If we're not on projects page, navigate there first
-    if (currentPath !== '/projects') {
-      steps.push({
-        id: `navigate_to_projects`,
-        type: 'navigate',
-        path: '/projects',
-        execute: async () => {
-          try {
-            if (typeof window !== 'undefined') {
-              window.location.href = '/projects';
-              return {
-                success: true,
-                message: 'Navigated to projects page',
-                data: { path: '/projects' }
-              };
-            }
-            return {
-              success: false,
-              message: 'Window not available for navigation',
-              error: 'No window object'
-            };
-          } catch (error) {
-            return {
-              success: false,
-              message: 'Failed to navigate to projects page',
-              error: error instanceof Error ? error.message : String(error),
-              shouldRetry: true
-            };
-          }
-        }
-      });
-    } else if (currentProject && currentProject !== projectId && behavior.closeBlocking) {
-      // We're on projects page but viewing a different project modal - close it first
-      steps.push({
-        id: `close_current_project_modal`,
-        type: 'close',
-        execute: async () => {
-          try {
-            if (typeof window !== 'undefined') {
-              // State-only modal closing - no URL manipulation
-              console.log(`🎯 Closing project modal ${currentProject} (state-only, no URL changes)`);
-              
-              // Update internal state only
-              this._currentEpoch++;
-              this._updateBreadcrumbPath();
-
-              return {
-                success: true,
-                message: `Closed current project modal (${currentProject})`,
-                data: { closedProject: currentProject }
-              };
-            }
-            return {
-              success: false,
-              message: 'Window not available for modal operation',
-              error: 'No window object'
-            };
-          } catch (error) {
-            return {
-              success: false,
-              message: 'Failed to close current project modal',
-              error: error instanceof Error ? error.message : String(error),
-              shouldRetry: true
-            };
-          }
-        }
-      });
-
-      // Add a brief wait for modal close animation
-      steps.push(this._createWaitStep(this._timingConfig.modalCloseDuration + this._timingConfig.animationBufferWait));
-    }
-
-    // Open target project modal (only if we're not already viewing it)
-    if (currentProject !== projectId) {
-      steps.push({
-        id: `open_project_${projectId}`,
-        type: 'modal',
-        execute: async () => {
-          try {
-            if (typeof window !== 'undefined') {
-              // Pure state-based modal opening - no URL manipulation
-              console.log(`🎯 Opening modal for project ${projectId} (state-only, no URL changes)`);
-              const modalOpened = await this._openModalElement(projectId, 'project');
-              if (!modalOpened) {
-                console.error(`❌ Failed to open modal for project ${projectId} - no handlers succeeded`);
-                return {
-                  success: false,
-                  message: `No modal handler available for project ${projectId}`,
-                  error: 'NO_MODAL_HANDLER'
-                };
-              }
-              console.log(`✅ Modal opened successfully for project ${projectId}`);
-
-              // Update internal state without URL changes
-              this._currentEpoch++;
-              this._updateBreadcrumbPath();
-
-              return {
-                success: true,
-                message: `Opened project ${projectId}`,
-                data: { projectId, method: 'state-only' }
-              };
-            }
-            return {
-              success: false,
-              message: 'Window not available for modal operation',
-              error: 'No window object'
-            };
-          } catch (error) {
-            return {
-              success: false,
-              message: `Failed to open project ${projectId}`,
-              error: error instanceof Error ? error.message : String(error),
-              shouldRetry: true
-            };
-          }
-        }
-      });
-
-      // Add wait for modal open animation and content loading
-      steps.push(this._createWaitStep(
-        behavior.waitForReadyMs ||
-        (this._timingConfig.modalOpenDuration + this._timingConfig.modalContentLoadWait)
-      ));
-    }
-
-    return steps;
-  }
+  // _planProjectNavigation removed: dead code superseded by
+  // _planComplexProjectNavigation (it forced a full page load to /projects,
+  // which would destroy a live voice session).
 
   /**
    * Plan navigation to a specific section

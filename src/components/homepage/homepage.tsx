@@ -391,9 +391,12 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
     };
 
     uiManager.registerModalHandler('homepage', modalHandler);
+    // Client-side route bridge: AI route steps must never full-reload
+    uiManager.registerRouteNavigator((path) => router.push(path));
 
     return () => {
       uiManager.unregisterModalHandler('homepage');
+      uiManager.registerRouteNavigator(null);
     };
   }, [selectedProject, projectModalOpen, handleCloseModal, handleProjectClickInternal]);
 

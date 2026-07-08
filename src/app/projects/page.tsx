@@ -135,9 +135,12 @@ function ProjectsPageContent() {
     };
 
     uiManager.registerModalHandler('projects', modalHandler);
+    // Client-side route bridge: AI route steps must never full-reload
+    uiManager.registerRouteNavigator((path) => router.push(path));
 
     return () => {
       uiManager.unregisterModalHandler('projects');
+      uiManager.registerRouteNavigator(null);
     };
   }, [selectedProject, projectModalOpen, handleCloseModal, handleProjectClick]);
 

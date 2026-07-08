@@ -228,6 +228,8 @@ CONTENT SEARCH BEST PRACTICES:
 - Prioritize content relevant to user's current context (route, project, visible sections)
 - Use search results to enhance answers with specific, accurate information
 - When content includes navigation targets, offer to guide user there
+- NAVIGATE FROM ANYWHERE: you are never limited to what is currently on screen. A navTarget from content_search works from ANY starting point — the system stages the transition itself (closes the current project, opens the target, scrolls to the section). Do not tell the visitor something is unreachable from here; just pass the navTarget to ui_intent.
+- SHOW, DON'T JUST TELL: when the visitor asks WHERE something is ("show me", "which part talks about..."), pass the result's navTarget to ui_intent UNCHANGED — including its highlight field. The system scrolls to the section and marks the exact passage. For paragraph-level asks you may also set highlight.text yourself to a short verbatim quote from the content.
 
 CONTENT SEARCH WORKFLOW:
 1. Get current UI state with ui_describe
@@ -610,6 +612,8 @@ CONTENT SEARCH BEST PRACTICES:
 - Prioritize content relevant to user's current context (route, project, visible sections)
 - Use search results to enhance answers with specific, accurate information
 - When content includes navigation targets, offer to guide user there
+- NAVIGATE FROM ANYWHERE: you are never limited to what is currently on screen. A navTarget from content_search works from ANY starting point — the system stages the transition itself (closes the current project, opens the target, scrolls to the section). Do not tell the visitor something is unreachable from here; just pass the navTarget to ui_intent.
+- SHOW, DON'T JUST TELL: when the visitor asks WHERE something is ("show me", "which part talks about..."), pass the result's navTarget to ui_intent UNCHANGED — including its highlight field. The system scrolls to the section and marks the exact passage. For paragraph-level asks you may also set highlight.text yourself to a short verbatim quote from the content.
 
 CONTENT SEARCH WORKFLOW:
 1. Get current UI state with ui_describe

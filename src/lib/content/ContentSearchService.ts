@@ -1481,22 +1481,57 @@ export class ContentSearchService implements ContentProvider {
    * Create navigation target for UIManager
    */
   private _createNavigationTarget(result: InternalSearchResult): any {
-    // Use chunkId directly (now stores proper anchor IDs)
-    const sectionId = result.chunkId;
+    // The chunk↔anchor contract: T2 chunkIds ARE the rendered heading ids
+    // (same slug algorithm in HierarchicalContentParser.generateAnchorId and
+    // the Tiptap display renderer). T0/T1 chunks ('metadata'/'summary') and
+    // T3 chunks ('section-<t2>-N') have NO anchors of their own — T0/T1
+    // resolve to the project top, T3 to its parent T2 section, carrying a
+    // text snippet so ui_intent can highlight the exact passage.
+    let sectionId: string | undefined = result.chunkId;
+    let highlight: { text: string } | undefined;
+
+    if (result.tier <= 1) {
+      sectionId = undefined;
+    } else if (result.tier === 3) {
+      sectionId =
+        result.metadata?.sectionId ??
+        result.metadata?.sectionGroup ??
+        // Fallback: strip the generated 'section-' prefix and trailing part index
+        result.chunkId.replace(/^section-/, '').replace(/-\d+$/, '');
+      highlight = { text: this._extractHighlightSnippet(result.content) };
+    }
 
     if (result.entityType === 'PROJECT') {
       return {
         type: 'project',
         id: result.entitySlug,
-        sectionId: sectionId !== 'metadata' ? sectionId : undefined
+        sectionId,
+        ...(highlight ? { highlight } : {})
       };
     } else {
       return {
         type: 'section',
-        id: sectionId,
-        projectId: result.entitySlug
+        id: sectionId ?? result.chunkId,
+        projectId: result.entitySlug,
+        ...(highlight ? { highlight } : {})
       };
     }
+  }
+
+  /**
+   * A short verbatim snippet from the chunk for in-page text highlighting:
+   * the first sentence-ish run, clamped so it stays findable as one DOM text
+   * node (long strings span markup boundaries and stop matching).
+   */
+  private _extractHighlightSnippet(content: string): string {
+    const text = content.replace(/\s+/g, ' ').trim();
+    const firstSentence = text.split(/(?<=[.!?])\s/)[0] ?? text;
+    const snippet = firstSentence.length > 90 ? firstSentence.slice(0, 90) : firstSentence;
+    // Cut back to a word boundary so the literal substring exists on the page
+    const lastSpace = snippet.lastIndexOf(' ');
+    return snippet.length === firstSentence.length || lastSpace < 40
+      ? snippet
+      : snippet.slice(0, lastSpace);
   }
 
   /**

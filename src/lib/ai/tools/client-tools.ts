@@ -214,7 +214,14 @@ export const uiIntentToolDefinition: UnifiedToolDefinition = {
             properties: {
               type: { type: 'string', enum: ['project'] },
               id: { type: 'string', description: 'Project slug (e.g., "e-commerce-platform")' },
-              sectionId: { type: 'string', description: 'Optional section within project' }
+              sectionId: { type: 'string', description: 'Optional section within project' },
+              highlight: {
+                type: 'object',
+                description: 'Optional emphasis after scrolling. Pass the navTarget.highlight from content_search results through unchanged, or set text to a short verbatim passage to mark it on the page.',
+                properties: {
+                  text: { type: 'string', description: 'Short verbatim text to highlight within the section' }
+                }
+              }
             },
             required: ['type', 'id']
           },
@@ -223,7 +230,14 @@ export const uiIntentToolDefinition: UnifiedToolDefinition = {
             properties: {
               type: { type: 'string', enum: ['section'] },
               id: { type: 'string', description: 'Section identifier (e.g., "hero", "about", "contact")' },
-              projectId: { type: 'string', description: 'Optional project context' }
+              projectId: { type: 'string', description: 'Optional project context' },
+              highlight: {
+                type: 'object',
+                description: 'Optional emphasis after scrolling. Pass the navTarget.highlight from content_search results through unchanged, or set text to a short verbatim passage to mark it on the page.',
+                properties: {
+                  text: { type: 'string', description: 'Short verbatim text to highlight within the section' }
+                }
+              }
             },
             required: ['type', 'id']
           },
@@ -667,18 +681,27 @@ export class UINavigationTools {
               textNodes.push(node as Text);
             }
 
+            // The search text is arbitrary (model- or chunk-supplied): escape
+            // regex metacharacters, and build DOM nodes rather than innerHTML.
+            const escapedText = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`(${escapedText})`, 'gi');
+
             textNodes.forEach(textNode => {
               if (textNode.textContent && textNode.textContent.toLowerCase().includes(text.toLowerCase())) {
                 const parent = textNode.parentElement;
                 if (parent) {
-                  const regex = new RegExp(`(${text})`, 'gi');
-                  const highlightedHTML = textNode.textContent.replace(regex,
-                    `<span class="${className}-text">$1</span>`
-                  );
-
-                  const wrapper = document.createElement('span');
-                  wrapper.innerHTML = highlightedHTML;
-                  parent.replaceChild(wrapper, textNode);
+                  const fragment = document.createDocumentFragment();
+                  for (const part of textNode.textContent.split(regex)) {
+                    if (part.toLowerCase() === text.toLowerCase()) {
+                      const mark = document.createElement('span');
+                      mark.className = `${className}-text`;
+                      mark.textContent = part;
+                      fragment.appendChild(mark);
+                    } else if (part) {
+                      fragment.appendChild(document.createTextNode(part));
+                    }
+                  }
+                  parent.replaceChild(fragment, textNode);
                   highlightCount++;
                 }
               }
