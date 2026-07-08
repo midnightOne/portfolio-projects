@@ -264,9 +264,10 @@ describe('Tag Filtering Integration', () => {
     expect(screen.getByText('No projects found')).toBeInTheDocument();
     expect(screen.getByText('Try adjusting your search terms or filters to find what you\'re looking for.')).toBeInTheDocument();
 
-    // Should still show the filter is active
+    // Should still show the filter is active ('TypeScript' also appears as a
+    // tag chip in the filter bar, so assert at least one occurrence)
     expect(screen.getByText('Filtered by:')).toBeInTheDocument();
-    expect(screen.getByText('TypeScript')).toBeInTheDocument();
+    expect(screen.getAllByText('TypeScript').length).toBeGreaterThan(0);
   });
 
   it('handles loading states correctly', () => {
@@ -304,8 +305,9 @@ describe('Tag Filtering Integration', () => {
     const skeletons = document.querySelectorAll('.animate-pulse');
     expect(skeletons.length).toBeGreaterThan(0);
 
-    // Tags should be disabled
+    // The search input deliberately stays ENABLED while loading (the
+    // "search never disabled" design) — it just carries the loading placeholder.
     const searchInput = screen.getByPlaceholderText('Loading projects...');
-    expect(searchInput).toBeDisabled();
+    expect(searchInput).not.toBeDisabled();
   });
 });

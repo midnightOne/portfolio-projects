@@ -84,6 +84,7 @@ describe('Search Input Never Disabled', () => {
     const searchInput = screen.getByPlaceholderText('Search projects...');
     
     // User can type initially
+    searchInput.focus();
     fireEvent.change(searchInput, { target: { value: 'test' } });
     expect(searchInput).toHaveValue('test');
     expect(searchInput).not.toBeDisabled();
@@ -101,6 +102,7 @@ describe('Search Input Never Disabled', () => {
 
     // User can still type
     expect(searchInput).not.toBeDisabled();
+    searchInput.focus();
     fireEvent.change(searchInput, { target: { value: 'test more' } });
     expect(searchInput).toHaveValue('test more');
   });
@@ -111,6 +113,7 @@ describe('Search Input Never Disabled', () => {
     const searchInput = screen.getByPlaceholderText(/projects/);
     
     // User can still type (internal state updates)
+    searchInput.focus();
     fireEvent.change(searchInput, { target: { value: 'typing anyway' } });
     expect(searchInput).toHaveValue('typing anyway');
     
@@ -123,6 +126,7 @@ describe('Search Input Never Disabled', () => {
 
     const searchInput = screen.getByPlaceholderText('Search projects...');
     
+    searchInput.focus();
     fireEvent.change(searchInput, { target: { value: 'search term' } });
     expect(searchInput).toHaveValue('search term');
     expect(mockProps.onSearchChange).toHaveBeenCalledWith('search term');
@@ -141,19 +145,24 @@ describe('Search Input Never Disabled', () => {
     expect(searchInput).not.toBeDisabled(); // Still not disabled!
   });
 
-  it('clear button works even when canSearch is false', () => {
-    render(<NavigationBar {...mockProps} canSearch={false} />);
+  it('typing still works when canSearch is false; clear button requires canSearch', () => {
+    const { rerender } = render(<NavigationBar {...mockProps} canSearch={false} />);
 
     const searchInput = screen.getByPlaceholderText(/projects/);
-    
-    // Type something
+
+    // Typing is never blocked…
+    searchInput.focus();
     fireEvent.change(searchInput, { target: { value: 'test' } });
     expect(searchInput).toHaveValue('test');
 
-    // Clear button should appear and work
+    // …but the clear affordance is deliberately hidden while canSearch=false
+    expect(screen.queryByLabelText('Clear search')).not.toBeInTheDocument();
+
+    // With canSearch back on, the clear button appears and works
+    rerender(<NavigationBar {...mockProps} canSearch={true} />);
     const clearButton = screen.getByLabelText('Clear search');
     fireEvent.click(clearButton);
-    
+
     expect(searchInput).toHaveValue('');
   });
 
@@ -180,6 +189,7 @@ describe('Search Input Never Disabled', () => {
     expect(document.activeElement).toBe(searchInput);
     expect(searchInput).not.toBeDisabled();
     
+    searchInput.focus();
     fireEvent.change(searchInput, { target: { value: 'still typing' } });
     expect(searchInput).toHaveValue('still typing');
   });

@@ -91,9 +91,10 @@ describe('Progressive Loading Integration', () => {
 
     render(<NavigationBar {...mockProps} />);
 
-    // Search should be disabled
+    // The search input deliberately stays ENABLED while loading (the
+    // "search never disabled" design); the loading placeholder signals state.
     const searchInput = screen.getByPlaceholderText(/Loading/);
-    expect(searchInput).toBeDisabled();
+    expect(searchInput).not.toBeDisabled();
 
     // Should show loading message
     expect(screen.getByText('Loading projects and filters...')).toBeInTheDocument();
@@ -164,8 +165,8 @@ describe('Progressive Loading Integration', () => {
       />
     );
 
-    // Should show skeleton loading state
-    expect(screen.getByRole('generic')).toBeInTheDocument();
+    // Should show skeleton loading state (animate-pulse skeletons)
+    expect(document.querySelector('.animate-pulse')).toBeInTheDocument();
   });
 
   it('should show projects when loaded', () => {

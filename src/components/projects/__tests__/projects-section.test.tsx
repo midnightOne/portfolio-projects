@@ -59,15 +59,17 @@ jest.mock("framer-motion", () => {
 });
 
 // Mock Lucide React icons
-jest.mock('lucide-react', () => ({
-  Search: () => <div data-testid="search-icon" />,
-  Filter: () => <div data-testid="filter-icon" />,
-  SortAsc: () => <div data-testid="sort-icon" />,
-  Grid: () => <div data-testid="grid-icon" />,
-  Clock: () => <div data-testid="clock-icon" />,
-  Eye: () => <div data-testid="eye-icon" />,
-  EyeOff: () => <div data-testid="eye-off-icon" />,
-}));
+// Proxy: ANY icon resolves to a stub (an explicit list breaks whenever a
+// component starts using a new icon, e.g. NavigationBar's List/X).
+jest.mock('lucide-react', () => {
+  const React = require('react');
+  return new Proxy({}, {
+    get: (_t, name) =>
+      name === '__esModule'
+        ? true
+        : (props: any) => React.createElement('div', { 'data-testid': `icon-${String(name)}`, ...props }),
+  });
+});
 
 // Mock UI components
 jest.mock('@/components/ui/button', () => ({
@@ -217,7 +219,9 @@ describe('ProjectsSection', () => {
 
       expect(screen.getByText('All Projects')).toBeInTheDocument();
       expect(screen.getByPlaceholderText('Search projects...')).toBeInTheDocument();
-      expect(screen.getByText('Filters')).toBeInTheDocument();
+      // Controls live in NavigationBar now — sort button instead of a
+      // standalone 'Filters' panel
+      expect(screen.getByText(/Sort:/)).toBeInTheDocument();
     });
 
     it('handles search functionality', async () => {
@@ -250,15 +254,7 @@ describe('ProjectsSection', () => {
         />
       );
 
-      // Open filters
-      const filtersButton = screen.getByText('Filters');
-      fireEvent.click(filtersButton);
-
-      await waitFor(() => {
-        expect(screen.getByText('Filter by Tags')).toBeInTheDocument();
-      });
-
-      // Click on Vue tag
+      // Tags render directly as chips in the NavigationBar — click Vue
       const vueTag = screen.getByText('Vue');
       fireEvent.click(vueTag);
 
@@ -282,16 +278,14 @@ describe('ProjectsSection', () => {
       // Should start with grid layout
       expect(screen.getByTestId('project-grid')).toBeInTheDocument();
 
-      // Switch to list layout
-      const listButton = screen.getByTestId('eye-icon').closest('button');
-      fireEvent.click(listButton!);
+      // Switch to list layout (view-mode toggle buttons carry title attrs)
+      fireEvent.click(screen.getByTitle('List View'));
 
       expect(screen.getByTestId('project-list')).toBeInTheDocument();
       expect(screen.queryByTestId('project-grid')).not.toBeInTheDocument();
 
       // Switch to timeline layout
-      const timelineButton = screen.getByTestId('clock-icon').closest('button');
-      fireEvent.click(timelineButton!);
+      fireEvent.click(screen.getByTitle('Timeline View'));
 
       expect(screen.getByTestId('project-timeline')).toBeInTheDocument();
       expect(screen.queryByTestId('project-list')).not.toBeInTheDocument();
@@ -406,11 +400,9 @@ describe('ProjectsSection', () => {
         />
       );
 
-      // Find the sort select
-      const sortSelect = screen.getByRole('combobox');
-      
-      // Sort by title (alphabetical)
-      fireEvent.change(sortSelect!, { target: { value: 'title' } });
+      // Sorting is a NavigationBar dropdown now: open it, pick Title
+      fireEvent.click(screen.getByText(/Sort:/));
+      fireEvent.click(await screen.findByText('Title'));
 
       await waitFor(() => {
         // Projects should be sorted alphabetically

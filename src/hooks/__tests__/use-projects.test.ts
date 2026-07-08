@@ -116,25 +116,23 @@ describe('useProjects', () => {
       ],
     };
 
-    mockFetch
-      .mockImplementationOnce((url) => {
-        if (typeof url === 'string' && url.includes('/api/projects')) {
-          return Promise.resolve({
-            ok: true,
-            json: async () => mockProjectsResponse,
-          } as Response);
-        }
-        return Promise.reject(new Error('Unexpected URL'));
-      })
-      .mockImplementationOnce((url) => {
-        if (typeof url === 'string' && url.includes('/api/tags')) {
-          return Promise.resolve({
-            ok: true,
-            json: async () => mockTagsResponse,
-          } as Response);
-        }
-        return Promise.reject(new Error('Unexpected URL'));
-      });
+    // Route by URL persistently — the hook may re-fetch after the debounce
+    // settles, and ordered one-shot mocks starve the extra call.
+    mockFetch.mockImplementation((url) => {
+      if (typeof url === 'string' && url.includes('/api/projects')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => mockProjectsResponse,
+        } as Response);
+      }
+      if (typeof url === 'string' && url.includes('/api/tags')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => mockTagsResponse,
+        } as Response);
+      }
+      return Promise.reject(new Error('Unexpected URL'));
+    });
 
     const { result } = renderHook(() => useProjects());
 

@@ -40,9 +40,15 @@ const createMockTimeline = () => ({
   resume: jest.fn().mockReturnThis(),
 });
 
+// Track every timeline gsap hands out — the lib calls gsap.timeline()
+// internally, so assertions must target the instance it actually received
+// (a suite-level `mockTimeline` variable observes nothing).
+const mockCreatedTimelines: any[] = [];
+const lastTimeline = () => mockCreatedTimelines[mockCreatedTimelines.length - 1];
+
 jest.mock('gsap', () => ({
   gsap: {
-    timeline: jest.fn(() => createMockTimeline()),
+    timeline: jest.fn(() => { const t = createMockTimeline(); mockCreatedTimelines.push(t); return t; }),
     to: jest.fn(() => createMockTimeline()),
     from: jest.fn(() => createMockTimeline()),
     fromTo: jest.fn(() => createMockTimeline()),
@@ -64,6 +70,7 @@ describe('Custom Animation System', () => {
   beforeEach(() => {
     // Create fresh mock timeline for each test
     mockTimeline = createMockTimeline();
+    mockCreatedTimelines.length = 0;
     
     // Set up DOM
     dom = new JSDOM(`
@@ -105,6 +112,14 @@ describe('Custom Animation System', () => {
 
     // Mock requestAnimationFrame
     global.requestAnimationFrame = jest.fn((cb) => setTimeout(cb, 16));
+
+    // The lib reads the ENVIRONMENT window's matchMedia — reset it so a
+    // reduced-motion override in one test can't leak into the next.
+    (globalThis.window as any).matchMedia = jest.fn(() => ({
+      matches: false,
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+    }));
   });
 
   afterEach(() => {
@@ -176,7 +191,7 @@ describe('Custom Animation System', () => {
       });
 
       expect(timeline).toBeTruthy();
-      expect(mockTimeline.to).toHaveBeenCalled();
+      expect(lastTimeline().to).toHaveBeenCalled();
     });
 
     it('should reset iPad grid to original positions', () => {
@@ -185,7 +200,7 @@ describe('Custom Animation System', () => {
       const timeline = resetIPadGrid(container);
 
       expect(timeline).toBeTruthy();
-      expect(mockTimeline.to).toHaveBeenCalled();
+      expect(lastTimeline().to).toHaveBeenCalled();
     });
 
     it('should handle different animation variants', () => {
@@ -193,15 +208,15 @@ describe('Custom Animation System', () => {
       
       // Test subtle variant
       executeIPadGridAnimation(container, 0, { variant: 'subtle' });
-      expect(mockTimeline.to).toHaveBeenCalled();
+      expect(lastTimeline().to).toHaveBeenCalled();
 
       // Test dramatic variant
       executeIPadGridAnimation(container, 0, { variant: 'dramatic' });
-      expect(mockTimeline.to).toHaveBeenCalled();
+      expect(lastTimeline().to).toHaveBeenCalled();
 
       // Test directional variant
       executeIPadGridAnimation(container, 0, { variant: 'directional' });
-      expect(mockTimeline.to).toHaveBeenCalled();
+      expect(lastTimeline().to).toHaveBeenCalled();
     });
 
     it('should handle different intensity levels', () => {
@@ -211,7 +226,7 @@ describe('Custom Animation System', () => {
         executeIPadGridAnimation(container, 0, { 
           intensity: intensity as 'subtle' | 'medium' | 'strong' 
         });
-        expect(mockTimeline.to).toHaveBeenCalled();
+        expect(lastTimeline().to).toHaveBeenCalled();
       });
     });
   });
@@ -265,7 +280,8 @@ describe('Custom Animation System', () => {
         composition: { combine: ['particle-burst', 'ripple-effect'], sequence: 'staggered' },
       });
 
-      expect(mockTimeline.add).toHaveBeenCalled();
+      // .add lands on the MASTER timeline, not the last-created child
+      expect(mockCreatedTimelines.some((t) => t.add.mock.calls.length > 0)).toBe(true);
     });
   });
 
@@ -277,7 +293,7 @@ describe('Custom Animation System', () => {
       const container = document.querySelector('.grid-container') as Element;
       executeCustomAnimation('ipad-grid-select', container, { selectedIndex: 0 });
 
-      expect(mockTimeline.to).toHaveBeenCalled();
+      expect(lastTimeline().to).toHaveBeenCalled();
     });
 
     it('should override variants at execution time', () => {
@@ -292,7 +308,7 @@ describe('Custom Animation System', () => {
         variant: 'dramatic', // Override
       });
 
-      expect(mockTimeline.to).toHaveBeenCalled();
+      expect(lastTimeline().to).toHaveBeenCalled();
     });
   });
 
@@ -304,17 +320,18 @@ describe('Custom Animation System', () => {
         executeIPadGridAnimation(container, 0, {
           direction: direction as any,
         });
-        expect(mockTimeline.to).toHaveBeenCalled();
+        expect(lastTimeline().to).toHaveBeenCalled();
       });
     });
 
     it('should respect reduced motion preferences', () => {
-      // Mock reduced motion preference
-      window.matchMedia = jest.fn(() => ({
+      // The lib reads the jsdom ENVIRONMENT window (not this suite's JSDOM
+      // instance), so the preference must be mocked there.
+      (globalThis.window as any).matchMedia = jest.fn(() => ({
         matches: true, // Prefers reduced motion
         addEventListener: jest.fn(),
         removeEventListener: jest.fn(),
-      })) as any;
+      }));
 
       const target = document.querySelector('.composition-target') as Element;
       
@@ -323,7 +340,7 @@ describe('Custom Animation System', () => {
       });
 
       expect(timeline).toBeTruthy();
-      expect(mockTimeline.set).toHaveBeenCalled(); // Should use instant state change
+      expect(mockCreatedTimelines.some((t) => t.set.mock.calls.length > 0)).toBe(true); // instant state change
     });
 
     it('should handle stagger configuration', () => {
@@ -333,7 +350,7 @@ describe('Custom Animation System', () => {
         stagger: 0.2,
       });
 
-      expect(mockTimeline.to).toHaveBeenCalled();
+      expect(lastTimeline().to).toHaveBeenCalled();
     });
   });
 

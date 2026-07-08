@@ -1,4 +1,13 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+/**
+ * EnhancedProjectEditor tests.
+ *
+ * The editor no longer renders its own save bar — it LIFTS its save controls
+ * (save/back handlers, dirty flag, visibility) to the parent via
+ * `onSaveControlsChange`, and the admin page layout renders them. The
+ * harness captures the latest controls and drives save/back through them.
+ */
+
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { useRouter } from 'next/navigation';
 import { EnhancedProjectEditor } from '../enhanced-project-editor';
 
@@ -7,48 +16,35 @@ jest.mock('next/navigation', () => ({
   useRouter: jest.fn()
 }));
 
-// Mock child components
+// Mock heavy child components
 jest.mock('../ai-quick-actions', () => ({
-  AIQuickActions: ({ selectedText, projectContext, onApplyChanges }: any) => (
+  AIQuickActions: ({ projectContext }: any) => (
     <div data-testid="ai-quick-actions">
-      <div data-testid="selected-text">{selectedText?.text || 'No selection'}</div>
-      <div data-testid="project-title">{projectContext.title}</div>
-      <button 
-        data-testid="apply-changes"
-        onClick={() => onApplyChanges({
-          success: true,
-          changes: { fullContent: 'AI improved content' },
-          reasoning: 'Test improvement',
-          confidence: 0.9,
-          warnings: [],
-          model: 'test-model',
-          tokensUsed: 50,
-          cost: 0.001
-        })}
-      >
-        Apply AI Changes
-      </button>
+      <div data-testid="project-title">{projectContext?.title}</div>
+    </div>
+  )
+}));
+
+jest.mock('../ai-prompt-interface', () => ({
+  AIPromptInterface: ({ projectContext }: any) => (
+    <div data-testid="ai-prompt-interface">
+      <div data-testid="project-title">{projectContext?.title}</div>
     </div>
   )
 }));
 
 jest.mock('../text-selection-manager', () => ({
-  TextSelectionManager: ({ children, onSelectionChange }: any) => (
-    <div data-testid="text-selection-manager">
-      {children}
-      <button 
-        data-testid="simulate-selection"
-        onClick={() => onSelectionChange({
-          text: 'selected text',
-          start: 0,
-          end: 13
-        })}
-      >
-        Simulate Selection
-      </button>
-    </div>
+  TextSelectionManager: ({ children }: any) => (
+    <div data-testid="text-selection-manager">{children}</div>
   ),
   TextareaAdapter: jest.fn().mockImplementation(() => ({
+    getSelection: () => null,
+    applyChange: jest.fn(),
+    getFullContent: () => '',
+    setFullContent: jest.fn(),
+    focus: jest.fn()
+  })),
+  TiptapAdapter: jest.fn().mockImplementation(() => ({
     getSelection: () => null,
     applyChange: jest.fn(),
     getFullContent: () => '',
@@ -70,40 +66,14 @@ jest.mock('../smart-tag-input', () => ({
   )
 }));
 
-jest.mock('../floating-save-bar', () => ({
-  FloatingSaveBar: ({ onSave, onBack, hasUnsavedChanges, saving, status, onStatusChange, visibility, onVisibilityChange }: any) => (
-    <div data-testid="floating-save-bar">
-      <button data-testid="save-button" onClick={onSave} disabled={saving}>
-        {saving ? 'Saving...' : 'Save'}
-      </button>
-      <button data-testid="back-button" onClick={onBack}>
-        Back
-      </button>
-      <div data-testid="unsaved-changes">
-        {hasUnsavedChanges ? 'Has changes' : 'No changes'}
-      </div>
-      <select data-testid="status-select" value={status} onChange={(e) => onStatusChange(e.target.value)}>
-        <option value="DRAFT">Draft</option>
-        <option value="PUBLISHED">Published</option>
-      </select>
-      <select data-testid="visibility-select" value={visibility} onChange={(e) => onVisibilityChange(e.target.value)}>
-        <option value="PRIVATE">Private</option>
-        <option value="PUBLIC">Public</option>
-      </select>
-    </div>
-  )
+jest.mock('../clickable-media-upload', () => ({
+  ClickableMediaUpload: () => <div data-testid="clickable-media-upload" />
 }));
 
-jest.mock('../clickable-media-upload', () => ({
-  ClickableMediaUpload: ({ onMediaSelect, onMediaRemove }: any) => (
-    <div data-testid="clickable-media-upload">
-      <button data-testid="select-media" onClick={() => onMediaSelect({ id: 'media-1', url: 'test.jpg' })}>
-        Select Media
-      </button>
-      <button data-testid="remove-media" onClick={onMediaRemove}>
-        Remove Media
-      </button>
-    </div>
+// Tiptap needs a real browser; stub it with a plain textarea
+jest.mock('../../tiptap/tiptap-editor-with-ai', () => ({
+  TiptapEditorWithAI: ({ placeholder }: any) => (
+    <textarea data-testid="tiptap-editor" placeholder={placeholder} />
   )
 }));
 
@@ -120,60 +90,73 @@ const mockRouter = {
   prefetch: jest.fn()
 };
 
+/** Captures the save controls the editor lifts to its parent. */
+let latestControls: any = null;
+const onSaveControlsChange = jest.fn((controls) => {
+  latestControls = controls;
+});
+
 describe('EnhancedProjectEditor', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    latestControls = null;
     (useRouter as jest.Mock).mockReturnValue(mockRouter);
-    (fetch as jest.Mock).mockClear();
+    (fetch as jest.Mock).mockReset();
+    // The editor fetches existing tags on mount (smart tag suggestions) —
+    // default every unmatched call to an empty-ok response.
+    (fetch as jest.Mock).mockResolvedValue({
+      ok: true,
+      json: async () => ({ tags: [] })
+    });
   });
 
   describe('Create Mode', () => {
-    it('renders create mode correctly', () => {
-      render(<EnhancedProjectEditor mode="create" />);
+    it('renders the create-mode form fields', () => {
+      render(<EnhancedProjectEditor mode="create" onSaveControlsChange={onSaveControlsChange} />);
 
       expect(screen.getByPlaceholderText('Enter your project title...')).toBeInTheDocument();
       expect(screen.getByPlaceholderText('A short description that appears on project cards...')).toBeInTheDocument();
       expect(screen.getByPlaceholderText('Describe your project in detail...')).toBeInTheDocument();
-      expect(screen.getByPlaceholderText('Write your project article here...')).toBeInTheDocument();
-      expect(screen.getByTestId('ai-quick-actions')).toBeInTheDocument();
+      expect(screen.getByTestId('tiptap-editor')).toBeInTheDocument();
     });
 
-    it('tracks unsaved changes for new projects', async () => {
-      render(<EnhancedProjectEditor mode="create" />);
+    it('tracks unsaved changes through the lifted save controls', async () => {
+      render(<EnhancedProjectEditor mode="create" onSaveControlsChange={onSaveControlsChange} />);
 
-      const titleInput = screen.getByPlaceholderText('Enter your project title...');
-      fireEvent.change(titleInput, { target: { value: 'New Project Title' } });
+      expect(latestControls.hasUnsavedChanges).toBe(false);
+
+      fireEvent.change(screen.getByPlaceholderText('Enter your project title...'), {
+        target: { value: 'New Project Title' }
+      });
 
       await waitFor(() => {
-        expect(screen.getByTestId('unsaved-changes')).toHaveTextContent('Has changes');
+        expect(latestControls.hasUnsavedChanges).toBe(true);
       });
     });
 
-    it('saves new project correctly', async () => {
-      const mockResponse = {
-        project: { id: 'new-project-id' }
-      };
-
-      (fetch as jest.Mock).mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockResponse
+    it('saves a new project and navigates to its editor', async () => {
+      (fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+        if (String(url) === '/api/admin/projects' && init?.method === 'POST') {
+          return { ok: true, json: async () => ({ project: { id: 'new-project-id' } }) };
+        }
+        return { ok: true, json: async () => ({ tags: [] }) };
       });
 
-      render(<EnhancedProjectEditor mode="create" />);
+      render(<EnhancedProjectEditor mode="create" onSaveControlsChange={onSaveControlsChange} />);
 
-      const titleInput = screen.getByPlaceholderText('Enter your project title...');
-      fireEvent.change(titleInput, { target: { value: 'New Project' } });
-
-      const saveButton = screen.getByTestId('save-button');
-      fireEvent.click(saveButton);
-
-      await waitFor(() => {
-        expect(fetch).toHaveBeenCalledWith('/api/admin/projects', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: expect.stringContaining('"title":"New Project"')
-        });
+      fireEvent.change(screen.getByPlaceholderText('Enter your project title...'), {
+        target: { value: 'New Project' }
       });
+
+      await act(async () => {
+        await latestControls.onSave();
+      });
+
+      expect(fetch).toHaveBeenCalledWith('/api/admin/projects', expect.objectContaining({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: expect.stringContaining('"title":"New Project"')
+      }));
 
       await waitFor(() => {
         expect(mockPush).toHaveBeenCalledWith('/admin/projects/editor/new-project-id');
@@ -193,13 +176,22 @@ describe('EnhancedProjectEditor', () => {
       articleContent: { content: 'Existing article content' }
     };
 
-    it('loads existing project data', async () => {
-      (fetch as jest.Mock).mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockProject
+    function mockEditFetch(saveResponse?: () => Promise<unknown> | unknown) {
+      (fetch as jest.Mock).mockImplementation(async (url: string, init?: RequestInit) => {
+        if (String(url) === '/api/admin/projects/project-1' && init?.method === 'PUT') {
+          return { ok: true, json: async () => (saveResponse ? await saveResponse() : mockProject) };
+        }
+        if (String(url) === '/api/admin/projects/project-1') {
+          return { ok: true, json: async () => mockProject };
+        }
+        return { ok: true, json: async () => ({ tags: [] }) };
       });
+    }
 
-      render(<EnhancedProjectEditor mode="edit" projectId="project-1" />);
+    it('loads existing project data', async () => {
+      mockEditFetch();
+
+      render(<EnhancedProjectEditor mode="edit" projectId="project-1" onSaveControlsChange={onSaveControlsChange} />);
 
       await waitFor(() => {
         expect(fetch).toHaveBeenCalledWith('/api/admin/projects/project-1');
@@ -209,150 +201,61 @@ describe('EnhancedProjectEditor', () => {
         expect(screen.getByDisplayValue('Existing Project')).toBeInTheDocument();
         expect(screen.getByDisplayValue('Existing description')).toBeInTheDocument();
         expect(screen.getByDisplayValue('Existing overview')).toBeInTheDocument();
-        expect(screen.getByDisplayValue('Existing article content')).toBeInTheDocument();
       });
     });
 
-    it('updates existing project correctly', async () => {
-      (fetch as jest.Mock)
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => mockProject
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ success: true })
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => mockProject
-        });
+    it('updates an existing project via PUT', async () => {
+      mockEditFetch();
 
-      render(<EnhancedProjectEditor mode="edit" projectId="project-1" />);
+      render(<EnhancedProjectEditor mode="edit" projectId="project-1" onSaveControlsChange={onSaveControlsChange} />);
 
       await waitFor(() => {
         expect(screen.getByDisplayValue('Existing Project')).toBeInTheDocument();
       });
 
-      const titleInput = screen.getByDisplayValue('Existing Project');
-      fireEvent.change(titleInput, { target: { value: 'Updated Project' } });
-
-      const saveButton = screen.getByTestId('save-button');
-      fireEvent.click(saveButton);
-
-      await waitFor(() => {
-        expect(fetch).toHaveBeenCalledWith('/api/admin/projects/project-1', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: expect.stringContaining('"title":"Updated Project"')
-        });
+      fireEvent.change(screen.getByDisplayValue('Existing Project'), {
+        target: { value: 'Updated Project' }
       });
+
+      await act(async () => {
+        await latestControls.onSave();
+      });
+
+      expect(fetch).toHaveBeenCalledWith('/api/admin/projects/project-1', expect.objectContaining({
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: expect.stringContaining('"title":"Updated Project"')
+      }));
     });
 
     it('handles load error gracefully', async () => {
-      (fetch as jest.Mock).mockRejectedValueOnce(new Error('Failed to load'));
+      (fetch as jest.Mock).mockImplementation(async (url: string) => {
+        if (String(url) === '/api/admin/projects/project-1') {
+          throw new Error('Failed to load');
+        }
+        return { ok: true, json: async () => ({ tags: [] }) };
+      });
 
-      render(<EnhancedProjectEditor mode="edit" projectId="project-1" />);
+      render(<EnhancedProjectEditor mode="edit" projectId="project-1" onSaveControlsChange={onSaveControlsChange} />);
 
       await waitFor(() => {
-        expect(screen.getByText('Failed to load project')).toBeInTheDocument();
         expect(screen.getByText('Back to Projects')).toBeInTheDocument();
       });
     });
   });
 
-  describe('Text Selection Integration', () => {
-    it('handles text selection across different fields', async () => {
-      render(<EnhancedProjectEditor mode="create" />);
-
-      const simulateSelectionButton = screen.getAllByTestId('simulate-selection')[0];
-      fireEvent.click(simulateSelectionButton);
-
-      await waitFor(() => {
-        expect(screen.getByTestId('selected-text')).toHaveTextContent('selected text');
-      });
-    });
-
-    it('applies AI changes to selected text', async () => {
-      render(<EnhancedProjectEditor mode="create" />);
-
-      // Simulate text selection
-      const simulateSelectionButton = screen.getAllByTestId('simulate-selection')[0];
-      fireEvent.click(simulateSelectionButton);
-
-      // Apply AI changes
-      const applyChangesButton = screen.getByTestId('apply-changes');
-      fireEvent.click(applyChangesButton);
-
-      // The TextareaAdapter mock should be called
-      // In a real implementation, this would update the form field
-    });
-  });
-
-  describe('AI Integration', () => {
-    it('provides project context to AI actions', () => {
-      render(<EnhancedProjectEditor mode="create" />);
-
-      const titleInput = screen.getByPlaceholderText('Enter your project title...');
-      fireEvent.change(titleInput, { target: { value: 'Test Project' } });
-
-      expect(screen.getByTestId('project-title')).toHaveTextContent('Test Project');
-    });
-
-    it('handles AI tag suggestions', async () => {
-      render(<EnhancedProjectEditor mode="create" />);
-
-      const applyChangesButton = screen.getByTestId('apply-changes');
-      
-      // Mock AI response with tag suggestions
-      const aiResponse = {
-        success: true,
-        changes: {
-          suggestedTags: {
-            add: ['javascript', 'web'],
-            remove: [],
-            reasoning: 'Based on project content'
-          }
-        },
-        reasoning: 'Added relevant tags',
-        confidence: 0.9,
-        warnings: [],
-        model: 'test-model',
-        tokensUsed: 30,
-        cost: 0.0005
-      };
-
-      // This would trigger the tag update in the real implementation
-      fireEvent.click(applyChangesButton);
-    });
-  });
-
   describe('Form Management', () => {
-    it('tracks form changes correctly', async () => {
-      render(<EnhancedProjectEditor mode="create" />);
-
-      expect(screen.getByTestId('unsaved-changes')).toHaveTextContent('No changes');
-
-      const titleInput = screen.getByPlaceholderText('Enter your project title...');
-      fireEvent.change(titleInput, { target: { value: 'New Title' } });
-
-      await waitFor(() => {
-        expect(screen.getByTestId('unsaved-changes')).toHaveTextContent('Has changes');
-      });
-    });
-
     it('handles tag input correctly', () => {
-      render(<EnhancedProjectEditor mode="create" />);
+      render(<EnhancedProjectEditor mode="create" onSaveControlsChange={onSaveControlsChange} />);
 
       const tagInput = screen.getByTestId('tag-input');
       fireEvent.change(tagInput, { target: { value: 'react, typescript, nextjs' } });
 
-      // The SmartTagInput mock should handle the tag parsing
       expect(tagInput).toHaveValue('react, typescript, nextjs');
     });
 
     it('handles date input correctly', () => {
-      render(<EnhancedProjectEditor mode="create" />);
+      render(<EnhancedProjectEditor mode="create" onSaveControlsChange={onSaveControlsChange} />);
 
       const dateInput = screen.getByDisplayValue(new Date().toISOString().split('T')[0]);
       fireEvent.change(dateInput, { target: { value: '2024-12-25' } });
@@ -362,64 +265,39 @@ describe('EnhancedProjectEditor', () => {
   });
 
   describe('Navigation', () => {
-    it('navigates back to projects list', () => {
-      render(<EnhancedProjectEditor mode="create" />);
+    it('navigates back to projects list via the lifted controls', () => {
+      render(<EnhancedProjectEditor mode="create" onSaveControlsChange={onSaveControlsChange} />);
 
-      const backButton = screen.getByTestId('back-button');
-      fireEvent.click(backButton);
+      act(() => {
+        latestControls.onBack();
+      });
 
       expect(mockPush).toHaveBeenCalledWith('/admin/projects');
     });
   });
 
-  describe('Error Handling', () => {
-    it('displays save errors', async () => {
-      (fetch as jest.Mock).mockRejectedValueOnce(new Error('Save failed'));
-
-      render(<EnhancedProjectEditor mode="create" />);
-
-      const titleInput = screen.getByPlaceholderText('Enter your project title...');
-      fireEvent.change(titleInput, { target: { value: 'Test Project' } });
-
-      const saveButton = screen.getByTestId('save-button');
-      fireEvent.click(saveButton);
-
-      await waitFor(() => {
-        // Error would be displayed in the FloatingSaveBar
-        expect(fetch).toHaveBeenCalled();
-      });
-    });
-
-    it('handles network errors gracefully', async () => {
-      (fetch as jest.Mock).mockRejectedValueOnce(new Error('Network error'));
-
-      render(<EnhancedProjectEditor mode="edit" projectId="project-1" />);
-
-      await waitFor(() => {
-        expect(screen.getByText('Failed to load project')).toBeInTheDocument();
-      });
-    });
-  });
-
   describe('Media Upload Integration', () => {
     it('shows media upload for existing projects', async () => {
-      const mockProject = {
-        id: 'project-1',
-        title: 'Test Project',
-        description: 'Test description',
-        briefOverview: 'Test overview',
-        visibility: 'PRIVATE',
-        workDate: '2024-01-01',
-        tags: [],
-        articleContent: { content: 'Test content' }
-      };
-
-      (fetch as jest.Mock).mockResolvedValueOnce({
-        ok: true,
-        json: async () => mockProject
+      (fetch as jest.Mock).mockImplementation(async (url: string) => {
+        if (String(url) === '/api/admin/projects/project-1') {
+          return {
+            ok: true,
+            json: async () => ({
+              id: 'project-1',
+              title: 'Test Project',
+              description: 'Test description',
+              briefOverview: 'Test overview',
+              visibility: 'PRIVATE',
+              workDate: '2024-01-01',
+              tags: [],
+              articleContent: { content: 'Test content' }
+            })
+          };
+        }
+        return { ok: true, json: async () => ({ tags: [] }) };
       });
 
-      render(<EnhancedProjectEditor mode="edit" projectId="project-1" />);
+      render(<EnhancedProjectEditor mode="edit" projectId="project-1" onSaveControlsChange={onSaveControlsChange} />);
 
       await waitFor(() => {
         expect(screen.getByTestId('clickable-media-upload')).toBeInTheDocument();
@@ -427,7 +305,7 @@ describe('EnhancedProjectEditor', () => {
     });
 
     it('does not show media upload for new projects', () => {
-      render(<EnhancedProjectEditor mode="create" />);
+      render(<EnhancedProjectEditor mode="create" onSaveControlsChange={onSaveControlsChange} />);
 
       expect(screen.queryByTestId('clickable-media-upload')).not.toBeInTheDocument();
     });

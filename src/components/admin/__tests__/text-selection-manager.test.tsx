@@ -3,7 +3,7 @@ import {
   TextSelectionManager, 
   TextareaAdapter, 
   TiptapAdapter,
-
+  useTextSelectionManager,
   createEditorAdapter,
   applyTextChangeWithPosition,
   findTextPosition,
@@ -117,22 +117,30 @@ describe('TiptapAdapter', () => {
     adapter = new TiptapAdapter(mockEditor);
   });
 
-  it('logs warning for unimplemented methods', () => {
-    const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
-
+  it('reads selection and content from the editor state (implemented in the Tiptap 3 migration)', () => {
+    // No selection state on the bare mock editor -> null, no crash
     expect(adapter.getSelection()).toBeNull();
-    expect(consoleSpy).toHaveBeenCalledWith('TiptapAdapter.getSelection() not yet implemented');
-
-    adapter.applyChange({ start: 0, end: 5, newText: 'test' });
-    expect(consoleSpy).toHaveBeenCalledWith('TiptapAdapter.applyChange() not yet implemented');
-
     expect(adapter.getFullContent()).toBe('');
-    expect(consoleSpy).toHaveBeenCalledWith('TiptapAdapter.getFullContent() not yet implemented');
 
-    adapter.setFullContent('test');
-    expect(consoleSpy).toHaveBeenCalledWith('TiptapAdapter.setFullContent() not yet implemented');
-
-    consoleSpy.mockRestore();
+    // With a real-shaped editor state, selection is extracted with context
+    const richEditor = {
+      commands: { focus: jest.fn(), setContent: jest.fn() },
+      state: {
+        selection: { from: 0, to: 5 },
+        doc: {
+          textBetween: () => 'Hello',
+          textContent: 'Hello world',
+        },
+      },
+    };
+    const richAdapter = new TiptapAdapter(richEditor as any);
+    expect(richAdapter.getSelection()).toEqual({
+      start: 0,
+      end: 5,
+      text: 'Hello',
+      context: 'Hello world',
+    });
+    expect(richAdapter.getFullContent()).toBe('Hello world');
   });
 
   it('focuses the editor', () => {
@@ -188,12 +196,16 @@ describe('TextSelectionManager', () => {
     jest.clearAllTimers();
   });
 
-  it('renders children with manager methods', () => {
-    const TestChild = ({ textSelectionManager }: any) => (
-      <div data-testid="test-child">
-        {textSelectionManager ? 'Manager connected' : 'No manager'}
-      </div>
-    );
+  it('provides manager methods to children via context', () => {
+    const TestChild = () => {
+      // The manager is delivered through context now, not an injected prop
+      const manager = useTextSelectionManager();
+      return (
+        <div data-testid="test-child">
+          {manager && manager.applyChange ? 'Manager connected' : 'No manager'}
+        </div>
+      );
+    };
 
     render(
       <TextSelectionManager

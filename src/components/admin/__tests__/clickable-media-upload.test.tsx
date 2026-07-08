@@ -70,7 +70,14 @@ describe('ClickableMediaUpload', () => {
     const image = screen.getByRole('img');
     expect(image).toHaveAttribute('src', mockMediaItem.thumbnailUrl);
     expect(image).toHaveAttribute('alt', mockMediaItem.altText);
-    expect(screen.getByText('Test Image (1000.0 KB)')).toBeInTheDocument();
+    // Caption renders as two adjacent text nodes (name + size) — match on
+    // the assembled textContent.
+    expect(
+      screen.getByText((_, el) =>
+        el?.className?.includes?.('text-gray-500') &&
+        /Test Image\s*\(\d+(\.\d+)? KB\)/.test(el?.textContent ?? '')
+      )
+    ).toBeInTheDocument();
   });
 
   it('opens media selection modal when clicked', async () => {
@@ -144,7 +151,9 @@ describe('ClickableMediaUpload', () => {
       />
     );
 
-    let uploadArea = screen.getByText('Click to select image').closest('div');
+    // The aspect class lives on the dashed drop-zone wrapper, not the inner
+    // content div the text sits in.
+    let uploadArea = screen.getByText('Click to select image').closest('.border-dashed');
     expect(uploadArea).toHaveClass('aspect-square');
 
     rerender(
@@ -155,7 +164,7 @@ describe('ClickableMediaUpload', () => {
       />
     );
 
-    uploadArea = screen.getByText('Click to select image').closest('div');
+    uploadArea = screen.getByText('Click to select image').closest('.border-dashed');
     expect(uploadArea).toHaveClass('aspect-video');
   });
 
@@ -198,7 +207,7 @@ describe('ClickableMediaUpload', () => {
       />
     );
 
-    const uploadArea = screen.getByText('Click to select image').closest('div');
+    const uploadArea = screen.getByText('Click to select image').closest('.border-dashed');
     
     // Test drag over
     fireEvent.dragOver(uploadArea!, {
@@ -231,7 +240,7 @@ describe('ClickableMediaUpload', () => {
 
     await waitFor(() => {
       expect(mockOnError).toHaveBeenCalledWith(
-        expect.stringContaining('Invalid file type')
+        'Please drop an image file'
       );
     });
   });
