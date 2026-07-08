@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Portfolio site that is itself the flagship portfolio piece: Next.js 15 App Router + React 19 + Prisma 6 (Postgres + pgvector) + Tailwind 4 + Tiptap 3, with a client-direct voice/text AI assistant (native s2s: OpenAI Realtime + Google Gemini Live; plus the D45 cascade STT→LLM→TTS family sharing the text pipeline's brain — the ElevenLabs agent-platform adapter is retired, ElevenLabs serves as a TTS/STT engine inside the cascade), a T0–T3 semantic RAG index, and a planned hardened public MCP server. Deployed on Vercel serverless.
+Portfolio site that is itself the flagship portfolio piece: Next.js 15 App Router + React 19 + Prisma 6 (Postgres + pgvector) + Tailwind 4 + Tiptap 3, with a client-direct voice/text AI assistant (native s2s: OpenAI Realtime + Google Gemini Live; plus the D45 cascade STT→LLM→TTS family sharing the text pipeline's brain — the ElevenLabs agent-platform adapter is retired, ElevenLabs serves as a TTS/STT engine inside the cascade), a T0–T3 semantic RAG index, and a hardened public MCP server (`POST /api/mcp`; visitor-facing story at `/about/ai`). Deployed on Vercel serverless.
 
 ## Read this first
 
@@ -47,7 +47,7 @@ Planned (verification spec, land with their phases): `check:models`, `livefire:s
 
 ## Environment
 
-`.env` needs: `DATABASE_URL` (Postgres with pgvector), `NEXTAUTH_SECRET`/`NEXTAUTH_URL`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY` (voice), later `GOOGLE_API_KEY`. API keys live in env only — never DB (D3). Dev-only flags: `DEV_VERIFICATION=true` (debug envelope), `AI_FAKE_MODE=reasoning,voice,embeddings` (test doubles) — both refuse production. Optional `AI_SESSION_SECRET` for public chat JWTs (falls back to `NEXTAUTH_SECRET`).
+`.env` needs: `DATABASE_URL` (Postgres with pgvector), `NEXTAUTH_SECRET`/`NEXTAUTH_URL`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY` (Gemini Live voice + Gemini TTS; `GEMINI_API_KEY` — Google's documented name — is accepted as a fallback everywhere), `ELEVENLABS_API_KEY` (cascade TTS/STT engine). Media pipeline (project media AND the D50 voice clips; future conversation recordings): `MEDIA_PROVIDER=cloudinary` + `CLOUDINARY_CLOUD_NAME`/`CLOUDINARY_API_KEY`/`CLOUDINARY_API_SECRET`/`CLOUDINARY_FOLDER`. API keys live in env only — never DB (D3). Dev-only flags: `DEV_VERIFICATION=true` (debug envelope), `AI_FAKE_MODE=reasoning,voice,embeddings` (test doubles) — both refuse production. Optional `AI_SESSION_SECRET` for public chat JWTs (falls back to `NEXTAUTH_SECRET`).
 
 **Turnstile (Phase 2, D31):** dev uses Cloudflare's official always-pass **test keys** — `NEXT_PUBLIC_TURNSTILE_SITE_KEY=1x00000000000000000000AA`, `TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA`. The secret accepts any response token, so the client sends a placeholder without rendering the widget. **Deploy-time swap:** set real Turnstile keys AND render the Turnstile widget in the pill to produce genuine tokens. The admin Access & Spend panel toggles the challenge on/off. Session mint fails closed if Turnstile is enabled but the secret is unconfigured.
 

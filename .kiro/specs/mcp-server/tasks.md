@@ -1,8 +1,8 @@
 # mcp-server — Tasks
 
-**Status:** current — v1 implemented + hardening-verified 2026-07-07 (Phase 4 Block B); task 5 (discoverability) lands with roadmap 4.6
+**Status:** current — v1 implemented + hardening-verified 2026-07-07 (Phase 4 Block B); discoverability (task 5) shipped 2026-07-08 (Phase 4 Block D) — spec complete, backlog only
 **Owner domain:** external MCP server
-**Last verified against code:** 2026-07-07 (Phase 4 session — Block B)
+**Last verified against code:** 2026-07-08 (Phase 4 session — Block D)
 
 ---
 
@@ -27,9 +27,9 @@
   - [x] 4.1 Real MCP client (official SDK `Client` + `StreamableHTTPClientTransport` — the same stack Claude clients use) connected over HTTP: initialize → tools/list (3 tools) → search_portfolio → list_projects → get_project (`verification-fixture-kiln`: 552-char T1 summary + 5 T2 sections).
   - [x] 4.2 Ledger rows `feature='mcp', usageType='mcp_tool_call'` with tool name metadata + hashed IP for every call; rate bucket enforced (drill above).
 
-- [ ] 5. Discoverability (with roadmap 4.6)
-  - [ ] 5.1 About/AI page section: URL, tools, client configs, safeguards-in-prose
-  - [ ] 5.2 README architecture story includes the MCP server
+- [x] 5. Discoverability — **done 2026-07-08 (Phase 4 Block D)**
+  - [x] 5.1 `/about/ai` (`src/app/about/ai/page.tsx`, linked from the main nav "AI" item): the architecture story as a portfolio piece — three modes/one brain, T0–T3 + hybrid retrieval, F-I-D, latency-aware clips, gateway/ledger/watchdog — with an MCP section: endpoint URL (origin-aware client component `McpConnectCard`, copy buttons), the 3 tools, copy-paste configs (Claude Code `claude mcp add --transport http`, Claude Desktop via `mcp-remote`, raw JSON-RPC curl), and the Req 3 safeguards rewritten as prose ("the hardening is part of the pitch"). **Verified live 2026-07-08:** page renders both themes at mobile/1600px with no horizontal overflow; the raw JSON-RPC snippet exactly as printed (bare `tools/call`, no initialize needed in stateless mode) returned real `search_portfolio` results against `POST /api/mcp`.
+  - [x] 5.2 README rewritten (was Next.js-14-era, predated the whole AI system): MCP server features in the architecture story with its hardening posture; every stack/command claim cross-checked against package.json and code; stale claims (db:push setup flow, nonexistent LICENSE, `/admin/ai-settings`) removed.
   - _Requirements: 5_
 
 ## Backlog

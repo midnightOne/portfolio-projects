@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useRouter, usePathname } from 'next/navigation';
-import { Menu, X, Home, FolderOpen, User, Mail } from 'lucide-react';
+import { Menu, X, Home, FolderOpen, User, Mail, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SimpleThemeToggle } from '@/components/ui/simple-theme-toggle';
 import { cn } from '@/lib/utils';
@@ -57,6 +57,13 @@ const DEFAULT_NAVIGATION_ITEMS: NavigationItem[] = [
     href: '/projects',
     icon: FolderOpen,
     description: 'View all projects'
+  },
+  {
+    id: 'ai',
+    label: 'AI',
+    href: '/about/ai',
+    icon: Sparkles,
+    description: 'How the AI assistant works'
   },
   {
     id: 'contact',
