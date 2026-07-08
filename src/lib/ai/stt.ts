@@ -44,7 +44,9 @@ export async function transcribeAudio(options: TranscribeAudioOptions): Promise<
   if (resolved.provider === 'openai') {
     const { default: OpenAI, toFile } = await import('openai');
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const ext = mimeType.includes('wav') ? 'wav' : mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm';
+    // The filename extension is what OpenAI trusts for container detection —
+    // a mismatch (e.g. mp3 bytes named .webm) is rejected as corrupted.
+    const ext = mimeType.includes('wav') ? 'wav' : mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : mimeType.includes('mpeg') ? 'mp3' : 'webm';
     const result = await client.audio.transcriptions.create({
       model: resolved.modelId,
       file: await toFile(audio, `utterance.${ext}`, { type: mimeType }),

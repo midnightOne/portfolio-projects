@@ -509,6 +509,11 @@ export function ConversationalAgentProvider({
       void clipPlayerRef.current?.play('disruption');
     } else if (event.type === 'connected') {
       clipPlayerRef.current?.stop();
+      // Fresh connection = fresh silence-gap budget: without this, a session
+      // that ended after a clip but before any model speech would mute the
+      // next session's first gap (the budget only resets on speech_start).
+      clipPlayedThisGapRef.current = false;
+      modelSpeakingRef.current = false;
     } else if (event.type === 'error' && lastConnStatusRef.current === 'reconnecting') {
       void clipPlayerRef.current?.play('resume_failed');
     }
