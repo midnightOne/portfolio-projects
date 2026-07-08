@@ -90,11 +90,13 @@ export class CloudinaryProvider implements MediaProvider {
     }
   }
 
-  async delete(publicId: string): Promise<DeleteResult> {
+  async delete(publicId: string, options?: { resourceType?: 'image' | 'video' | 'raw' }): Promise<DeleteResult> {
     try {
-      // Use Admin API for more robust deletion
+      // Use Admin API for more robust deletion. resource_type matters: audio
+      // assets live under 'video' and the default ('image') won't find them.
       const result = await cloudinary.api.delete_resources([publicId], {
-        invalidate: true // Invalidate CDN cache
+        invalidate: true, // Invalidate CDN cache
+        resource_type: options?.resourceType ?? 'image'
       });
       
       const deletedStatus = result.deleted?.[publicId];
@@ -112,7 +114,9 @@ export class CloudinaryProvider implements MediaProvider {
       // Fallback to uploader.destroy for backward compatibility
       try {
         console.warn('Admin API delete failed, falling back to uploader.destroy:', error);
-        const fallbackResult = await cloudinary.uploader.destroy(publicId);
+        const fallbackResult = await cloudinary.uploader.destroy(publicId, {
+          resource_type: options?.resourceType ?? 'image'
+        });
         
         return {
           publicId,
@@ -242,7 +246,8 @@ export class CloudinaryProvider implements MediaProvider {
       signature: result.signature,
       versionId: result.version?.toString(),
       folder: result.folder,
-      originalFilename: result.original_filename
+      originalFilename: result.original_filename,
+      duration: typeof result.duration === 'number' ? result.duration : undefined
     };
   }
 

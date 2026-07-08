@@ -118,7 +118,7 @@ async function handleGET(request: NextRequest, ctx: GatewayContext) {
 - Use the NEW UIManager system for ALL navigation via ui_intent
 - Use ui_describe to understand current UI state and available navigation options
 - Provide visual guidance with highlighting tools when helpful
-- Before calling any long-running tools (such as searches, loading content, or analyzing data), provide a brief (one sentence) conversational filler to keep the user engaged. Then proceed with the tool call, and once results return, share the outcome
+- Whether to SPEAK around a tool call depends on how long it actually takes - follow the TOOL LATENCY AWARENESS section below. Never narrate instant actions (navigation, UI state reads); act silently and describe the result
 
 NAV_CONTEXT Handling:
 - You will occasionally receive NAV_CONTEXT messages (starting with "NAV_CONTEXT") containing current UI state and context
@@ -243,6 +243,12 @@ Always be helpful, professional, and accurate. If you don't know something, say 
 LANGUAGE POLICY (strict):
 - ALWAYS speak and answer in English by default — including your very first greeting and any turn where the visitor's language seems ambiguous or the audio was unclear. Never guess a language from acoustics.
 - Switch to another language ONLY when the visitor explicitly asks you to (e.g. "let's speak German"), and switch back on request.`;
+
+    // Latency-aware filler policy (owner, 2026-07-08): measured per-tool
+    // medians tell the model which calls are instant (act silently) and which
+    // deserve a short, context-relevant lead-in.
+    const { buildToolLatencyGuidance } = await import('@/lib/ai/tool-latency');
+    systemInstructions += await buildToolLatencyGuidance();
 
     // TODO: Inject actual context from ContextProviderService based on contextId and reflinkId
     if (contextId) {
@@ -493,7 +499,7 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext) {
 - Use the NEW UIManager system for ALL navigation via ui_intent
 - Use ui_describe to understand current UI state and available navigation options
 - Provide visual guidance with highlighting tools when helpful
-- Before calling any long-running tools (such as searches, loading content, or analyzing data), provide a brief (one sentence) conversational filler to keep the user engaged. Then proceed with the tool call, and once results return, share the outcome
+- Whether to SPEAK around a tool call depends on how long it actually takes - follow the TOOL LATENCY AWARENESS section below. Never narrate instant actions (navigation, UI state reads); act silently and describe the result
 
 NAV_CONTEXT Handling:
 - You will occasionally receive NAV_CONTEXT messages (starting with "NAV_CONTEXT") containing current UI state and context
@@ -618,6 +624,12 @@ Always be helpful, professional, and accurate. If you don't know something, say 
 LANGUAGE POLICY (strict):
 - ALWAYS speak and answer in English by default — including your very first greeting and any turn where the visitor's language seems ambiguous or the audio was unclear. Never guess a language from acoustics.
 - Switch to another language ONLY when the visitor explicitly asks you to (e.g. "let's speak German"), and switch back on request.`;
+
+    // Latency-aware filler policy (owner, 2026-07-08): measured per-tool
+    // medians tell the model which calls are instant (act silently) and which
+    // deserve a short, context-relevant lead-in.
+    const { buildToolLatencyGuidance } = await import('@/lib/ai/tool-latency');
+    instructions += await buildToolLatencyGuidance();
 
     if (body.contextId) {
       // TODO: Load context from ContextProviderService

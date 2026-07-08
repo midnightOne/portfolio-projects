@@ -12,7 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { listPhrases, getClipTargets } from '@/lib/ai/voice-clips';
+import { listPhrases, getClipTargets, deletePhraseClipAssets } from '@/lib/ai/voice-clips';
 
 /** Categories wired to client triggers today; custom categories are allowed
  *  (owner, 2026-07-08) and become playable when a trigger (e.g. a D47 node
@@ -100,6 +100,8 @@ export async function DELETE(request: NextRequest) {
     if (!id) {
       return NextResponse.json({ success: false, error: 'id is required' }, { status: 400 });
     }
+    // Clean the CDN assets first (best-effort), then the rows (clips cascade).
+    await deletePhraseClipAssets(id);
     await prisma.voiceClipPhrase.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (error) {

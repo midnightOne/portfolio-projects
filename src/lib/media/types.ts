@@ -38,6 +38,9 @@ export interface MediaResult {
   versionId?: string;
   folder?: string;
   originalFilename?: string;
+  /** Audio/video duration in seconds, when the provider reports it (Cloudinary
+   *  does for the `video` resource type, which is also how it serves AUDIO). */
+  duration?: number;
 }
 
 export interface DeleteResult {
@@ -57,7 +60,9 @@ export interface MediaProvider {
   name: string;
   upload(file: File | Buffer, options: UploadOptions): Promise<MediaResult>;
   uploadFromPath(filePath: string, options: UploadOptions): Promise<MediaResult>;
-  delete(publicId: string): Promise<DeleteResult>;
+  /** `resourceType` matters on Cloudinary: audio/video assets live under the
+   *  'video' resource type and are NOT found by the default (image) delete. */
+  delete(publicId: string, options?: { resourceType?: 'image' | 'video' | 'raw' }): Promise<DeleteResult>;
   deleteMultiple?(publicIds: string[]): Promise<{ deleted: string[]; notFound: string[]; errors: string[] }>;
   transform(url: string, transformations: Transformation[]): string;
   getUrl(publicId: string, options?: UrlOptions): string;

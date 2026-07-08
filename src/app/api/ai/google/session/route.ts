@@ -21,6 +21,7 @@ import { unifiedToolRegistry } from '@/lib/ai/tools/UnifiedToolRegistry';
 import { reflinkManager } from '@/lib/services/ai/reflink-manager';
 import { buildResumeBriefing } from '@/lib/ai/resume-briefing';
 import { assembleStartFrame } from '@/lib/ai/start-frame';
+import { buildToolLatencyGuidance } from '@/lib/ai/tool-latency';
 import { withAIGateway, type GatewayContext } from '@/lib/ai/gateway';
 
 interface GoogleSessionResponse {
@@ -37,7 +38,7 @@ const TOOL_GUIDANCE = `
 TOOL USAGE:
 - Use ui_describe to learn the current UI state before navigating, then ui_intent to navigate (projects, sections, routes, modals). Do not add artificial delays to tool calls.
 - Use content_search for discovery ("tell me about", "what do you know about") and content_get for full detail on a result. Always pass the current UI state for context-aware ranking.
-- CRITICAL — always speak BEFORE calling a tool, never after only: the instant you decide to use a tool, first SAY a short, natural filler out loud ("Let me look that up", "One moment, checking that now") and let that audio finish, THEN issue the tool call. A tool call takes a second or two, and the visitor hears silence during it — your spoken filler is what fills that gap, so it is useless if it comes bundled with the answer after the result returns. Speak, then call. When the result comes back, continue straight into the answer without repeating the filler.
+- Whether to SPEAK around a tool call depends on how long it actually takes — follow the TOOL LATENCY AWARENESS section below. Narrating an instant action ("give me a moment… here we are") prolongs the interaction; acting silently and then describing the result is what feels effortless.
 - You will occasionally receive NAV_CONTEXT messages describing current UI state — use them silently for context, never read them aloud.
 
 LANGUAGE POLICY (strict):
@@ -51,6 +52,11 @@ async function buildSystemInstructions(
   resumeSessionId: string | null
 ): Promise<string> {
   let instructions = baseInstructions + TOOL_GUIDANCE;
+
+  // Latency-aware filler policy (owner, 2026-07-08): measured per-tool medians
+  // tell the model which calls are instant (act silently) and which deserve a
+  // short, context-relevant lead-in.
+  instructions += await buildToolLatencyGuidance();
 
   // Start frame (task 5d — same grounding as text chat): without it the model
   // has zero portfolio context at session start and answers "can't find

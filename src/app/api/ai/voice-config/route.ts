@@ -3,11 +3,14 @@
  * on serializer fallback defaults in the browser — the admin's
  * VoiceProviderConfig never reached visitors).
  *
- * GET /api/ai/voice-config?provider=openai|elevenlabs|google
+ * GET /api/ai/voice-config?provider=openai|elevenlabs|google|cascade
  * → the provider's DEFAULT config (deserialized), sanitized. Contains no
  * secrets by design (D3: keys live in env only; this strips even the env-var
- * names). Read-only, no cost — not gateway-metered, same class as
- * /api/homepage-config-public.
+ * names) AND no prompt material (owner, 2026-07-08): `instructions` and
+ * `tools` are server-side concerns — both native providers get them injected
+ * at token mint, locked out of client reach (Gemini ephemeral-token setup
+ * lock; OpenAI client_secrets session config). The client only needs runtime
+ * shape: model/voice names, VAD numbers, transcription toggles, caps.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -31,8 +34,9 @@ export async function GET(request: NextRequest) {
     const modelManager = getClientAIModelManager();
     const configWithMetadata = await modelManager.getProviderConfig(provider);
 
-    // Strip env-var pointers — the client needs runtime config, not deployment shape
-    const { apiKeyEnvVar, baseUrlEnvVar, ...clientConfig } =
+    // Strip env-var pointers AND prompt material — the client needs runtime
+    // config, not deployment shape or the persona prompt (injected at mint).
+    const { apiKeyEnvVar, baseUrlEnvVar, instructions, tools, ...clientConfig } =
       (configWithMetadata.config as unknown as Record<string, unknown>) ?? {};
 
     return NextResponse.json({

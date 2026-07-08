@@ -8,12 +8,12 @@
  * "Regenerate" renders every enabled phrase for one or all voices.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Loader2, Mic2, Plus, RefreshCw, Trash2, Volume2 } from 'lucide-react';
+import { Loader2, Mic2, Play, Plus, RefreshCw, Square, Trash2, Volume2 } from 'lucide-react';
 
 interface Phrase { id: string; text: string; tag: string; enabled: boolean; sortOrder: number }
 interface Target { sessionProvider: string; voiceId: string; ttsModel: string }
@@ -36,6 +36,9 @@ export function VoiceClipsManager() {
   const [newText, setNewText] = useState('');
   const [newTag, setNewTag] = useState('filler');
   const [error, setError] = useState<string | null>(null);
+  /** `${voiceId}:${phraseId}` of the clip currently previewing, if any. */
+  const [playingKey, setPlayingKey] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -104,6 +107,27 @@ export function VoiceClipsManager() {
       setRegenBusy(null);
     }
   };
+
+  /** Preview a stored clip through the same route the client player uses. */
+  const togglePlay = (voiceId: string, phraseId: string) => {
+    const key = `${voiceId}:${phraseId}`;
+    audioRef.current?.pause();
+    if (playingKey === key) {
+      setPlayingKey(null);
+      return;
+    }
+    const audio = new Audio(`/api/ai/voice-clips/audio?voiceId=${encodeURIComponent(voiceId)}&phraseId=${encodeURIComponent(phraseId)}`);
+    audioRef.current = audio;
+    setPlayingKey(key);
+    audio.onended = () => setPlayingKey((k) => (k === key ? null : k));
+    audio.onerror = () => {
+      setPlayingKey((k) => (k === key ? null : k));
+      setError(`Failed to play clip ${phraseId} (${voiceId})`);
+    };
+    void audio.play().catch(() => setPlayingKey((k) => (k === key ? null : k)));
+  };
+
+  useEffect(() => () => audioRef.current?.pause(), []);
 
   const tags = [...new Set([...TRIGGER_TAGS, ...phrases.map((p) => p.tag)])];
   const clipCount = (voiceId: string) => clips.filter((c) => c.voiceId === voiceId).length;
@@ -208,14 +232,31 @@ export function VoiceClipsManager() {
                       {p.enabled ? 'on' : 'off'}
                     </button>
                     <span className="flex-1 text-sm">{p.text}</span>
-                    <span className="flex gap-1">
+                    <span className="flex gap-1 items-center">
                       {targets.map((t) => {
                         const clip = clipFor(p.id, t.voiceId);
-                        return (
+                        const isPlaying = playingKey === `${t.voiceId}:${p.id}`;
+                        return clip ? (
+                          <button
+                            key={t.sessionProvider}
+                            onClick={() => togglePlay(t.voiceId, p.id)}
+                            title={`${t.sessionProvider} (${t.voiceId}): ${isPlaying ? 'stop' : 'play preview'} — rendered ${new Date(clip.updatedAt).toLocaleString()}${clip.stale ? ' (text changed since — stale)' : ''}`}
+                            data-testid={`clip-play-${t.sessionProvider}-${p.id}`}
+                            className={`h-5 w-5 rounded-full flex items-center justify-center border transition-colors ${
+                              isPlaying
+                                ? 'bg-cyan-100 border-cyan-400 text-cyan-700 dark:bg-cyan-950/50 dark:text-cyan-300'
+                                : clip.stale
+                                ? 'bg-amber-100 border-amber-400 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'
+                                : 'bg-green-100 border-green-400 text-green-700 dark:bg-green-950/50 dark:text-green-300'
+                            }`}
+                          >
+                            {isPlaying ? <Square className="h-2.5 w-2.5" /> : <Play className="h-2.5 w-2.5" />}
+                          </button>
+                        ) : (
                           <span
                             key={t.sessionProvider}
-                            title={clip ? `${t.sessionProvider}: rendered ${new Date(clip.updatedAt).toLocaleString()}${clip.stale ? ' (text changed since — stale)' : ''}` : `${t.sessionProvider}: no clip yet`}
-                            className={`h-2 w-2 rounded-full ${clip ? (clip.stale ? 'bg-amber-400' : 'bg-green-500') : 'bg-muted-foreground/30'}`}
+                            title={`${t.sessionProvider} (${t.voiceId}): no clip yet`}
+                            className="h-5 w-5 rounded-full border border-dashed border-muted-foreground/30"
                           />
                         );
                       })}

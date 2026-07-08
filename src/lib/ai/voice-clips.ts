@@ -7,18 +7,28 @@
  * ever plays clips rendered in ITS configured voice — a Gemini session gets
  * Gemini-TTS-rendered Puck clips or none at all, never a different voice.
  *
- * Storage: audio bytes live in Postgres — a deliberate choice (owner-visible,
- * ledger-noted): clips are tiny regenerable derived assets, the (voice,
- * phrase) key stays atomic with the bytes, and any serverless instance can
- * serve them (D43). The media pipeline (Cloudinary — keys ARE live) remains
- * an option; this module is the single storage seam if that swap is wanted.
+ * Storage: audio lives in the MEDIA PIPELINE (owner, 2026-07-08 — Cloudinary
+ * serves audio through its `video` resource type; keys verified live). Rows
+ * here hold the CDN url + public id; regeneration overwrites the same public
+ * id (the versioned delivery URL changes, which is the cache-bust). This is
+ * the same upload path future full-conversation debug recordings will use.
  */
 
 import { prisma } from '@/lib/prisma';
 import { synthesizeSpeech } from './tts';
 import { getClientAIModelManager } from '@/lib/voice/ClientAIModelManager';
+import { getMediaProvider } from '@/lib/media';
 import type { CascadeConfig, GoogleLiveConfig, OpenAIRealtimeConfig } from '@/types/voice-config';
 import { resolveAliasOrModelId } from './model-registry';
+
+/** Media-pipeline folder for clip assets. */
+const CLIP_FOLDER = 'voice-clips';
+
+/** Deterministic public id per (voice, phrase) — regeneration overwrites in place. */
+function clipPublicId(voiceId: string, phraseId: string): string {
+  const safeVoice = voiceId.replace(/[^A-Za-z0-9_-]/g, '_');
+  return `${CLIP_FOLDER}/${safeVoice}__${phraseId}`;
+}
 
 export interface ClipPhrase {
   id: string;
@@ -147,17 +157,35 @@ export async function regenerateClips(opts?: { sessionProvider?: string }): Prom
         bucket.estimatedOutputTokens += speech.estimatedOutputTokens;
         usageByModel.set(key, bucket);
 
+        // Media pipeline upload (audio rides Cloudinary's `video` resource
+        // type via resource_type:'auto'). Deterministic public id → the asset
+        // is overwritten in place; the versioned CDN URL changes (cache-bust).
+        const asset = await getMediaProvider().upload(speech.audio, {
+          publicId: clipPublicId(target.voiceId, phrase.id),
+          tags: ['voice-clip', phrase.tag, target.sessionProvider],
+        });
+
         await prisma.voiceClip.upsert({
           where: { voiceId_phraseId: { voiceId: target.voiceId, phraseId: phrase.id } },
-          update: { text: phrase.text, audio: speech.audio, contentType: speech.contentType, provider: speech.provider, modelId: speech.modelId },
+          update: {
+            text: phrase.text,
+            url: asset.secureUrl,
+            publicId: asset.publicId,
+            contentType: speech.contentType,
+            provider: speech.provider,
+            modelId: speech.modelId,
+            durationMs: asset.duration ? Math.round(asset.duration * 1000) : undefined,
+          },
           create: {
             voiceId: target.voiceId,
             phraseId: phrase.id,
             text: phrase.text,
-            audio: speech.audio,
+            url: asset.secureUrl,
+            publicId: asset.publicId,
             contentType: speech.contentType,
             provider: speech.provider,
             modelId: speech.modelId,
+            durationMs: asset.duration ? Math.round(asset.duration * 1000) : undefined,
           },
         });
         generated.push({ phraseId: phrase.id, bytes: speech.audio.length });
@@ -186,7 +214,7 @@ export async function getClipManifest(sessionProvider: string): Promise<ClipMani
 
   const clips = await prisma.voiceClip.findMany({
     where: { voiceId: target.voiceId, phrase: { enabled: true } },
-    select: { phraseId: true, text: true, updatedAt: true, phrase: { select: { tag: true, sortOrder: true } } },
+    select: { phraseId: true, text: true, url: true, updatedAt: true, phrase: { select: { tag: true, sortOrder: true } } },
   });
 
   clips.sort((a, b) => a.phrase.tag.localeCompare(b.phrase.tag) || a.phrase.sortOrder - b.phrase.sortOrder);
@@ -197,20 +225,32 @@ export async function getClipManifest(sessionProvider: string): Promise<ClipMani
       phraseId: c.phraseId,
       tag: c.phrase.tag,
       text: c.text,
-      url: `/api/ai/voice-clips/audio?voiceId=${encodeURIComponent(target.voiceId)}&phraseId=${encodeURIComponent(c.phraseId)}&v=${c.updatedAt.getTime()}`,
+      // CDN URL, versioned by the media provider — changes on regeneration.
+      url: c.url,
       updatedAt: c.updatedAt.toISOString(),
     })),
   };
 }
 
-export async function getClipAudio(
-  voiceId: string,
-  phraseId: string
-): Promise<{ audio: Buffer; contentType: string; updatedAt: Date } | null> {
+/** Stored CDN URL for one clip (the /audio route 302s to it). */
+export async function getClipUrl(voiceId: string, phraseId: string): Promise<string | null> {
   const clip = await prisma.voiceClip.findUnique({
     where: { voiceId_phraseId: { voiceId, phraseId } },
-    select: { audio: true, contentType: true, updatedAt: true },
+    select: { url: true },
   });
-  if (!clip) return null;
-  return { audio: Buffer.from(clip.audio), contentType: clip.contentType, updatedAt: clip.updatedAt };
+  return clip?.url ?? null;
+}
+
+/** Best-effort media-pipeline cleanup for a phrase's rendered clips. */
+export async function deletePhraseClipAssets(phraseId: string): Promise<void> {
+  const clips = await prisma.voiceClip.findMany({ where: { phraseId }, select: { publicId: true } });
+  const provider = getMediaProvider();
+  for (const clip of clips) {
+    try {
+      // Audio assets are Cloudinary's 'video' resource type.
+      await provider.delete(clip.publicId, { resourceType: 'video' });
+    } catch (error) {
+      console.warn(`[voice-clips] asset cleanup failed for ${clip.publicId} (continuing):`, error);
+    }
+  }
 }
