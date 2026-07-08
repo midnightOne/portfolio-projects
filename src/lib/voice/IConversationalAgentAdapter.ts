@@ -170,7 +170,11 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
         .then(async (res) => {
           const data = await res.json().catch(() => null);
           const cid = data?.metadata?.conversationId;
-          if (typeof cid === 'string' && cid && cid !== this._persistedConversationId) {
+          // Fire on EVERY response carrying an id, not only on change: the UI
+          // resets its copy on reconnect, while a same-adapter reconnect keeps
+          // the same conversation — an on-change guard would never re-sync it.
+          // The listener's setState is idempotent, so repeats are free.
+          if (typeof cid === 'string' && cid) {
             this._persistedConversationId = cid;
             this._options?.onConversationPersisted?.(cid);
           }

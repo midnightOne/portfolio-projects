@@ -74,7 +74,12 @@ export function ConversationBrowser() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
-  const load = useCallback(async (nextOffset: number) => {
+  // `overrides` lets a caller fetch with filter values that differ from state
+  // (clearFilters — the state updates haven't re-memoized this callback yet).
+  const load = useCallback(async (nextOffset: number, overrides?: {
+    idQuery?: string; provider?: string; contentQuery?: string; startDate?: string; endDate?: string;
+  }) => {
+    const f = { idQuery, provider, contentQuery, startDate, endDate, ...overrides };
     setLoading(true);
     setError(null);
     try {
@@ -83,15 +88,15 @@ export function ConversationBrowser() {
       params.set('offset', String(nextOffset));
       // An id query may be either a conversationId (cuid) or a sessionId — try
       // conversationId first; if that yields nothing, the caller can switch.
-      const trimmed = idQuery.trim();
+      const trimmed = f.idQuery.trim();
       if (trimmed) {
         if (trimmed.startsWith('session_')) params.set('sessionId', trimmed);
         else params.set('conversationId', trimmed);
       }
-      if (provider !== 'all') params.set('provider', provider);
-      if (contentQuery.trim()) params.set('q', contentQuery.trim());
-      if (startDate) params.set('startDate', new Date(startDate).toISOString());
-      if (endDate) params.set('endDate', new Date(endDate).toISOString());
+      if (f.provider !== 'all') params.set('provider', f.provider);
+      if (f.contentQuery.trim()) params.set('q', f.contentQuery.trim());
+      if (f.startDate) params.set('startDate', new Date(f.startDate).toISOString());
+      if (f.endDate) params.set('endDate', new Date(f.endDate).toISOString());
 
       const res = await fetch(`/api/admin/ai/conversations/browse?${params.toString()}`);
       const json = await res.json();
@@ -120,8 +125,9 @@ export function ConversationBrowser() {
     setContentQuery('');
     setStartDate('');
     setEndDate('');
-    // Reload with cleared filters on the next tick (state batches).
-    setTimeout(() => load(0), 0);
+    // Pass the cleared values explicitly — the memoized `load` in this closure
+    // still carries the pre-clear state.
+    load(0, { idQuery: '', provider: 'all', contentQuery: '', startDate: '', endDate: '' });
   };
 
   const page = Math.floor(offset / PAGE_SIZE) + 1;

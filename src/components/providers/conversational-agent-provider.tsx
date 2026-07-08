@@ -529,6 +529,13 @@ export function ConversationalAgentProvider({
       return;
     }
 
+    // A fresh session persists under a new DB conversation — drop the previous
+    // id so the debug chip can't show a stale one. Resume keeps it: the legs
+    // continue under the same conversation.
+    if (!options?.resumeFromSessionId) {
+      setConversationId(null);
+    }
+
     console.log('Calling adapter.connect()...');
     await currentAdapter.connect(options);
     setAudioInputMode(currentAdapter.getAudioInputMode());

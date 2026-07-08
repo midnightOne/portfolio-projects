@@ -887,10 +887,12 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
         throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
       }
 
-      // Capture the DB conversationId for debug display / later lookup.
+      // Capture the DB conversationId for debug display / later lookup. Fires
+      // on every response (not only on change) so a UI that reset its copy on
+      // reconnect re-syncs — see _postConversationLog in the base adapter.
       const logData = await response.json().catch(() => null);
       const cid = logData?.metadata?.conversationId;
-      if (typeof cid === 'string' && cid && cid !== this._persistedConversationId) {
+      if (typeof cid === 'string' && cid) {
         this._persistedConversationId = cid;
         this._options?.onConversationPersisted?.(cid);
       }
