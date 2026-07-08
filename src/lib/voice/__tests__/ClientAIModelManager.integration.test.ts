@@ -175,9 +175,11 @@ describeOrSkip('ClientAIModelManager Integration Tests', () => {
     const deleted = await manager.deleteProviderConfig('openai', 'TestDelete');
     expect(deleted).toBe(true);
     
-    // Verify it's gone
+    // Verify it's gone: getProviderConfig never returns null — a deleted row
+    // resolves to the serializer's synthetic default instead.
     retrieved = await manager.getProviderConfig('openai', 'TestDelete');
-    expect(retrieved).toBeNull();
+    expect(retrieved.id).toBe('default-openai');
+    expect(retrieved.isDefault).toBe(true);
     
     // Verify it's gone from database
     const dbRecord = await prisma.voiceProviderConfig.findUnique({

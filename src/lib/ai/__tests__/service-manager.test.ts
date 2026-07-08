@@ -4,6 +4,7 @@
 
 import { AIServiceManager } from '../service-manager';
 import { ProviderFactory } from '../provider-factory';
+import { AIStatusCache } from '../status-cache';
 
 // Mock Prisma
 jest.mock('@prisma/client', () => ({
@@ -23,6 +24,15 @@ jest.mock('@prisma/client', () => ({
 jest.mock('../providers/openai-provider');
 jest.mock('../providers/anthropic-provider');
 
+// Content editing rides the D39 reasoning-adapter layer (not provider.chat)
+const mockAdapterChat = jest.fn();
+jest.mock('../reasoning', () => ({
+  getReasoningAdapterForAliasOrModel: jest.fn(async () => ({ chat: mockAdapterChat })),
+}));
+jest.mock('../pricing', () => ({
+  estimateCost: jest.fn(async () => 0.001),
+}));
+
 describe('AIServiceManager', () => {
   let serviceManager: AIServiceManager;
   let mockOpenAIProvider: any;
@@ -32,6 +42,8 @@ describe('AIServiceManager', () => {
     // Reset environment variables
     delete process.env.OPENAI_API_KEY;
     delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.GOOGLE_API_KEY;
+    delete process.env.GEMINI_API_KEY;
     
     // Create mock providers
     mockOpenAIProvider = {
@@ -54,7 +66,11 @@ describe('AIServiceManager', () => {
     
     // Mock ProviderFactory
     jest.spyOn(ProviderFactory, 'createAvailableProviders').mockReturnValue(new Map());
-    
+
+    // The status cache is a module singleton — stale entries from one test
+    // would satisfy the next test's lookups.
+    AIStatusCache.getInstance().clear();
+
     serviceManager = new AIServiceManager();
   });
 
@@ -66,8 +82,8 @@ describe('AIServiceManager', () => {
     it('should return status for all provider types even when not configured', async () => {
       const statuses = await serviceManager.getAvailableProviders();
       
-      expect(statuses).toHaveLength(2);
-      expect(statuses.map(s => s.name)).toEqual(['openai', 'anthropic']);
+      expect(statuses).toHaveLength(3);
+      expect(statuses.map(s => s.name)).toEqual(['openai', 'anthropic', 'google']);
       expect(statuses.every(s => !s.configured)).toBe(true);
       expect(statuses.every(s => !s.connected)).toBe(true);
     });
@@ -154,17 +170,16 @@ describe('AIServiceManager', () => {
     });
 
     it('should edit content successfully', async () => {
-      mockOpenAIProvider.chat.mockResolvedValue({
+      mockAdapterChat.mockResolvedValue({
         content: JSON.stringify({
           newText: 'Improved content',
           reasoning: 'Made it better',
           confidence: 0.9,
           warnings: []
         }),
-        model: 'gpt-4o',
-        tokensUsed: 100,
-        cost: 0.001,
-        finishReason: 'stop'
+        provider: 'openai',
+        modelId: 'gpt-4o',
+        usage: { inputTokens: 60, outputTokens: 40 }
       });
 
       const request = {
@@ -188,7 +203,7 @@ describe('AIServiceManager', () => {
     });
 
     it('should handle content editing errors gracefully', async () => {
-      mockOpenAIProvider.chat.mockRejectedValue(new Error('API Error'));
+      mockAdapterChat.mockRejectedValue(new Error('API Error'));
 
       const request = {
         model: 'gpt-4o',
@@ -205,12 +220,15 @@ describe('AIServiceManager', () => {
       const result = await serviceManager.editContent(request);
       
       expect(result.success).toBe(false);
-      expect(result.reasoning).toContain('Content editing failed');
-      expect(result.warnings).toContain('AI content editing is currently unavailable');
+      // AIErrorHandler maps unknown provider errors to a generic message with
+      // recovery suggestions — no raw error text leaks to the caller.
+      expect(result.reasoning).toBe('Internal system error');
+      expect(result.warnings.length).toBeGreaterThan(0);
+      expect(result.changes).toEqual({});
     });
 
     it('should suggest tags successfully', async () => {
-      mockOpenAIProvider.chat.mockResolvedValue({
+      mockAdapterChat.mockResolvedValue({
         content: JSON.stringify({
           suggestions: {
             add: [
@@ -222,10 +240,9 @@ describe('AIServiceManager', () => {
           },
           reasoning: 'Analysis complete'
         }),
-        model: 'gpt-4o',
-        tokensUsed: 50,
-        cost: 0.0005,
-        finishReason: 'stop'
+        provider: 'openai',
+        modelId: 'gpt-4o',
+        usage: { inputTokens: 30, outputTokens: 20 }
       });
 
       const request = {

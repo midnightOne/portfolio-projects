@@ -69,9 +69,11 @@ describe('UnifiedToolRegistry', () => {
 
   describe('Tool Retrieval', () => {
     it('should get tool definition by name', () => {
-      const tool = registry.getToolDefinition('navigateTo');
+      // ui_intent is the D18 declarative navigation tool (imperative
+      // navigateTo & friends are deleted).
+      const tool = registry.getToolDefinition('ui_intent');
       expect(tool).toBeDefined();
-      expect(tool?.name).toBe('navigateTo');
+      expect(tool?.name).toBe('ui_intent');
       expect(tool?.executionContext).toBe('client');
     });
 
@@ -182,7 +184,8 @@ describe('UnifiedToolRegistry', () => {
 
   describe('Utility Methods', () => {
     it('should check if tool exists', () => {
-      expect(registry.hasToolDefinition('navigateTo')).toBe(true);
+      expect(registry.hasToolDefinition('ui_intent')).toBe(true);
+      expect(registry.hasToolDefinition('navigateTo')).toBe(false); // deleted (D18)
       expect(registry.hasToolDefinition('nonExistentTool')).toBe(false);
     });
 

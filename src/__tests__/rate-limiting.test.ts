@@ -38,6 +38,15 @@ jest.mock('@/lib/prisma', () => ({
       count: jest.fn(),
       updateMany: jest.fn(),
     },
+    aIIPWhitelist: {
+      // resolves null by default: an unmocked lookup must read as "not
+      // whitelisted", not undefined (undefined !== null → whitelisted)
+      findUnique: jest.fn().mockResolvedValue(null),
+      upsert: jest.fn(),
+      delete: jest.fn(),
+      deleteMany: jest.fn(),
+      findMany: jest.fn(),
+    },
     aIIPBlacklist: {
       findUnique: jest.fn(),
       create: jest.fn(),

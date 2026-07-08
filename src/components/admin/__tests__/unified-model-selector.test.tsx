@@ -1,5 +1,10 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render as rtlRender, screen, waitFor, fireEvent } from '@testing-library/react';
+import React from 'react';
 import { UnifiedModelSelector } from '../unified-model-selector';
+import { ToastProvider } from '@/components/ui/toast';
+
+// The component calls useToast, which requires the app's ToastProvider.
+const render = (ui: React.ReactElement) => rtlRender(ui, { wrapper: ToastProvider });
 
 // Mock fetch globally
 global.fetch = jest.fn();

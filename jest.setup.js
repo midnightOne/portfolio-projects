@@ -5,6 +5,30 @@ import { TextEncoder, TextDecoder } from 'util'
 global.TextEncoder = TextEncoder
 global.TextDecoder = TextDecoder
 
+// WHATWG web classes for the jsdom environment: next/server (NextRequest/
+// NextResponse) extends Request/Response at import time, and jsdom ships
+// neither. Node's own fetch globals aren't injected into the jsdom sandbox,
+// so pull the same implementations from undici.
+if (typeof globalThis.ReadableStream === 'undefined') {
+  const { ReadableStream, WritableStream, TransformStream } = require('node:stream/web')
+  globalThis.ReadableStream = ReadableStream
+  globalThis.WritableStream = WritableStream
+  globalThis.TransformStream = TransformStream
+}
+if (typeof globalThis.MessagePort === 'undefined') {
+  const { MessagePort, MessageChannel } = require('node:worker_threads')
+  globalThis.MessagePort = MessagePort
+  globalThis.MessageChannel = MessageChannel
+}
+if (typeof globalThis.Request === 'undefined') {
+  const { Request, Response, Headers, FormData, File } = require('undici')
+  globalThis.Request = Request
+  globalThis.Response = Response
+  globalThis.Headers = Headers
+  if (typeof globalThis.FormData === 'undefined') globalThis.FormData = FormData
+  if (typeof globalThis.File === 'undefined') globalThis.File = File
+}
+
 // Mock fetch for tests
 global.fetch = jest.fn()
 

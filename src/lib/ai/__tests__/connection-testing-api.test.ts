@@ -12,22 +12,6 @@
 
 import { AIServiceManager } from '@/lib/ai/service-manager';
 import { ProviderFactory } from '@/lib/ai/provider-factory';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { describe } from 'node:test';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { it } from 'zod/v4/locales';
-import { describe } from 'node:test';
-import { beforeEach } from 'node:test';
-import { describe } from 'node:test';
 
 // Mock the provider factory and providers
 jest.mock('@/lib/ai/provider-factory');
@@ -138,7 +122,7 @@ describe('AI Connection Testing', () => {
       expect(result.success).toBe(false);
       expect(result.message).toContain('Rate limit exceeded for openai');
       expect(result.error?.code).toBe('RATE_LIMIT_EXCEEDED');
-      expect(result.error?.actionable).toBe(false); // Rate limits are not considered actionable by user
+      expect(result.error?.actionable).toBe(true); // AIErrorHandler: waiting and retrying is a user action
     });
 
     it('should handle network errors', async () => {
@@ -152,7 +136,7 @@ describe('AI Connection Testing', () => {
       expect(result.success).toBe(false);
       expect(result.message).toContain('Network error connecting to anthropic');
       expect(result.error?.code).toBe('NETWORK_ERROR');
-      expect(result.error?.actionable).toBe(false);
+      expect(result.error?.actionable).toBe(true); // AIErrorHandler: checking connectivity is a user action
     });
 
     it('should handle connection test returning false', async () => {
@@ -162,8 +146,9 @@ describe('AI Connection Testing', () => {
       const result = await aiService.testConnection('openai');
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('Connection test failed for openai');
-      expect(result.error?.code).toBe('CONNECTION_FAILED');
+      // Unclassifiable failures map to the generic message — no internals leak
+      expect(result.message).toBe('Internal system error');
+      expect(result.error?.code).toBe('INTERNAL_ERROR');
       expect(mockOpenAIProvider.testConnection).toHaveBeenCalled();
     });
 
@@ -175,8 +160,8 @@ describe('AI Connection Testing', () => {
       const result = await aiService.testConnection('anthropic');
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('Connection failed: Unknown error');
-      expect(result.error?.code).toBe('UNKNOWN_ERROR');
+      expect(result.message).toBe('Internal system error');
+      expect(result.error?.code).toBe('INTERNAL_ERROR');
       expect(result.error?.actionable).toBe(false);
     });
   });
@@ -201,7 +186,7 @@ describe('AI Connection Testing', () => {
       const result = await aiService.testConnection('openai');
 
       expect(result.error?.code).toBe('RATE_LIMIT_EXCEEDED');
-      expect(result.error?.actionable).toBe(false); // Rate limits are not considered actionable by user
+      expect(result.error?.actionable).toBe(true); // AIErrorHandler: waiting and retrying is a user action
     });
 
     it('should classify network errors correctly', async () => {
@@ -212,7 +197,7 @@ describe('AI Connection Testing', () => {
       const result = await aiService.testConnection('openai');
 
       expect(result.error?.code).toBe('NETWORK_ERROR');
-      expect(result.error?.actionable).toBe(false);
+      expect(result.error?.actionable).toBe(true);
     });
 
     it('should classify 400 errors as BAD_REQUEST', async () => {

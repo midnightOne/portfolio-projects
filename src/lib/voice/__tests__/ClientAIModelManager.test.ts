@@ -183,12 +183,17 @@ describe('ClientAIModelManager', () => {
       expect(result!.config).toEqual(config);
     });
 
-    it('should return null for non-existent configuration', async () => {
+    it('should fall back to serializer defaults for non-existent configuration', async () => {
       (mockPrisma.voiceProviderConfig.findUnique as any).mockResolvedValue(null);
-      
+      (mockPrisma.voiceProviderConfig.findFirst as any).mockResolvedValue(null);
+
+      // getProviderConfig never returns null: a missing DB row yields the
+      // provider serializer's default config, marked as the synthetic default.
       const result = await manager.getProviderConfig('openai', 'NonExistent');
-      
-      expect(result).toBeNull();
+
+      expect(result.id).toBe('default-openai');
+      expect(result.isDefault).toBe(true);
+      expect(result.config).toEqual(new OpenAIRealtimeSerializer().getDefaultConfig());
     });
 
     it('should get all configurations for a provider', async () => {

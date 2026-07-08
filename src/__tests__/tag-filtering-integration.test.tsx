@@ -8,12 +8,6 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { NavigationBar } from '@/components/layout/navigation-bar';
 import { ProjectGrid } from '@/components/projects/project-grid';
 import type { Tag, ProjectWithRelations } from '@/lib/types/project';
-import { it } from 'node:test';
-import { it } from 'node:test';
-import { it } from 'node:test';
-import { it } from 'node:test';
-import { it } from 'node:test';
-import { describe } from 'node:test';
 
 // Mock framer-motion
 jest.mock('framer-motion', () => ({

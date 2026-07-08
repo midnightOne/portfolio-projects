@@ -1,5 +1,22 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render as rtlRender, screen, fireEvent, waitFor } from '@testing-library/react';
+import React from 'react';
 import { AIQuickActions, TextSelection, ProjectContext } from '../ai-quick-actions';
+import { ToastProvider } from '@/components/ui/toast';
+
+// The component calls useToast, which requires the app's ToastProvider.
+// It also gates its whole UI behind an async AI-availability check, so the
+// checker is mocked available and render() waits for the buttons to appear.
+jest.mock('@/lib/ai/availability-checker', () => ({
+  AIAvailabilityChecker: {
+    getInstance: () => ({ isAIEnabled: jest.fn().mockResolvedValue(true) }),
+  },
+}));
+
+const render = async (ui: React.ReactElement) => {
+  const result = rtlRender(ui, { wrapper: ToastProvider });
+  await screen.findByText('Make Professional');
+  return result;
+};
 
 // Mock the UnifiedModelSelector component
 jest.mock('../unified-model-selector', () => ({
@@ -40,8 +57,8 @@ describe('AIQuickActions', () => {
     (fetch as jest.Mock).mockClear();
   });
 
-  it('renders all quick action buttons', () => {
-    render(
+  it('renders all quick action buttons', async () => {
+    await render(
       <AIQuickActions
         projectContext={mockProjectContext}
         onApplyChanges={mockOnApplyChanges}
@@ -56,8 +73,8 @@ describe('AIQuickActions', () => {
     expect(screen.getByText('Suggest Tags')).toBeInTheDocument();
   });
 
-  it('shows model selector', () => {
-    render(
+  it('shows model selector', async () => {
+    await render(
       <AIQuickActions
         projectContext={mockProjectContext}
         onApplyChanges={mockOnApplyChanges}
@@ -67,8 +84,8 @@ describe('AIQuickActions', () => {
     expect(screen.getByTestId('model-selector')).toBeInTheDocument();
   });
 
-  it('displays selected text when provided', () => {
-    render(
+  it('displays selected text when provided', async () => {
+    await render(
       <AIQuickActions
         selectedText={mockSelectedText}
         projectContext={mockProjectContext}
@@ -81,8 +98,8 @@ describe('AIQuickActions', () => {
     expect(screen.getByText('12 characters selected')).toBeInTheDocument();
   });
 
-  it('disables text-based actions when no text is selected', () => {
-    render(
+  it('disables text-based actions when no text is selected', async () => {
+    await render(
       <AIQuickActions
         projectContext={mockProjectContext}
         onApplyChanges={mockOnApplyChanges}
@@ -104,8 +121,8 @@ describe('AIQuickActions', () => {
     expect(suggestTagsButton).toBeDisabled(); // Disabled because no model selected
   });
 
-  it('enables text-based actions when text is selected and model is chosen', () => {
-    render(
+  it('enables text-based actions when text is selected and model is chosen', async () => {
+    await render(
       <AIQuickActions
         selectedText={mockSelectedText}
         projectContext={mockProjectContext}
@@ -130,8 +147,8 @@ describe('AIQuickActions', () => {
     expect(improveButton).not.toBeDisabled();
   });
 
-  it('disables text-based actions when no text is selected', () => {
-    render(
+  it('disables text-based actions when no text is selected', async () => {
+    await render(
       <AIQuickActions
         projectContext={mockProjectContext}
         onApplyChanges={mockOnApplyChanges}
@@ -156,8 +173,8 @@ describe('AIQuickActions', () => {
     expect(improveButton).toBeDisabled();
   });
 
-  it('disables actions when no model is selected', () => {
-    render(
+  it('disables actions when no model is selected', async () => {
+    await render(
       <AIQuickActions
         selectedText={mockSelectedText}
         projectContext={mockProjectContext}
@@ -199,7 +216,7 @@ describe('AIQuickActions', () => {
       json: async () => mockResponse
     });
 
-    render(
+    await render(
       <AIQuickActions
         selectedText={mockSelectedText}
         projectContext={mockProjectContext}
@@ -264,7 +281,7 @@ describe('AIQuickActions', () => {
       json: async () => mockResponse
     });
 
-    render(
+    await render(
       <AIQuickActions
         projectContext={mockProjectContext}
         onApplyChanges={mockOnApplyChanges}
@@ -298,17 +315,18 @@ describe('AIQuickActions', () => {
   });
 
   it('displays preview after successful API call', async () => {
+    // The admin AI routes answer with a { success, data: {..., metadata} } envelope
     const mockResponse = {
       success: true,
-      changes: {
-        fullContent: 'This is improved professional content for the project.'
-      },
-      reasoning: 'Made the content more professional',
-      confidence: 0.9,
-      warnings: [],
-      model: 'gpt-4o',
-      tokensUsed: 50,
-      cost: 0.001
+      data: {
+        changes: {
+          fullContent: 'This is improved professional content for the project.'
+        },
+        reasoning: 'Made the content more professional',
+        confidence: 0.9,
+        warnings: [],
+        metadata: { model: 'gpt-4o', tokensUsed: 50, cost: 0.001 }
+      }
     };
 
     (fetch as jest.Mock).mockResolvedValueOnce({
@@ -316,7 +334,7 @@ describe('AIQuickActions', () => {
       json: async () => mockResponse
     });
 
-    render(
+    await render(
       <AIQuickActions
         selectedText={mockSelectedText}
         projectContext={mockProjectContext}
@@ -334,7 +352,7 @@ describe('AIQuickActions', () => {
 
     await waitFor(() => {
       expect(screen.getByText('AI Results Preview')).toBeInTheDocument();
-      expect(screen.getByText('Success')).toBeInTheDocument();
+      expect(screen.getByText('Completed')).toBeInTheDocument();
       expect(screen.getByText('Made the content more professional')).toBeInTheDocument();
       expect(screen.getByText('Apply Changes')).toBeInTheDocument();
       expect(screen.getByText('Discard')).toBeInTheDocument();
@@ -344,15 +362,15 @@ describe('AIQuickActions', () => {
   it('calls onApplyChanges when Apply Changes is clicked', async () => {
     const mockResponse = {
       success: true,
-      changes: {
-        fullContent: 'This is improved professional content for the project.'
-      },
-      reasoning: 'Made the content more professional',
-      confidence: 0.9,
-      warnings: [],
-      model: 'gpt-4o',
-      tokensUsed: 50,
-      cost: 0.001
+      data: {
+        changes: {
+          fullContent: 'This is improved professional content for the project.'
+        },
+        reasoning: 'Made the content more professional',
+        confidence: 0.9,
+        warnings: [],
+        metadata: { model: 'gpt-4o', tokensUsed: 50, cost: 0.001 }
+      }
     };
 
     (fetch as jest.Mock).mockResolvedValueOnce({
@@ -360,7 +378,7 @@ describe('AIQuickActions', () => {
       json: async () => mockResponse
     });
 
-    render(
+    await render(
       <AIQuickActions
         selectedText={mockSelectedText}
         projectContext={mockProjectContext}
@@ -385,13 +403,23 @@ describe('AIQuickActions', () => {
     const applyButton = screen.getByText('Apply Changes');
     fireEvent.click(applyButton);
 
-    expect(mockOnApplyChanges).toHaveBeenCalledWith(mockResponse);
+    // The component flattens the envelope into its AIQuickActionResult shape
+    expect(mockOnApplyChanges).toHaveBeenCalledWith({
+      success: true,
+      changes: { fullContent: 'This is improved professional content for the project.' },
+      reasoning: 'Made the content more professional',
+      confidence: 0.9,
+      warnings: [],
+      model: 'gpt-4o',
+      tokensUsed: 50,
+      cost: 0.001
+    });
   });
 
   it('handles API errors gracefully', async () => {
     (fetch as jest.Mock).mockRejectedValueOnce(new Error('Network error'));
 
-    render(
+    await render(
       <AIQuickActions
         selectedText={mockSelectedText}
         projectContext={mockProjectContext}
@@ -414,8 +442,8 @@ describe('AIQuickActions', () => {
     });
   });
 
-  it('shows selection required notice when no text is selected', () => {
-    render(
+  it('shows selection required notice when no text is selected', async () => {
+    await render(
       <AIQuickActions
         projectContext={mockProjectContext}
         onApplyChanges={mockOnApplyChanges}

@@ -4,10 +4,15 @@
  */
 
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render as rtlRender, screen } from '@testing-library/react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { AdminSidebar } from '@/components/admin/admin-sidebar';
+import { SidebarProvider } from '@/components/ui/sidebar';
+
+// AdminSidebar is built on the shadcn sidebar primitives, which require the
+// SidebarProvider context.
+const render = (ui: React.ReactElement) => rtlRender(ui, { wrapper: SidebarProvider });
 
 // Mock Next.js router
 jest.mock('next/navigation', () => ({

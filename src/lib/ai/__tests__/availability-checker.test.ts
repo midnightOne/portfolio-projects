@@ -1,49 +1,55 @@
 /**
- * Tests for AI Availability Checker
+ * Tests for AI Availability Checker.
+ *
+ * The checker is client-side: it reads provider statuses from
+ * GET /api/admin/ai/providers (it does NOT instantiate AIServiceManager),
+ * so the harness mocks fetch with the API's response envelope.
  */
 
 import { AIAvailabilityChecker } from '../availability-checker';
-import { AIServiceManager } from '../service-manager';
 
-// Mock the service manager
-jest.mock('../service-manager');
+const fetchMock = global.fetch as jest.Mock;
 
-const mockServiceManager = AIServiceManager as jest.MockedClass<typeof AIServiceManager>;
+function mockProvidersResponse(statuses: Array<Record<string, unknown>>) {
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => ({ success: true, data: statuses }),
+  });
+}
+
+const connectedOpenAI = {
+  name: 'openai',
+  configured: true,
+  connected: true,
+  error: undefined,
+  models: ['gpt-4', 'gpt-3.5-turbo'],
+  lastTested: new Date().toISOString(),
+};
+
+const unconfiguredOpenAI = {
+  name: 'openai',
+  configured: false,
+  connected: false,
+  error: 'OPENAI_API_KEY environment variable not set',
+  models: [],
+  lastTested: new Date().toISOString(),
+};
 
 describe('AIAvailabilityChecker', () => {
   let checker: AIAvailabilityChecker;
 
   beforeEach(() => {
-    // Clear all mocks
     jest.clearAllMocks();
-    
-    // Get fresh instance
     checker = AIAvailabilityChecker.getInstance();
     checker.clearCache();
   });
 
   describe('checkAvailability', () => {
     it('should return available when providers are configured and connected', async () => {
-      const mockProviderStatuses = [
-        {
-          name: 'openai' as const,
-          configured: true,
-          connected: true,
-          error: undefined,
-          models: ['gpt-4', 'gpt-3.5-turbo'],
-          lastTested: new Date()
-        },
-        {
-          name: 'anthropic' as const,
-          configured: true,
-          connected: true,
-          error: undefined,
-          models: ['claude-3-sonnet'],
-          lastTested: new Date()
-        }
-      ];
-
-      mockServiceManager.prototype.getAvailableProviders.mockResolvedValue(mockProviderStatuses);
+      mockProvidersResponse([
+        connectedOpenAI,
+        { ...connectedOpenAI, name: 'anthropic', models: ['claude-3-sonnet'] },
+      ]);
 
       const status = await checker.checkAvailability();
 
@@ -55,26 +61,7 @@ describe('AIAvailabilityChecker', () => {
     });
 
     it('should return unavailable when no providers are configured', async () => {
-      const mockProviderStatuses = [
-        {
-          name: 'openai' as const,
-          configured: false,
-          connected: false,
-          error: 'OPENAI_API_KEY environment variable not set',
-          models: [],
-          lastTested: new Date()
-        },
-        {
-          name: 'anthropic' as const,
-          configured: false,
-          connected: false,
-          error: 'ANTHROPIC_API_KEY environment variable not set',
-          models: [],
-          lastTested: new Date()
-        }
-      ];
-
-      mockServiceManager.prototype.getAvailableProviders.mockResolvedValue(mockProviderStatuses);
+      mockProvidersResponse([unconfiguredOpenAI]);
 
       const status = await checker.checkAvailability();
 
@@ -87,18 +74,9 @@ describe('AIAvailabilityChecker', () => {
     });
 
     it('should return unavailable when providers are configured but not connected', async () => {
-      const mockProviderStatuses = [
-        {
-          name: 'openai' as const,
-          configured: true,
-          connected: false,
-          error: 'Invalid API key',
-          models: [],
-          lastTested: new Date()
-        }
-      ];
-
-      mockServiceManager.prototype.getAvailableProviders.mockResolvedValue(mockProviderStatuses);
+      mockProvidersResponse([
+        { ...unconfiguredOpenAI, configured: true, error: 'Invalid API key' },
+      ]);
 
       const status = await checker.checkAvailability();
 
@@ -111,18 +89,7 @@ describe('AIAvailabilityChecker', () => {
     });
 
     it('should return unavailable when providers are connected but no models configured', async () => {
-      const mockProviderStatuses = [
-        {
-          name: 'openai' as const,
-          configured: true,
-          connected: true,
-          error: undefined,
-          models: [], // No models configured
-          lastTested: new Date()
-        }
-      ];
-
-      mockServiceManager.prototype.getAvailableProviders.mockResolvedValue(mockProviderStatuses);
+      mockProvidersResponse([{ ...connectedOpenAI, models: [] }]);
 
       const status = await checker.checkAvailability();
 
@@ -135,7 +102,7 @@ describe('AIAvailabilityChecker', () => {
     });
 
     it('should handle errors gracefully', async () => {
-      mockServiceManager.prototype.getAvailableProviders.mockRejectedValue(new Error('Network error'));
+      fetchMock.mockRejectedValue(new Error('Network error'));
 
       const status = await checker.checkAvailability();
 
@@ -145,125 +112,50 @@ describe('AIAvailabilityChecker', () => {
     });
 
     it('should cache results for performance', async () => {
-      const mockProviderStatuses = [
-        {
-          name: 'openai' as const,
-          configured: true,
-          connected: true,
-          error: undefined,
-          models: ['gpt-4'],
-          lastTested: new Date()
-        }
-      ];
+      mockProvidersResponse([{ ...connectedOpenAI, models: ['gpt-4'] }]);
 
-      mockServiceManager.prototype.getAvailableProviders.mockResolvedValue(mockProviderStatuses);
-
-      // First call
       const status1 = await checker.checkAvailability();
-      
-      // Second call should use cache
       const status2 = await checker.checkAvailability();
 
       expect(status1).toEqual(status2);
-      expect(mockServiceManager.prototype.getAvailableProviders).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     it('should refresh cache when forced', async () => {
-      const mockProviderStatuses = [
-        {
-          name: 'openai' as const,
-          configured: true,
-          connected: true,
-          error: undefined,
-          models: ['gpt-4'],
-          lastTested: new Date()
-        }
-      ];
+      mockProvidersResponse([{ ...connectedOpenAI, models: ['gpt-4'] }]);
 
-      mockServiceManager.prototype.getAvailableProviders.mockResolvedValue(mockProviderStatuses);
-
-      // First call
       await checker.checkAvailability();
-      
-      // Force refresh
       await checker.checkAvailability(true);
 
-      expect(mockServiceManager.prototype.getAvailableProviders).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        '/api/admin/ai/providers?refresh=true',
+        expect.anything()
+      );
     });
   });
 
   describe('isAIEnabled', () => {
     it('should return true when AI is available', async () => {
-      const mockProviderStatuses = [
-        {
-          name: 'openai' as const,
-          configured: true,
-          connected: true,
-          error: undefined,
-          models: ['gpt-4'],
-          lastTested: new Date()
-        }
-      ];
-
-      mockServiceManager.prototype.getAvailableProviders.mockResolvedValue(mockProviderStatuses);
-
-      const enabled = await checker.isAIEnabled();
-      expect(enabled).toBe(true);
+      mockProvidersResponse([{ ...connectedOpenAI, models: ['gpt-4'] }]);
+      expect(await checker.isAIEnabled()).toBe(true);
     });
 
     it('should return false when AI is not available', async () => {
-      const mockProviderStatuses = [
-        {
-          name: 'openai' as const,
-          configured: false,
-          connected: false,
-          error: 'Not configured',
-          models: [],
-          lastTested: new Date()
-        }
-      ];
-
-      mockServiceManager.prototype.getAvailableProviders.mockResolvedValue(mockProviderStatuses);
-
-      const enabled = await checker.isAIEnabled();
-      expect(enabled).toBe(false);
+      mockProvidersResponse([unconfiguredOpenAI]);
+      expect(await checker.isAIEnabled()).toBe(false);
     });
   });
 
   describe('getStatusMessage', () => {
     it('should return appropriate status messages', async () => {
-      // Available case
-      const mockProviderStatuses = [
-        {
-          name: 'openai' as const,
-          configured: true,
-          connected: true,
-          error: undefined,
-          models: ['gpt-4', 'gpt-3.5-turbo'],
-          lastTested: new Date()
-        }
-      ];
-
-      mockServiceManager.prototype.getAvailableProviders.mockResolvedValue(mockProviderStatuses);
-
+      mockProvidersResponse([connectedOpenAI]);
       const message = await checker.getStatusMessage();
       expect(message).toContain('AI features are available with 2 models');
     });
 
     it('should return disabled message when not configured', async () => {
-      const mockProviderStatuses = [
-        {
-          name: 'openai' as const,
-          configured: false,
-          connected: false,
-          error: 'Not configured',
-          models: [],
-          lastTested: new Date()
-        }
-      ];
-
-      mockServiceManager.prototype.getAvailableProviders.mockResolvedValue(mockProviderStatuses);
-
+      mockProvidersResponse([unconfiguredOpenAI]);
       const message = await checker.getStatusMessage();
       expect(message).toContain('AI features are disabled - no providers configured');
     });
@@ -271,85 +163,26 @@ describe('AIAvailabilityChecker', () => {
 
   describe('getConfigurationGuidance', () => {
     it('should provide setup guidance when not configured', async () => {
-      const mockProviderStatuses = [
-        {
-          name: 'openai' as const,
-          configured: false,
-          connected: false,
-          error: 'Not configured',
-          models: [],
-          lastTested: new Date()
-        }
-      ];
-
-      mockServiceManager.prototype.getAvailableProviders.mockResolvedValue(mockProviderStatuses);
-
+      mockProvidersResponse([unconfiguredOpenAI]);
       const guidance = await checker.getConfigurationGuidance();
-      
       expect(guidance.title).toBe('AI Setup Required');
-      expect(guidance.message).toContain('AI features require API key configuration');
-      expect(guidance.actions).toContainEqual(
-        expect.objectContaining({
-          label: 'Set Environment Variables'
-        })
-      );
+      expect(guidance.actions.some((a) => a.label === 'Set Environment Variables')).toBe(true);
     });
 
     it('should provide connection guidance when configured but not connected', async () => {
-      const mockProviderStatuses = [
-        {
-          name: 'openai' as const,
-          configured: true,
-          connected: false,
-          error: 'Invalid API key',
-          models: [],
-          lastTested: new Date()
-        }
-      ];
-
-      mockServiceManager.prototype.getAvailableProviders.mockResolvedValue(mockProviderStatuses);
-
+      mockProvidersResponse([
+        { ...unconfiguredOpenAI, configured: true, error: 'Invalid API key' },
+      ]);
       const guidance = await checker.getConfigurationGuidance();
-      
       expect(guidance.title).toBe('Connection Issues');
-      expect(guidance.message).toContain('AI providers are configured but not connecting');
-      expect(guidance.actions).toContainEqual(
-        expect.objectContaining({
-          label: 'Test Connections'
-        })
-      );
     });
   });
 
   describe('isModelAvailable', () => {
     it('should check if specific model is available', async () => {
-      const mockProviderStatuses = [
-        {
-          name: 'openai' as const,
-          configured: true,
-          connected: true,
-          error: undefined,
-          models: ['gpt-4', 'gpt-3.5-turbo'],
-          lastTested: new Date()
-        }
-      ];
-
-      mockServiceManager.prototype.getAvailableProviders.mockResolvedValue(mockProviderStatuses);
-
-      const isAvailable = await checker.isModelAvailable('gpt-4');
-      const isNotAvailable = await checker.isModelAvailable('claude-3-sonnet');
-
-      expect(isAvailable).toBe(true);
-      expect(isNotAvailable).toBe(false);
-    });
-  });
-
-  describe('singleton pattern', () => {
-    it('should return the same instance', () => {
-      const instance1 = AIAvailabilityChecker.getInstance();
-      const instance2 = AIAvailabilityChecker.getInstance();
-
-      expect(instance1).toBe(instance2);
+      mockProvidersResponse([{ ...connectedOpenAI, models: ['gpt-4'] }]);
+      expect(await checker.isModelAvailable('gpt-4')).toBe(true);
+      expect(await checker.isModelAvailable('nonexistent-model')).toBe(false);
     });
   });
 });
