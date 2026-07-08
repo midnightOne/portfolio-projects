@@ -51,8 +51,11 @@ Postgres-backed rate-limit tables + engine (`rate-limiter.ts`) — **built but u
   - [x] 7.1 `AccessAndSpendPanel` on `/admin/ai/rate-limiting`: watchdog status/caps/toggles/re-enable/trip history, public access knobs, per-feature ledger gauges. UI rendered but not yet driven in a browser session (API-level verified).
   - _Requirements: 8_
 
-- [ ] 8. Voice session caps — *with `ai-assistant` (Phase 4 voice work)*
-  - [ ] 8.1 Duration caps enforced at token mint for all voice providers
+- [x] 8. Voice session caps + reflink leak containment — **done 2026-07-08 (Phase 4 Block C), live-drilled**
+  - [x] 8.1 Duration caps at every mint. **Google:** already server-enforced (ephemeral-token `expireTime` from `maxSessionSeconds`). **OpenAI:** `maxSessionSeconds` added to config (default 900, zod-floored at 30); the mint reports it (`max_session_seconds` + honest `expires_at` — the fictional "15 minutes" removed) and the ADAPTER enforces it (auto-disconnect, D49 leg `endReason: 'duration_cap'`) because OpenAI's client secret cannot terminate a running session — their ~60-min realtime limit is the hard backstop. **Cascade:** same config field + adapter timer; per-request gateway budgets are its server-side bound. **Drilled live:** 30s cap → auto-disconnect at ~30s, leg recorded `duration_cap`.
+  - [x] 8.2 Reflink leak containment (backlog items (a)+(b), owner 2026-07-06): `AIReflink` gains `boundIpHashes[]` (raw IPs never stored, Req 9), `maxIps` (default 3), `perIpDailyLimit` (default 300, admin-tunable per link); migration `20260708042026`. Gateway step 4: unknown IP with a full allowlist → 403 `REFLINK_IP_LIMIT` + security-notifier warning (binding check fails OPEN — the reflink already validated and the windows below still bound damage); per-IP `reflink_ip_day` window keyed `reflinkId:hashedIp`. **Drilled live:** full binding → 403 + notify path; open binding → IP bound on first use (DB-verified); perIpDailyLimit=2 → third call 429.
+  - **Found & fixed in the drill (pre-existing D49 5b bug):** `getOrCreateConversationId`'s check-then-create raced when session_start and the first transcript post arrived together — one session split across TWO conversations (legs in one, turns in the other; 5 historical dupes found and merged). `AIConversation.sessionId` is now UNIQUE (migration `20260708044500`) with catch-P2002-and-adopt semantics.
+  - `reflink-status-indicator.tsx` HOLD resolved: DELETED (never mounted, no design references it; the pill + ReflinkTestPanel cover the need).
   - _Requirements: 2.4_
 
 ## Shipped additions

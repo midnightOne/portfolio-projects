@@ -410,6 +410,54 @@ export function withAIGateway(
       }
 
       if (ctx.tier === 'reflink' && ctx.reflink) {
+        // Leak containment (access-and-cost task 8, owner backlog (a)+(b)): a
+        // leaked link must not open premium access to the whole internet.
+        // (a) The link binds to its first maxIps distinct hashed IPs; excess
+        // IPs are rejected and the owner notified (raw IPs never stored, Req 9).
+        let perIpDailyLimit = 300;
+        try {
+          const row = await prisma.aIReflink.findUnique({
+            where: { id: ctx.reflink.id },
+            select: { boundIpHashes: true, maxIps: true, perIpDailyLimit: true },
+          });
+          if (row) {
+            perIpDailyLimit = row.perIpDailyLimit;
+            if (!row.boundIpHashes.includes(hashedIp)) {
+              if (row.boundIpHashes.length >= row.maxIps) {
+                try {
+                  const { securityNotifier } = await import('@/lib/services/ai/security-notifier');
+                  await securityNotifier.notifyWarning(
+                    'reflink',
+                    `Reflink ${ctx.reflink.code} rejected a new IP — its ${row.maxIps}-IP binding is full (possible leak)`,
+                    { endpoint: req.nextUrl.pathname, metadata: { reflinkId: ctx.reflink.id, hashedIp } }
+                  );
+                } catch (notifyError) {
+                  console.error('[gateway] reflink-IP rejection notify failed:', notifyError);
+                }
+                return reject(403, 'REFLINK_IP_LIMIT', 'This invitation link has reached its device limit.');
+              }
+              // Small race window between concurrent first uses can overshoot
+              // by one — bounded and acceptable for containment purposes.
+              await prisma.aIReflink.update({
+                where: { id: ctx.reflink.id },
+                data: { boundIpHashes: { push: hashedIp } },
+              });
+            }
+          }
+        } catch (error) {
+          // Fail OPEN for the binding only: the reflink already validated, and
+          // the per-IP + daily windows below still bound the damage.
+          console.error('[gateway] reflink IP containment check failed (continuing):', error);
+        }
+
+        // (b) Per-IP sub-limit WITHIN the reflink (admin-tunable per link).
+        const ipDay = await bumpWindow(`${ctx.reflink.id}:${hashedIp}`, 'reflink_ip_day', 24 * 60 * 60 * 1000, perIpDailyLimit);
+        if (!ipDay.allowed) {
+          return reject(429, 'RATE_LIMITED', 'Daily limit reached for this device.', {
+            retryAfterSeconds: ipDay.retryAfterSeconds,
+          });
+        }
+
         const day = await bumpWindow(ctx.reflink.id, 'reflink_day', 24 * 60 * 60 * 1000, 1000);
         if (!day.allowed) {
           return reject(429, 'RATE_LIMITED', 'Daily limit reached for this invitation.', {

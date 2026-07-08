@@ -27,6 +27,10 @@ interface OpenAISessionResponse {
   expires_at: string;
   model: string;
   voice: string;
+  /** Session duration cap in seconds (task 8 / Req 2.4) — the adapter
+   *  auto-disconnects at this bound (OpenAI's client secret cannot kill a
+   *  running session; its ~60-min realtime limit is the hard backstop). */
+  max_session_seconds: number;
 }
 
 async function handleGET(request: NextRequest, ctx: GatewayContext) {
@@ -386,8 +390,11 @@ LANGUAGE POLICY (strict):
     // Generate session ID for tracking
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
-    // Calculate expiration (OpenAI sessions typically expire in 15 minutes)
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    // Duration cap (task 8 / Req 2.4) — expires_at reflects the REAL cap the
+    // adapter enforces, not a fictional 15 minutes. Older DB rows may predate
+    // the field, hence the fallback.
+    const maxSessionSeconds = defaultConfig.maxSessionSeconds || 900;
+    const expiresAt = new Date(Date.now() + maxSessionSeconds * 1000).toISOString();
 
     // Ledger row for the mint event (D32). Realtime session spend is metered
     // per-leg when voice telemetry lands (Phase 4 / D49); the mint itself is $0.
@@ -395,7 +402,7 @@ LANGUAGE POLICY (strict):
       usageType: 'voice_session_mint',
       provider: 'openai',
       costUsd: 0,
-      metadata: { sessionId, model: defaultConfig.model },
+      metadata: { sessionId, model: defaultConfig.model, maxSessionSeconds },
     });
 
     const response: OpenAISessionResponse = {
@@ -403,7 +410,8 @@ LANGUAGE POLICY (strict):
       session_id: sessionId,
       expires_at: expiresAt,
       model: defaultConfig.model,
-      voice: defaultConfig.sessionConfig.audio.output.voice
+      voice: defaultConfig.sessionConfig.audio.output.voice,
+      max_session_seconds: maxSessionSeconds
     };
 
     // Log session creation (without sensitive data)
@@ -733,13 +741,15 @@ LANGUAGE POLICY (strict):
 
     const sessionData = await sessionResponse.json();
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    // Duration cap (task 8 / Req 2.4) — same enforcement contract as GET.
+    const maxSessionSeconds = defaultConfig.maxSessionSeconds || 900;
+    const expiresAt = new Date(Date.now() + maxSessionSeconds * 1000).toISOString();
 
     await ctx.meter({
       usageType: 'voice_session_mint',
       provider: 'openai',
       costUsd: 0,
-      metadata: { sessionId, model: defaultConfig.model },
+      metadata: { sessionId, model: defaultConfig.model, maxSessionSeconds },
     });
 
     const response: OpenAISessionResponse = {
@@ -747,7 +757,8 @@ LANGUAGE POLICY (strict):
       session_id: sessionId,
       expires_at: expiresAt,
       model: defaultConfig.model,
-      voice: defaultConfig.sessionConfig.audio.output.voice
+      voice: defaultConfig.sessionConfig.audio.output.voice,
+      max_session_seconds: maxSessionSeconds
     };
 
     return NextResponse.json(response);

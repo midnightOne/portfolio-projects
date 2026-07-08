@@ -343,6 +343,14 @@ model AIReflink {
   spendUsed                Decimal          @default(0.00) @map("spend_used") @db.Decimal(12, 6)
   tokenLimit               Int?             @map("token_limit")
   tokensUsed               Int              @default(0) @map("tokens_used")
+  // Leak containment (access-and-cost task 8, owner 2026-07-06): a leaked link
+  // must not open premium access to the whole internet. The link binds to its
+  // first maxIps distinct hashed IPs (raw IPs never stored — Req 9); excess
+  // IPs are rejected and the owner notified. perIpDailyLimit sub-caps each
+  // bound IP inside the reflink's own daily budget.
+  boundIpHashes            String[]         @default([]) @map("bound_ip_hashes")
+  maxIps                   Int              @default(3) @map("max_ips")
+  perIpDailyLimit          Int              @default(300) @map("per_ip_daily_limit")
   conversations            AIConversation[]
   jobAnalyses              AIJobAnalysis[]
   usageLogs                AIRateLimitLog[]
@@ -497,7 +505,12 @@ model AIModelPricing {
 model AIConversation {
   id            String                  @id @default(cuid())
   reflinkId     String?                 @map("reflink_id")
-  sessionId     String                  @map("session_id")
+  /// UNIQUE: one conversation per logical session. Concurrent first writes
+  /// (session_start + first transcript arrive together) raced the old
+  /// check-then-create in getOrCreateConversationId and split one session
+  /// across two conversations — legs in one, turns in the other (found by the
+  /// AC8 duration-cap drill, 2026-07-08).
+  sessionId     String                  @unique @map("session_id")
   messageCount  Int                     @default(0) @map("message_count")
   totalTokens   Int                     @default(0) @map("total_tokens")
   totalCost     Decimal                 @default(0.0000) @map("total_cost") @db.Decimal(10, 4)

@@ -134,6 +134,13 @@ export interface OpenAIRealtimeConfig extends BaseVoiceProviderConfig {
   voice: OpenAIVoice;
   temperature: number;
   maxTokens: number | 'inf';
+  /**
+   * Session duration cap in seconds (access-and-cost task 8 / Req 2.4).
+   * OpenAI's client secret cannot kill a RUNNING session, so the mint reports
+   * this cap and the adapter enforces it with an auto-disconnect (endReason
+   * 'duration_cap'); OpenAI's own ~60-min realtime limit is the hard backstop.
+   */
+  maxSessionSeconds: number;
   instructions: string;
   tools: OpenAIToolConfig[];
   sessionConfig: OpenAISessionConfig;
@@ -242,6 +249,9 @@ export interface GoogleLiveConfig extends BaseVoiceProviderConfig {
  */
 export interface CascadeConfig extends BaseVoiceProviderConfig {
   provider: 'cascade';
+  /** Session duration cap in seconds (task 8 / Req 2.4) — adapter-enforced
+   *  auto-disconnect; per-request gateway budgets are the server-side bound. */
+  maxSessionSeconds: number;
   /** STT model, alias-or-id (default 'default-stt'). Providers: openai transcription | elevenlabs Scribe. */
   sttModel: string;
   /** TTS model, alias-or-id (default 'default-tts'). Providers: openai speech | elevenlabs TTS. */
@@ -532,6 +542,7 @@ export const OpenAIRealtimeConfigSchema = BaseVoiceProviderConfigSchema.extend({
   voice: OpenAIVoiceSchema,
   temperature: z.number().min(0).max(2),
   maxTokens: z.union([z.number().positive(), z.literal('inf')]),
+  maxSessionSeconds: z.number().min(30).max(3600).default(900),
   instructions: z.string().min(1, 'Instructions are required'),
   tools: z.array(OpenAIToolConfigSchema),
   sessionConfig: OpenAISessionConfigSchema,
@@ -651,6 +662,7 @@ export const DEFAULT_OPENAI_CONFIG: OpenAIRealtimeConfig = {
   voice: 'alloy',
   temperature: 0.7,
   maxTokens: 'inf',
+  maxSessionSeconds: 900,
   // Fallback canary (owner-requested): this text only reaches a session when the
   // DB config failed to load — the DB row carries a distinct DATABASE marker.
   instructions: 'You are a helpful voice assistant for a portfolio website. If asked about your configuration source, say it was loaded from the CODE FALLBACK — the database configuration failed to load.',

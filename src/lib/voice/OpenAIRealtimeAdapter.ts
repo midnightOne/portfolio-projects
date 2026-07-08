@@ -91,6 +91,10 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     private _sessionId: string | null = null;
     /** 9b.5: when the current response's FIRST audio reached the speaker (output_audio_buffer.started). */
     private _turnFirstAudioAt: Date | null = null;
+    /** Task 8 duration cap: timer armed at connect from the mint's max_session_seconds. */
+    private _durationCapTimer: ReturnType<typeof setTimeout> | null = null;
+    /** D49 leg endReason for the next session_end ('duration_cap' when the cap fires). */
+    private _endReason: string = 'user_disconnect';
 
     // NAV_CONTEXT message tracking functionality
     private trackedNavItemIds: Set<string> = new Set();
@@ -1353,6 +1357,32 @@ Navigation Flow:
     }
 
     /**
+     * Duration cap enforcement (access-and-cost task 8 / Req 2.4). The mint
+     * reports the cap; OpenAI's client secret cannot terminate a RUNNING
+     * session, so the adapter disconnects at the bound (endReason
+     * 'duration_cap' on the D49 leg). OpenAI's own ~60-min realtime limit is
+     * the hard backstop behind this.
+     */
+    private _armDurationCap(maxSessionSeconds: number): void {
+        this._clearDurationCap();
+        this._durationCapTimer = setTimeout(() => {
+            if (!this._isConnected) return;
+            console.warn(`OpenAIRealtimeAdapter: session duration cap (${maxSessionSeconds}s) reached — disconnecting`);
+            this._endReason = 'duration_cap';
+            void this.disconnect().catch((err) =>
+                console.error('OpenAIRealtimeAdapter: duration-cap disconnect failed:', err)
+            );
+        }, maxSessionSeconds * 1000);
+    }
+
+    private _clearDurationCap(): void {
+        if (this._durationCapTimer) {
+            clearTimeout(this._durationCapTimer);
+            this._durationCapTimer = null;
+        }
+    }
+
+    /**
      * D49 resume — one code path for recovery and deliberate switches: write the
      * disruption marker, then reconnect with resumeFromSessionId so the mint
      * route briefs the new leg from ground truth. Two attempts, then give up
@@ -1754,6 +1784,10 @@ Navigation Flow:
             });
             this._startDisruptionWatcher();
 
+            // Duration cap from the mint (task 8 / Req 2.4): the client secret
+            // can't kill a running session, so the adapter enforces the cap.
+            this._armDurationCap(Number(mintResponse.max_session_seconds) || 900);
+
             // Initialize conversation tracking
             this._conversationStartTime = new Date();
             this._conversationAnalytics = {
@@ -1842,12 +1876,14 @@ Navigation Flow:
     }
 
     async disconnect(): Promise<void> {
+        this._clearDurationCap();
         if (this._session && this._isConnected) {
             try {
                 // D49: user-requested disconnect — not a disruption
                 this._intentionalDisconnect = true;
                 this._stopDisruptionWatcher();
-                this._logConnectionEvent('session_end', { provider: 'openai', endReason: 'user_disconnect' });
+                this._logConnectionEvent('session_end', { provider: 'openai', endReason: this._endReason });
+                this._endReason = 'user_disconnect';
 
                 // Report final conversation data before disconnecting
                 if (this._conversationAnalytics && this._conversationAnalytics.messageCount > 0) {

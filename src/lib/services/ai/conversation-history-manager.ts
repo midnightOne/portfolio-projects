@@ -512,8 +512,21 @@ export class ConversationHistoryManager {
             select: { id: true }
         });
         if (existing) return existing.id;
-        const created = await this.createConversation(sessionId, reflinkId, metadata);
-        return created.id;
+        try {
+            const created = await this.createConversation(sessionId, reflinkId, metadata);
+            return created.id;
+        } catch (error) {
+            // Concurrent first writes on a fresh session (session_start + the
+            // first transcript post) race this check-then-create; sessionId is
+            // UNIQUE, so the loser lands here — adopt the winner's conversation
+            // instead of splitting the session across two rows.
+            const winner = await prisma.aIConversation.findUnique({
+                where: { sessionId },
+                select: { id: true }
+            });
+            if (winner) return winner.id;
+            throw error;
+        }
     }
 
     // ---- D49 session continuity (task 5b) ----

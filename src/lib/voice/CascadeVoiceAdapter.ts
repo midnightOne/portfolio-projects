@@ -62,6 +62,10 @@ export class CascadeVoiceAdapter extends BaseConversationalAgentAdapter {
   /** Half-duplex guard: while true, VAD detection is suspended. */
   private _busy = false;
 
+  /** Task 8 duration cap: auto-disconnect at the configured bound (the
+   *  per-request gateway budgets are the server-side backstop here). */
+  private _durationCapTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor() {
     super('cascade', {
       provider: 'cascade',
@@ -139,6 +143,14 @@ export class CascadeVoiceAdapter extends BaseConversationalAgentAdapter {
       this._setConnectionStatus('connected');
       this._setSessionStatus(this._inputStream ? 'listening' : 'idle');
       this._handleConnectionEvent({ type: 'connected', provider: 'cascade', timestamp: new Date() });
+
+      // Duration cap (task 8 / Req 2.4): older DB rows may predate the field.
+      const capSeconds = this._config?.maxSessionSeconds || 900;
+      this._durationCapTimer = setTimeout(() => {
+        if (!this.isConnected()) return;
+        console.warn(`CascadeVoiceAdapter: session duration cap (${capSeconds}s) reached — disconnecting`);
+        void this.disconnect().catch((err) => console.error('Cascade duration-cap disconnect failed:', err));
+      }, capSeconds * 1000);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this._setConnectionStatus('error');
@@ -163,6 +175,10 @@ export class CascadeVoiceAdapter extends BaseConversationalAgentAdapter {
   }
 
   async disconnect(): Promise<void> {
+    if (this._durationCapTimer) {
+      clearTimeout(this._durationCapTimer);
+      this._durationCapTimer = null;
+    }
     this._stopListening();
     this._stopPlayback();
     if (this._ownsInputStream && this._inputStream) {

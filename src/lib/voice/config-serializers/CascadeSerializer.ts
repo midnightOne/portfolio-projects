@@ -84,6 +84,7 @@ export class CascadeSerializer implements VoiceConfigSerializer<CascadeConfig> {
       description:
         'D45 cascade family: mic → server STT → the same grounded text pipeline as text chat → server TTS. Robust tool calling; ~1–1.5s to first audio.',
       version: '1.0.0',
+      maxSessionSeconds: 900,
       sttModel: 'default-stt',
       ttsModel: 'default-tts',
       // OpenAI voice name for the default-tts alias; switch to an ElevenLabs
@@ -123,6 +124,14 @@ export class CascadeSerializer implements VoiceConfigSerializer<CascadeConfig> {
           title: 'TTS voice',
           description: 'OpenAI voice name (alloy, marin, …) or ElevenLabs voice id, matching the TTS model provider',
           default: 'alloy',
+        },
+        maxSessionSeconds: {
+          type: 'number',
+          title: 'Max session seconds',
+          description: 'Duration cap (task 8 / Req 2.4) — the adapter auto-disconnects at the cap',
+          default: 900,
+          minimum: 30,
+          maximum: 3600,
         },
         vad: {
           type: 'object',

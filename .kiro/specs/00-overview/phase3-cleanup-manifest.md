@@ -236,3 +236,13 @@ provider-agnostic without any client abstraction). ai-admin design §1/§5 corre
 - Surprise: PowerShell 5.1 `Get-Content -Raw` + `WriteAllText` on BOM-less UTF-8 sources mangles
   non-ASCII (em-dashes, arrows) - reverted and redone via targeted edits; any future scripted rewrite
   must read/write with explicit UTF-8 encoding.
+
+**Appended 2026-07-08 (AC8 drill):** `reflink-status-indicator.tsx` HOLD resolved - DELETED (never
+mounted; pill + ReflinkTestPanel cover it). Surprise: the AC8 duration-cap drill exposed a pre-existing
+D49 5b race - `getOrCreateConversationId` check-then-create split one session across two conversations
+when session_start and the first transcript arrived together (legs in one row, turns in the other; 5
+historical dupes merged). `AIConversation.sessionId` is now UNIQUE with adopt-on-conflict. Gotcha: the
+`ClientAIModelManager` 15-min config cache also bites config-driven DRILLS - patch the DB row BEFORE
+the dev server's first read of that provider config, or restart; and a drill value below a zod floor
+(maxSessionSeconds min 30) makes deserialize throw and the route silently falls back to serializer
+defaults - check the server log for "using fallback" before trusting a config-driven drill.
