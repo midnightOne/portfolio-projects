@@ -222,3 +222,17 @@ provider button + Test Configuration wiring in this same task.
 the Tiptap AI panel calls the endpoints directly; adapter-layer migration made the server side
 provider-agnostic without any client abstraction). ai-admin design §1/§5 corrected in the same change.
 
+
+
+**Appended 2026-07-08 (Phase 4 Block C, task 9 + prior-session review):**
+- `conversation-management.tsx` - DELETED (review follow-up): superseded by `ConversationsView`
+  (ConversationAdminTools + ConversationBrowser + ConversationTranscriptPanel); zero importers remained.
+- `ElevenLabsAdapter.ts` + `/api/ai/elevenlabs/token/route.ts` - DELETED at task 9.4 (D22 amendment
+  executed): the agent-platform adapter retired with the cascade shipping; ElevenLabs config rows and
+  serializer remain valid as TTS/STT-engine settings for the cascade.
+- Surprise: deleting an API route while the dev server is serving leaves a stale generated type in
+  `.next/types/app/api/...` that fails `type-check` with TS2307 - delete that one generated folder
+  (safe while serving; it is tsc-only input), do NOT `rm -rf .next`.
+- Surprise: PowerShell 5.1 `Get-Content -Raw` + `WriteAllText` on BOM-less UTF-8 sources mangles
+  non-ASCII (em-dashes, arrows) - reverted and redone via targeted edits; any future scripted rewrite
+  must read/write with explicit UTF-8 encoding.

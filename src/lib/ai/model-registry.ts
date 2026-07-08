@@ -14,7 +14,8 @@ export type ModelAliasName =
   | 'default-reasoning'
   | 'default-embedding'
   | 'default-realtime'
-  | 'default-tts';
+  | 'default-tts'
+  | 'default-stt';
 
 export interface ResolvedModel {
   alias: ModelAliasName;
@@ -79,6 +80,7 @@ async function inferProviderForModelId(modelId: string): Promise<string> {
   }
   if (modelId.startsWith('claude')) return 'anthropic';
   if (modelId.startsWith('gemini')) return 'google';
+  if (modelId.startsWith('eleven') || modelId.startsWith('scribe')) return 'elevenlabs';
   return 'openai';
 }
 

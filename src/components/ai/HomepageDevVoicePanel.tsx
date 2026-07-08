@@ -58,21 +58,22 @@ export function HomepageDevVoicePanel() {
               </Button>
               <Button
                 size="sm"
-                variant={selectedProvider === 'elevenlabs' ? 'default' : 'outline'}
-                onClick={() => handleSwitch('elevenlabs')}
-                disabled={isConnected}
-                className="flex-1 text-xs h-7"
-              >
-                <Mic className="w-3 h-3 mr-1" /> ElevenLabs
-              </Button>
-              <Button
-                size="sm"
                 variant={selectedProvider === 'google' ? 'default' : 'outline'}
                 onClick={() => handleSwitch('google')}
                 disabled={isConnected}
                 className="flex-1 text-xs h-7"
               >
                 <Sparkles className="w-3 h-3 mr-1" /> Gemini
+              </Button>
+              <Button
+                size="sm"
+                variant={selectedProvider === 'cascade' ? 'default' : 'outline'}
+                onClick={() => handleSwitch('cascade')}
+                disabled={isConnected}
+                className="flex-1 text-xs h-7"
+                data-testid="homepage-provider-cascade"
+              >
+                <Mic className="w-3 h-3 mr-1" /> Cascade
               </Button>
             </div>
             <Badge variant="outline" className="text-xs">{selectedProvider}</Badge>

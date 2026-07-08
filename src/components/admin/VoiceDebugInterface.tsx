@@ -106,10 +106,13 @@ function VoiceDebugContent() {
     }
   }, [state.transcript.length]);
 
-  const providerLabel = (provider: 'openai' | 'elevenlabs' | 'google') =>
-    provider === 'openai' ? 'OpenAI Realtime' : provider === 'elevenlabs' ? 'ElevenLabs' : 'Gemini Live';
+  const providerLabel = (provider: 'openai' | 'elevenlabs' | 'google' | 'cascade') =>
+    provider === 'openai' ? 'OpenAI Realtime'
+    : provider === 'elevenlabs' ? 'ElevenLabs'
+    : provider === 'cascade' ? 'Cascade (STT to LLM to TTS)'
+    : 'Gemini Live';
 
-  const handleProviderSwitch = useCallback(async (provider: 'openai' | 'elevenlabs' | 'google') => {
+  const handleProviderSwitch = useCallback(async (provider: 'openai' | 'elevenlabs' | 'google' | 'cascade') => {
     // Don't switch if already on this provider
     if (selectedProvider === provider) {
       return;
@@ -492,16 +495,6 @@ function VoiceDebugContent() {
                   <Badge variant="outline" className="text-xs">WebRTC</Badge>
                 </Button>
                 <Button
-                  variant={selectedProvider === 'elevenlabs' ? 'default' : 'outline'}
-                  onClick={() => handleProviderSwitch('elevenlabs')}
-                  disabled={isConnecting || isConnected}
-                  size="sm"
-                  className="flex flex-col items-center gap-1 h-auto py-2"
-                >
-                  <span className="text-xs">ElevenLabs</span>
-                  <Badge variant="outline" className="text-xs">AI</Badge>
-                </Button>
-                <Button
                   variant={selectedProvider === 'google' ? 'default' : 'outline'}
                   onClick={() => handleProviderSwitch('google')}
                   disabled={isConnecting || isConnected}
@@ -510,6 +503,20 @@ function VoiceDebugContent() {
                 >
                   <span className="text-xs">Gemini</span>
                   <Badge variant="outline" className="text-xs">Live</Badge>
+                </Button>
+                {/* D45 A/B: native s2s above vs the cascade family (D22 amendment
+                    retired the ElevenLabs agent-platform button — ElevenLabs is
+                    now a TTS engine inside the cascade). */}
+                <Button
+                  variant={selectedProvider === 'cascade' ? 'default' : 'outline'}
+                  onClick={() => handleProviderSwitch('cascade')}
+                  disabled={isConnecting || isConnected}
+                  size="sm"
+                  className="flex flex-col items-center gap-1 h-auto py-2"
+                  data-testid="provider-cascade"
+                >
+                  <span className="text-xs">Cascade</span>
+                  <Badge variant="outline" className="text-xs">STT/LLM/TTS</Badge>
                 </Button>
               </div>
 

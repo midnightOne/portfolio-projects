@@ -59,7 +59,7 @@ interface ContextData {
 
 interface ContextMonitorProps {
   conversationId: string;
-  activeProvider: 'openai' | 'elevenlabs' | 'google' | null;
+  activeProvider: 'openai' | 'elevenlabs' | 'google' | 'cascade' | null;
   onContextUpdate?: (update: ContextUpdate) => void;
 }
 

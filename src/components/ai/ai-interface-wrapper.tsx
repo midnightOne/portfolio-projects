@@ -9,7 +9,7 @@ import { HomepageDevVoicePanel } from './HomepageDevVoicePanel';
 
 interface AIInterfaceWrapperProps {
   // Optional props to override defaults
-  defaultProvider?: 'openai' | 'elevenlabs';
+  defaultProvider?: 'openai' | 'google' | 'cascade';
   className?: string;
   onSettingsClick?: () => void;
   /** Dev-only fake-mic drill affordance, admin-gated server-side (owner, 2026-07-07). */
@@ -134,7 +134,7 @@ export function AIInterfaceWrapper({
 
 // Separate component to access reflink context
 interface AIInterfaceContentProps {
-  defaultProvider: 'openai' | 'elevenlabs';
+  defaultProvider: 'openai' | 'google' | 'cascade';
   audioElement: HTMLAudioElement | undefined;
   position: 'hero' | 'pinned';
   setPosition: (position: 'hero' | 'pinned') => void;

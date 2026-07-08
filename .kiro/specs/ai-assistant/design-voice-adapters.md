@@ -2,7 +2,7 @@
 
 **Status:** current
 **Owner domain:** provider adapter layer, session lifecycle, mode continuity
-**Last verified against code:** 2026-07-07 (Phase 4 Block C, task 6 — Google Gemini Live adapter)
+**Last verified against code:** 2026-07-08 (Phase 4 Block C, task 9 — cascade family shipped; ElevenLabs agent-platform adapter retired)
 
 ---
 
@@ -26,11 +26,14 @@ Each adapter owns the translation between this contract and its provider SDK. Th
 |---|---|---|---|---|
 | OpenAI Realtime | **primary, implemented** | WebRTC via `@openai/agents` | `POST /api/ai/openai/session` | Ephemeral session; prompt + tools at mint; model via `default-realtime` alias (D4) |
 | Google Gemini Live | **implemented (Phase 4 Block C, task 6)** | raw WebSocket (`BidiGenerateContentConstrained`), no SDK — matches the D39 reasoning adapter's no-SDK convention | `GET /api/ai/google/session` — mints a v1alpha ephemeral `auth_tokens` token with model/instructions/tools/generationConfig **locked** into the token (no `lockAdditionalFields` while a setup is present ⇒ Gemini locks everything named); the client's own post-connect setup message can be a bare model echo since the server enforces the locked config regardless | Tool-calling gaps documented in §2c below, feeding D41 |
-| ElevenLabs Agents | implemented, **last priority** | WebRTC via `@elevenlabs/client` | `POST /api/ai/elevenlabs/token` | Maintenance only; hardcoded fallback agent ID removed (config via `VoiceProviderConfig`) |
+| Cascade (D45) | **implemented (Phase 4 Block C, task 9)** | HTTP request/response (v1, non-streaming) | none — rides the `/api/ai/chat` session cookie; STT/TTS via `/api/ai/cascade/*` | STT → the shared text pipeline → TTS; see §2b |
+| ElevenLabs Agents | **RETIRED (2026-07-08, D22 amendment)** | — | — | Agent-platform adapter + token route deleted with task 9.4; ElevenLabs remains as a TTS/STT **engine** inside the cascade (`eleven_*`/`scribe_*` model ids in the cascade config) |
 
 Provider/model selection: `VoiceProviderConfig` rows (admin CRUD at `/api/admin/ai/voice-config*`, default flag, import/test endpoints). The client receives resolved config through `ClientAIModelManager` — models by alias, never literal IDs in code.
 
-## 2b. Cascade adapter family (D45 — planned, Phase 4)
+## 2b. Cascade adapter family (D45 — implemented 2026-07-08, Phase 4 Block C task 9)
+
+**Implementation shape (v1):** `CascadeVoiceAdapter` (client) + `lib/ai/stt.ts`/`tts.ts` (server) + `/api/ai/cascade/{stt,tts}` (gateway-wrapped). v1 is request/response, not streaming — measured ≈4.5–5s to first audio (STT 1.7s + LLM 2.9s + TTS TTFB) vs the 1–1.5s streaming budget below; streaming + sentence-chunked TTS is the optimization path, D50 clips (9b) mask the gap meanwhile. Turn-taking v1 is a conservative energy VAD, half-duplex (no barge-in). Persistence rides the chat route (`transport_mode='voice'` labels); F-I-D injection into the chat body and D49 leg parity are open follow-ups.
 
 **Three modes, one brain (owner framing, 2026-07-08).** The system has exactly three modes of operation, and they stack:
 1. **Native speech-to-speech** (OpenAI Realtime, Gemini Flash Live) — the primary interaction model: the provider hears audio and speaks audio directly.

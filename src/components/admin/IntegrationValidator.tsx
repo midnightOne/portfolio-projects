@@ -220,15 +220,16 @@ export function IntegrationValidator({ onValidationComplete }: IntegrationValida
         tests.push('OpenAI endpoint: Failed to connect');
       }
 
-      // Test ElevenLabs token endpoint
+      // Test Google Live session endpoint (the ElevenLabs agent-platform
+      // token endpoint was retired with the D45 cascade — task 9.4)
       try {
-        const elevenLabsResponse = await fetch('/api/ai/elevenlabs/token', {
+        const googleResponse = await fetch('/api/ai/google/session', {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' }
         });
-        tests.push(`ElevenLabs endpoint: ${elevenLabsResponse.ok ? 'Available' : 'Failed'}`);
+        tests.push(`Gemini Live endpoint: ${googleResponse.ok ? 'Available' : 'Failed'}`);
       } catch {
-        tests.push('ElevenLabs endpoint: Failed to connect');
+        tests.push('Gemini Live endpoint: Failed to connect');
       }
 
       // Test microphone availability
@@ -268,7 +269,7 @@ export function IntegrationValidator({ onValidationComplete }: IntegrationValida
       const endpoints = [
         { name: 'Tool Execute API', url: '/api/ai/tools/execute', method: 'POST' },
         { name: 'OpenAI Session', url: '/api/ai/openai/session', method: 'GET' },
-        { name: 'ElevenLabs Token', url: '/api/ai/elevenlabs/token', method: 'GET' },
+        { name: 'Google Session', url: '/api/ai/google/session', method: 'GET' },
         { name: 'Conversation Log', url: '/api/ai/conversation/log', method: 'POST' }
       ];
 

@@ -15,7 +15,7 @@ import { z } from 'zod';
  * Base interface for all voice AI provider configurations
  */
 export interface BaseVoiceProviderConfig {
-  provider: 'openai' | 'elevenlabs' | 'google';
+  provider: 'openai' | 'elevenlabs' | 'google' | 'cascade';
   enabled: boolean;
   displayName: string;
   description: string;
@@ -231,13 +231,52 @@ export interface GoogleLiveConfig extends BaseVoiceProviderConfig {
 }
 
 // =============================================================================
+// Cascade Configuration (D45, ai-assistant task 9)
+// =============================================================================
+
+/**
+ * Cascade voice family: streaming mic capture → server STT → the SAME text
+ * pipeline as text chat (reasoning adapter + UnifiedToolRegistry, "one brain")
+ * → server TTS → playback. Every model field is an alias-or-model-id resolved
+ * through the D4 registry — no literal IDs in code; the DB row is the config.
+ */
+export interface CascadeConfig extends BaseVoiceProviderConfig {
+  provider: 'cascade';
+  /** STT model, alias-or-id (default 'default-stt'). Providers: openai transcription | elevenlabs Scribe. */
+  sttModel: string;
+  /** TTS model, alias-or-id (default 'default-tts'). Providers: openai speech | elevenlabs TTS. */
+  ttsModel: string;
+  /** TTS voice — an OpenAI voice name or an ElevenLabs voice id, matching the ttsModel's provider. */
+  ttsVoice: string;
+  /**
+   * Conservative energy VAD (design-voice-adapters §2b: turn-taking v1 is
+   * deliberately simple — endpoint on silence; barge-in is v2).
+   */
+  vad: {
+    /** RMS threshold treated as speech (0–1 on an analyser time-domain frame). */
+    threshold: number;
+    /** Silence this long after speech closes the utterance. */
+    silenceMs: number;
+    /** Utterances shorter than this are discarded as noise. */
+    minSpeechMs: number;
+    /** Hard cap per utterance. */
+    maxUtteranceMs: number;
+  };
+  capabilities: VoiceCapability[];
+  // Env-var pointers, consistent with the other providers. STT/TTS resolve
+  // their own provider key server-side, so these are informational.
+  apiKeyEnvVar?: string;
+  baseUrlEnvVar?: string;
+}
+
+// =============================================================================
 // Union Types and Utility Types
 // =============================================================================
 
 /**
  * Union type for all provider configurations
  */
-export type VoiceProviderConfig = OpenAIRealtimeConfig | ElevenLabsConfig | GoogleLiveConfig;
+export type VoiceProviderConfig = OpenAIRealtimeConfig | ElevenLabsConfig | GoogleLiveConfig | CascadeConfig;
 
 /**
  * Provider type extraction utility
@@ -247,8 +286,11 @@ export type ProviderType<T extends VoiceProviderConfig> = T['provider'];
 /**
  * Configuration for specific provider
  */
-export type ConfigForProvider<P extends 'openai' | 'elevenlabs' | 'google'> =
-  P extends 'openai' ? OpenAIRealtimeConfig : P extends 'google' ? GoogleLiveConfig : ElevenLabsConfig;
+export type ConfigForProvider<P extends 'openai' | 'elevenlabs' | 'google' | 'cascade'> =
+  P extends 'openai' ? OpenAIRealtimeConfig
+  : P extends 'google' ? GoogleLiveConfig
+  : P extends 'cascade' ? CascadeConfig
+  : ElevenLabsConfig;
 
 // =============================================================================
 // Agent and Client Configuration

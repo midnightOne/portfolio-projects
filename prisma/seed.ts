@@ -754,6 +754,7 @@ The platform has processed over $2M in transactions in its first year, with 99.9
     { alias: 'default-embedding', provider: 'openai', modelId: 'text-embedding-3-small' },
     { alias: 'default-realtime', provider: 'openai', modelId: 'gpt-realtime' },
     { alias: 'default-tts', provider: 'openai', modelId: 'gpt-4o-mini-tts' },
+    { alias: 'default-stt', provider: 'openai', modelId: 'gpt-4o-mini-transcribe' },
   ];
   for (const a of modelAliases) {
     await prisma.aIModelAlias.upsert({
@@ -771,6 +772,9 @@ The platform has processed over $2M in transactions in its first year, with 99.9
     { modelId: 'text-embedding-3-large', provider: 'openai', inputPerMTokUsd: 0.13, outputPerMTokUsd: 0 },
     { modelId: 'gpt-realtime', provider: 'openai', inputPerMTokUsd: 4, outputPerMTokUsd: 16, notes: 'text tokens only; audio token pricing lands with voice metering (Phase 4)' },
     { modelId: 'gpt-4o-mini-tts', provider: 'openai', inputPerMTokUsd: 0.6, outputPerMTokUsd: 12, notes: 'TTS: text-in / audio-out; speech endpoint returns no usage, so callers meter estimated tokens' },
+    { modelId: 'gpt-4o-mini-transcribe', provider: 'openai', inputPerMTokUsd: 3, outputPerMTokUsd: 5, notes: 'STT: audio-in / text-out; no usage block, callers meter estimated tokens from the transcript' },
+    { modelId: 'scribe_v1', provider: 'elevenlabs', inputPerMTokUsd: 0, outputPerMTokUsd: 0, notes: 'ElevenLabs Scribe STT — credit-based subscription, no per-token price; ledger rows carry usage counts only' },
+    { modelId: 'eleven_flash_v2_5', provider: 'elevenlabs', inputPerMTokUsd: 0, outputPerMTokUsd: 0, notes: 'ElevenLabs Flash TTS — credit-based subscription, no per-token price; ledger rows carry usage counts only' },
     { modelId: 'claude-sonnet-4-5-20250929', provider: 'anthropic', inputPerMTokUsd: 3, outputPerMTokUsd: 15 },
     { modelId: 'claude-haiku-4-5-20251001', provider: 'anthropic', inputPerMTokUsd: 1, outputPerMTokUsd: 5 },
     { modelId: 'gemini-2.5-flash', provider: 'google', inputPerMTokUsd: 0.3, outputPerMTokUsd: 2.5 },

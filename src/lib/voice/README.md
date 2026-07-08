@@ -272,7 +272,7 @@ See `examples/ClientAIModelManagerExample.ts` for comprehensive usage examples i
 The ClientAIModelManager integrates with:
 
 - **Database**: PostgreSQL via Prisma ORM
-- **Voice Adapters**: OpenAIRealtimeAdapter, ElevenLabsAdapter
+- **Voice Adapters**: OpenAIRealtimeAdapter, GoogleLiveAdapter, CascadeVoiceAdapter (the ElevenLabs agent-platform adapter was retired per D22/D45 — ElevenLabs is a TTS/STT engine inside the cascade)
 - **Admin Interface**: Dynamic configuration UI generation
 - **Context System**: Provider-specific context injection
 

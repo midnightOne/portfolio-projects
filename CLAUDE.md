@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Portfolio site that is itself the flagship portfolio piece: Next.js 15 App Router + React 19 + Prisma 6 (Postgres + pgvector) + Tailwind 4 + Tiptap 3, with a client-direct voice/text AI assistant (OpenAI Realtime, ElevenLabs; Google + a cascade STT→LLM→TTS family planned), a T0–T3 semantic RAG index, and a planned hardened public MCP server. Deployed on Vercel serverless.
+Portfolio site that is itself the flagship portfolio piece: Next.js 15 App Router + React 19 + Prisma 6 (Postgres + pgvector) + Tailwind 4 + Tiptap 3, with a client-direct voice/text AI assistant (native s2s: OpenAI Realtime + Google Gemini Live; plus the D45 cascade STT→LLM→TTS family sharing the text pipeline's brain — the ElevenLabs agent-platform adapter is retired, ElevenLabs serves as a TTS/STT engine inside the cascade), a T0–T3 semantic RAG index, and a planned hardened public MCP server. Deployed on Vercel serverless.
 
 ## Read this first
 
@@ -64,7 +64,7 @@ Planned (verification spec, land with their phases): `check:models`, `livefire:s
 
 Until the harness items exist (they land with Phases 0–3), approximate: seed data, drive the UI via preview tooling, read `/admin/ai/debug` + semantic dashboard, and say explicitly what could not be verified.
 
-**Voice e2e without a human mic (D53, verification 4.4):** the "Fake Mic" panel on `/admin/ai/voice-debug` speaks TTS-generated audio into an emulated microphone track feeding the REAL OpenAI Realtime session (mic → provider STT → model → TTS out). Connect with `[data-testid="fake-mic-connect"]`, script a question, `[data-testid="fake-mic-speak"]`; turns + tool rows persist voice-labeled and are readable via `GET /api/ai/conversation/log?sessionId=…`. Dev only: the TTS route (`/api/dev/fake-mic/tts`, alias `default-tts`) 404s in production. Audio QUALITY still needs human ears; turn mechanics don't.
+**Voice e2e without a human mic (D53, verification 4.4):** the "Fake Mic" panel on `/admin/ai/voice-debug` (and the homepage dev panel, admin-gated) speaks TTS-generated audio into an emulated microphone track feeding the REAL selected voice session — OpenAI Realtime, Gemini Live, or the D45 cascade (mic → provider STT → model → TTS out). Connect with `[data-testid="fake-mic-connect"]`, script a question, `[data-testid="fake-mic-speak"]`; turns + tool rows persist voice-labeled and are readable via `GET /api/ai/conversation/log?sessionId=…`. Dev only: the TTS route (`/api/dev/fake-mic/tts`, alias `default-tts`) 404s in production. Audio QUALITY still needs human ears; turn mechanics don't.
 
 ## Owner judgment log (article source)
 

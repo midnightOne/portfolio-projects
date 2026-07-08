@@ -8,9 +8,9 @@ import { getSerializerForProvider } from '@/lib/voice/config-serializers';
 interface ImportData {
   version: string;
   exportedAt: string;
-  provider?: 'openai' | 'elevenlabs' | 'google';
+  provider?: 'openai' | 'elevenlabs' | 'google' | 'cascade';
   configurations: Array<{
-    provider: 'openai' | 'elevenlabs' | 'google';
+    provider: 'openai' | 'elevenlabs' | 'google' | 'cascade';
     name: string;
     isDefault: boolean;
     config: VoiceProviderConfig;

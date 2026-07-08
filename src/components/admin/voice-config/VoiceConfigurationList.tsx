@@ -34,7 +34,7 @@ import {
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
-type VoiceConfigProvider = 'openai' | 'elevenlabs' | 'google';
+type VoiceConfigProvider = 'openai' | 'elevenlabs' | 'google' | 'cascade';
 
 interface VoiceConfigRecord {
   id: string;
@@ -56,20 +56,23 @@ interface VoiceConfigurationListProps {
 
 const PROVIDER_LABELS: Record<VoiceConfigProvider, string> = {
   openai: 'OpenAI',
-  elevenlabs: 'ElevenLabs',
+  elevenlabs: 'ElevenLabs (TTS/STT engine)',
   google: 'Gemini Live',
+  cascade: 'Cascade',
 };
 
 const PROVIDER_ICONS: Record<VoiceConfigProvider, ReactNode> = {
   openai: <Bot className="h-4 w-4" />,
   elevenlabs: <Mic className="h-4 w-4" />,
   google: <Sparkles className="h-4 w-4" />,
+  cascade: <Settings className="h-4 w-4" />,
 };
 
 const PROVIDER_COLORS: Record<VoiceConfigProvider, string> = {
   openai: 'bg-blue-100 text-blue-800',
   elevenlabs: 'bg-purple-100 text-purple-800',
   google: 'bg-amber-100 text-amber-800',
+  cascade: 'bg-emerald-100 text-emerald-800',
 };
 
 export function VoiceConfigurationList({
@@ -167,6 +170,15 @@ export function VoiceConfigurationList({
         >
           <Sparkles className="h-4 w-4" />
           Gemini Live ({configurations.filter(c => c.provider === 'google').length})
+        </Button>
+        <Button
+          variant={selectedProvider === 'cascade' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setSelectedProvider('cascade')}
+          className="flex items-center gap-2"
+        >
+          <Settings className="h-4 w-4" />
+          Cascade ({configurations.filter(c => c.provider === 'cascade').length})
         </Button>
       </div>
 

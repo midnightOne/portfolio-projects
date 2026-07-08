@@ -477,13 +477,15 @@ export class ClientAIModelManager {
       const configsByProvider: Record<VoiceProvider, number> = {
         openai: 0,
         elevenlabs: 0,
-        google: 0
+        google: 0,
+        cascade: 0
       };
 
       const defaultConfigs: Record<VoiceProvider, string | null> = {
         openai: null,
         elevenlabs: null,
-        google: null
+        google: null,
+        cascade: null
       };
       
       for (const config of allConfigs) {

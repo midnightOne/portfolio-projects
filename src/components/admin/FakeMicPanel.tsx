@@ -198,18 +198,18 @@ export function FakeMicPanel() {
               variant="outline"
               size="sm"
               disabled={!isConnected}
-              data-testid="drill-resume-elevenlabs"
+              data-testid="drill-resume-cascade"
               onClick={async () => {
-                setStatus('switching to ElevenLabs with resume…');
+                setStatus('switching to Cascade with resume…');
                 try {
-                  await resumeOnProvider('elevenlabs');
-                  setStatus('resumed on ElevenLabs');
+                  await resumeOnProvider('cascade');
+                  setStatus('resumed on Cascade');
                 } catch (error) {
                   setStatus(`cross-provider resume failed: ${error instanceof Error ? error.message : String(error)}`);
                 }
               }}
             >
-              Resume on ElevenLabs
+              Resume on Cascade
             </Button>
           </div>
         </div>

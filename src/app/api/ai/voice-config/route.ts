@@ -13,7 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getClientAIModelManager } from '@/lib/voice/ClientAIModelManager';
 
-const PUBLIC_PROVIDERS = ['openai', 'elevenlabs', 'google'] as const;
+const PUBLIC_PROVIDERS = ['openai', 'elevenlabs', 'google', 'cascade'] as const;
 type PublicProvider = (typeof PUBLIC_PROVIDERS)[number];
 
 export async function GET(request: NextRequest) {

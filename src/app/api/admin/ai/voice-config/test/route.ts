@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { provider, config }: { provider: 'openai' | 'elevenlabs' | 'google'; config: VoiceProviderConfig } = await request.json();
+    const { provider, config }: { provider: 'openai' | 'elevenlabs' | 'google' | 'cascade'; config: VoiceProviderConfig } = await request.json();
 
     if (!provider || !config) {
       return NextResponse.json(
@@ -49,6 +49,14 @@ export async function POST(request: NextRequest) {
       return await testElevenLabsConfiguration(config);
     } else if (provider === 'google') {
       return await testGoogleConfiguration(config);
+    } else if (provider === 'cascade') {
+      // Cascade has no session endpoint of its own — validation above already
+      // exercised the serializer; the STT/TTS providers it points at are
+      // testable via their own rows.
+      return NextResponse.json({
+        success: true,
+        message: 'Cascade configuration is valid. STT/TTS model fields resolve through the model registry at request time.',
+      });
     } else {
       return NextResponse.json(
         { success: false, error: { message: 'Unsupported provider' } },

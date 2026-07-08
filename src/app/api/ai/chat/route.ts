@@ -46,6 +46,10 @@ interface ChatRequestBody {
   /** Conversation key for persistence — honored for admin/reflink tiers only;
    *  the public tier is always keyed by its gateway session sid (no spoofing). */
   sessionId?: string;
+  /** D58 per-message modality label: 'voice' when the cascade adapter (D45)
+   *  is rendering this exchange as speech; defaults to 'text'. Label only —
+   *  no behavior change. */
+  modality?: string;
 }
 
 async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextResponse> {
@@ -172,8 +176,11 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
   });
 
   // Persist the turn (task 2b.1, Req 9.1/D58): same store as the voice path,
-  // per-message 'text' modality labels, _debug-parity debugInfo on the assistant
-  // message, ledger requestId cross-reference. Failures never fail the chat.
+  // per-message modality labels ('voice' when the D45 cascade renders the
+  // exchange as speech), _debug-parity debugInfo on the assistant message,
+  // ledger requestId cross-reference. Failures never fail the chat.
+  let persistedConversationId: string | null = null;
+  const inputMode = body.modality === 'voice' ? 'voice' : 'text';
   try {
     const persistSessionId =
       ctx.tier === 'public'
@@ -185,15 +192,16 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
     const conversationId = await conversationHistoryManager.getOrCreateConversationId(
       persistSessionId,
       ctx.reflink?.id,
-      { conversationMode: 'text', accessLevel: ctx.tier === 'public' ? 'basic' : 'premium' }
+      { conversationMode: inputMode, accessLevel: ctx.tier === 'public' ? 'basic' : 'premium' }
     );
+    persistedConversationId = conversationId;
 
     await conversationHistoryManager.addMessage(conversationId, {
       id: `user_${ctx.requestId}`,
       role: 'user',
       content: message,
       timestamp: new Date(),
-      inputMode: 'text',
+      inputMode,
       metadata: { requestId: ctx.requestId },
     });
 
@@ -204,7 +212,7 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
         role: 'assistant',
         content: reply ?? '',
         timestamp: new Date(),
-        inputMode: 'text',
+        inputMode,
         metadata: {
           requestId: ctx.requestId,
           tokensUsed: totalInputTokens + totalOutputTokens,
@@ -234,7 +242,9 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
     console.error('[chat] conversation persistence failed (response unaffected):', persistError);
   }
 
-  return NextResponse.json({ reply: reply ?? '', requestId: ctx.requestId });
+  // conversationId (cuid) rides along for debug display/lookup (same contract
+  // as the /log response) — null when persistence failed.
+  return NextResponse.json({ reply: reply ?? '', requestId: ctx.requestId, conversationId: persistedConversationId });
 }
 
 export const POST = withAIGateway({ feature: 'chat', publicAllowed: true }, handler);

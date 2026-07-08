@@ -17,7 +17,7 @@ interface TestResult {
   name: string;
   status: 'pending' | 'success' | 'error';
   message: string;
-  provider?: 'openai' | 'elevenlabs' | 'google';
+  provider?: 'openai' | 'elevenlabs' | 'google' | 'cascade';
 }
 
 function AdminDebugTestContent() {
@@ -33,9 +33,9 @@ function AdminDebugTestContent() {
 
   const [testResults, setTestResults] = useState<TestResult[]>([]);
   const [isRunningTests, setIsRunningTests] = useState(false);
-  const [currentProvider, setCurrentProvider] = useState<'openai' | 'elevenlabs'>('openai');
+  const [currentProvider, setCurrentProvider] = useState<'openai' | 'cascade'>('openai');
 
-  const updateTestResult = (name: string, status: 'success' | 'error' | 'pending', message: string, provider?: 'openai' | 'elevenlabs') => {
+  const updateTestResult = (name: string, status: 'success' | 'error' | 'pending', message: string, provider?: 'openai' | 'cascade') => {
     setTestResults(prev => {
       const existing = prev.find(r => r.name === name);
       if (existing) {
@@ -49,7 +49,7 @@ function AdminDebugTestContent() {
     });
   };
 
-  const runProviderTests = async (provider: 'openai' | 'elevenlabs') => {
+  const runProviderTests = async (provider: 'openai' | 'cascade') => {
     try {
       // Test 1: Provider switching
       updateTestResult(`${provider}-switch`, 'pending', 'Testing provider switch...');
@@ -97,8 +97,9 @@ function AdminDebugTestContent() {
       // Wait a moment between provider tests
       await new Promise(resolve => setTimeout(resolve, 3000));
       
-      // Test ElevenLabs provider
-      await runProviderTests('elevenlabs');
+      // Test the cascade provider (D45 — replaced the retired ElevenLabs
+      // agent-platform adapter, task 9.4)
+      await runProviderTests('cascade');
 
       // Test unified debug components
       updateTestResult('unified-components', 'success', 'All debug components are provider-agnostic and work with both providers');

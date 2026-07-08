@@ -6,7 +6,9 @@
  */
 
 // Provider Types
-export type VoiceProvider = 'openai' | 'elevenlabs' | 'google';
+// 'cascade' is the D45 STT → reasoning LLM → TTS family — one logical provider
+// behind the same adapter interface as the native speech-to-speech providers.
+export type VoiceProvider = 'openai' | 'elevenlabs' | 'google' | 'cascade';
 
 export interface ProviderMetadata {
   provider: VoiceProvider;
@@ -230,6 +232,8 @@ export interface AdapterInitOptions {
       voice?: string;
       temperature?: number;
     };
+    /** Cascade (D45) config rides in the DB row; per-init overrides are rare. */
+    cascade?: Record<string, unknown>;
   };
   
   // Context and access control
