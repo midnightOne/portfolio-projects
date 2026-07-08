@@ -15,6 +15,7 @@ export type ModelAliasName =
   | 'default-embedding'
   | 'default-realtime'
   | 'default-tts'
+  | 'default-tts-google'
   | 'default-stt';
 
 export interface ResolvedModel {

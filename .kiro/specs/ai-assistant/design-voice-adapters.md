@@ -2,7 +2,7 @@
 
 **Status:** current
 **Owner domain:** provider adapter layer, session lifecycle, mode continuity
-**Last verified against code:** 2026-07-08 (Phase 4 Block C, task 9 — cascade family shipped; ElevenLabs agent-platform adapter retired)
+**Last verified against code:** 2026-07-08 (Phase 4 Block C, tasks 9 + 9b + 6.6 — cascade family, D50 clips, Gemini 3.1 migration)
 
 ---
 
@@ -25,7 +25,7 @@ Each adapter owns the translation between this contract and its provider SDK. Th
 | Provider | Status | Transport | Token route | Notes |
 |---|---|---|---|---|
 | OpenAI Realtime | **primary, implemented** | WebRTC via `@openai/agents` | `POST /api/ai/openai/session` | Ephemeral session; prompt + tools at mint; model via `default-realtime` alias (D4) |
-| Google Gemini Live | **implemented (Phase 4 Block C, task 6)** | raw WebSocket (`BidiGenerateContentConstrained`), no SDK — matches the D39 reasoning adapter's no-SDK convention | `GET /api/ai/google/session` — mints a v1alpha ephemeral `auth_tokens` token with model/instructions/tools/generationConfig **locked** into the token (no `lockAdditionalFields` while a setup is present ⇒ Gemini locks everything named); the client's own post-connect setup message can be a bare model echo since the server enforces the locked config regardless | Tool-calling gaps documented in §2c below, feeding D41 |
+| Google Gemini Live | **implemented (task 6); migrated to Gemini 3.1 (2026-07-08, task 6.6)** | raw WebSocket (`BidiGenerateContentConstrained`), no SDK — matches the D39 reasoning adapter's no-SDK convention | `GET /api/ai/google/session` — mints a v1alpha ephemeral `auth_tokens` token with model/instructions/tools/generationConfig **locked** into the token (no `lockAdditionalFields` while a setup is present ⇒ Gemini locks everything named); the client's own post-connect setup message can be a bare model echo since the server enforces the locked config regardless | Default `gemini-3.1-flash-live-preview` (2.5 Live deprecated). 3.1 notes: `thinkingLevel` not `thinkingBudget` (mint route is family-aware); mid-session text via `realtimeInput.text` (clientContent = initial history only); mint prompt now carries the task-5d start frame (grounding parity with text chat). Earlier tool-calling gaps in §2c |
 | Cascade (D45) | **implemented (Phase 4 Block C, task 9)** | HTTP request/response (v1, non-streaming) | none — rides the `/api/ai/chat` session cookie; STT/TTS via `/api/ai/cascade/*` | STT → the shared text pipeline → TTS; see §2b |
 | ElevenLabs Agents | **RETIRED (2026-07-08, D22 amendment)** | — | — | Agent-platform adapter + token route deleted with task 9.4; ElevenLabs remains as a TTS/STT **engine** inside the cascade (`eleven_*`/`scribe_*` model ids in the cascade config) |
 
@@ -148,7 +148,10 @@ Design consequences:
 - Admin replay renders markers inline; a conversation with three legs across two providers reads as one timeline.
 - Serverless-honest (D43): all continuity state in Postgres; any instance can resume any conversation.
 
-## 4b. Pre-recorded voice assets (D50 — Phase 4 polish)
+## 4b. Pre-recorded voice assets (D50 — implemented 2026-07-08, task 9b)
+
+**Implementation shape:** `VoiceClipPhrase`/`VoiceClip` tables (bytes in Postgres — deliberate, single-seam in `lib/ai/voice-clips.ts`; media pipeline swap possible), strict per-provider voice matching (openai voice / Gemini prebuilt voice via Gemini TTS / cascade voice — no clips beats a wrong voice), `ClipPlayer` with priority round-robin caching + randomized pick among loaded variants, triggers in the conversational-agent provider (filler at +1.2s off `tool_call_start`, cutoff on the new `speech_start` audio event; D49 connection clips; optional greeting), `clip_played` history rows rendered as a distinct replay step, and `firstAudioAt` turn-onset capture (exact Gemini, best-effort OpenAI). Admin page: `/admin/ai/voice-clips`.
+
 
 A client-side audio asset player in the pill, **independent of the adapters** (it must work precisely when no adapter connection exists):
 

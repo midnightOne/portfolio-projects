@@ -595,6 +595,47 @@ model VoiceProviderConfig {
   @@map("voice_provider_configs")
 }
 
+// D50 pre-recorded voice assets (ai-assistant task 9b). Phrases are the
+// admin-managed script; clips are per-(voiceId, phraseId) renderings via the
+// provider's TTS. Audio lives in Postgres deliberately (serverless-honest,
+// D43): clips are a few seconds each, regenerable at will, and the media
+// pipeline's provider keys are stale while the project is out of deployment —
+// the storage seam is voice-clips.ts alone, swappable later.
+model VoiceClipPhrase {
+  id        String   @id // stable slug, e.g. 'filler_checking_1'
+  text      String
+  /** Trigger class: filler | disruption | resume_failed | greeting */
+  tag       String
+  enabled   Boolean  @default(true)
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  clips     VoiceClip[]
+
+  @@index([tag])
+  @@map("voice_clip_phrases")
+}
+
+model VoiceClip {
+  id          String   @id @default(cuid())
+  voiceId     String   @map("voice_id")
+  phraseId    String   @map("phrase_id")
+  /** Phrase text at generation time (drift-detectable against the phrase row). */
+  text        String
+  audio       Bytes
+  contentType String   @map("content_type")
+  provider    String
+  modelId     String   @map("model_id")
+  durationMs  Int?     @map("duration_ms")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  phrase      VoiceClipPhrase @relation(fields: [phraseId], references: [id], onDelete: Cascade)
+
+  @@unique([voiceId, phraseId])
+  @@index([voiceId])
+  @@map("voice_clips")
+}
+
 // Hierarchical Content Storage Models for T0-T3 Tier System
 // NOTE: pgvector fields (embeddingVector) use Unsupported("vector(1536)") type
 // Currently optimized for OpenAI embeddings (1536 dimensions).

@@ -26,6 +26,7 @@ const REQUIRED_WRAPPED = [
   'src/app/api/ai/cascade/tts/route.ts',
   'src/app/api/ai/tools/execute/route.ts',
   'src/app/api/ai/analyze-job/route.ts',
+  'src/app/api/admin/ai/voice-clips/regenerate/route.ts',
   'src/app/api/admin/ai/edit-content/route.ts',
   'src/app/api/admin/ai/improve-content/route.ts',
   'src/app/api/admin/ai/process-prompt/route.ts',

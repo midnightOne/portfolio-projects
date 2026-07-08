@@ -417,10 +417,12 @@ export class CascadeVoiceAdapter extends BaseConversationalAgentAdapter {
       source.buffer = buffer;
       source.connect(this._gainNode!);
       this._currentSource = source;
-      this._handleAudioEvent({ type: 'audio_start', timestamp: new Date() });
+      // speech_* not audio_* — these are MODEL SPEECH events (clip cutoff,
+      // isPlaying), not mic-capture lifecycle.
+      this._handleAudioEvent({ type: 'speech_start', timestamp: new Date() });
       source.onended = () => {
         if (this._currentSource === source) this._currentSource = null;
-        this._handleAudioEvent({ type: 'audio_end', timestamp: new Date() });
+        this._handleAudioEvent({ type: 'speech_end', timestamp: new Date() });
         resolve();
       };
       source.start();

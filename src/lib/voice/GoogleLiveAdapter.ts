@@ -104,6 +104,8 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
   private _playbackGain: GainNode | null = null;
   private _nextPlayTime = 0;
   private _activeSources: AudioBufferSourceNode[] = [];
+  /** 9b.5: when the current assistant turn's FIRST audio chunk became audible. */
+  private _turnFirstAudioAt: Date | null = null;
 
   // Streaming input/output transcript accumulation (Gemini streams transcription in chunks)
   private _pendingInputText = '';
@@ -401,13 +403,18 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
           this._emitTranscript(
             'ai_response',
             this._pendingOutputText,
-            this._pendingReasoningText.trim() ? { reasoning: this._pendingReasoningText.trim() } : undefined,
+            {
+              ...(this._pendingReasoningText.trim() ? { reasoning: this._pendingReasoningText.trim() } : {}),
+              // 9b.5 turn onset: first-audio time; the item timestamp is turn-END.
+              ...(this._turnFirstAudioAt ? { firstAudioAt: this._turnFirstAudioAt.toISOString() } : {}),
+            },
             this._pendingOutputId ?? undefined
           );
         }
         this._pendingOutputText = '';
         this._pendingOutputId = null;
         this._pendingReasoningText = '';
+        this._turnFirstAudioAt = null;
         this._setSessionStatus(this._audioInputMode === 'text-only' ? 'idle' : 'listening');
       }
     }
@@ -551,12 +558,23 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
       source.buffer = buffer;
       source.connect(this._playbackGain!);
 
+      // Model speech becoming audible after silence: drives the D50 clip
+      // cutoff and, once per turn, the 9b.5 turn-onset timestamp (the honest
+      // latency signal — the flushed transcript timestamp is turn-END).
+      if (this._activeSources.length === 0) {
+        if (!this._turnFirstAudioAt) this._turnFirstAudioAt = new Date();
+        this._handleAudioEvent({ type: 'speech_start', timestamp: new Date() });
+      }
+
       const startAt = Math.max(ctx.currentTime, this._nextPlayTime);
       source.start(startAt);
       this._nextPlayTime = startAt + buffer.duration;
       this._activeSources.push(source);
       source.onended = () => {
         this._activeSources = this._activeSources.filter(s => s !== source);
+        if (this._activeSources.length === 0) {
+          this._handleAudioEvent({ type: 'speech_end', timestamp: new Date() });
+        }
       };
     } catch (error) {
       console.error('Failed to play Google Live audio chunk:', error);
@@ -627,8 +645,11 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
       throw new VoiceAgentError('No active Google Live session', 'google');
     }
     this._emitTranscript('user_speech', message, { confidence: 1.0 });
+    // realtimeInput.text, not clientContent: Gemini 3.1 Live restricts
+    // clientContent to seeding initial history — mid-conversation text updates
+    // must ride the realtime input channel (works on 2.5 too).
     this._ws.send(JSON.stringify({
-      clientContent: { turns: [{ role: 'user', parts: [{ text: message }] }], turnComplete: true }
+      realtimeInput: { text: message }
     }));
   }
 

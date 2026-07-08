@@ -15,6 +15,7 @@ import { IConversationalAgentAdapter, AdapterRegistry, ConnectOptions, AudioInpu
 import { OpenAIRealtimeAdapter } from '@/lib/voice/OpenAIRealtimeAdapter';
 import { GoogleLiveAdapter } from '@/lib/voice/GoogleLiveAdapter';
 import { CascadeVoiceAdapter } from '@/lib/voice/CascadeVoiceAdapter';
+import { ClipPlayer } from '@/lib/voice/ClipPlayer';
 import { useReflinkSession } from './reflink-session-provider';
 import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 
@@ -138,6 +139,14 @@ export function ConversationalAgentProvider({
   /** Live adapter for event handlers (state is stale inside useCallback([], …) closures). */
   const adapterRef = useRef<IConversationalAgentAdapter | null>(null);
 
+  // D50 clip player (9b.3) — adapter-independent: connection clips must play
+  // precisely when no adapter connection exists. Triggers live in the event
+  // handlers below; cutoff is the speech_start handler.
+  const clipPlayerRef = useRef<ClipPlayer | null>(null);
+  const fillerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const modelSpeakingRef = useRef(false);
+  const lastConnStatusRef = useRef<string>('disconnected');
+
   // Register adapters on mount
   useEffect(() => {
     // Register adapter factories
@@ -147,6 +156,69 @@ export function ConversationalAgentProvider({
     // 'elevenlabs' has no adapter anymore (D22 amendment, task 9.4): the
     // agent-platform adapter is retired; ElevenLabs is a TTS/STT engine
     // inside the cascade, selected via the cascade config's model fields.
+  }, []);
+
+  // D50 clip player lifecycle: create once; every playback logs an honest
+  // clip_played history event (Req 13.5 — replay must show what the visitor
+  // actually heard; a clip is not model speech).
+  useEffect(() => {
+    const player = new ClipPlayer((info) => {
+      const sessionId = adapterRef.current?.getConversationSessionId?.();
+      if (!sessionId) return;
+      void fetch('/api/ai/conversation/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          provider: adapterRef.current?.provider,
+          event: {
+            type: 'clip_played',
+            label: `Clip: "${info.text}"${info.cutOff ? ' (cut off by model speech)' : ''}`,
+            detail: { phraseId: info.phraseId, tag: info.tag, voiceId: info.voiceId, durationMs: info.durationMs, cutOff: info.cutOff },
+          },
+          timestamp: new Date().toISOString(),
+        }),
+      }).catch((err) => console.warn('[clip_played] log failed:', err));
+    });
+    clipPlayerRef.current = player;
+    return () => {
+      clipPlayerRef.current = null;
+      void player.close();
+    };
+  }, []);
+
+  // Clips are strictly voice-matched per session provider — (re)load the
+  // manifest and start the prioritized background cache on provider change.
+  useEffect(() => {
+    if (activeProvider) {
+      void clipPlayerRef.current?.setProvider(activeProvider);
+    }
+  }, [activeProvider]);
+
+  // D50 tool-latency filler (Req 13.1): when a tool call runs and the model
+  // isn't audibly speaking shortly after, play a random cached filler. The
+  // debug emitter is the one adapter-independent signal — the base adapter
+  // emits tool_call_start for every provider's unified tool path.
+  useEffect(() => {
+    const onToolStart = () => {
+      if (fillerTimerRef.current || modelSpeakingRef.current) return;
+      if (!adapterRef.current?.isConnected()) return;
+      fillerTimerRef.current = setTimeout(() => {
+        fillerTimerRef.current = null;
+        // Re-check at fire time: the model may have started its own filler.
+        if (!modelSpeakingRef.current && adapterRef.current?.isConnected()) {
+          void clipPlayerRef.current?.play('filler');
+        }
+      }, 1200);
+    };
+    debugEventEmitter.on('tool_call_start', onToolStart);
+    return () => {
+      debugEventEmitter.off('tool_call_start', onToolStart);
+      if (fillerTimerRef.current) {
+        clearTimeout(fillerTimerRef.current);
+        fillerTimerRef.current = null;
+      }
+    };
   }, []);
 
   // Initialize provider when reflink session is ready (but don't auto-connect)
@@ -384,6 +456,17 @@ export function ConversationalAgentProvider({
       setAudioInputMode(adapterRef.current.getAudioInputMode());
     }
 
+    // D50 connection-state clips (Req 13.2): played entirely client-side while
+    // the D49 resume flow runs — exactly when no model exists to speak.
+    if (event.type === 'reconnecting') {
+      void clipPlayerRef.current?.play('disruption');
+    } else if (event.type === 'connected') {
+      clipPlayerRef.current?.stop();
+    } else if (event.type === 'error' && lastConnStatusRef.current === 'reconnecting') {
+      void clipPlayerRef.current?.play('resume_failed');
+    }
+    lastConnStatusRef.current = event.type;
+
     if (event.error) {
       setLastError(event.error);
     }
@@ -451,14 +534,30 @@ export function ConversationalAgentProvider({
    * Handle audio events
    */
   const handleAudioEvent = useCallback((event: AudioEvent) => {
-    // Update audio state based on event
+    // Model speech lifecycle (9b): speech_start is the D50 clip CUTOFF — the
+    // instant real model audio arrives, any filler/greeting stops (Req 13.1).
+    if (event.type === 'speech_start') {
+      modelSpeakingRef.current = true;
+      if (fillerTimerRef.current) {
+        clearTimeout(fillerTimerRef.current);
+        fillerTimerRef.current = null;
+      }
+      clipPlayerRef.current?.stop();
+    } else if (event.type === 'speech_end') {
+      modelSpeakingRef.current = false;
+    }
+
+    // Update audio state based on event (audio_* = mic capture, speech_* = model speech)
     setVoiceAgentState(prev => ({
       ...prev,
       audioState: {
         ...prev.audioState,
-        isRecording: event.type === 'audio_start' ? true : 
-                    event.type === 'audio_end' ? false : 
-                    prev.audioState.isRecording
+        isRecording: event.type === 'audio_start' ? true :
+                    event.type === 'audio_end' ? false :
+                    prev.audioState.isRecording,
+        isPlaying: event.type === 'speech_start' ? true :
+                  event.type === 'speech_end' ? false :
+                  prev.audioState.isPlaying
       }
     }));
 
@@ -537,6 +636,12 @@ export function ConversationalAgentProvider({
     // continue under the same conversation.
     if (!options?.resumeFromSessionId) {
       setConversationId(null);
+    }
+
+    // D50 optional cold-start greeting (Req 13.3) — inert unless a greeting
+    // clip exists (the seed phrase ships disabled); cut off at 'connected'.
+    if (clipPlayerRef.current?.hasClips('greeting')) {
+      void clipPlayerRef.current.play('greeting');
     }
 
     console.log('Calling adapter.connect()...');

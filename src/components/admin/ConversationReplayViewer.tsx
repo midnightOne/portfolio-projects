@@ -23,7 +23,7 @@ import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 export interface ReplayStep {
   step: number;
   timestamp: string;
-  type: 'marker' | 'input' | 'system' | 'response' | 'navigation' | 'error';
+  type: 'marker' | 'input' | 'system' | 'response' | 'navigation' | 'error' | 'clip';
   legId: string | null;
   message: {
     id: string;
@@ -88,6 +88,9 @@ export const TYPE_STYLES: Record<string, string> = {
   navigation: 'bg-amber-50 dark:bg-amber-950/40 border-amber-400 dark:border-amber-600',
   error: 'bg-red-50 dark:bg-red-950/40 border-red-400 dark:border-red-600',
   marker: 'bg-orange-50 dark:bg-orange-950/40 border-2 border-dashed border-orange-400 dark:border-orange-600',
+  // D50 clip: dashed cyan — visually distinct from model speech (green) on
+  // purpose; replay must show what the visitor actually heard (Req 13.5).
+  clip: 'bg-cyan-50 dark:bg-cyan-950/40 border-2 border-dashed border-cyan-400 dark:border-cyan-600',
 };
 
 export const TYPE_LABELS: Record<string, string> = {
@@ -97,6 +100,7 @@ export const TYPE_LABELS: Record<string, string> = {
   navigation: 'Navigation',
   error: 'Error',
   marker: 'Marker',
+  clip: 'Clip (client audio)',
 };
 
 export function ConversationReplayViewer({ sessionId, conversationId, onClose }: ConversationReplayViewerProps) {

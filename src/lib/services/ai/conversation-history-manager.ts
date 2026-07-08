@@ -50,9 +50,11 @@ export interface ConversationMessage {
         requestId?: string;
         /** Internal reasoning/thinking trace, stored separately from `content` (D22 amendment) — never the spoken answer, rendered collapsed by default. */
         reasoning?: string;
-        /** Labeled navigation/error event (owner, 2026-07-07) — `content` carries the human-readable label. */
-        eventType?: 'navigation' | 'error';
+        /** Labeled navigation/error/clip event (owner, 2026-07-07; clip_played D50/9b) — `content` carries the human-readable label. */
+        eventType?: 'navigation' | 'error' | 'clip_played';
         detail?: string;
+        /** 9b.5 turn ONSET (assistant voice rows): when the turn's first audio became audible; the row timestamp is turn-END. */
+        firstAudioAt?: string;
     };
 }
 
@@ -159,9 +161,11 @@ export interface MessageMetadata {
     processingTime?: number;
     /** Internal reasoning/thinking trace, stored separately from the message content (D22 amendment). */
     reasoning?: string;
-    /** Labeled navigation/error event (owner, 2026-07-07) — `content` carries the human-readable label. */
-    eventType?: 'navigation' | 'error';
+    /** Labeled navigation/error/clip event (owner, 2026-07-07; clip_played D50/9b) — `content` carries the human-readable label. */
+    eventType?: 'navigation' | 'error' | 'clip_played';
     detail?: string;
+    /** 9b.5 turn ONSET (assistant voice rows): when the turn's first audio became audible; the row timestamp is turn-END. */
+    firstAudioAt?: string;
     voiceData?: {
         duration?: number;
         audioUrl?: string;
@@ -361,6 +365,7 @@ export class ConversationHistoryManager {
                             reasoning: message.metadata?.reasoning,
                             eventType: message.metadata?.eventType,
                             detail: message.metadata?.detail,
+                            firstAudioAt: message.metadata?.firstAudioAt,
                             navigationCommands: message.metadata?.navigationCommands ? JSON.stringify(message.metadata.navigationCommands) : undefined,
                             performanceMetrics: {
                                 totalProcessingTime: message.metadata?.processingTime

@@ -5,7 +5,10 @@
  * and D50 pre-recorded voice clips (ai-assistant 9b).
  *
  * Providers: openai speech, elevenlabs TTS (D22 amendment — ElevenLabs as a
- * TTS engine, selected by pointing the model at an ElevenLabs model id).
+ * TTS engine, selected by pointing the model at an ElevenLabs model id), and
+ * google Gemini TTS (same prebuilt voice names as Gemini Live — used by the
+ * D50 clips so Gemini sessions get clips in THEIR voice; returns raw PCM,
+ * wrapped in a WAV header here so AudioContext.decodeAudioData accepts it).
  * Speech endpoints return raw audio with no usage block, so callers meter with
  * estimated tokens (chars/4 both directions — rough, conservative, and pennies
  * at TTS scale).
@@ -76,6 +79,42 @@ export async function synthesizeSpeech(options: SynthesizeSpeechOptions): Promis
     }
     audio = Buffer.from(await response.arrayBuffer());
     contentType = 'audio/mpeg';
+  } else if (resolved.provider === 'google') {
+    const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error('synthesizeSpeech: GOOGLE_API_KEY/GEMINI_API_KEY is not set');
+    }
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(resolved.modelId)}:generateContent`,
+      {
+        method: 'POST',
+        headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text }] }],
+          generationConfig: {
+            responseModalities: ['AUDIO'],
+            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
+          },
+        }),
+      }
+    );
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new Error(`synthesizeSpeech: Gemini TTS failed (${response.status}) ${detail.slice(0, 300)}`);
+    }
+    const data = await response.json();
+    const inline = data?.candidates?.[0]?.content?.parts?.find(
+      (p: { inlineData?: { data?: string; mimeType?: string } }) => p.inlineData?.data
+    )?.inlineData;
+    if (!inline?.data) {
+      throw new Error('synthesizeSpeech: Gemini TTS returned no audio part');
+    }
+    // Gemini TTS emits raw 16-bit PCM (mimeType like 'audio/L16;codec=pcm;rate=24000');
+    // browsers can't decode headerless PCM, so wrap it as WAV.
+    const pcm = Buffer.from(inline.data, 'base64');
+    const rate = Number(/rate=(\d+)/.exec(inline.mimeType ?? '')?.[1] ?? 24000);
+    audio = wavFromPcm16(pcm, rate);
+    contentType = 'audio/wav';
   } else {
     throw new Error(`synthesizeSpeech: provider '${resolved.provider}' not supported (tts alias '${options.model ?? 'default-tts'}')`);
   }
@@ -89,4 +128,23 @@ export async function synthesizeSpeech(options: SynthesizeSpeechOptions): Promis
     estimatedInputTokens: estimated,
     estimatedOutputTokens: estimated,
   };
+}
+
+/** Minimal RIFF/WAVE header around mono 16-bit PCM. */
+function wavFromPcm16(pcm: Buffer, sampleRate: number): Buffer {
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0);
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write('WAVE', 8);
+  header.write('fmt ', 12);
+  header.writeUInt32LE(16, 16); // PCM fmt chunk size
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(1, 22); // mono
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28); // byte rate (16-bit mono)
+  header.writeUInt16LE(2, 32); // block align
+  header.writeUInt16LE(16, 34); // bits per sample
+  header.write('data', 36);
+  header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]);
 }

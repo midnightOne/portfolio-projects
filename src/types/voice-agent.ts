@@ -75,6 +75,10 @@ export interface TranscriptItem {
     audioUrl?: string;
     /** Internal reasoning/thinking trace, kept separate from the visible answer (D22 amendment). */
     reasoning?: string;
+    /** Turn ONSET — when the first audio chunk of this assistant turn became
+     *  audible (9b.5). The item's own timestamp is turn-END (flush time), which
+     *  masks the silence window; this is the honest latency signal. */
+    firstAudioAt?: string;
   };
 }
 
@@ -183,7 +187,12 @@ export interface TranscriptEvent {
 }
 
 export interface AudioEvent {
-  type: 'audio_start' | 'audio_end' | 'audio_level' | 'audio_error';
+  /**
+   * audio_start/audio_end — microphone CAPTURE lifecycle (drives isRecording).
+   * speech_start/speech_end — MODEL SPEECH becoming audible / draining (9b):
+   * drives isPlaying, D50 clip cutoff, and turn-onset latency capture.
+   */
+  type: 'audio_start' | 'audio_end' | 'audio_level' | 'audio_error' | 'speech_start' | 'speech_end';
   level?: number;
   error?: string;
   timestamp: Date;

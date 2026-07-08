@@ -89,6 +89,8 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     private _lastReportedCost: number = 0;
     private _conversationStartTime: Date | null = null;
     private _sessionId: string | null = null;
+    /** 9b.5: when the current response's FIRST audio reached the speaker (output_audio_buffer.started). */
+    private _turnFirstAudioAt: Date | null = null;
 
     // NAV_CONTEXT message tracking functionality
     private trackedNavItemIds: Set<string> = new Set();
@@ -642,6 +644,16 @@ Navigation Flow:
                 // The transcript should be in the history update that follows
             }
 
+            // Model speech lifecycle (9b): WebRTC signals actual speaker-side
+            // playback via output_audio_buffer events — drives D50 clip cutoff,
+            // isPlaying, and the 9b.5 turn-onset timestamp.
+            if (event.type === 'output_audio_buffer.started') {
+                if (!this._turnFirstAudioAt) this._turnFirstAudioAt = new Date();
+                this._emitAudioEvent('speech_start');
+            } else if (event.type === 'output_audio_buffer.stopped' || event.type === 'output_audio_buffer.cleared') {
+                this._emitAudioEvent('speech_end');
+            }
+
             // Handle audio interruption events
             if (event.type === 'response.audio_transcript.delta') {
                 console.log('AI is speaking (audio transcript delta)');
@@ -651,6 +663,8 @@ Navigation Flow:
                 console.log('AI response completed');
                 // Process usage metrics when response is complete
                 this._processResponseMetrics(event);
+                // Next response gets a fresh turn-onset timestamp.
+                this._turnFirstAudioAt = null;
             }
 
             // Handle tool call events
@@ -928,7 +942,12 @@ Navigation Flow:
                         type: itemType,
                         content,
                         timestamp: new Date(Date.now()),
-                        provider: 'openai' as VoiceProvider
+                        provider: 'openai' as VoiceProvider,
+                        // 9b.5 best-effort onset for assistant turns (WebRTC playback
+                        // start via output_audio_buffer.started; exact on Gemini).
+                        metadata: itemType === 'ai_response' && this._turnFirstAudioAt
+                            ? { firstAudioAt: this._turnFirstAudioAt.toISOString() }
+                            : undefined
                     };
 
                     // Update existing item or add new one
@@ -1484,7 +1503,7 @@ Navigation Flow:
         }
     }
 
-    private _emitAudioEvent(type: 'audio_start' | 'audio_end' | 'audio_error', error?: string) {
+    private _emitAudioEvent(type: 'audio_start' | 'audio_end' | 'audio_error' | 'speech_start' | 'speech_end', error?: string) {
         if (this._options?.onAudioEvent) {
             this._options.onAudioEvent({
                 type,

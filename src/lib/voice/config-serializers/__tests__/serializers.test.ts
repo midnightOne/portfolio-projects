@@ -138,7 +138,7 @@ describe('Google Live Serializer', () => {
     const config = serializer.getDefaultConfig();
     expect(config.provider).toBe('google');
     expect(config.enabled).toBe(true);
-    expect(config.model).toBe('gemini-2.5-flash-native-audio-latest');
+    expect(config.model).toBe('gemini-3.1-flash-live-preview');
     expect(config.voice).toBe('Puck');
   });
 

@@ -20,6 +20,7 @@ import { GoogleLiveConfig } from '@/types/voice-config';
 import { unifiedToolRegistry } from '@/lib/ai/tools/UnifiedToolRegistry';
 import { reflinkManager } from '@/lib/services/ai/reflink-manager';
 import { buildResumeBriefing } from '@/lib/ai/resume-briefing';
+import { assembleStartFrame } from '@/lib/ai/start-frame';
 import { withAIGateway, type GatewayContext } from '@/lib/ai/gateway';
 
 interface GoogleSessionResponse {
@@ -50,6 +51,20 @@ async function buildSystemInstructions(
   resumeSessionId: string | null
 ): Promise<string> {
   let instructions = baseInstructions + TOOL_GUIDANCE;
+
+  // Start frame (task 5d — same grounding as text chat): without it the model
+  // has zero portfolio context at session start and answers "can't find
+  // specific information" whenever a single content_search comes back thin
+  // (owner-observed inconsistency, 2026-07-08). The frame names the projects
+  // and technologies, which both grounds broad openers AND gives the model
+  // the right vocabulary for better search queries.
+  const frame = await assembleStartFrame().catch((error) => {
+    console.error('[google/session] start frame assembly failed (continuing without it):', error);
+    return '';
+  });
+  if (frame) {
+    instructions += `\n\n${frame}`;
+  }
 
   if (contextId) {
     instructions += `\n\nContext ID: ${contextId}`;
@@ -123,9 +138,15 @@ async function mintEphemeralToken(
         // Off by default for real-time voice: thinking adds latency and its
         // trace only separates from the spoken answer via the `thought` part
         // flag on the adapter side (D22 amendment, owner 2026-07-07).
-        thinkingConfig: config.enableReasoning
-          ? { includeThoughts: true }
-          : { thinkingBudget: 0 },
+        // Gemini 3.x replaced thinkingBudget with thinkingLevel (minimal is
+        // the low-latency default); 2.x keeps the budget field.
+        thinkingConfig: /gemini-3/.test(config.model)
+          ? (config.enableReasoning
+              ? { thinkingLevel: 'LOW', includeThoughts: true }
+              : { thinkingLevel: 'MINIMAL' })
+          : (config.enableReasoning
+              ? { includeThoughts: true }
+              : { thinkingBudget: 0 }),
       },
       systemInstruction: { parts: [{ text: systemInstructions }] },
       tools: functionDeclarations.length ? [{ functionDeclarations }] : undefined,

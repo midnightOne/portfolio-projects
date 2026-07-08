@@ -754,6 +754,8 @@ The platform has processed over $2M in transactions in its first year, with 99.9
     { alias: 'default-embedding', provider: 'openai', modelId: 'text-embedding-3-small' },
     { alias: 'default-realtime', provider: 'openai', modelId: 'gpt-realtime' },
     { alias: 'default-tts', provider: 'openai', modelId: 'gpt-4o-mini-tts' },
+    // Renders D50 clips in Gemini Live's own prebuilt voices (strict voice match).
+    { alias: 'default-tts-google', provider: 'google', modelId: 'gemini-3.1-flash-tts-preview' },
     { alias: 'default-stt', provider: 'openai', modelId: 'gpt-4o-mini-transcribe' },
   ];
   for (const a of modelAliases) {
@@ -761,6 +763,32 @@ The platform has processed over $2M in transactions in its first year, with 99.9
       where: { alias: a.alias },
       update: {},
       create: a,
+    });
+  }
+
+  // D50 pre-recorded voice clip phrases (ai-assistant 9b) — the admin-managed
+  // script; clips themselves are generated via the admin regenerate action,
+  // never seeded (they're TTS output, not fixture data).
+  const clipPhrases: Array<{ id: string; text: string; tag: string; enabled?: boolean; sortOrder: number }> = [
+    // Filler pool — several variants per category, randomized at play time
+    // (owner, 2026-07-08): the repetition is what makes a single filler grating.
+    { id: 'filler_checking_1', text: 'Let me look that up for you.', tag: 'filler', sortOrder: 0 },
+    { id: 'filler_checking_2', text: 'One moment — checking that now.', tag: 'filler', sortOrder: 1 },
+    { id: 'filler_checking_3', text: 'Just a second, pulling that up.', tag: 'filler', sortOrder: 2 },
+    { id: 'filler_checking_4', text: 'Let me take a look.', tag: 'filler', sortOrder: 3 },
+    { id: 'filler_checking_5', text: 'Give me a moment to search for that.', tag: 'filler', sortOrder: 4 },
+    { id: 'filler_checking_6', text: 'Hmm, let me find that.', tag: 'filler', sortOrder: 5 },
+    { id: 'disruption_reconnecting', text: 'Sorry — small connection hiccup. Re-establishing now.', tag: 'disruption', sortOrder: 0 },
+    { id: 'disruption_reconnecting_2', text: 'One second — reconnecting.', tag: 'disruption', sortOrder: 1 },
+    { id: 'resume_failed', text: "I couldn't restore the connection. Please try reconnecting in a moment.", tag: 'resume_failed', sortOrder: 0 },
+    // Cold-start greeting is OPTIONAL per D50 — ships disabled.
+    { id: 'greeting_coldstart', text: 'Hi! Give me just a second to get set up.', tag: 'greeting', enabled: false, sortOrder: 0 },
+  ];
+  for (const p of clipPhrases) {
+    await prisma.voiceClipPhrase.upsert({
+      where: { id: p.id },
+      update: {},
+      create: { id: p.id, text: p.text, tag: p.tag, enabled: p.enabled ?? true, sortOrder: p.sortOrder },
     });
   }
 
@@ -773,6 +801,7 @@ The platform has processed over $2M in transactions in its first year, with 99.9
     { modelId: 'gpt-realtime', provider: 'openai', inputPerMTokUsd: 4, outputPerMTokUsd: 16, notes: 'text tokens only; audio token pricing lands with voice metering (Phase 4)' },
     { modelId: 'gpt-4o-mini-tts', provider: 'openai', inputPerMTokUsd: 0.6, outputPerMTokUsd: 12, notes: 'TTS: text-in / audio-out; speech endpoint returns no usage, so callers meter estimated tokens' },
     { modelId: 'gpt-4o-mini-transcribe', provider: 'openai', inputPerMTokUsd: 3, outputPerMTokUsd: 5, notes: 'STT: audio-in / text-out; no usage block, callers meter estimated tokens from the transcript' },
+    { modelId: 'gemini-3.1-flash-tts-preview', provider: 'google', inputPerMTokUsd: 0.5, outputPerMTokUsd: 10, notes: 'Gemini 3.1 TTS (D50 clips in Gemini Live voices): text-in / audio-out; callers meter estimated tokens' },
     { modelId: 'scribe_v1', provider: 'elevenlabs', inputPerMTokUsd: 0, outputPerMTokUsd: 0, notes: 'ElevenLabs Scribe STT — credit-based subscription, no per-token price; ledger rows carry usage counts only' },
     { modelId: 'eleven_flash_v2_5', provider: 'elevenlabs', inputPerMTokUsd: 0, outputPerMTokUsd: 0, notes: 'ElevenLabs Flash TTS — credit-based subscription, no per-token price; ledger rows carry usage counts only' },
     { modelId: 'claude-sonnet-4-5-20250929', provider: 'anthropic', inputPerMTokUsd: 3, outputPerMTokUsd: 15 },

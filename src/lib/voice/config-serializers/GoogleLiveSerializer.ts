@@ -77,7 +77,9 @@ export class GoogleLiveSerializer implements VoiceConfigSerializer<GoogleLiveCon
       displayName: 'Gemini Live',
       description: 'Google Gemini Live native speech-to-speech (WebSocket, ephemeral token mint)',
       version: '1.0.0',
-      model: 'gemini-2.5-flash-native-audio-latest',
+      // Gemini 3.1 Live (owner, 2026-07-08): 2.5 Flash Live is deprecated —
+      // new voice-agent work builds on the 3.1 stack.
+      model: 'gemini-3.1-flash-live-preview',
       voice: 'Puck',
       temperature: 0.8,
       instructions: 'You are a concise, friendly AI narrator for a software portfolio. Ground every content answer in the content_search/content_get tools. ALWAYS answer in English unless the visitor explicitly asks to switch languages.',
@@ -100,8 +102,8 @@ export class GoogleLiveSerializer implements VoiceConfigSerializer<GoogleLiveCon
         model: {
           type: 'string',
           title: 'Model',
-          description: 'Live-capable model id',
-          default: 'gemini-2.5-flash-native-audio-latest',
+          description: 'Live-capable model id (must support bidiGenerateContent — verify via Test Configuration)',
+          default: 'gemini-3.1-flash-live-preview',
         },
         voice: {
           type: 'string',

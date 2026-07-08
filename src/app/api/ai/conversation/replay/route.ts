@@ -79,6 +79,8 @@ export async function GET(request: NextRequest) {
           ? 'navigation'
           : msg.metadata?.eventType === 'error'
           ? 'error'
+          : msg.metadata?.eventType === 'clip_played'
+          ? 'clip' // D50: client clip, NOT model speech — rendered distinctly
           : msg.role === 'user' ? 'input' : msg.role === 'system' ? 'system' : 'response',
         legId: msg.legId ?? null,
         message: {

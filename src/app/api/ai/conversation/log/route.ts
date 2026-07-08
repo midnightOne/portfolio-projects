@@ -105,9 +105,9 @@ interface ConversationLogResponse {
  * never stored here. Idempotent per adapter item id (retries are safe).
  */
 type PersistableEntry =
-  | { kind: 'transcript'; id?: string; type?: string; content?: string; timestamp?: string | Date; duration?: number; reasoning?: string }
+  | { kind: 'transcript'; id?: string; type?: string; content?: string; timestamp?: string | Date; duration?: number; reasoning?: string; firstAudioAt?: string }
   | { kind: 'tool'; id?: string; toolName?: string; args?: unknown; result?: unknown; success?: boolean; executionTime?: number; timestamp?: string | Date }
-  | { kind: 'event'; id?: string; eventType?: 'navigation' | 'error'; label?: string; detail?: unknown; timestamp?: string | Date };
+  | { kind: 'event'; id?: string; eventType?: 'navigation' | 'error' | 'clip_played'; label?: string; detail?: unknown; timestamp?: string | Date };
 
 async function persistVoiceEntries(
   sessionId: string,
@@ -145,6 +145,9 @@ async function persistVoiceEntries(
             transcriptItemId: itemId,
             voiceData: entry.duration ? { duration: entry.duration } : undefined,
             reasoning: entry.reasoning,
+            // 9b.5 turn onset (assistant rows): first-audio time; the row's own
+            // timestamp is turn-END — the difference IS the visible latency story.
+            firstAudioAt: entry.firstAudioAt,
           },
         });
         persisted++;
@@ -340,6 +343,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           timestamp: transcriptItem.timestamp || body.timestamp,
           duration: transcriptItem.metadata?.duration,
           reasoning: transcriptItem.metadata?.reasoning,
+          firstAudioAt: transcriptItem.metadata?.firstAudioAt,
         }]);
         console.log(`Individual transcript item received for session ${sessionId}:`, {
           provider,
@@ -559,6 +563,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           timestamp: entry.data.timestamp || entry.timestamp,
           duration: entry.data.metadata?.duration,
           reasoning: entry.data.metadata?.reasoning,
+          firstAudioAt: entry.data.metadata?.firstAudioAt,
         });
       } else if (entry.type === 'tool_call' && entry.data?.phase === 'complete') {
         persistable.push({
