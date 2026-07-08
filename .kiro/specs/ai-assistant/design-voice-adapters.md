@@ -32,6 +32,13 @@ Provider/model selection: `VoiceProviderConfig` rows (admin CRUD at `/api/admin/
 
 ## 2b. Cascade adapter family (D45 — planned, Phase 4)
 
+**Three modes, one brain (owner framing, 2026-07-08).** The system has exactly three modes of operation, and they stack:
+1. **Native speech-to-speech** (OpenAI Realtime, Gemini Flash Live) — the primary interaction model: the provider hears audio and speaks audio directly.
+2. **Text-only** — the base text pipeline (reasoning adapter + UnifiedToolRegistry).
+3. **Cascade** — built *on top of* the same text-only pipeline as an adapter/extension: streaming STT feeds the text pipeline, streaming TTS renders its answer. Any LLM (± reasoning) × any TTS (ElevenLabs, OpenAI, Google), fully modular; ElevenLabs is the practical default for voice quality but never hardcoded.
+
+Native s2s is the flagship for latency; cascade is the mix-and-match fallback where a specific voice/LLM pairing matters. Both render the *same* grounded answer — mode is a rendering choice, not a different assistant.
+
 A second family behind the **same** `IConversationalAgentAdapter`:
 
 ```
@@ -41,7 +48,7 @@ mic ──► streaming STT ──► reasoning adapter (D39: OpenAI | Anthropic
                           streaming TTS (ElevenLabs Flash first) ──► speaker
 ```
 
-- **One brain, two renderings:** the cascade shares its LLM pipeline with text chat — answers are identical whether read or spoken. Text mode is simply the cascade minus STT/TTS.
+- **One brain, three renderings:** the cascade shares its LLM pipeline with text chat and native s2s — answers are identical whether read or spoken. Cascade is text-only *plus* STT/TTS (see the three-mode framing above).
 - **Tool reliability by construction:** tools execute in the classic LLM server-side; ElevenLabs is a TTS engine here, not an orchestrator — its agent-platform tool-calling problems are out of the loop entirely.
 - **Latency budget:** ~1–1.5s to first audio (STT endpointing + LLM TTFT + TTS TTFB, all streamed). Acceptable for portfolio Q&A; the native family stays the low-latency flagship.
 - **Turn-taking v1:** push-to-talk or conservative VAD; barge-in (cutting TTS on user speech) is a v2 refinement. This is the known-hard part of cascades — keep it deliberately simple first.

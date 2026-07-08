@@ -21,7 +21,7 @@ import { SyntheticMicDriver } from '@/lib/voice/dev/SyntheticMicDriver';
 const DEFAULT_SCRIPT = 'How does the kiln project regulate its temperature?';
 
 export function FakeMicPanel() {
-  const { connect, disconnect, resumeOnProvider, isConnected, audioInputMode } = useConversationalAgent();
+  const { connect, disconnect, resumeOnProvider, isConnected, audioInputMode, conversationId, activeProvider } = useConversationalAgent();
   const [available, setAvailable] = useState<boolean | null>(null);
   const [script, setScript] = useState(DEFAULT_SCRIPT);
   const [status, setStatus] = useState<string>('idle');
@@ -145,6 +145,30 @@ export function FakeMicPanel() {
         </div>
         <div className="text-xs font-mono bg-muted/40 rounded p-2" data-testid="fake-mic-status">
           {status}
+        </div>
+
+        {/* Conversation identity — surfaced so the owner can look this session up
+            later in the admin transcript browser (owner, 2026-07-07). */}
+        <div className="flex items-center gap-2 text-xs" data-testid="fake-mic-conversation-id">
+          <span className="text-muted-foreground">Conversation:</span>
+          {conversationId ? (
+            <>
+              <code className="font-mono bg-muted/40 rounded px-1.5 py-0.5 select-all">{conversationId}</code>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2"
+                onClick={() => navigator.clipboard?.writeText(conversationId).catch(() => {})}
+              >
+                Copy
+              </Button>
+              {activeProvider && <Badge variant="outline" className="text-[10px]">{activeProvider}</Badge>}
+            </>
+          ) : (
+            <span className="text-muted-foreground italic">
+              {isConnected ? 'awaiting first persisted turn…' : 'not connected'}
+            </span>
+          )}
         </div>
 
         {/* D49 resume drills (verification 7.3b) */}

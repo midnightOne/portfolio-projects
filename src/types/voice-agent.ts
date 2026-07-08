@@ -239,7 +239,11 @@ export interface AdapterInitOptions {
   
   // Tool configuration
   tools?: ToolDefinition[];
-  
+
+  /** Fired once the DB conversation id (cuid) is known from the first /log
+   *  write — lets the UI display it for later lookup. */
+  onConversationPersisted?: (conversationId: string) => void;
+
   // Debug and logging
   debug?: boolean;
   logLevel?: 'error' | 'warn' | 'info' | 'debug';

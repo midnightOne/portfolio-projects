@@ -1245,23 +1245,17 @@ Navigation Flow:
                 parsedArgs = event.arguments ? JSON.parse(event.arguments) : {};
             } catch { /* keep raw string */ }
 
-            fetch('/api/ai/conversation/log', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    sessionId: this._generateSessionId(),
-                    provider: 'openai',
-                    timestamp: new Date().toISOString(),
-                    toolName: event.name || this._pendingToolNames.get(event.call_id) || 'unknown_tool',
-                    toolArgs: parsedArgs,
-                    metadata: {
-                        toolCallId: event.call_id,
-                        success: true,
-                        reportType: 'real-time'
-                    }
-                })
-            }).catch(error => {
-                console.warn('Failed to log tool call completion:', error);
+            this._postConversationLog({
+                sessionId: this._generateSessionId(),
+                provider: 'openai',
+                timestamp: new Date().toISOString(),
+                toolName: event.name || this._pendingToolNames.get(event.call_id) || 'unknown_tool',
+                toolArgs: parsedArgs,
+                metadata: {
+                    toolCallId: event.call_id,
+                    success: true,
+                    reportType: 'real-time'
+                }
             });
         } catch (error) {
             console.warn('Error logging tool call completion:', error);
@@ -2275,16 +2269,9 @@ Navigation Flow:
                 }
             };
 
-            // Don't await this to avoid blocking the conversation flow
-            fetch('/api/ai/conversation/log', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(transcriptData)
-            }).catch(error => {
-                console.error('Failed to report transcript item to server:', error);
-            });
+            // Don't await this to avoid blocking the conversation flow; the shared
+            // helper also captures the DB conversationId from the response.
+            this._postConversationLog(transcriptData);
 
         } catch (error) {
             console.error('Error preparing transcript item for server:', error);

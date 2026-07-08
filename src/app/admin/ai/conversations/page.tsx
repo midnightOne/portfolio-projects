@@ -11,6 +11,7 @@ import { authOptions } from '@/lib/auth';
 import { AdminLayout } from '@/components/admin/admin-layout';
 import { AdminPageLayout } from '@/components/admin/admin-page-layout';
 import ConversationManagement from '@/components/admin/conversation-management';
+import { ConversationBrowser } from '@/components/admin/ConversationBrowser';
 
 export default async function ConversationManagementPage() {
   const session = await getServerSession(authOptions);
@@ -30,7 +31,10 @@ export default async function ConversationManagementPage() {
           { label: "Conversations", href: "/admin/ai/conversations" }
         ]}
       >
-        <ConversationManagement />
+        <div className="space-y-6">
+          <ConversationBrowser />
+          <ConversationManagement />
+        </div>
       </AdminPageLayout>
     </AdminLayout>
   );

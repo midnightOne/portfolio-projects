@@ -2,7 +2,7 @@
 
 **Status:** current
 **Owner domain:** visitor AI runtime
-**Last verified against code:** 2026-07-07 (Phase 3 consolidation session)
+**Last verified against code:** 2026-07-08 (owner-driven observability + tool-latency session; task 6.5)
 **Ledger regenerated from code truth per D36 — the old client-side-ai tasks.md (141KB, colliding numbering) is archived, not carried.**
 
 ---
@@ -125,6 +125,32 @@ OpenAI Realtime + ElevenLabs adapters behind `IConversationalAgentAdapter` with 
       get it free); the admin conversation-replay popup rebuilt from a static `window.open()` HTML dump into an
       interactive `ConversationReplayViewer` with Previous/Next stepping (+ arrow keys) through the full timeline.
       Admin conversation list already existed at `/admin/ai/conversations` (flat, unpaginated, limit 50 — untouched).
+
+- [x] 6.5 (added, owner 2026-07-08) Conversation observability + tool-call latency UX:
+      - **conversationId surfaced everywhere it's needed.** `/api/ai/conversation/log` now returns the DB conversation
+        cuid in `metadata.conversationId` on every persist path; a shared `_postConversationLog()` on the base adapter
+        captures it (Google + OpenAI + ElevenLabs routed through it) and fires `AdapterInitOptions.onConversationPersisted`;
+        the provider exposes `conversationId`; the Fake-Mic panel (admin **and** homepage) renders it copyable with the
+        provider badge. Fixes the owner's "I couldn't find the conversation ID" — verified live: `/log` returns
+        `conversationId: cmrbbrrpg…`.
+      - **admin transcript browser** at `/admin/ai/conversations` (new `ConversationBrowser` + `GET
+        /api/admin/ai/conversations/browse`): lists every stored conversation with provider/model (from the latest D49
+        leg), reflink, time, message count, cost; lookup by exact conversationId **or** sessionId, filter by provider,
+        content, and date range; row → full timeline via `ConversationReplayViewer` (replay route + viewer now accept
+        `conversationId` directly, not only `sessionId`). Route verified live (admin-gated, 307→signin unauth); browse
+        query logic verified against the DB. UI browser-drive under an authenticated admin session is the one item left
+        to eyeball (couldn't start a competing dev server — another session was serving this `.next`).
+      - **tool-call latency / silent-gap UX.** Root-caused: NOT cascade and NOT reasoning — the active config is native
+        s2s (`gemini-2.5-flash-native-audio-latest`, `responseModality:'AUDIO'`), reasoning off by default. Tool exec is
+        already fast (measured `content_search` 536ms, `getProjectSummary` 431ms on the owner's "3D work" convo
+        `cmrbakv2v…`); the felt "hang up" is the model narrating its filler AFTER the tool instead of before, so the
+        ~2s round-trip is dead air. Fixes: (a) `/api/ai/tools/execute` defers the ledger meter + reflink-budget re-read
+        to `next/server` `after()` and drops the unread `costTracking` from the response + the multi-KB per-call pretty
+        log — trims DB round-trips off the hot path; (b) strengthened "speak BEFORE the tool" guidance in the Google
+        mint prompt. The **guaranteed** fix is the D50 instant filler clip (fire on tool_call start, cut off on real
+        speech) — task 9b. **Instrumentation gap noted:** the persisted assistant-turn timestamp is turn-END (flushed on
+        `turnComplete`), which masks the true silence window — capture turn-onset (first audio chunk) for real latency
+        telemetry when 9b lands.
 
 - [ ] 7. `BackendToolService` de-stubbing
   - [ ] 7.1 Real profile/contact data from DB (remove hardcoded profile)

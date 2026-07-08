@@ -693,50 +693,34 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
   // ---- D49 leg lifecycle + persistence (baseline; see task 6.3 gap notes) ----
 
   private _logConnectionEvent(eventType: 'session_start' | 'session_end' | 'disruption', data: Record<string, unknown>): void {
-    try {
-      fetch('/api/ai/conversation/log', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: this._conversationId,
+    this._postConversationLog({
+      sessionId: this._conversationId,
+      provider: 'google',
+      reflinkId: this._options?.reflinkId,
+      conversationData: {
+        startTime: new Date().toISOString(),
+        entries: [{
+          id: `conn_${eventType}_${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          type: 'connection_event',
           provider: 'google',
-          reflinkId: this._options?.reflinkId,
-          conversationData: {
-            startTime: new Date().toISOString(),
-            entries: [{
-              id: `conn_${eventType}_${Date.now()}`,
-              timestamp: new Date().toISOString(),
-              type: 'connection_event',
-              provider: 'google',
-              data: { eventType, ...data }
-            }],
-            toolCallSummary: { totalCalls: 0, successfulCalls: 0, failedCalls: 0, clientCalls: 0, serverCalls: 0, averageExecutionTime: 0 },
-            conversationMetrics: { totalTranscriptItems: 0, totalConnectionEvents: 1, totalContextRequests: 0 }
-          }
-        })
-      }).catch(error => console.warn('Failed to log Google Live connection event:', error));
-    } catch (error) {
-      console.warn('Error logging Google Live connection event:', error);
-    }
+          data: { eventType, ...data }
+        }],
+        toolCallSummary: { totalCalls: 0, successfulCalls: 0, failedCalls: 0, clientCalls: 0, serverCalls: 0, averageExecutionTime: 0 },
+        conversationMetrics: { totalTranscriptItems: 0, totalConnectionEvents: 1, totalContextRequests: 0 }
+      }
+    });
   }
 
   private _reportTranscriptToServer(item: TranscriptItem): void {
-    try {
-      fetch('/api/ai/conversation/log', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          transcriptItem: { ...item, timestamp: item.timestamp.toISOString() },
-          sessionId: this._conversationId,
-          contextId: this._options?.contextId,
-          reflinkId: this._options?.reflinkId,
-          provider: 'google',
-          timestamp: new Date().toISOString()
-        })
-      }).catch(error => console.warn('Failed to report Google Live transcript to server:', error));
-    } catch (error) {
-      console.warn('Error reporting Google Live transcript:', error);
-    }
+    this._postConversationLog({
+      transcriptItem: { ...item, timestamp: item.timestamp.toISOString() },
+      sessionId: this._conversationId,
+      contextId: this._options?.contextId,
+      reflinkId: this._options?.reflinkId,
+      provider: 'google',
+      timestamp: new Date().toISOString()
+    });
   }
 
   private _logToolCall(
@@ -745,26 +729,18 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
     result: { success: boolean; result: unknown; executionTime: number } | undefined,
     callId: string
   ): void {
-    try {
-      fetch('/api/ai/conversation/log', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: this._conversationId,
-          provider: 'google',
-          reflinkId: this._options?.reflinkId,
-          toolName,
-          toolArgs: args,
-          timestamp: new Date().toISOString(),
-          metadata: {
-            toolCallId: callId,
-            success: result?.success,
-            executionTime: result?.executionTime
-          }
-        })
-      }).catch(error => console.warn('Failed to log Google Live tool call:', error));
-    } catch (error) {
-      console.warn('Error logging Google Live tool call:', error);
-    }
+    this._postConversationLog({
+      sessionId: this._conversationId,
+      provider: 'google',
+      reflinkId: this._options?.reflinkId,
+      toolName,
+      toolArgs: args,
+      timestamp: new Date().toISOString(),
+      metadata: {
+        toolCallId: callId,
+        success: result?.success,
+        executionTime: result?.executionTime
+      }
+    });
   }
 }

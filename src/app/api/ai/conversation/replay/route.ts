@@ -21,15 +21,20 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const sessionId = searchParams.get('sessionId');
+    const conversationIdParam = searchParams.get('conversationId');
 
-    if (!sessionId) {
+    if (!sessionId && !conversationIdParam) {
       return NextResponse.json(
-        { success: false, error: { code: 'VALIDATION_ERROR', message: 'Missing sessionId parameter' } },
+        { success: false, error: { code: 'VALIDATION_ERROR', message: 'Missing sessionId or conversationId parameter' } },
         { status: 400 }
       );
     }
 
-    const conversation = await conversationHistoryManager.getConversationBySessionId(sessionId);
+    // conversationId is an exact key (cuid); sessionId resolves to the latest
+    // conversation under that session. The browser passes conversationId.
+    const conversation = conversationIdParam
+      ? await conversationHistoryManager.getConversationById(conversationIdParam)
+      : await conversationHistoryManager.getConversationBySessionId(sessionId!);
 
     if (!conversation) {
       return NextResponse.json({

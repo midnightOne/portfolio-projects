@@ -108,7 +108,14 @@ export interface IConversationalAgentAdapter {
    * same or different provider — passes this id as ConnectOptions.resumeFromSessionId.
    */
   getConversationSessionId?(): string | null;
-  
+
+  /**
+   * DB conversation id (cuid) the session persists under, captured from the
+   * /log response — for debug display and later lookup. Null before the first
+   * successful persistence. Distinct from the logical `session_…` id above.
+   */
+  getPersistedConversationId?(): string | null;
+
   // Event handling (internal - called by the adapter implementation)
   _handleConnectionEvent(event: import('@/types/voice-agent').ConnectionEvent): void;
   _handleTranscriptEvent(event: import('@/types/voice-agent').TranscriptEvent): void;
@@ -133,10 +140,45 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
   protected _isMuted: boolean = false;
   protected _volume: number = 1.0;
   protected _audioInputMode: AudioInputMode | null = null;
+  /** DB conversation id (cuid), captured from the /log response so debug UIs can
+   *  display it and the owner can look the conversation up. Distinct from the
+   *  logical `session_…` id the adapter writes under. */
+  protected _persistedConversationId: string | null = null;
 
   constructor(provider: VoiceProvider, metadata: ProviderMetadata) {
     this._provider = provider;
     this._metadata = metadata;
+  }
+
+  /** DB conversation id (cuid) once the first /log write has resolved, else null. */
+  getPersistedConversationId(): string | null {
+    return this._persistedConversationId;
+  }
+
+  /**
+   * POST a body to /api/ai/conversation/log and capture the DB conversationId
+   * from the response. Shared by all adapters so the persisted id is available
+   * regardless of provider; fire-and-forget, never blocks the voice path.
+   */
+  protected _postConversationLog(body: Record<string, unknown>): void {
+    try {
+      void fetch('/api/ai/conversation/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+        .then(async (res) => {
+          const data = await res.json().catch(() => null);
+          const cid = data?.metadata?.conversationId;
+          if (typeof cid === 'string' && cid && cid !== this._persistedConversationId) {
+            this._persistedConversationId = cid;
+            this._options?.onConversationPersisted?.(cid);
+          }
+        })
+        .catch((err) => console.warn('[conversation/log] post failed:', err));
+    } catch (err) {
+      console.warn('[conversation/log] post threw:', err);
+    }
   }
 
   // Getters
@@ -298,23 +340,15 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
    * lives in the base class; fire-and-forget, never blocks the voice path.
    */
   protected _logEvent(eventType: 'navigation' | 'error', label: string, detail?: unknown): void {
-    try {
-      const sessionId = this.getConversationSessionId?.();
-      if (!sessionId) return;
-      fetch('/api/ai/conversation/log', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId,
-          provider: this._provider,
-          reflinkId: this._options?.reflinkId,
-          event: { type: eventType, label, detail },
-          timestamp: new Date().toISOString()
-        })
-      }).catch(err => console.warn(`Failed to log ${eventType} event:`, err));
-    } catch (err) {
-      console.warn(`Error logging ${eventType} event:`, err);
-    }
+    const sessionId = this.getConversationSessionId?.();
+    if (!sessionId) return;
+    this._postConversationLog({
+      sessionId,
+      provider: this._provider,
+      reflinkId: this._options?.reflinkId,
+      event: { type: eventType, label, detail },
+      timestamp: new Date().toISOString(),
+    });
   }
 
   /** Best-effort human label for a ui_intent call, tolerant of schema drift (D41 §2c). */

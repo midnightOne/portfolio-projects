@@ -35,7 +35,9 @@ interface ConversationalAgentContextType {
   resumeOnProvider: (provider: VoiceProvider, options?: ConnectOptions) => Promise<void>;
   isConnected: boolean;
   audioInputMode: AudioInputMode | null;
-  
+  /** DB conversation id (cuid) once persisted — for debug display and lookup. */
+  conversationId: string | null;
+
   // Audio management
   startAudioInput: () => Promise<void>;
   stopAudioInput: () => Promise<void>;
@@ -88,6 +90,8 @@ export function ConversationalAgentProvider({
   const [lastError, setLastError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [audioInputMode, setAudioInputMode] = useState<AudioInputMode | null>(null);
+  /** DB conversation id (cuid) once persisted — surfaced for debug display/lookup. */
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolumeState] = useState(1.0);
   const [availableTools, setAvailableTools] = useState<string[]>([]);
@@ -287,7 +291,8 @@ export function ConversationalAgentProvider({
           onTranscriptEvent: handleTranscriptEvent,
           onAudioEvent: handleAudioEvent,
           onToolEvent: handleToolEvent,
-          
+          onConversationPersisted: (cid: string) => setConversationId(cid),
+
           // Provider-specific configuration
           providerConfig: {
             [provider]: await getProviderConfig(provider)
@@ -701,6 +706,7 @@ export function ConversationalAgentProvider({
     resumeOnProvider,
     isConnected,
     audioInputMode,
+    conversationId,
 
     // Audio management
     startAudioInput,

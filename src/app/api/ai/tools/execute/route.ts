@@ -9,7 +9,7 @@
  * - Usage tracking for cost attribution
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { unifiedToolRegistry } from '@/lib/ai/tools/UnifiedToolRegistry';
 import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 import { contextProvider } from '@/lib/services/ai/context-provider';
@@ -113,14 +113,9 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext): Promise<Ne
       }, { status: 400 });
     }
 
-    // Enhanced logging for debugging
-    console.log(`🔧 Tool execution: ${toolName}`, {
-      sessionId,
-      toolCallId,
-      reflinkId,
-      parameters: JSON.stringify(parameters, null, 2),
-      uiState: requestUIState ? JSON.stringify(requestUIState, null, 2) : 'none'
-    });
+    // Compact single-line log — the pretty-printed multi-KB dump this replaced ran
+    // on every tool call and showed up in the voice hot path (owner report, 2026-07-07).
+    console.log(`🔧 Tool execution: ${toolName} (session=${sessionId}, call=${toolCallId}${reflinkId ? `, reflink=${reflinkId}` : ''})`);
 
     // Emit debug event for server-side tool call start with correlation ID
     const toolCorrelationId = `server_tool_${toolCallId}`;
@@ -275,26 +270,22 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext): Promise<Ne
       timestamp: new Date()
     }, 'unified-tools-api', successCorrelationId, sessionId, toolCallId);
 
-    // Meter the execution into the unified ledger (D32). Tool dispatch itself has no
-    // direct model tokens — model spend inside tools (e.g. query embeddings in
-    // content_search) is recorded at its own call site; this row records the event
-    // and attributes it to session/reflink/IP for rate and budget accounting.
-    const meterResult = await ctx.meter({
-      usageType: 'tool_execution',
-      costUsd: 0,
-      metadata: { toolName, success: toolResult.success, executionTime }
+    // Meter the execution into the unified ledger (D32) AFTER the response flushes
+    // (next/server `after`). Tool dispatch has no direct model tokens — model spend
+    // inside tools (e.g. content_search query embeddings) is metered at its own call
+    // site — so this row is pure event attribution and never needs to block the tool
+    // result. Deferring it keeps the ledger write + reflink budget re-read off the
+    // voice hot path, where every DB round-trip here is dead air before the model can
+    // speak (owner latency report, 2026-07-07). costTracking is dropped from the
+    // response because no caller reads it (the voice adapters use only data/success).
+    const meterSnapshot = { usageType: 'tool_execution' as const, costUsd: 0, metadata: { toolName: toolName!, success: toolResult.success, executionTime } };
+    after(async () => {
+      try {
+        await ctx.meter(meterSnapshot);
+      } catch (err) {
+        console.error('[tools/execute] deferred meter failed:', err);
+      }
     });
-
-    let costTracking: UnifiedToolExecuteResponse['metadata']['costTracking'];
-    if (ctx.reflink) {
-      const { reflinkManager } = await import('@/lib/services/ai/reflink-manager');
-      const budget = await reflinkManager.getRemainingBudget(ctx.reflink.id).catch(() => null);
-      costTracking = {
-        reflinkId: ctx.reflink.id,
-        estimatedCost: meterResult.costUsd,
-        remainingBudget: budget?.spendRemaining === Infinity ? undefined : budget?.spendRemaining
-      };
-    }
 
     const response: UnifiedToolExecuteResponse = {
       success: toolResult.success,
@@ -306,8 +297,7 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext): Promise<Ne
         sessionId,
         toolCallId,
         executionTime,
-        accessLevel: validation.accessLevel,
-        costTracking
+        accessLevel: validation.accessLevel
       }
     };
 

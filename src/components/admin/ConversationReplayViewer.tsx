@@ -74,7 +74,10 @@ interface ReplayData {
 }
 
 interface ConversationReplayViewerProps {
-  sessionId: string | null;
+  /** Logical session id; resolves to the latest conversation under it. */
+  sessionId?: string | null;
+  /** Exact DB conversation id (cuid) — preferred when known (browser passes it). */
+  conversationId?: string | null;
   onClose: () => void;
 }
 
@@ -96,24 +99,29 @@ const TYPE_LABELS: Record<string, string> = {
   marker: 'Marker',
 };
 
-export function ConversationReplayViewer({ sessionId, onClose }: ConversationReplayViewerProps) {
+export function ConversationReplayViewer({ sessionId, conversationId, onClose }: ConversationReplayViewerProps) {
   const [data, setData] = useState<ReplayData | null>(null);
   const [loading, setLoading] = useState(false);
   const [stepIndex, setStepIndex] = useState(0);
 
+  const key = conversationId ?? sessionId ?? null;
+
   useEffect(() => {
-    if (!sessionId) {
+    if (!key) {
       setData(null);
       return;
     }
+    const query = conversationId
+      ? `conversationId=${encodeURIComponent(conversationId)}`
+      : `sessionId=${encodeURIComponent(sessionId!)}`;
     setLoading(true);
     setStepIndex(0);
-    fetch(`/api/ai/conversation/replay?sessionId=${sessionId}`)
+    fetch(`/api/ai/conversation/replay?${query}`)
       .then(r => r.json())
       .then(res => setData(res.success ? res.data : null))
       .catch(() => setData(null))
       .finally(() => setLoading(false));
-  }, [sessionId]);
+  }, [key, conversationId, sessionId]);
 
   const timeline = data?.timeline ?? [];
   const step = timeline[stepIndex];
@@ -123,7 +131,7 @@ export function ConversationReplayViewer({ sessionId, onClose }: ConversationRep
   const goNext = () => setStepIndex(i => Math.min(timeline.length - 1, i + 1));
 
   useEffect(() => {
-    if (!sessionId) return;
+    if (!key) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft') goPrev();
       if (e.key === 'ArrowRight') goNext();
@@ -131,14 +139,16 @@ export function ConversationReplayViewer({ sessionId, onClose }: ConversationRep
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, timeline.length]);
+  }, [key, timeline.length]);
 
   return (
-    <Dialog open={!!sessionId} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open={!!key} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>Conversation Replay</DialogTitle>
-          <DialogDescription className="font-mono text-xs">{sessionId}</DialogDescription>
+          <DialogDescription className="font-mono text-xs">
+            {data?.conversation?.id ?? key}
+          </DialogDescription>
         </DialogHeader>
 
         {loading && (

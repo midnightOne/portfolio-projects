@@ -84,6 +84,9 @@ interface ConversationLogResponse {
   metadata: {
     timestamp: number;
     sessionId: string;
+    /** DB conversation id (cuid) the session persists under — surfaced so debug
+     *  UIs can display it and the owner can look the conversation up later. */
+    conversationId?: string;
     entriesProcessed: number;
     storedSuccessfully: boolean;
   };
@@ -110,7 +113,7 @@ async function persistVoiceEntries(
   sessionId: string,
   reflinkId: string | undefined,
   entries: PersistableEntry[]
-): Promise<number> {
+): Promise<{ persisted: number; conversationId: string }> {
   let persisted = 0;
   const conversationId = await conversationHistoryManager.getOrCreateConversationId(
     sessionId,
@@ -188,7 +191,7 @@ async function persistVoiceEntries(
       console.error('[conversation/log] failed to persist entry (continuing):', entryError);
     }
   }
-  return persisted;
+  return { persisted, conversationId };
 }
 
 /**
@@ -341,7 +344,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
         console.log(`Individual transcript item received for session ${sessionId}:`, {
           provider,
           itemType: transcriptItem.type,
-          persisted: stored
+          persisted: stored.persisted
         });
 
         return NextResponse.json({
@@ -350,6 +353,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           metadata: {
             timestamp: Date.now(),
             sessionId,
+            conversationId: stored.conversationId,
             entriesProcessed: 1,
             storedSuccessfully: true
           }
@@ -365,7 +369,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           metadata: body.metadata
         };
         
-        await persistVoiceEntries(sessionId, reflinkId, [{
+        const toolStored = await persistVoiceEntries(sessionId, reflinkId, [{
           kind: 'tool',
           id: (body.metadata as any)?.toolCallId,
           toolName: body.toolName,
@@ -386,6 +390,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           metadata: {
             timestamp: Date.now(),
             sessionId,
+            conversationId: toolStored.conversationId,
             entriesProcessed: 1,
             storedSuccessfully: true
           }
@@ -394,7 +399,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
 
       // Check if this is a labeled navigation/error event (legacy format)
       if (body.event) {
-        await persistVoiceEntries(sessionId, reflinkId, [{
+        const eventStored = await persistVoiceEntries(sessionId, reflinkId, [{
           kind: 'event',
           eventType: body.event.type,
           label: body.event.label,
@@ -412,6 +417,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           metadata: {
             timestamp: Date.now(),
             sessionId,
+            conversationId: eventStored.conversationId,
             entriesProcessed: 1,
             storedSuccessfully: true
           }
@@ -576,8 +582,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
         });
       }
     }
-    const persistedCount = await persistVoiceEntries(sessionId, reflinkId, persistable);
-    console.log(`[conversation/log] persisted ${persistedCount}/${persistable.length} entries for session ${sessionId}`);
+    const batchStored = await persistVoiceEntries(sessionId, reflinkId, persistable);
+    console.log(`[conversation/log] persisted ${batchStored.persisted}/${persistable.length} entries for session ${sessionId}`);
 
     const response: ConversationLogResponse = {
       success: true,
@@ -585,6 +591,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
       metadata: {
         timestamp: Date.now(),
         sessionId,
+        conversationId: batchStored.conversationId,
         entriesProcessed: entriesCount,
         storedSuccessfully: true // Will be based on actual database operation
       }

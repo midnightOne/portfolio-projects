@@ -887,6 +887,14 @@ export class ElevenLabsAdapter extends BaseConversationalAgentAdapter {
         throw new Error(`Server responded with ${response.status}: ${response.statusText}`);
       }
 
+      // Capture the DB conversationId for debug display / later lookup.
+      const logData = await response.json().catch(() => null);
+      const cid = logData?.metadata?.conversationId;
+      if (typeof cid === 'string' && cid && cid !== this._persistedConversationId) {
+        this._persistedConversationId = cid;
+        this._options?.onConversationPersisted?.(cid);
+      }
+
       // Success - reset retry count for future calls
       // (No need to track per-item retry count since this is fire-and-forget)
 
