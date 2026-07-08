@@ -18,6 +18,9 @@ export interface UnifiedToolDefinition {
     required?: string[];
   };
   executionContext: ToolExecutionContext; // Defines where tool logic runs
+  /** false = internal plumbing (e.g. PassiveFIDManager fetches): executable
+   *  via the tools endpoint but NEVER offered to models. Default true. */
+  modelExposed?: boolean;
   outputSchema?: {
     type: 'object';
     properties: Record<string, any>;

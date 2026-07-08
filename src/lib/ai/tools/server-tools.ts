@@ -11,6 +11,10 @@ import { UnifiedToolDefinition } from './types';
 // Context Loading Tools - Server-side data access
 export const loadProjectContextToolDefinition: UnifiedToolDefinition = {
   name: 'loadProjectContext',
+  // Internal F-I-D plumbing (PassiveFIDManager): its results carry NO section
+  // navTargets, so a model using it loses "take me to the X section" asks —
+  // the semantic chain (content_search/content_get) is the model-facing path.
+  modelExposed: false,
   description: 'Load detailed context for a specific project from the server database.',
   parameters: {
     type: 'object',
@@ -100,6 +104,8 @@ export const loadUserProfileToolDefinition: UnifiedToolDefinition = {
 
 export const searchProjectsToolDefinition: UnifiedToolDefinition = {
   name: 'searchProjects',
+  // Internal F-I-D plumbing — see loadProjectContext note.
+  modelExposed: false,
   description: 'Search projects by keywords, tags, or content for relevant matches. For navigation, use openProject instead.',
   parameters: {
     type: 'object',

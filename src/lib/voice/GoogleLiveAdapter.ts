@@ -701,7 +701,7 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
 
   private async _registerStandardTools(): Promise<void> {
     const { unifiedToolRegistry } = await import('@/lib/ai/tools/UnifiedToolRegistry');
-    unifiedToolRegistry.getAllToolDefinitions().forEach(toolDef => {
+    unifiedToolRegistry.getModelExposedToolDefinitions().forEach(toolDef => {
       this.registerTool({
         name: toolDef.name,
         description: toolDef.description,

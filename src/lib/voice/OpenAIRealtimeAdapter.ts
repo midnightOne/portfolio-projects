@@ -91,6 +91,10 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     private _sessionId: string | null = null;
     /** 9b.5: when the current response's FIRST audio reached the speaker (output_audio_buffer.started). */
     private _turnFirstAudioAt: Date | null = null;
+    /** Stall observability (owner report 2026-07-08): armed after every tool
+     *  result; cleared by ANY model response signal. If it fires, the silence
+     *  gets an honest, replayable error row instead of nothing. */
+    private _responseStallTimer: ReturnType<typeof setTimeout> | null = null;
     /** Task 8 duration cap: timer armed at connect from the mint's max_session_seconds. */
     private _durationCapTimer: ReturnType<typeof setTimeout> | null = null;
     /** D49 leg endReason for the next session_end ('duration_cap' when the cap fires). */
@@ -245,7 +249,9 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         const { unifiedToolRegistry } = await import('@/lib/ai/tools/UnifiedToolRegistry');
 
         // Get all tool definitions from unified registry
-        const allToolDefinitions = unifiedToolRegistry.getAllToolDefinitions();
+        // Model-exposed only: internal plumbing tools (searchProjects,
+        // loadProjectContext) must never appear in the model's tool list.
+        const allToolDefinitions = unifiedToolRegistry.getModelExposedToolDefinitions();
 
         // Create OpenAI tools using unified execution pipeline
         const openaiTools = allToolDefinitions.map(toolDef => {
@@ -459,6 +465,11 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
                         console.log(`OpenAI tool execution completed: ${toolDef.name}`, result);
 
+                        // Silence after a tool result is a real failure mode
+                        // (observed live: model never continues the turn). Arm
+                        // the stall watchdog so it is at least logged.
+                        this._armResponseStallWatchdog(toolDef.name);
+
                         // For navigation and search tools, add context to encourage natural follow-up
                         if (['ui_intent', 'ui_describe', 'searchProjects', 'loadProjectContext', 'content_search'].includes(toolDef.name)) {
                             const contextualResult = this._addConversationalContext(toolDef.name, result, parameters);
@@ -609,9 +620,13 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             // isPlaying, and the 9b.5 turn-onset timestamp.
             if (event.type === 'output_audio_buffer.started') {
                 if (!this._turnFirstAudioAt) this._turnFirstAudioAt = new Date();
+                this._clearResponseStallWatchdog();
                 this._emitAudioEvent('speech_start');
             } else if (event.type === 'output_audio_buffer.stopped' || event.type === 'output_audio_buffer.cleared') {
                 this._emitAudioEvent('speech_end');
+            }
+            if (event.type === 'response.created' || event.type === 'response.output_item.added') {
+                this._clearResponseStallWatchdog();
             }
 
             // Handle audio interruption events
@@ -1331,6 +1346,30 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         }, maxSessionSeconds * 1000);
     }
 
+    private _armResponseStallWatchdog(toolName: string): void {
+        this._clearResponseStallWatchdog();
+        this._responseStallTimer = setTimeout(() => {
+            this._responseStallTimer = null;
+            if (!this._isConnected) return;
+            const message = `Model produced no response within 10s of the ${toolName} tool result (turn stalled)`;
+            console.warn(`OpenAIRealtimeAdapter: ${message}`);
+            this._logEvent('error', 'Turn stalled after tool result — sending recovery nudge', { toolName, kind: 'response_stall' });
+            // Programmatic version of the spoken nudge that revives these
+            // turns: ask for a response explicitly. If a response IS active
+            // the server rejects it with a harmless error event.
+            void this.sendEvent({ type: 'response.create' }).catch((err) =>
+                console.warn('OpenAIRealtimeAdapter: stall recovery nudge failed:', err)
+            );
+        }, 10000);
+    }
+
+    private _clearResponseStallWatchdog(): void {
+        if (this._responseStallTimer) {
+            clearTimeout(this._responseStallTimer);
+            this._responseStallTimer = null;
+        }
+    }
+
     private _clearDurationCap(): void {
         if (this._durationCapTimer) {
             clearTimeout(this._durationCapTimer);
@@ -1833,6 +1872,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
     async disconnect(): Promise<void> {
         this._clearDurationCap();
+        this._clearResponseStallWatchdog();
         if (this._session && this._isConnected) {
             try {
                 // D49: user-requested disconnect — not a disruption
@@ -2374,7 +2414,10 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         this.tokenListenerSetup = true;
 
         const onEvent = (e: any) => {
-            if (e.type === "conversation.item.added") {
+            // Both event-name generations: GA emits conversation.item.created,
+            // newer API revisions emit conversation.item.added — missing one
+            // turns every NAV_CONTEXT push into a 10s "Ack timeout".
+            if (e.type === "conversation.item.added" || e.type === "conversation.item.created") {
                 const parts = e.item?.content ?? [];
                 const text = parts.find((p: any) => p.type === "input_text")?.text || "";
 
@@ -2449,7 +2492,31 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         }
 
         const token = this.uuid();
-        const text = `NAV_CONTEXT ${token} ${JSON.stringify(fidContext)}`;
+        let text = `NAV_CONTEXT ${token} ${JSON.stringify(fidContext)}`;
+
+        // WebRTC data-channel messages must stay well under the SCTP limits —
+        // an oversized send can silently drop or kill the channel. Compact the
+        // heavy parts progressively instead of risking the transport.
+        const MAX_NAV_CONTEXT_CHARS = 12000;
+        if (text.length > MAX_NAV_CONTEXT_CHARS) {
+            const compact = JSON.parse(JSON.stringify(fidContext));
+            if (compact.details) {
+                compact.details = {
+                    briefSummary: typeof compact.details.briefSummary === 'string' ? compact.details.briefSummary.slice(0, 600) : compact.details.briefSummary,
+                    truncated: true
+                };
+            }
+            text = `NAV_CONTEXT ${token} ${JSON.stringify(compact)}`;
+            if (text.length > MAX_NAV_CONTEXT_CHARS && compact.index?.projectSemanticItems) {
+                compact.index.projectSemanticItems = compact.index.projectSemanticItems.slice(0, 20);
+                text = `NAV_CONTEXT ${token} ${JSON.stringify(compact)}`;
+            }
+            if (text.length > MAX_NAV_CONTEXT_CHARS && Array.isArray(compact.index?.availableProjects)) {
+                compact.index.availableProjects = compact.index.availableProjects.map((p: any) => ({ slug: p.slug, title: p.title }));
+                text = `NAV_CONTEXT ${token} ${JSON.stringify(compact)}`;
+            }
+            console.warn(`NAV_CONTEXT compacted: ${text.length} chars (was over ${MAX_NAV_CONTEXT_CHARS})`);
+        }
         
         console.log('📤 Sending NAV_CONTEXT with token:', token);
         console.log('📋 NAV_CONTEXT Content:', {

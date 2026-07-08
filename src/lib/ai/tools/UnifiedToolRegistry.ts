@@ -116,8 +116,13 @@ export class UnifiedToolRegistry implements IUnifiedToolRegistry {
    * Get tools formatted for OpenAI Realtime API
    * Returns array of OpenAI function tool format
    */
+  /** Definitions models may call — internal plumbing tools are excluded. */
+  getModelExposedToolDefinitions(): UnifiedToolDefinition[] {
+    return this.getAllToolDefinitions().filter(tool => tool.modelExposed !== false);
+  }
+
   getOpenAIToolsArray(): OpenAIToolFormat[] {
-    return this.getAllToolDefinitions().map(tool => ({
+    return this.getModelExposedToolDefinitions().map(tool => ({
       type: 'function',
       name: tool.name,
       description: tool.description,
@@ -134,7 +139,7 @@ export class UnifiedToolRegistry implements IUnifiedToolRegistry {
   ): ElevenLabsToolExecutor {
     const elevenLabsClientTools: ElevenLabsToolExecutor = {};
     
-    this.getAllToolDefinitions().forEach(toolDef => {
+    this.getModelExposedToolDefinitions().forEach(toolDef => {
       elevenLabsClientTools[toolDef.name] = async (parameters: any) => {
         const toolCall: UnifiedToolCall = {
           id: `el_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -156,7 +161,7 @@ export class UnifiedToolRegistry implements IUnifiedToolRegistry {
    * the same way the Google reasoning adapter (D39) sanitizes them.
    */
   getGoogleToolsArray(): GoogleFunctionDeclaration[] {
-    return this.getAllToolDefinitions().map(tool => ({
+    return this.getModelExposedToolDefinitions().map(tool => ({
       name: tool.name,
       description: tool.description,
       parameters: stripUnsupportedSchemaKeys(tool.parameters) as GoogleFunctionDeclaration['parameters']

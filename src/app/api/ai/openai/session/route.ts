@@ -114,7 +114,7 @@ async function handleGET(request: NextRequest, ctx: GatewayContext) {
     - Examples: "open e-commerce project" → use openProject("e-commerce project") */
     // Add specific guidance for UIManager-based navigation
     systemInstructions += `\n\nIMPORTANT TOOL USAGE GUIDELINES - UIManager Navigation System:
-- Answer questions about projects and experience using server tools (loadProjectContext, searchProjects)
+- Answer questions about projects and experience with the SEMANTIC tools (content_search to find, content_get for detail) — their results carry ready-made navTargets with the section anchor and highlight; the legacy project loaders do not
 - Use the NEW UIManager system for ALL navigation via ui_intent
 - Use ui_describe to understand current UI state and available navigation options
 - Provide visual guidance with highlighting tools when helpful
@@ -145,11 +145,10 @@ For ANY navigation request (projects, sections, routes, modal operations):
 PROJECT OPENING WORKFLOW:
 When users ask to "open", "show", or "navigate to" a project:
 1. Use ui_describe to understand current state
-2. If you don't know the exact project slug, use searchProjects to find it
-3. Use ui_intent with project target (URL-independent by default):
-   { 
-     target: { type: 'project', id: 'found-slug' }
-     // No behavior needed - system is now URL-independent by default
+2. If you don't know the exact project slug — or the visitor named a SECTION or TOPIC within a project — use content_search and take the navTarget from the best result
+3. Pass that navTarget to ui_intent UNCHANGED (it already carries the slug, the sectionId, and any highlight). Only build the target by hand for a whole-project ask you already know the slug for:
+   {
+     target: { type: 'project', id: 'found-slug', sectionId: 'section-anchor-if-the-ask-named-one' }
    }
 
 MODAL CLOSING WORKFLOWS:
@@ -498,7 +497,7 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext) {
 
     // Add tool usage guidelines for POST method (same as GET)
     instructions += `\n\nIMPORTANT TOOL USAGE GUIDELINES - UIManager Navigation System:
-- Answer questions about projects and experience using server tools (loadProjectContext, searchProjects)
+- Answer questions about projects and experience with the SEMANTIC tools (content_search to find, content_get for detail) — their results carry ready-made navTargets with the section anchor and highlight; the legacy project loaders do not
 - Use the NEW UIManager system for ALL navigation via ui_intent
 - Use ui_describe to understand current UI state and available navigation options
 - Provide visual guidance with highlighting tools when helpful
@@ -529,11 +528,10 @@ For ANY navigation request (projects, sections, routes, modal operations):
 PROJECT OPENING WORKFLOW:
 When users ask to "open", "show", or "navigate to" a project:
 1. Use ui_describe to understand current state
-2. If you don't know the exact project slug, use searchProjects to find it
-3. Use ui_intent with project target (URL-independent by default):
-   { 
-     target: { type: 'project', id: 'found-slug' }
-     // No behavior needed - system is now URL-independent by default
+2. If you don't know the exact project slug — or the visitor named a SECTION or TOPIC within a project — use content_search and take the navTarget from the best result
+3. Pass that navTarget to ui_intent UNCHANGED (it already carries the slug, the sectionId, and any highlight). Only build the target by hand for a whole-project ask you already know the slug for:
+   {
+     target: { type: 'project', id: 'found-slug', sectionId: 'section-anchor-if-the-ask-named-one' }
    }
 
 MODAL CLOSING WORKFLOWS:

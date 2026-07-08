@@ -2590,6 +2590,12 @@ export class UIManager {
       ...params.behavior
     };
 
+    // Model-dialect tolerance: provider schema flattening (Gemini merges the
+    // oneOf variants into one permissive object) produces shape drift like
+    // {type:'section', id:'<project-slug>', sectionId:'<anchor>'} — the
+    // intent is unambiguous, so normalize instead of misrouting it.
+    params = { ...params, target: this._normalizeIntentTarget(params.target) };
+
     // Analyze current state and determine required steps
     switch (params.target.type) {
       case 'route':
@@ -2652,6 +2658,29 @@ export class UIManager {
       totalTimeout: Math.max(30000, steps.length * 5000), // 30s minimum, 5s per step
       idempotencyKey: params.idempotencyKey
     };
+  }
+
+  /** Repair drifted target shapes coming from provider schema dialects. */
+  private _normalizeIntentTarget(target: UIIntentParams['target']): UIIntentParams['target'] {
+    const t = target as any;
+    // {type:'section', id:<project-slug>, sectionId:<anchor>} — the section
+    // variant has no sectionId field; the model meant project+section.
+    if (t?.type === 'section' && typeof t.sectionId === 'string' && t.sectionId && !t.projectId) {
+      console.warn('🎯 ui_intent target normalized: section+sectionId drift → project navigation', t);
+      return { type: 'project', id: t.id, sectionId: t.sectionId, highlight: t.highlight };
+    }
+    // {type:'section', id:<anchor>, parentContext:<project-slug>} — the model
+    // borrowed the MODAL variant's parentContext for the project.
+    if (t?.type === 'section' && typeof t.parentContext === 'string' && t.parentContext && !t.projectId) {
+      console.warn('🎯 ui_intent target normalized: section+parentContext drift → project navigation', t);
+      return { type: 'project', id: t.parentContext, sectionId: t.id, highlight: t.highlight };
+    }
+    // {type:'project', id, section/anchor aliases}
+    if (t?.type === 'project' && !t.sectionId && (typeof t.section === 'string' || typeof t.anchor === 'string')) {
+      console.warn('🎯 ui_intent target normalized: section alias field', t);
+      return { type: 'project', id: t.id, sectionId: t.section ?? t.anchor, highlight: t.highlight };
+    }
+    return target;
   }
 
   /**
@@ -2834,18 +2863,35 @@ export class UIManager {
       timeout: this._timingConfig.stepTimeoutMs,
       execute: async () => {
         try {
-          // Add to modal stack
+          // Models sometimes pass the project TITLE instead of the slug
+          // (schema descriptions get lossy through provider dialects) — try
+          // the id verbatim, then a slugified fallback.
+          const candidates = [projectId];
+          const slugified = projectId
+            .toLowerCase()
+            .replace(/[^a-z0-9\s-]/g, '')
+            .replace(/\s+/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '');
+          if (slugified && slugified !== projectId) candidates.push(slugified);
+
+          let openedId: string | null = null;
+          for (const candidate of candidates) {
+            if (await this._openModalElement(candidate, 'project')) {
+              openedId = candidate;
+              break;
+            }
+          }
+          if (!openedId) {
+            throw new Error(`No modal handler could open project ${projectId}${candidates.length > 1 ? ` (also tried '${slugified}')` : ''} — check the slug`);
+          }
+
+          // Track state only for the id that actually opened
           this._pushModal({
-            id: projectId,
+            id: openedId,
             type: 'project',
             urlTracked: true
           });
-
-          // Open modal in DOM
-          const modalOpened = await this._openModalElement(projectId, 'project');
-          if (!modalOpened) {
-            throw new Error(`No modal handler available for project ${projectId}`);
-          }
 
           // Wait for open animation if not instant
           if (this._timingConfig.animationMode !== 'instant') {
@@ -2854,7 +2900,7 @@ export class UIManager {
 
           return {
             success: true,
-            message: `Successfully opened project modal ${projectId}`
+            message: `Successfully opened project modal ${openedId}`
           };
         } catch (error) {
           return {
@@ -2950,27 +2996,9 @@ export class UIManager {
             };
           }
 
-          // Scroll to element
-          element.scrollIntoView({
-            behavior: this._timingConfig.animationMode === 'instant' ? 'auto' : 'smooth',
-            block: 'start'
-          });
-
-          // Wait for scroll animation if not instant
-          if (this._timingConfig.animationMode !== 'instant') {
-            await new Promise(resolve => setTimeout(resolve, this._timingConfig.scrollDuration));
-          }
-
-          // Late async renders (article content, images, layout animations)
-          // can move or reset the scroll position AFTER the smooth scroll —
-          // re-assert until the anchor actually sits in the viewport.
-          for (let attempt = 0; attempt < 3; attempt++) {
-            const rect = element.getBoundingClientRect();
-            const inView = rect.top >= 0 && rect.top < window.innerHeight * 0.5;
-            if (inView) break;
-            element.scrollIntoView({ behavior: 'auto', block: 'start' });
-            await new Promise(resolve => setTimeout(resolve, 250));
-          }
+          // Scroll with re-assert: late async renders (article content,
+          // images, layout animations) can reset the position afterwards.
+          await this._scrollWithReassert(element);
 
           return {
             success: true,
@@ -3486,51 +3514,69 @@ export class UIManager {
    * Plan navigation to a specific section
    */
   private _planSectionNavigation(sectionId: string, currentState: UIState, behavior: Required<NonNullable<UIIntentParams['behavior']>>): NavigationStep[] {
-    const steps: NavigationStep[] = [];
-
-    // Declarative modal closing: If navigating to a section, close any blocking modals first
-    if (behavior.closeBlocking && this._modalStack.length > 0) {
-      const blockingModals = this._modalStack.filter(m => m.type === 'project'); // Project modals block section navigation
-      
-      for (const modal of blockingModals) {
-        console.log(`🎯 Declaratively closing modal ${modal.id} to navigate to section ${sectionId}`);
-        steps.push(this._createCloseModalStep(modal.id, behavior));
-        
-        // Add delay for modal close animation
-        if (this._timingConfig.animationMode !== 'instant') {
-          steps.push(this._createDelayStep(this._timingConfig.modalTransitionDelay));
-        }
-      }
-    }
-
-    // Create scroll step
-    steps.push({
-      id: `scroll_to_${sectionId}`,
+    // ONE runtime-resolved step: where the anchor lives (inside the open
+    // project modal vs behind it on the page) is only knowable in the DOM at
+    // execution time. The old plan closed EVERY project modal up front when
+    // closeBlocking was set — so "scroll to X" inside an open project closed
+    // the project instead of scrolling within it (owner report, 2026-07-08).
+    return [{
+      id: `section_nav_${sectionId}`,
       type: 'scroll',
-      selector: this._getSectionSelector(sectionId),
+      selector: this._sectionSelector(sectionId),
+      timeout: this._timingConfig.stepTimeoutMs,
       execute: async () => {
         try {
-          const selector = this._getSectionSelector(sectionId);
-          const element = typeof window !== 'undefined' ? document.querySelector(selector) : null;
+          if (typeof window === 'undefined') {
+            return { success: true, message: 'Server-side, skipping scroll' };
+          }
+
+          const combinedSelector = `${this._getSectionSelector(sectionId)}, ${this._sectionSelector(sectionId)}`;
+          const openProjectModal = this._modalStack.find(m => m.type === 'project');
+          const modalRoot = document.querySelector('[role="dialog"]');
+
+          let element = await this._waitForElement(combinedSelector);
+
+          // Target lives INSIDE the open modal: scroll in place — never close.
+          if (element && modalRoot && modalRoot.contains(element)) {
+            await this._scrollWithReassert(element, behavior.scrollBehavior);
+            return {
+              success: true,
+              message: `Scrolled to section ${sectionId} inside the open project${openProjectModal ? ` (${openProjectModal.id})` : ''}`,
+              data: { sectionId, within: 'project-modal' }
+            };
+          }
+
+          // Target exists but is BEHIND the open modal: close it first (the
+          // canonical staged route), unless the caller forbade that.
+          if (element && modalRoot && !modalRoot.contains(element) && openProjectModal) {
+            if (!behavior.closeBlocking) {
+              return {
+                success: false,
+                message: `Section ${sectionId} is behind the open project modal. Retry with behavior.closeBlocking=true, or use a project target to stay inside the project.`,
+                error: 'SECTION_BEHIND_MODAL'
+              };
+            }
+            await this._closeModalElement(openProjectModal.id);
+            this._popModal(openProjectModal.id);
+            if (this._timingConfig.animationMode !== 'instant') {
+              await new Promise(resolve => setTimeout(resolve, this._timingConfig.modalCloseDuration + this._timingConfig.animationBufferWait));
+            }
+            element = document.querySelector(combinedSelector);
+          }
 
           if (!element) {
             return {
               success: false,
-              message: `Section not found: ${sectionId}`,
-              error: 'Element not found',
-              shouldRetry: true
+              message: `Section ${sectionId} not found on this page${openProjectModal ? ` or inside the open project (${openProjectModal.id})` : ''}. If it belongs to another project, use {type:'project', id:'<slug>', sectionId:'${sectionId}'}.`,
+              error: 'Element not found'
             };
           }
 
-          element.scrollIntoView({
-            behavior: behavior.scrollBehavior,
-            block: 'center'
-          });
-
+          await this._scrollWithReassert(element, behavior.scrollBehavior);
           return {
             success: true,
             message: `Scrolled to section ${sectionId}`,
-            data: { sectionId, selector }
+            data: { sectionId }
           };
         } catch (error) {
           return {
@@ -3541,9 +3587,25 @@ export class UIManager {
           };
         }
       }
-    });
+    }];
+  }
 
-    return steps;
+  /** Scroll an element into view and re-assert after late layout shifts. */
+  private async _scrollWithReassert(element: Element, scrollBehavior: 'smooth' | 'instant' = 'smooth'): Promise<void> {
+    element.scrollIntoView({
+      behavior: this._timingConfig.animationMode === 'instant' || scrollBehavior === 'instant' ? 'auto' : 'smooth',
+      block: 'start'
+    });
+    if (this._timingConfig.animationMode !== 'instant') {
+      await new Promise(resolve => setTimeout(resolve, this._timingConfig.scrollDuration));
+    }
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const rect = element.getBoundingClientRect();
+      const inView = rect.top >= 0 && rect.top < window.innerHeight * 0.5;
+      if (inView) break;
+      element.scrollIntoView({ behavior: 'auto', block: 'start' });
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
   }
 
   /**

@@ -439,7 +439,19 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
         if (typeof uiToolHandler === 'function') {
           // Call the method with proper 'this' context and pass sessionId
           const uiResult = await uiToolHandler.call(uiNavigationTools, args, sessionId);
-          result = uiResult.data || uiResult.message;
+          // HONESTY: NavigationResult.success must reach the model. The old
+          // `data || message` laundered failed navigations into truthy blobs —
+          // the model then narrated success over a no-op (owner report,
+          // 2026-07-08). Failure throws so the model sees WHY and can adjust.
+          if (uiResult && uiResult.success === false) {
+            throw new Error(uiResult.message || uiResult.error || `${toolName} failed`);
+          }
+          // The human-readable message is what the model should build on
+          // ("Scrolled to section X inside the open project"), with the data
+          // payload alongside for ids.
+          result = uiResult.message
+            ? { message: uiResult.message, ...(typeof uiResult.data === 'object' ? uiResult.data : {}) }
+            : (uiResult.data ?? uiResult);
         } else {
           throw new Error(`Client-side UI tool handler for '${toolName}' not found.`);
         }
