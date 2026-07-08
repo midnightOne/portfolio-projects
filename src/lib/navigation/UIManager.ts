@@ -2961,6 +2961,17 @@ export class UIManager {
             await new Promise(resolve => setTimeout(resolve, this._timingConfig.scrollDuration));
           }
 
+          // Late async renders (article content, images, layout animations)
+          // can move or reset the scroll position AFTER the smooth scroll —
+          // re-assert until the anchor actually sits in the viewport.
+          for (let attempt = 0; attempt < 3; attempt++) {
+            const rect = element.getBoundingClientRect();
+            const inView = rect.top >= 0 && rect.top < window.innerHeight * 0.5;
+            if (inView) break;
+            element.scrollIntoView({ behavior: 'auto', block: 'start' });
+            await new Promise(resolve => setTimeout(resolve, 250));
+          }
+
           return {
             success: true,
             message: `Successfully scrolled to section ${sectionId}`
@@ -3002,17 +3013,20 @@ export class UIManager {
 
           if (highlight?.text && element) {
             // The anchor is usually the heading; the passage lives in the
-            // siblings after it — search within the section's parent scope.
+            // SIBLINGS after it. The parent container rarely has an id, so
+            // mark it with a transient attribute to scope the text search.
             const scope = element.parentElement ?? element;
-            const scopeSelector = scope.id
-              ? `#${CSS.escape(scope.id)}`
-              : this._sectionSelector(sectionId);
-            const result = await uiNavigationTools.highlightText({
-              selector: scopeSelector,
-              text: highlight.text,
-            });
-            if (result.success && (result.data as { count?: number } | undefined)?.count) {
-              return { success: true, message: `Highlighted passage in ${sectionId}` };
+            scope.setAttribute('data-ai-highlight-scope', 'active');
+            try {
+              const result = await uiNavigationTools.highlightText({
+                selector: '[data-ai-highlight-scope="active"]',
+                text: highlight.text,
+              });
+              if (result.success && (result.data as { count?: number } | undefined)?.count) {
+                return { success: true, message: `Highlighted passage in ${sectionId}` };
+              }
+            } finally {
+              scope.removeAttribute('data-ai-highlight-scope');
             }
             // Passage not found verbatim — fall through to section pulse
           }
