@@ -448,10 +448,17 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
           }
           // The human-readable message is what the model should build on
           // ("Scrolled to section X inside the open project"), with the data
-          // payload alongside for ids.
-          result = uiResult.message
-            ? { message: uiResult.message, ...(typeof uiResult.data === 'object' ? uiResult.data : {}) }
-            : (uiResult.data ?? uiResult);
+          // payload alongside for ids. Arrays go under a named key — spreading
+          // an array produced {"0":"open_project…","1":"delay…"} numeric-key
+          // junk the model had to puzzle out (owner, 2026-07-08).
+          if (uiResult.message) {
+            const data = uiResult.data;
+            result = Array.isArray(data)
+              ? { message: uiResult.message, steps: data }
+              : { message: uiResult.message, ...(typeof data === 'object' && data !== null ? data : {}) };
+          } else {
+            result = uiResult.data ?? uiResult;
+          }
         } else {
           throw new Error(`Client-side UI tool handler for '${toolName}' not found.`);
         }

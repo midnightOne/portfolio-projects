@@ -140,6 +140,8 @@ interface InternalSearchResult {
   tags: string[];
   technologies: string[];
   createdAt: Date;
+  /** Set by _applyNamedProjectBoost when the query names this result's project — lifts the MMR per-project cap. */
+  queryNamedProject?: boolean;
 }
 
 export class ContentSearchService implements ContentProvider {
@@ -921,8 +923,14 @@ export class ContentSearchService implements ContentProvider {
     const fullTextRankValue = new Map<string, number>();
     try {
       const ftStart = Date.now();
+      // Title matches weigh 3x body matches: the heading is the most important
+      // anchor for a section (owner, 2026-07-08) — plain ts_rank let chunks
+      // that merely REPEAT common project words ("platform", "e-commerce")
+      // outrank the section whose title IS the answer.
       const ftRows = await prisma.$queryRaw<Array<{ id: string; rank: number }>>`
-        SELECT c.id, ts_rank(c.search_vector, websearch_to_tsquery('english', ${query}))::float AS rank
+        SELECT c.id,
+               (3 * ts_rank(to_tsvector('english', COALESCE(c.title, '')), websearch_to_tsquery('english', ${query}))
+                + ts_rank(c.search_vector, websearch_to_tsquery('english', ${query})))::float AS rank
         FROM context_chunks c
         WHERE c.search_vector @@ websearch_to_tsquery('english', ${query})
           AND c.tier <= ${maxTier}
@@ -951,7 +959,9 @@ export class ContentSearchService implements ContentProvider {
         const orQuery = this._significantQueryWords(query).join(' OR ');
         if (orQuery) {
           const relaxedRows = await prisma.$queryRaw<Array<{ id: string; rank: number }>>`
-            SELECT c.id, ts_rank(c.search_vector, websearch_to_tsquery('english', ${orQuery}))::float AS rank
+            SELECT c.id,
+                   (3 * ts_rank(to_tsvector('english', COALESCE(c.title, '')), websearch_to_tsquery('english', ${orQuery}))
+                    + ts_rank(c.search_vector, websearch_to_tsquery('english', ${orQuery})))::float AS rank
             FROM context_chunks c
             WHERE c.search_vector @@ websearch_to_tsquery('english', ${orQuery})
               AND c.tier <= ${maxTier}
@@ -1024,7 +1034,13 @@ export class ContentSearchService implements ContentProvider {
       const AGREEMENT_BONUS = 0.05;
       for (const r of results) {
         if (semanticOrderedIds.has(r.id) && fullTextRankValue.has(r.id)) {
-          r.similarity = Math.min(0.99, r.similarity + AGREEMENT_BONUS);
+          // Take the BETTER of the two signals. Plain `semantic + bonus` was
+          // an agreement PENALTY: an item with a weak semantic score but a
+          // strong keyword/title hit scored LOWER than if the semantic half
+          // had missed it entirely (the e-commerce results section kept
+          // losing to sibling chunks exactly this way — owner, 2026-07-08).
+          const norm = (fullTextRankValue.get(r.id) as number) / maxRank;
+          r.similarity = Math.min(0.99, Math.max(r.similarity + AGREEMENT_BONUS, 0.55 + 0.35 * norm));
         } else if (!semanticOrderedIds.has(r.id) && fullTextRankValue.has(r.id)) {
           // 0.55–0.90 band: above the metadata-fallback default, below a
           // confident semantic top hit
@@ -1321,9 +1337,16 @@ export class ContentSearchService implements ContentProvider {
         // Calculate diversity score
         const diversity = this._calculateDiversity(candidate, selected, diversifyBy);
 
-        // Check if we already have too many results from same project/type
+        // Check if we already have too many results from same project/type.
+        // A project the QUERY names gets a deeper allowance — cross-project
+        // diversity is the wrong instinct when the user asked about one
+        // project specifically (its own asked-for section used to get crowded
+        // out by its overview/summary chunks at the default cap).
+        const cap = candidate.queryNamedProject
+          ? Math.max(maxSimilarResults, Math.ceil(k / 2))
+          : maxSimilarResults;
         const similarCount = this._countSimilarResults(candidate, selected, diversifyBy);
-        if (similarCount >= maxSimilarResults) {
+        if (similarCount >= cap) {
           continue; // Skip this candidate
         }
 
@@ -1476,6 +1499,26 @@ export class ContentSearchService implements ContentProvider {
     return text.toLowerCase().replace(/[^a-z0-9]/g, '');
   }
 
+  /** Generic slug tail words that visitors drop when naming a project ("the e-commerce project"). */
+  private static readonly _GENERIC_SLUG_WORDS = new Set(['platform', 'website', 'app', 'application', 'project', 'site', 'system']);
+
+  /**
+   * Does the query name this project? Matches the full slug/title in
+   * normalized form, or the slug's DISTINCTIVE form (generic tail words
+   * dropped) — "results and business impact e-commerce" names
+   * e-commerce-platform even without the word "platform".
+   */
+  private _queryNamesProject(normQuery: string, entitySlug?: string | null, entityTitle?: string | null): boolean {
+    if (!normQuery) return false;
+    const slugNorm = this._normalizeForMatch(entitySlug || '');
+    const titleNorm = this._normalizeForMatch(entityTitle || '');
+    if (slugNorm.length > 3 && normQuery.includes(slugNorm)) return true;
+    if (titleNorm.length > 3 && normQuery.includes(titleNorm)) return true;
+    const distinctive = (entitySlug || '').toLowerCase().split(/[^a-z0-9]+/)
+      .filter(w => w && !ContentSearchService._GENERIC_SLUG_WORDS.has(w)).join('');
+    return distinctive.length > 4 && normQuery.includes(distinctive);
+  }
+
   /** Words in the query that carry meaning (drops filler common in spoken asks). */
   private static readonly _QUERY_STOPWORDS = new Set([
     'the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'for', 'to', 'with', 'about',
@@ -1497,11 +1540,13 @@ export class ContentSearchService implements ContentProvider {
     const normQuery = this._normalizeForMatch(query);
     if (!normQuery) return results;
     const boosted = results.map(result => {
-      const slugNorm = this._normalizeForMatch(result.entitySlug || '');
-      const titleNorm = this._normalizeForMatch(result.entityTitle || '');
-      const named = (slugNorm.length > 3 && normQuery.includes(slugNorm))
-        || (titleNorm.length > 3 && normQuery.includes(titleNorm));
-      return named ? { ...result, similarity: result.similarity + 0.25 } : result;
+      const named = this._queryNamesProject(normQuery, result.entitySlug, result.entityTitle);
+      // The tag ALSO lifts the MMR per-project cap: when the user names a
+      // project they want depth in THAT project, and the default cap of
+      // maxSimilarResults chunks/project let the named project's overview +
+      // summary crowd out the very section that was asked for (owner
+      // transcripts, 2026-07-08 evening).
+      return named ? { ...result, similarity: result.similarity + 0.25, queryNamedProject: true } : result;
     });
     return boosted.sort((a, b) => b.similarity - a.similarity);
   }
@@ -1519,8 +1564,6 @@ export class ContentSearchService implements ContentProvider {
     const contentLower = result.content.toLowerCase();
     const normQuery = this._normalizeForMatch(query);
     const projectName = result.entityTitle || result.entitySlug || '';
-    const slugNorm = this._normalizeForMatch(result.entitySlug || '');
-    const titleNorm = this._normalizeForMatch(result.entityTitle || '');
 
     const reasons: string[] = [];
 
@@ -1529,8 +1572,7 @@ export class ContentSearchService implements ContentProvider {
       reasons.push(`its "${result.title}" heading matches ${titleHits.map(w => `'${w}'`).join(', ')}`);
     }
 
-    const queryNamesProject = (slugNorm.length > 3 && normQuery.includes(slugNorm))
-      || (titleNorm.length > 3 && normQuery.includes(titleNorm));
+    const queryNamesProject = this._queryNamesProject(normQuery, result.entitySlug, result.entityTitle);
     if (queryNamesProject && projectName) {
       reasons.push(`it belongs to ${projectName}, the project the query names`);
     }

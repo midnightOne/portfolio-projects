@@ -518,7 +518,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                     // (Rows used to be posted from arguments.done, BEFORE execution,
                     // so every OpenAI tool replayed as result:"null" — owner,
                     // 2026-07-08 transcript cmrcs96o3008cw5b0079e6pmh.)
-                    this._logToolRow(toolDef.name, parameters, output, toolSucceeded && !timedOut, Date.now() - execStart);
+                    this._logToolRow(toolDef.name, parameters, output, toolSucceeded && !timedOut, Date.now() - execStart, execStart);
                     return output;
                 },
             });
@@ -1306,7 +1306,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
      * model received — as ONE row after execution (mirrors GoogleLiveAdapter's
      * 2026-07-08 fix; the route slices results to 8KB).
      */
-    private _logToolRow(toolName: string, args: unknown, result: string, success: boolean, executionTime: number): void {
+    private _logToolRow(toolName: string, args: unknown, result: string, success: boolean, executionTime: number, startedAt: number): void {
         try {
             const callId = this._lastCallIdForTool.get(toolName);
             this._lastCallIdForTool.delete(toolName);
@@ -1317,7 +1317,10 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 toolName,
                 toolArgs: args,
                 toolResult: (result ?? '').slice(0, 6000),
-                timestamp: new Date().toISOString(),
+                // Stamp with execution START: rows sort by timestamp, and a
+                // completion-time stamp interleaved tool rows after the events
+                // they caused (owner: "transcripts are logged shuffled").
+                timestamp: new Date(startedAt).toISOString(),
                 metadata: {
                     toolCallId: callId,
                     success,

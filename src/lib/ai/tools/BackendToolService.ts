@@ -1333,10 +1333,16 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
     // boost — "show me the results section in the e-commerce platform project"
     // asked from inside the kiln modal is about e-commerce, not the kiln.
     const normQuery = (query ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const GENERIC_SLUG_WORDS = new Set(['platform', 'website', 'app', 'application', 'project', 'site', 'system']);
     const queryNamesProject = (slug?: string) => {
       if (!normQuery || !slug) return false;
       const normSlug = slug.toLowerCase().replace(/[^a-z0-9]/g, '');
-      return normSlug.length > 3 && normQuery.includes(normSlug);
+      if (normSlug.length > 3 && normQuery.includes(normSlug)) return true;
+      // Distinctive form: generic tail words dropped ("the e-commerce project"
+      // names e-commerce-platform without saying "platform").
+      const distinctive = slug.toLowerCase().split(/[^a-z0-9]+/)
+        .filter(w => w && !GENERIC_SLUG_WORDS.has(w)).join('');
+      return distinctive.length > 4 && normQuery.includes(distinctive);
     };
 
     // Separate results by project context

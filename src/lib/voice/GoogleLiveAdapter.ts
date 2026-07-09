@@ -450,7 +450,7 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
       { toolName: call.name, toolResult: responsePayload, duration: executionTime },
       `tool-result-${callId}`
     );
-    this._logToolCall(call.name, call.args, { success, result: responsePayload, executionTime }, callId);
+    this._logToolCall(call.name, call.args, { success, result: responsePayload, executionTime }, callId, startTime);
 
     this._ws?.send(JSON.stringify({
       toolResponse: { functionResponses: [{ id: call.id, name: call.name, response: { result: responsePayload } }] }
@@ -748,7 +748,8 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
     toolName: string,
     args: unknown,
     result: { success: boolean; result: unknown; executionTime: number } | undefined,
-    callId: string
+    callId: string,
+    startedAt?: number
   ): void {
     this._postConversationLog({
       sessionId: this._conversationId,
@@ -760,7 +761,9 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
       // Gemini tool row replay as result:"null" (the model saw the real data;
       // the log didn't). The route slices to 8KB.
       toolResult: result?.result,
-      timestamp: new Date().toISOString(),
+      // Execution-START stamp keeps transcript rows in invocation order
+      // (completion-time stamps read as "shuffled" — owner, 2026-07-08).
+      timestamp: new Date(startedAt ?? Date.now()).toISOString(),
       metadata: {
         toolCallId: callId,
         success: result?.success,

@@ -2875,6 +2875,22 @@ export class UIManager {
             .replace(/^-|-$/g, '');
           if (slugified && slugified !== projectId) candidates.push(slugified);
 
+          // Fuzzy rescue: models drop hyphens ('ecommerce-platform' for
+          // 'e-commerce-platform') and slugifying can't restore them. Match
+          // the id against real slugs on the page (project cards carry
+          // data-project-id) with all non-alphanumerics stripped.
+          const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const wanted = normalize(projectId);
+          if (wanted) {
+            for (const el of Array.from(document.querySelectorAll('[data-project-id]'))) {
+              const slug = el.getAttribute('data-project-id');
+              if (slug && !candidates.includes(slug) && normalize(slug) === wanted) {
+                candidates.push(slug);
+                break;
+              }
+            }
+          }
+
           let openedId: string | null = null;
           for (const candidate of candidates) {
             if (await this._openModalElement(candidate, 'project')) {
@@ -2883,7 +2899,7 @@ export class UIManager {
             }
           }
           if (!openedId) {
-            throw new Error(`No modal handler could open project ${projectId}${candidates.length > 1 ? ` (also tried '${slugified}')` : ''} — check the slug`);
+            throw new Error(`No modal handler could open project ${projectId}${candidates.length > 1 ? ` (also tried ${candidates.slice(1).map(c => `'${c}'`).join(', ')})` : ''} — check the slug`);
           }
 
           // Track state only for the id that actually opened
