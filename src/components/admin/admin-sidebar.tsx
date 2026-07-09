@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import React, { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import Link from "next/link";
 import {
   Sidebar,
@@ -36,7 +36,6 @@ import {
   DollarSign,
   Image,
   Grid3X3,
-  Upload,
   Trash2,
   Terminal,
   BarChart3,
@@ -50,88 +49,227 @@ import {
   Mic,
   MessagesSquare,
   AudioLines,
+  Activity,
+  BookOpen,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { useAdminProjects } from "@/hooks/use-admin-projects";
 
-interface AdminSectionItem {
+interface AdminNavItem {
   id: string;
   title: string;
   href: string;
-  icon?: React.ComponentType<{ className?: string }>;
-  badge?: string | number;
+  icon: React.ComponentType<{ className?: string }>;
+  /** Match the pathname exactly instead of by prefix (for hub pages whose children live elsewhere in the nav). */
+  exact?: boolean;
 }
 
-interface AdminSection {
+interface AdminNavGroup {
   id: string;
   title: string;
   icon: React.ComponentType<{ className?: string }>;
-  items: AdminSectionItem[];
+  items: AdminNavItem[];
   defaultExpanded?: boolean;
+  /** Renders the dynamic per-project list after this group's items. */
+  withProjectsList?: boolean;
 }
 
-const ADMIN_NAVIGATION: AdminSection[] = [
+/**
+ * Navigation is grouped by admin task, not by URL prefix:
+ * - Site Content / Media — what visitors see
+ * - AI Assistant — how the assistant behaves (models, context, voice)
+ * - Knowledge Base — what the assistant knows (semantic index)
+ * - Access & Safety — who may use it and spend guardrails
+ * - Insights — what actually happened (conversations, analytics, perf)
+ * - Developer Tools — debug/testing surfaces
+ */
+const ADMIN_NAVIGATION: AdminNavGroup[] = [
   {
-    id: 'overview',
-    title: 'Overview',
+    id: "overview",
+    title: "Overview",
     icon: LayoutDashboard,
-    items: [
-      { id: 'dashboard', title: 'Dashboard', href: '/admin', icon: Home }
-    ]
-  },
-  {
-    id: 'homepage',
-    title: 'Homepage',
-    icon: Globe,
     defaultExpanded: true,
     items: [
-      { id: 'sections', title: 'Sections', href: '/admin/homepage', icon: Globe }
-    ]
+      { id: "dashboard", title: "Dashboard", href: "/admin", icon: Home, exact: true },
+    ],
   },
   {
-    id: 'ai-assistant',
-    title: 'AI Assistant',
+    id: "content",
+    title: "Site Content",
+    icon: FolderOpen,
+    defaultExpanded: true,
+    withProjectsList: true,
+    items: [
+      { id: "homepage", title: "Homepage", href: "/admin/homepage", icon: Globe },
+      { id: "project-dashboard", title: "Project Dashboard", href: "/admin/projects", icon: LayoutDashboard, exact: true },
+      { id: "new-project", title: "New Project", href: "/admin/projects/editor", icon: Plus, exact: true },
+    ],
+  },
+  {
+    id: "media",
+    title: "Media",
+    icon: Image,
+    defaultExpanded: true,
+    items: [
+      { id: "media-library", title: "Media Library", href: "/admin/media/upload", icon: Grid3X3 },
+      { id: "media-providers", title: "Storage Providers", href: "/admin/media/providers", icon: Database },
+    ],
+  },
+  {
+    id: "ai-assistant",
+    title: "AI Assistant",
     icon: Bot,
     items: [
-      { id: 'ai-settings', title: 'AI Settings', href: '/admin/ai', icon: Settings }
-    ]
+      { id: "ai-settings", title: "AI Settings", href: "/admin/ai", icon: Settings, exact: true },
+      { id: "context-config", title: "Context Config", href: "/admin/ai/context-config", icon: SlidersHorizontal },
+      { id: "content-sources", title: "Content Sources", href: "/admin/ai/content-sources", icon: FileText },
+      { id: "voice-config", title: "Voice Config", href: "/admin/ai/voice-config", icon: Mic },
+      { id: "voice-clips", title: "Voice Clips", href: "/admin/ai/voice-clips", icon: AudioLines },
+    ],
   },
   {
-    id: 'media',
-    title: 'Media Library',
-    icon: Image,
+    id: "knowledge-base",
+    title: "Knowledge Base",
+    icon: BookOpen,
     items: [
-      { id: 'all-media', title: 'All Media', href: '/admin/media', icon: Grid3X3 },
-      { id: 'upload', title: 'Upload', href: '/admin/media/upload', icon: Upload }
-    ]
-  }
+      { id: "semantic-dashboard", title: "Semantic Dashboard", href: "/admin/semantic", icon: LayoutDashboard, exact: true },
+      { id: "semantic-config", title: "Chunking Configuration", href: "/admin/semantic/config", icon: SlidersHorizontal },
+      { id: "semantic-budget", title: "Budget Manager", href: "/admin/semantic/budget", icon: DollarSign },
+      { id: "semantic-bulk", title: "Bulk Operations", href: "/admin/semantic/bulk-operations", icon: Trash2 },
+    ],
+  },
+  {
+    id: "access-safety",
+    title: "Access & Safety",
+    icon: Shield,
+    items: [
+      { id: "access-spend", title: "Access & Spend", href: "/admin/ai/rate-limiting", icon: DollarSign },
+      { id: "reflinks", title: "Reflinks", href: "/admin/ai/reflinks", icon: Hash },
+      { id: "security", title: "Security", href: "/admin/ai/security", icon: Shield },
+      { id: "abuse-detection", title: "Abuse Detection", href: "/admin/ai/abuse-detection", icon: Bot },
+    ],
+  },
+  {
+    id: "insights",
+    title: "Insights & Monitoring",
+    icon: BarChart3,
+    items: [
+      { id: "conversations", title: "Conversations", href: "/admin/ai/conversations", icon: MessagesSquare },
+      { id: "job-analysis", title: "Job Analyses", href: "/admin/ai/job-analysis", icon: BarChart3 },
+      { id: "performance", title: "Performance", href: "/admin/performance", icon: Activity },
+    ],
+  },
+  {
+    id: "developer-tools",
+    title: "Developer Tools",
+    icon: Terminal,
+    items: [
+      { id: "ai-debug", title: "AI Debug & Test", href: "/admin/ai/debug", icon: Bug },
+      { id: "tool-testing", title: "Tool Testing", href: "/admin/ai/tool-testing", icon: Terminal },
+      { id: "voice-debug", title: "Voice Debug", href: "/admin/ai/voice-debug", icon: Mic },
+    ],
+  },
 ];
+
+function isItemActive(pathname: string, item: AdminNavItem): boolean {
+  return item.exact ? pathname === item.href : pathname.startsWith(item.href);
+}
+
+function groupHasActiveItem(pathname: string, group: AdminNavGroup): boolean {
+  if (group.items.some((item) => isItemActive(pathname, item))) return true;
+  return Boolean(group.withProjectsList && pathname.startsWith("/admin/projects/editor/"));
+}
 
 export function AdminSidebar() {
   const pathname = usePathname();
-  const router = useRouter();
   const { projects, loading: projectsLoading } = useAdminProjects();
   const [projectsExpanded, setProjectsExpanded] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(
+      ADMIN_NAVIGATION.map((group) => [
+        group.id,
+        Boolean(group.defaultExpanded) || groupHasActiveItem(pathname, group),
+      ])
+    )
+  );
 
-  const isItemActive = (href: string) => {
-    if (href === '/admin') {
-      return pathname === '/admin';
-    }
-    return pathname.startsWith(href);
-  };
+  // Keep the group owning the current route open across client-side navigation
+  // (never auto-close groups the user opened themselves).
+  useEffect(() => {
+    setOpenGroups((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const group of ADMIN_NAVIGATION) {
+        if (!next[group.id] && groupHasActiveItem(pathname, group)) {
+          next[group.id] = true;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [pathname]);
 
-  const isSectionActive = (section: AdminSection) => {
-    return section.items.some(item => isItemActive(item.href));
-  };
-
-  const isProjectsActive = () => {
-    return pathname.startsWith('/admin/projects');
-  };
-
-  const handleProjectClick = (projectId: string) => {
-    router.push(`/admin/projects/editor/${projectId}`);
-  };
+  const renderProjectsList = () => (
+    <SidebarMenuItem>
+      <Collapsible open={projectsExpanded} onOpenChange={setProjectsExpanded}>
+        <CollapsibleTrigger asChild>
+          <SidebarMenuButton className="w-full">
+            <div className="flex items-center gap-2 w-full">
+              <FileText className="size-4" />
+              <span>All Projects</span>
+              {!projectsLoading && projects.length > 0 && (
+                <Badge variant="secondary" className="ml-auto mr-1 text-xs">
+                  {projects.length}
+                </Badge>
+              )}
+              <ChevronRight
+                className={`size-4 ${projects.length > 0 ? "" : "ml-auto"} transition-transform ${
+                  projectsExpanded ? "rotate-90" : ""
+                }`}
+              />
+            </div>
+          </SidebarMenuButton>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            {projectsLoading ? (
+              <SidebarMenuSubItem>
+                <SidebarMenuSubButton className="flex items-center gap-2">
+                  <Loader2 className="size-3 animate-spin" />
+                  <span className="text-xs">Loading projects...</span>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            ) : projects.length === 0 ? (
+              <SidebarMenuSubItem>
+                <SidebarMenuSubButton className="text-xs text-muted-foreground">
+                  No projects yet
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            ) : (
+              projects.map((project) => (
+                <SidebarMenuSubItem key={project.id}>
+                  <SidebarMenuSubButton
+                    asChild
+                    isActive={pathname === `/admin/projects/editor/${project.id}`}
+                  >
+                    <Link
+                      href={`/admin/projects/editor/${project.id}`}
+                      className="flex items-center gap-2"
+                      title={project.title}
+                    >
+                      <FileText className="size-3" />
+                      <span className="truncate text-xs">{project.title}</span>
+                    </Link>
+                  </SidebarMenuSubButton>
+                </SidebarMenuSubItem>
+              ))
+            )}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </Collapsible>
+    </SidebarMenuItem>
+  );
 
   return (
     <Sidebar variant="inset" collapsible="icon">
@@ -148,411 +286,42 @@ export function AdminSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        {/* Overview section */}
-        <SidebarGroup>
-          <SidebarGroupLabel className="flex items-center gap-2">
-            <LayoutDashboard className="size-4" />
-            Overview
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin')}
-                  onClick={() => router.push('/admin')}
-                >
-                  <a href="/admin" className="flex items-center gap-2">
-                    <Home className="size-4" />
-                    <span>Dashboard</span>
-                  </a>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* Homepage section */}
-        <SidebarGroup>
-          <SidebarGroupLabel className="flex items-center gap-2">
-            <Globe className="size-4" />
-            Homepage
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/homepage')}
-                  onClick={() => router.push('/admin/homepage')}
-                >
-                  <a href="/admin/homepage" className="flex items-center gap-2">
-                    <Globe className="size-4" />
-                    <span>Homepage Config</span>
-                  </a>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* Projects section with special design - 3rd position */}
-        <SidebarGroup>
-          <SidebarGroupLabel className="flex items-center gap-2">
-            <FolderOpen className="size-4" />
-            Projects
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {/* Project Dashboard - always visible */}
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/projects') && !pathname.includes('/admin/projects/editor')}
-                  onClick={() => router.push('/admin/projects')}
-                >
-                  <a href="/admin/projects" className="flex items-center gap-2">
-                    <LayoutDashboard className="size-4" />
-                    <span>Project Dashboard</span>
-                  </a>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-
-              {/* New Project - always visible */}
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/projects/editor') && !pathname.includes('/admin/projects/editor/')}
-                >
-                  <Link href="/admin/projects/editor" className="flex items-center gap-2">
-                    <Plus className="size-4" />
-                    <span>New Project</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-
-              {/* Collapsible Projects List - only expands/collapses */}
-              <SidebarMenuItem>
-                <Collapsible open={projectsExpanded} onOpenChange={setProjectsExpanded}>
-                  <CollapsibleTrigger asChild>
-                    <SidebarMenuButton className="w-full">
-                      <div className="flex items-center gap-2 w-full">
-                        <FileText className="size-4" />
-                        <span>All Projects</span>
-                        {!projectsLoading && projects.length > 0 && (
-                          <Badge variant="secondary" className="ml-auto mr-1 text-xs">
-                            {projects.length}
-                          </Badge>
-                        )}
-                        <ChevronRight 
-                          className={`size-4 ${projects.length > 0 ? '' : 'ml-auto'} transition-transform ${
-                            projectsExpanded ? 'rotate-90' : ''
-                          }`} 
-                        />
-                      </div>
-                    </SidebarMenuButton>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <SidebarMenuSub>
-                      {projectsLoading ? (
-                        <SidebarMenuSubItem>
-                          <SidebarMenuSubButton className="flex items-center gap-2">
-                            <Loader2 className="size-3 animate-spin" />
-                            <span className="text-xs">Loading projects...</span>
-                          </SidebarMenuSubButton>
-                        </SidebarMenuSubItem>
-                      ) : projects.length === 0 ? (
-                        <SidebarMenuSubItem>
-                          <SidebarMenuSubButton className="text-xs text-muted-foreground">
-                            No projects yet
-                          </SidebarMenuSubButton>
-                        </SidebarMenuSubItem>
-                      ) : (
-                        projects.map((project) => (
-                          <SidebarMenuSubItem key={project.id}>
-                            <SidebarMenuSubButton
-                              asChild
-                              isActive={pathname === `/admin/projects/editor/${project.id}`}
-                            >
-                              <Link 
-                                href={`/admin/projects/editor/${project.id}`}
-                                className="flex items-center gap-2"
-                                title={project.title}
-                              >
-                                <FileText className="size-3" />
-                                <span className="truncate text-xs">{project.title}</span>
-                              </Link>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
-                        ))
-                      )}
-                    </SidebarMenuSub>
-                  </CollapsibleContent>
-                </Collapsible>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* Semantic Content section */}
-        <SidebarGroup>
-          <SidebarGroupLabel className="flex items-center gap-2">
-            <Database className="size-4" />
-            Semantic Content
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname === '/admin/semantic'}
-                  onClick={() => router.push('/admin/semantic')}
-                >
-                  <a href="/admin/semantic" className="flex items-center gap-2">
-                    <LayoutDashboard className="size-4" />
-                    <span>Semantic Dashboard</span>
-                  </a>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/semantic/config')}
-                >
-                  <Link href="/admin/semantic/config" className="flex items-center gap-2">
-                    <SlidersHorizontal className="size-4" />
-                    <span>Chunking Configuration</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/semantic/budget')}
-                >
-                  <Link href="/admin/semantic/budget" className="flex items-center gap-2">
-                    <DollarSign className="size-4" />
-                    <span>Budget Manager</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/semantic/bulk-operations')}
-                >
-                  <Link href="/admin/semantic/bulk-operations" className="flex items-center gap-2">
-                    <Trash2 className="size-4" />
-                    <span>Bulk Operations</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* AI Assistant section */}
-        <SidebarGroup>
-          <SidebarGroupLabel className="flex items-center gap-2">
-            <Bot className="size-4" />
-            AI Assistant
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname === '/admin/ai'}
-                  onClick={() => router.push('/admin/ai')}
-                >
-                  <a href="/admin/ai" className="flex items-center gap-2">
-                    <Settings className="size-4" />
-                    <span>AI Settings</span>
-                  </a>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/ai/content-sources')}
-                >
-                  <Link href="/admin/ai/content-sources" className="flex items-center gap-2">
-                    <FileText className="size-4" />
-                    <span>Content Sources</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/ai/context-config')}
-                >
-                  <Link href="/admin/ai/context-config" className="flex items-center gap-2">
-                    <SlidersHorizontal className="size-4" />
-                    <span>Context Config</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/ai/rate-limiting')}
-                >
-                  <Link href="/admin/ai/rate-limiting" className="flex items-center gap-2">
-                    <BarChart3 className="size-4" />
-                    <span>Rate Limiting</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/ai/reflinks')}
-                >
-                  <Link href="/admin/ai/reflinks" className="flex items-center gap-2">
-                    <Hash className="size-4" />
-                    <span>Reflinks</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/ai/job-analysis')}
-                >
-                  <Link href="/admin/ai/job-analysis" className="flex items-center gap-2">
-                    <BarChart3 className="size-4" />
-                    <span>Job Analyses</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/ai/security')}
-                >
-                  <Link href="/admin/ai/security" className="flex items-center gap-2">
-                    <Shield className="size-4" />
-                    <span>Security</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/ai/abuse-detection')}
-                >
-                  <Link href="/admin/ai/abuse-detection" className="flex items-center gap-2">
-                    <Bot className="size-4" />
-                    <span>Abuse Detection</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/ai/debug')}
-                >
-                  <Link href="/admin/ai/debug" className="flex items-center gap-2">
-                    <Bug className="size-4" />
-                    <span>Debug & Test Panel</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/ai/tool-testing')}
-                >
-                  <Link href="/admin/ai/tool-testing" className="flex items-center gap-2">
-                    <Terminal className="size-4" />
-                    <span>Tool Testing</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/ai/voice-debug')}
-                >
-                  <Link href="/admin/ai/voice-debug" className="flex items-center gap-2">
-                    <Mic className="size-4" />
-                    <span>Voice Debug</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/ai/voice-config')}
-                >
-                  <Link href="/admin/ai/voice-config" className="flex items-center gap-2">
-                    <Settings className="size-4" />
-                    <span>Voice Config</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/ai/conversations')}
-                >
-                  <Link href="/admin/ai/conversations" className="flex items-center gap-2">
-                    <MessagesSquare className="size-4" />
-                    <span>Conversations</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/ai/voice-clips')}
-                >
-                  <Link href="/admin/ai/voice-clips" className="flex items-center gap-2">
-                    <AudioLines className="size-4" />
-                    <span>Voice Clips</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        {/* Media Library section */}
-        <SidebarGroup>
-          <SidebarGroupLabel className="flex items-center gap-2">
-            <Image className="size-4" />
-            Media Library
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/media/upload')}
-                  onClick={() => router.push('/admin/media/upload')}
-                >
-                  <a href="/admin/media/upload" className="flex items-center gap-2">
-                    <Grid3X3 className="size-4" />
-                    <span>Manage Media</span>
-                  </a>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isItemActive('/admin/media/providers')}
-                  onClick={() => router.push('/admin/media/providers')}
-                >
-                  <a href="/admin/media/providers" className="flex items-center gap-2">
-                    <Settings className="size-4" />
-                    <span>Media Storage Providers</span>
-                  </a>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {ADMIN_NAVIGATION.map((group) => (
+          <Collapsible
+            key={group.id}
+            open={openGroups[group.id]}
+            onOpenChange={(open) =>
+              setOpenGroups((prev) => ({ ...prev, [group.id]: open }))
+            }
+          >
+            <SidebarGroup>
+              <SidebarGroupLabel asChild>
+                <CollapsibleTrigger className="group/collapsible flex w-full items-center gap-2">
+                  <group.icon className="size-4" />
+                  {group.title}
+                  <ChevronRight className="ml-auto size-4 transition-transform group-data-[state=open]/collapsible:rotate-90" />
+                </CollapsibleTrigger>
+              </SidebarGroupLabel>
+              <CollapsibleContent>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {group.items.map((item) => (
+                      <SidebarMenuItem key={item.id}>
+                        <SidebarMenuButton asChild isActive={isItemActive(pathname, item)}>
+                          <Link href={item.href} className="flex items-center gap-2">
+                            <item.icon className="size-4" />
+                            <span>{item.title}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))}
+                    {group.withProjectsList && renderProjectsList()}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </CollapsibleContent>
+            </SidebarGroup>
+          </Collapsible>
+        ))}
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border">

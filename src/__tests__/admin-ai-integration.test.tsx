@@ -1,10 +1,11 @@
 /**
  * Admin AI Integration Tests
  *
- * The AdminSidebar's AI section now carries a single "AI Settings" entry —
- * the AI admin subpages (voice config, conversations, voice-debug, …) hang
- * off /admin/ai with their own in-page navigation, not the sidebar. This
- * suite covers the sidebar's current structure and active-state logic.
+ * The AdminSidebar groups admin pages by task: Overview, Site Content,
+ * Media, AI Assistant, Knowledge Base, Access & Safety, Insights &
+ * Monitoring, and Developer Tools. Groups are collapsible; a group is
+ * open when marked defaultExpanded or when it owns the current route.
+ * This suite covers the sidebar's structure and active-state logic.
  */
 
 import React from 'react';
@@ -67,27 +68,45 @@ describe('Admin AI Integration', () => {
     jest.clearAllMocks();
   });
 
-  describe('AdminSidebar AI Section', () => {
-    it('should render the AI Assistant section with its settings entry', () => {
+  describe('AdminSidebar structure', () => {
+    it('should render every navigation group label', () => {
       render(<AdminSidebar />);
 
+      expect(screen.getByText('Overview')).toBeInTheDocument();
+      expect(screen.getByText('Site Content')).toBeInTheDocument();
+      expect(screen.getByText('Media')).toBeInTheDocument();
       expect(screen.getByText('AI Assistant')).toBeInTheDocument();
-      expect(screen.getByText('AI Settings')).toBeInTheDocument();
+      expect(screen.getByText('Knowledge Base')).toBeInTheDocument();
+      expect(screen.getByText('Access & Safety')).toBeInTheDocument();
+      expect(screen.getByText('Insights & Monitoring')).toBeInTheDocument();
+      expect(screen.getByText('Developer Tools')).toBeInTheDocument();
     });
 
-    it('should link AI Settings to /admin/ai', () => {
+    it('should open the AI Assistant group when an AI route is active and link AI Settings to /admin/ai', () => {
       render(<AdminSidebar />);
 
       const aiSettingsLink = screen.getByRole('link', { name: /AI Settings/ });
       expect(aiSettingsLink).toHaveAttribute('href', '/admin/ai');
     });
 
-    it('should render the other admin sections around the AI section', () => {
+    it('should show default-expanded groups but keep inactive groups collapsed', () => {
       render(<AdminSidebar />);
 
-      expect(screen.getByText('Overview')).toBeInTheDocument();
-      expect(screen.getByText('Homepage')).toBeInTheDocument();
-      expect(screen.getByText('Media Library')).toBeInTheDocument();
+      // Overview / Site Content / Media are defaultExpanded
+      expect(screen.getByRole('link', { name: /^Dashboard$/ })).toHaveAttribute('href', '/admin');
+      expect(screen.getByRole('link', { name: /Homepage/ })).toHaveAttribute('href', '/admin/homepage');
+      // Insights & Monitoring is closed on /admin/ai, so its items are not rendered
+      expect(screen.queryByRole('link', { name: /Performance/ })).not.toBeInTheDocument();
+    });
+
+    it('should open the group owning the active route on render', () => {
+      require('next/navigation').usePathname.mockReturnValue('/admin/performance');
+      render(<AdminSidebar />);
+
+      const performanceLink = screen.getByRole('link', { name: /Performance/ });
+      expect(performanceLink).toHaveAttribute('href', '/admin/performance');
+      // AI Assistant group stays collapsed
+      expect(screen.queryByRole('link', { name: /AI Settings/ })).not.toBeInTheDocument();
     });
   });
 });
