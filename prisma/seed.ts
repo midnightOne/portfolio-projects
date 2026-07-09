@@ -751,7 +751,10 @@ The platform has processed over $2M in transactions in its first year, with 99.9
     { alias: 'default-chat', provider: 'openai', modelId: 'gpt-4o' },
     { alias: 'default-cheap', provider: 'openai', modelId: 'gpt-4o-mini' },
     { alias: 'default-reasoning', provider: 'openai', modelId: 'gpt-4o' },
-    { alias: 'default-embedding', provider: 'openai', modelId: 'text-embedding-3-small' },
+    // Google for tail-latency stability (owner + live benchmark 2026-07-09:
+    // p50 parity ~190ms, but OpenAI spikes to 1.5–3.7s vs Google p90 ~210ms).
+    // Switching this alias REQUIRES re-embedding every chunk (embeddings stage).
+    { alias: 'default-embedding', provider: 'google', modelId: 'gemini-embedding-001' },
     { alias: 'default-realtime', provider: 'openai', modelId: 'gpt-realtime' },
     { alias: 'default-tts', provider: 'openai', modelId: 'gpt-4o-mini-tts' },
     // Renders D50 clips in Gemini Live's own prebuilt voices (strict voice match).
@@ -798,6 +801,7 @@ The platform has processed over $2M in transactions in its first year, with 99.9
     { modelId: 'gpt-3.5-turbo', provider: 'openai', inputPerMTokUsd: 0.5, outputPerMTokUsd: 1.5 },
     { modelId: 'text-embedding-3-small', provider: 'openai', inputPerMTokUsd: 0.02, outputPerMTokUsd: 0 },
     { modelId: 'text-embedding-3-large', provider: 'openai', inputPerMTokUsd: 0.13, outputPerMTokUsd: 0 },
+    { modelId: 'gemini-embedding-001', provider: 'google', inputPerMTokUsd: 0.15, outputPerMTokUsd: 0, notes: 'embeddings endpoint reports no usage — callers meter estimated tokens; price VERIFY at deploy (D38)' },
     { modelId: 'gpt-realtime', provider: 'openai', inputPerMTokUsd: 4, outputPerMTokUsd: 16, notes: 'text tokens only; audio token pricing lands with voice metering (Phase 4)' },
     { modelId: 'gpt-4o-mini-tts', provider: 'openai', inputPerMTokUsd: 0.6, outputPerMTokUsd: 12, notes: 'TTS: text-in / audio-out; speech endpoint returns no usage, so callers meter estimated tokens' },
     { modelId: 'gpt-4o-mini-transcribe', provider: 'openai', inputPerMTokUsd: 3, outputPerMTokUsd: 5, notes: 'STT: audio-in / text-out; no usage block, callers meter estimated tokens from the transcript' },

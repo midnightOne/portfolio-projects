@@ -108,7 +108,7 @@ export class BudgetAwareAIOperations {
 
       // Standard mode: immediate processing through the shared embedding provider
       // (default-embedding alias; honors AI_FAKE_MODE=embeddings)
-      const result = await generateEmbeddings(inputs);
+      const result = await generateEmbeddings(inputs, { taskType: 'document' });
       const embeddings = result.vectors;
       const tokensUsed = result.tokensUsed;
       const actualCost = await estimateCost(result.modelId, { inputTokens: tokensUsed });

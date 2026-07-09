@@ -8,10 +8,17 @@
  *   - parent/root linkage is valid (no dangling references, correct hierarchy)
  *   - T3 titles derive from their parent T2 section titles
  *   - canonical retrieval query ranks the fixture's expected section first
- *     (requires OPENAI_API_KEY for the query embedding; pass --no-live to skip)
+ *     (requires the configured embedding provider's API key — see the
+ *     default-embedding alias; pass --no-live to skip)
  *
  * Exit code 0 = all assertions pass; 1 = any failure.
  */
+
+// Load env the way the app does (.env AND .env.local — provider keys live in
+// .env.local; Prisma's auto-load only reads .env, which silently degraded the
+// live query to FTS-only after the embedding provider moved to Google).
+import { loadEnvConfig } from '@next/env';
+loadEnvConfig(process.cwd());
 
 import { PrismaClient } from '@prisma/client';
 import { readFileSync } from 'fs';
@@ -102,8 +109,9 @@ async function main() {
   // Canonical retrieval query through the real search service
   if (skipLive) {
     console.log('⏭️  SKIP  canonical query (--no-live)');
-  } else if (!process.env.OPENAI_API_KEY) {
-    assert('canonical query (needs OPENAI_API_KEY)', false, 'no key in env; use --no-live to skip intentionally');
+  } else if (!process.env.OPENAI_API_KEY && !process.env.GOOGLE_API_KEY && !process.env.GEMINI_API_KEY) {
+    // Which key is required depends on the default-embedding alias's provider
+    assert('canonical query (needs the embedding provider key)', false, 'no provider key in env; use --no-live to skip intentionally');
   } else {
     const { ContentSearchService } = await import('../src/lib/content/ContentSearchService');
     const search = new ContentSearchService();

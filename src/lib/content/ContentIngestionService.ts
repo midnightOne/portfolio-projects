@@ -98,9 +98,7 @@ export class ContentIngestionService extends EventEmitter {
   private vectorOps: VectorOperations;
   private indexMaintenance: IndexMaintenanceService;
   private smartGenerator: SmartContentGenerator;
-  private openai: OpenAI;
-  private embeddingModel: string | null = null; // resolved via 'default-embedding' alias (D4)
-  private embeddingDimensions = 1536;
+  private openai: OpenAI; // T1–T3 summary auto-generation only; embeddings go through @/lib/ai/embeddings
   
   // Chunking configuration (now handled by SmartContentGenerator for T3 tier)
   // T3 chunks are heading-bounded and use intelligent splitting
@@ -766,26 +764,14 @@ Include: technical architecture, key features, implementation details, technolog
   }
 
   /**
-   * Generate OpenAI embedding for content
+   * Generate a document embedding via the shared provider (default-embedding
+   * alias, D4 — provider-pluggable: openai/google/fake).
    */
   private async generateEmbedding(content: string): Promise<number[]> {
-    if (!this.openai) {
-      console.warn('OpenAI client not available - skipping embedding generation');
-      return [];
-    }
-
     try {
-      if (!this.embeddingModel) {
-        const { resolveModelAlias } = await import('@/lib/ai/model-registry');
-        this.embeddingModel = (await resolveModelAlias('default-embedding')).modelId;
-      }
-      const response = await this.openai.embeddings.create({
-        model: this.embeddingModel,
-        input: content,
-        dimensions: this.embeddingDimensions
-      });
-
-      return response.data[0].embedding;
+      const { generateEmbedding: sharedGenerateEmbedding } = await import('@/lib/ai/embeddings');
+      const result = await sharedGenerateEmbedding(content, { taskType: 'document' });
+      return result.vector;
     } catch (error) {
       console.error('Failed to generate embedding:', error);
       return [];

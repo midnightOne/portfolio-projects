@@ -1696,7 +1696,7 @@ export class StageBasedProcessingService extends EventEmitter {
       const { estimateCost } = await import('@/lib/ai/pricing');
       const { recordUsage } = await import('@/lib/ai/ledger');
 
-      const result = await sharedGenerateEmbedding(content);
+      const result = await sharedGenerateEmbedding(content, { taskType: 'document' });
       const costUsd = await estimateCost(result.modelId, { inputTokens: result.tokensUsed });
       await recordUsage({
         feature: 'semantic',

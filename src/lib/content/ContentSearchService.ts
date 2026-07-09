@@ -17,11 +17,9 @@
 import { PrismaClient } from '@prisma/client';
 import VectorOperations from './VectorOperations';
 import { debugEventEmitter } from '../debug/debugEventEmitter';
-import OpenAI from 'openai';
 import { ContentProvider, SemanticSection, NavigationContext } from '../navigation/UIManager';
 import { embeddingCache } from './EmbeddingCache';
-import { generateEmbedding as sharedGenerateEmbedding } from '@/lib/ai/embeddings';
-import { isFakeMode } from '@/lib/ai/fake-mode';
+import { generateEmbedding as sharedGenerateEmbedding, currentEmbeddingModelId } from '@/lib/ai/embeddings';
 import { estimateCost } from '@/lib/ai/pricing';
 import { recordUsage } from '@/lib/ai/ledger';
 
@@ -61,6 +59,7 @@ export interface ContentSearchResult {
     project?: string;
     title: string;
     oneLiner: string;                   // T1 summary for quick scanning
+    snippet?: string;                   // Short verbatim excerpt of the matched chunk
     why: string;                        // 1 sentence justification for relevance
     navTarget: any;                     // UIIntentParams for navigation
     score: number;
@@ -148,9 +147,6 @@ export class ContentSearchService implements ContentProvider {
   public readonly name = 'ContentSearchService';
 
   private vectorOps: VectorOperations;
-  private openai: OpenAI | null;
-  private embeddingModel = 'text-embedding-3-small';
-  private embeddingDimensions = 1536;
 
   // MMR configuration
   private mmrConfig: MMRConfig = {
@@ -164,14 +160,34 @@ export class ContentSearchService implements ContentProvider {
 
   constructor() {
     this.vectorOps = new VectorOperations(prisma);
+  }
 
-    // Initialize OpenAI client for embedding generation
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (apiKey) {
-      this.openai = new OpenAI({ apiKey });
-    } else {
-      console.warn('OPENAI_API_KEY not found - semantic search will be limited to existing embeddings');
-      this.openai = null;
+  /**
+   * Query↔index drift guard: stored chunk vectors must come from the model the
+   * `default-embedding` alias currently resolves to — otherwise semantic search
+   * silently degrades to noise (the FTS half keeps working, which hides it).
+   * Cached per instance; one cheap GROUP BY a minute.
+   */
+  private _driftCheck: { at: number; storedModels: string[] } | null = null;
+  private async _warnOnEmbeddingModelDrift(queryModel: string): Promise<void> {
+    try {
+      if (!this._driftCheck || Date.now() - this._driftCheck.at > 60_000) {
+        const rows = await prisma.$queryRaw<Array<{ embedding_model: string | null }>>`
+          SELECT embedding_model FROM context_chunks
+          WHERE embedding_vector IS NOT NULL GROUP BY embedding_model`;
+        this._driftCheck = {
+          at: Date.now(),
+          storedModels: rows.map((r) => r.embedding_model ?? 'unknown'),
+        };
+      }
+      const stale = this._driftCheck.storedModels.filter((m) => m !== queryModel);
+      if (stale.length > 0) {
+        console.warn(
+          `[ContentSearch] EMBEDDING MODEL DRIFT: queries use '${queryModel}' but stored chunks were embedded with [${stale.join(', ')}] — semantic ranking is unreliable until those entities are re-ingested.`
+        );
+      }
+    } catch {
+      // advisory only — never block search
     }
   }
 
@@ -208,14 +224,20 @@ export class ContentSearchService implements ContentProvider {
       let queryEmbedding: number[] = [];
       let cacheHit = false;
       const embeddingTimings: Record<string, number> = {};
+      // Ledger mirror of the embedding spend runs concurrently with the search
+      // below (it's a ~30ms transaction that used to sit on the latency path);
+      // awaited before returning so serverless never drops the write.
+      let pendingLedgerWrite: Promise<unknown> | null = null;
 
       console.log(`[ContentSearch] Starting search for query: "${query}"`);
-      console.log(`[ContentSearch] OpenAI client available: ${!!this.openai}`);
 
       if (query.trim()) {
         try {
           // Cache key must distinguish fake-mode vectors from real ones
-          const effectiveModel = isFakeMode('embeddings') ? 'fake-embedding' : this.embeddingModel;
+          // Cache keys carry the RESOLVED model id (D4: no hardcoded names) —
+          // repointing the alias must never serve another model's cached vectors.
+          const effectiveModel = await currentEmbeddingModelId();
+          void this._warnOnEmbeddingModelDrift(effectiveModel);
 
           // Check cache first
           const cacheCheckStart = Date.now();
@@ -229,19 +251,23 @@ export class ContentSearchService implements ContentProvider {
           } else {
             // Generate new embedding via the shared provider (alias + fake-mode aware)
             const apiCallStart = Date.now();
-            const embeddingResult = await sharedGenerateEmbedding(query);
+            const embeddingResult = await sharedGenerateEmbedding(query, { taskType: 'query' });
             embeddingTimings.openaiApiCall = Date.now() - apiCallStart;
             queryEmbedding = embeddingResult.vector;
 
-            // Mirror the actual spend to the unified ledger (D32)
-            await recordUsage({
-              feature: 'semantic',
-              usageType: 'query_embedding',
-              provider: embeddingResult.provider,
-              modelId: embeddingResult.modelId,
-              inputTokens: embeddingResult.tokensUsed,
-              costUsd: await estimateCost(embeddingResult.modelId, { inputTokens: embeddingResult.tokensUsed }),
-              metadata: { queryLength: query.length },
+            // Mirror the actual spend to the unified ledger (D32) — off the
+            // latency path, settled before this function returns.
+            pendingLedgerWrite = (async () =>
+              recordUsage({
+                feature: 'semantic',
+                usageType: 'query_embedding',
+                provider: embeddingResult.provider,
+                modelId: embeddingResult.modelId,
+                inputTokens: embeddingResult.tokensUsed,
+                costUsd: await estimateCost(embeddingResult.modelId, { inputTokens: embeddingResult.tokensUsed }),
+                metadata: { queryLength: query.length },
+              }))().catch((error) => {
+              console.error('[ContentSearch] query_embedding ledger write failed:', error);
             });
 
             // Cache the result
@@ -273,6 +299,10 @@ export class ContentSearchService implements ContentProvider {
       );
       timings.hybridSearchTime = Date.now() - hybridSearchStartTime;
       console.log(`[ContentSearch] Hybrid search returned ${searchResults.length} results`);
+
+      // Settle the concurrent ledger write (usually already resolved — the
+      // hybrid search takes longer than the ledger transaction).
+      if (pendingLedgerWrite) await pendingLedgerWrite;
 
       // Step 3: Apply importance-aware ranking (NEW - integrates importance scores)
       const importanceRankingStartTime = Date.now();
@@ -723,7 +753,7 @@ export class ContentSearchService implements ContentProvider {
     let queryEmbedding: number[] = [];
     if (query.trim()) {
       try {
-        const embeddingResult = await sharedGenerateEmbedding(query);
+        const embeddingResult = await sharedGenerateEmbedding(query, { taskType: 'query' });
         queryEmbedding = embeddingResult.vector;
         await recordUsage({
           feature: 'semantic',
@@ -1032,6 +1062,18 @@ export class ContentSearchService implements ContentProvider {
       const fusionStart = Date.now();
       const maxRank = Math.max(...Array.from(fullTextRankValue.values()), 1e-9);
       const AGREEMENT_BONUS = 0.05;
+      // The FTS score band is anchored to THIS query's top cosine, not absolute
+      // constants: cosine distributions are provider-shaped (gemini-embedding-001
+      // sits higher and more compressed than text-embedding-3-small), and the
+      // old fixed 0.55–0.90 band let a project-title keyword hit ("kiln" in
+      // 'Chrono Kiln Controller') leapfrog the semantically-correct section
+      // after the provider switch (2026-07-09). Ceiling stays just under the
+      // top semantic hit, preserving the 2026-07-08 fix: a weak-cosine chunk
+      // with a strong title match still beats mediocre siblings — it just
+      // can't dethrone the query's best semantic answer on keywords alone.
+      const topCosine = results.reduce((m, r) => Math.max(m, r.similarity), 0);
+      const bandFloor = topCosine > 0 ? 0.75 * topCosine : 0.55;
+      const bandCeil = topCosine > 0 ? 0.95 * topCosine : 0.9;
       for (const r of results) {
         if (semanticOrderedIds.has(r.id) && fullTextRankValue.has(r.id)) {
           // Take the BETTER of the two signals. Plain `semantic + bonus` was
@@ -1040,12 +1082,15 @@ export class ContentSearchService implements ContentProvider {
           // had missed it entirely (the e-commerce results section kept
           // losing to sibling chunks exactly this way — owner, 2026-07-08).
           const norm = (fullTextRankValue.get(r.id) as number) / maxRank;
-          r.similarity = Math.min(0.99, Math.max(r.similarity + AGREEMENT_BONUS, 0.55 + 0.35 * norm));
+          r.similarity = Math.min(
+            0.99,
+            Math.max(r.similarity + AGREEMENT_BONUS, bandFloor + (bandCeil - bandFloor) * norm)
+          );
         } else if (!semanticOrderedIds.has(r.id) && fullTextRankValue.has(r.id)) {
-          // 0.55–0.90 band: above the metadata-fallback default, below a
-          // confident semantic top hit
+          // Keyword-only hits: same band — above the metadata-fallback default,
+          // below a confident semantic top hit
           const norm = (fullTextRankValue.get(r.id) as number) / maxRank;
-          r.similarity = 0.55 + 0.35 * norm;
+          r.similarity = bandFloor + (bandCeil - bandFloor) * norm;
         }
       }
       results.sort((a, b) => b.similarity - a.similarity);
@@ -1478,11 +1523,17 @@ export class ContentSearchService implements ContentProvider {
         tier: result.tier
       };
 
+      // Verbatim excerpt so consumers (MCP clients, the voice model) can quote
+      // the match without a follow-up content fetch.
+      const snippetSource = result.content.replace(/\s+/g, ' ').trim();
+      const snippet = snippetSource.length > 240 ? `${snippetSource.slice(0, 240)}…` : snippetSource;
+
       formatted.push({
         id: result.id,
         project: result.entityType === 'PROJECT' ? result.entitySlug : undefined,
         title: result.title || result.entityTitle || 'Untitled',
         oneLiner,
+        snippet,
         why,
         navTarget,
         score: result.similarity,
