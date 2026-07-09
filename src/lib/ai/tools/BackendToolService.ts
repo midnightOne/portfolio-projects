@@ -1345,6 +1345,29 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
       return distinctive.length > 4 && normQuery.includes(distinctive);
     };
 
+    // TOPIC words = significant query words that are NOT part of the project's
+    // name. For "results section of the e-commerce platform", the topic is
+    // 'results' — an item whose TITLE matches the topic (the Results and
+    // Business Impact section) must outrank the project's identity chunks
+    // (summary/metadata), whose titles only match the project name. Without
+    // this, the model dutifully took the top result and "navigated" the user
+    // to the project summary instead of the section they asked for.
+    const QUERY_STOPWORDS = new Set([
+      'the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'for', 'to', 'with', 'about',
+      'is', 'are', 'it', 'this', 'that', 'me', 'my', 'show', 'tell', 'find', 'what',
+      'which', 'how', 'can', 'you', 'take', 'similar', 'section', 'sections',
+      'project', 'projects', 'part', 'parts', 'something', 'like'
+    ]);
+    const significantWords = (query ?? '').toLowerCase().split(/[^a-z0-9.+#-]+/)
+      .filter(w => w.length > 2 && !QUERY_STOPWORDS.has(w));
+    const topicMatchesTitle = (title?: string, slug?: string) => {
+      if (!title) return false;
+      const slugNorm = (slug ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const titleLower = title.toLowerCase();
+      return significantWords.some(w =>
+        !slugNorm.includes(w.replace(/[^a-z0-9]/g, '')) && titleLower.includes(w));
+    };
+
     // Separate results by project context
     const currentProjectResults: any[] = [];
     const otherProjectResults: any[] = [];
@@ -1370,6 +1393,11 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         // Explicitly-named project wins over ambient context (+0.6 > +0.5)
         if (queryNamesProject(result.project)) {
           contextScore += 0.6;
+        }
+
+        // The asked-for TOPIC beats the project's own identity chunks
+        if (topicMatchesTitle(result.title, result.project)) {
+          contextScore += 0.4;
         }
 
         // Boost results matching visible anchors

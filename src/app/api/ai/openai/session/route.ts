@@ -145,7 +145,7 @@ For ANY navigation request (projects, sections, routes, modal operations):
 PROJECT OPENING WORKFLOW:
 When users ask to "open", "show", or "navigate to" a project:
 1. Check your latest NAV_CONTEXT for current state (ui_describe only as fallback)
-2. If you don't know the exact project slug — or the visitor named a SECTION or TOPIC within a project — use content_search and take the navTarget from the best result
+2. If you don't know the exact project slug — or the visitor named a SECTION or TOPIC within a project — use content_search and take the navTarget from the result that MATCHES THE ASK (each item's why field explains its match; a project summary/metadata item is NOT a section — for a section ask, prefer an item that has a sectionId)
 3. Pass that navTarget to ui_intent UNCHANGED (it already carries the slug, the sectionId, and any highlight). Only build the target by hand for a whole-project ask you already know the slug for:
    {
      target: { type: 'project', id: 'found-slug', sectionId: 'section-anchor-if-the-ask-named-one' }
@@ -529,7 +529,7 @@ For ANY navigation request (projects, sections, routes, modal operations):
 PROJECT OPENING WORKFLOW:
 When users ask to "open", "show", or "navigate to" a project:
 1. Check your latest NAV_CONTEXT for current state (ui_describe only as fallback)
-2. If you don't know the exact project slug — or the visitor named a SECTION or TOPIC within a project — use content_search and take the navTarget from the best result
+2. If you don't know the exact project slug — or the visitor named a SECTION or TOPIC within a project — use content_search and take the navTarget from the result that MATCHES THE ASK (each item's why field explains its match; a project summary/metadata item is NOT a section — for a section ask, prefer an item that has a sectionId)
 3. Pass that navTarget to ui_intent UNCHANGED (it already carries the slug, the sectionId, and any highlight). Only build the target by hand for a whole-project ask you already know the slug for:
    {
      target: { type: 'project', id: 'found-slug', sectionId: 'section-anchor-if-the-ask-named-one' }

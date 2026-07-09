@@ -1123,11 +1123,16 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 const usage = eventData.response.usage;
                 console.log('Response usage metrics:', usage);
 
+                // Realtime usage events carry input_tokens/output_tokens but NO
+                // total_tokens — every consumer gated on it read 0 forever
+                // (live-fire, 2026-07-09: {input_tokens: 4179, output_tokens: 112}).
+                const inputTokens = usage.input_tokens ?? 0;
+                const outputTokens = usage.output_tokens ?? 0;
+                const totalTokens = usage.total_tokens ?? (inputTokens + outputTokens);
+
                 // Update our analytics
                 if (this._conversationAnalytics) {
-                    if (usage.total_tokens) {
-                        this._conversationAnalytics.tokensUsed += usage.total_tokens;
-                    }
+                    this._conversationAnalytics.tokensUsed += totalTokens;
                     if (usage.cost_usd) {
                         this._conversationAnalytics.costUsd += usage.cost_usd;
                     }
@@ -1139,23 +1144,23 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 // this is the number that trips the org TPM limit — not the
                 // spoken words.
                 this._legUsage.responses += 1;
-                this._legUsage.inputTokens += usage.input_tokens ?? 0;
-                this._legUsage.outputTokens += usage.output_tokens ?? 0;
-                this._legUsage.totalTokens += usage.total_tokens ?? 0;
+                this._legUsage.inputTokens += inputTokens;
+                this._legUsage.outputTokens += outputTokens;
+                this._legUsage.totalTokens += totalTokens;
 
                 // Live counter: flush a per-response delta so the admin header
                 // counts up DURING the session — leg-end persistence never
                 // lands when the tab closes mid-conversation.
-                if ((usage.total_tokens ?? 0) > 0) {
+                if (totalTokens > 0) {
                     this._postConversationLog({
                         sessionId: this._generateSessionId(),
                         provider: 'openai',
                         reflinkId: this._options?.reflinkId,
                         usageDelta: {
                             responses: 1,
-                            inputTokens: usage.input_tokens ?? 0,
-                            outputTokens: usage.output_tokens ?? 0,
-                            totalTokens: usage.total_tokens ?? 0,
+                            inputTokens,
+                            outputTokens,
+                            totalTokens,
                         },
                         timestamp: new Date().toISOString(),
                     });
@@ -1165,11 +1170,11 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 // session: one response consuming a large slice of the 40K/min
                 // window means the next few will start failing.
                 const TPM_WARN_TOKENS = 15000;
-                if ((usage.total_tokens ?? 0) >= TPM_WARN_TOKENS && !this._tpmWarned) {
+                if (totalTokens >= TPM_WARN_TOKENS && !this._tpmWarned) {
                     this._tpmWarned = true;
                     this._logEvent('error',
-                        `High token burn: this response used ${usage.total_tokens} tokens (${usage.input_tokens ?? '?'} in / ${usage.output_tokens ?? '?'} out) — a 40K TPM org limit fits ~${Math.max(1, Math.floor(40000 / usage.total_tokens))} such responses per minute`,
-                        { kind: 'tpm_warning', usage: { input: usage.input_tokens, output: usage.output_tokens, total: usage.total_tokens } });
+                        `High token burn: this response used ${totalTokens} tokens (${inputTokens} in / ${outputTokens} out) — a 40K TPM org limit fits ~${Math.max(1, Math.floor(40000 / totalTokens))} such responses per minute`,
+                        { kind: 'tpm_warning', usage: { input: inputTokens, output: outputTokens, total: totalTokens } });
                 }
             }
 
