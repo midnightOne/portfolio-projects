@@ -19,6 +19,8 @@ export interface PublicAccessSettingsState {
   mcpEnabled: boolean;
   mcpRequestsPerMinute: number;
   mcpRequestsPerDay: number;
+  /** Voice adapter family visitors get by default (owner, 2026-07-09). */
+  defaultVoiceProvider: 'openai' | 'google' | 'cascade';
 }
 
 const CACHE_TTL_MS = 30_000;
@@ -41,6 +43,10 @@ export async function getPublicAccessSettings(opts?: { fresh?: boolean }): Promi
     mcpEnabled: row.mcpEnabled,
     mcpRequestsPerMinute: row.mcpRequestsPerMinute,
     mcpRequestsPerDay: row.mcpRequestsPerDay,
+    defaultVoiceProvider:
+      row.defaultVoiceProvider === 'google' || row.defaultVoiceProvider === 'cascade'
+        ? row.defaultVoiceProvider
+        : 'openai',
   };
   cache = { at: now, state };
   return state;

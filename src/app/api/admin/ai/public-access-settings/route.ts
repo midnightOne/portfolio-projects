@@ -37,6 +37,9 @@ export async function PUT(request: NextRequest) {
   if (body.publicTier === 'disabled' || body.publicTier === 'text_chat') data.publicTier = body.publicTier;
   if (typeof body.turnstileEnabled === 'boolean') data.turnstileEnabled = body.turnstileEnabled;
   if (typeof body.mcpEnabled === 'boolean') data.mcpEnabled = body.mcpEnabled;
+  if (['openai', 'google', 'cascade'].includes(body.defaultVoiceProvider)) {
+    data.defaultVoiceProvider = body.defaultVoiceProvider;
+  }
   for (const f of INT_FIELDS) {
     if (typeof body[f] === 'number' && Number.isInteger(body[f]) && body[f] > 0) data[f] = body[f];
   }

@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getClientAIModelManager } from '@/lib/voice/ClientAIModelManager';
+import { getPublicAccessSettings } from '@/lib/ai/public-access';
 
 const PUBLIC_PROVIDERS = ['openai', 'elevenlabs', 'google', 'cascade'] as const;
 type PublicProvider = (typeof PUBLIC_PROVIDERS)[number];
@@ -23,7 +24,20 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const provider = searchParams.get('provider') as PublicProvider | null;
 
-  if (!provider || !PUBLIC_PROVIDERS.includes(provider)) {
+  // No provider param → which adapter family the site serves by default
+  // (admin-set on AIPublicAccessSettings; the pill reads this at mount).
+  if (!provider) {
+    try {
+      const settings = await getPublicAccessSettings();
+      return NextResponse.json({ success: true, defaultProvider: settings.defaultVoiceProvider });
+    } catch (error) {
+      console.error('[voice-config] failed to read default provider:', error);
+      // Fail soft for the client — the pill falls back to its built-in default
+      return NextResponse.json({ success: true, defaultProvider: 'openai' });
+    }
+  }
+
+  if (!PUBLIC_PROVIDERS.includes(provider)) {
     return NextResponse.json(
       { success: false, error: `provider must be one of: ${PUBLIC_PROVIDERS.join(', ')}` },
       { status: 400 }

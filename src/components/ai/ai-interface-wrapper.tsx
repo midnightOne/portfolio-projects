@@ -8,7 +8,7 @@ import { useReflinkSession } from '@/components/providers/reflink-session-provid
 import { HomepageDevVoicePanel } from './HomepageDevVoicePanel';
 
 interface AIInterfaceWrapperProps {
-  // Optional props to override defaults
+  /** Explicit override; when omitted the admin-configured site default is fetched. */
   defaultProvider?: 'openai' | 'google' | 'cascade';
   className?: string;
   onSettingsClick?: () => void;
@@ -17,11 +17,35 @@ interface AIInterfaceWrapperProps {
 }
 
 export function AIInterfaceWrapper({
-  defaultProvider = 'openai',
+  defaultProvider: defaultProviderProp,
   className,
   onSettingsClick,
   isAdmin = false
 }: AIInterfaceWrapperProps) {
+  // Site default voice provider (admin-set, AIPublicAccessSettings). An explicit
+  // prop wins; otherwise fetched once at mount with 'openai' as the fallback.
+  const [defaultProvider, setDefaultProvider] = useState<'openai' | 'google' | 'cascade'>(
+    defaultProviderProp ?? 'openai'
+  );
+  // The adapter initializes ONCE (ConversationalAgentProvider ignores later
+  // defaultProvider changes), so hold rendering until the site default is known.
+  const [providerResolved, setProviderResolved] = useState(!!defaultProviderProp);
+  useEffect(() => {
+    if (defaultProviderProp) return;
+    let cancelled = false;
+    fetch('/api/ai/voice-config')
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data?.success && ['openai', 'google', 'cascade'].includes(data.defaultProvider)) {
+          setDefaultProvider(data.defaultProvider);
+        }
+      })
+      .catch(() => { /* keep fallback */ })
+      .finally(() => { if (!cancelled) setProviderResolved(true); });
+    return () => { cancelled = true; };
+  }, [defaultProviderProp]);
+
   // Debug: Log wrapper creation to detect multiple instances
   useEffect(() => {
     console.log('AIInterfaceWrapper mounted with provider:', defaultProvider);
@@ -109,6 +133,10 @@ export function AIInterfaceWrapper({
       console.log('Settings clicked - no handler provided');
     }
   };
+
+  if (!providerResolved) {
+    return null; // one fetch, ~ms — the pill is invisible during session load anyway
+  }
 
   return (
     <ReflinkSessionProvider>

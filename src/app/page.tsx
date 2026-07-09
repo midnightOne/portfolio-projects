@@ -15,7 +15,8 @@ export default async function Home() {
     <div className="min-h-screen">
       <MainNavigation />
       <Homepage />
-      <AIInterfaceWrapper defaultProvider="openai" isAdmin={isAdmin} />
+      {/* No defaultProvider prop: the admin-configured site default governs */}
+      <AIInterfaceWrapper isAdmin={isAdmin} />
     </div>
   );
 }

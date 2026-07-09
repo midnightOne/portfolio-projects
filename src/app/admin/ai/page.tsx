@@ -15,6 +15,8 @@ import { AdminPageLayout } from '@/components/admin/admin-page-layout';
 import { AIStatusIndicator } from '@/components/admin/ai-status-indicator';
 import { ModelAliasPanel } from '@/components/admin/ModelAliasPanel';
 import { ModelPricingPanel } from '@/components/admin/ModelPricingPanel';
+import { EmbeddingModelPanel } from '@/components/admin/EmbeddingModelPanel';
+import { DefaultVoiceProviderPanel } from '@/components/admin/DefaultVoiceProviderPanel';
 import { useToast } from '@/components/ui/toast';
 import { ConnectionStatus, ConfigurationStatus } from '@/components/ui/status-badge';
 import { HelpText, HelpSection } from '@/components/ui/help-text';
@@ -272,6 +274,12 @@ function AISettingsContent() {
 
       {/* Model alias registry (D4) */}
       <ModelAliasPanel />
+
+      {/* Embedding model switch + reindex consent (owner, 2026-07-09) */}
+      <EmbeddingModelPanel />
+
+      {/* Site-default voice provider served to visitors */}
+      <DefaultVoiceProviderPanel />
 
       {/* Model pricing table (D38) */}
       <ModelPricingPanel />

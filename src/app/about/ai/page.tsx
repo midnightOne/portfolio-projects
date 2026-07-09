@@ -296,7 +296,8 @@ export default async function AboutAIPage() {
         </article>
       </main>
 
-      <AIInterfaceWrapper defaultProvider="openai" isAdmin={isAdmin} />
+      {/* No defaultProvider prop: the admin-configured site default governs */}
+      <AIInterfaceWrapper isAdmin={isAdmin} />
     </div>
   );
 }

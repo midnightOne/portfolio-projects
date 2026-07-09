@@ -45,7 +45,8 @@ export function ModelAliasPanel() {
     try {
       const res = await fetch('/api/admin/ai/model-aliases');
       const data = await res.json();
-      if (data.success) setRows(data.data);
+      // default-embedding has its own switch-and-reindex panel (EmbeddingModelPanel)
+      if (data.success) setRows(data.data.filter((r: AliasRow) => r.alias !== 'default-embedding'));
     } catch (error) {
       console.error('Failed to load model aliases:', error);
     } finally {

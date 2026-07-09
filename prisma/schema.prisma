@@ -475,6 +475,9 @@ model AIPublicAccessSettings {
   mcpEnabled               Boolean  @default(true) @map("mcp_enabled")
   mcpRequestsPerMinute     Int      @default(10) @map("mcp_requests_per_minute")
   mcpRequestsPerDay        Int      @default(200) @map("mcp_requests_per_day")
+  // Voice adapter family served to visitors by default (owner, 2026-07-09):
+  // openai (Realtime) | google (Gemini Live) | cascade (D45 STT→LLM→TTS)
+  defaultVoiceProvider     String   @default("openai") @map("default_voice_provider")
   updatedAt                DateTime @updatedAt @map("updated_at")
 
   @@map("ai_public_access_settings")

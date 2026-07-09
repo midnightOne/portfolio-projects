@@ -8,7 +8,7 @@ Portfolio site that is itself the flagship portfolio piece: Next.js 15 App Route
 2. **Decisions:** [.kiro/specs/00-overview/decision-registry.md](.kiro/specs/00-overview/decision-registry.md) (D1–D46). When spec/code conflict, the registry arbitrates. Never hardcode model IDs or prices (D4/D38); tiers are T0–T3; "MCP" means only the real external server.
 3. **Direction & roadmap:** [.kiro/specs/ARCHITECTURE_ALIGNMENT_PROPOSAL.md](.kiro/specs/ARCHITECTURE_ALIGNMENT_PROPOSAL.md) §7 (Phases 0–5; Phase 1 done 2026-07-02).
 4. **Git state (D1, amended):** development head = `claude/semantic-content-management-review` (== `feature/semantic-content-management-2`) — this is **staging**. `main` is a stale Sept 2025 snapshot kept deliberately as the deployable Vercel fallback; do NOT merge into or base work on `main` — promotion happens only on explicit owner decision.
-5. **Deployment state (owner, 2026-07-03):** the project is currently **out of deployment**; iterate locally. All cloud credentials are stale except `OPENAI_API_KEY` (fresh, for testing). Cloud DB (Supabase/Neon), Vercel registration, and other provider keys get re-provisioned only when deploying again.
+5. **Deployment state (owner, 2026-07-03; creds updated 2026-07-09):** the project is currently **out of deployment**; iterate locally. Fresh, working credentials: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` (in `.env.local`), and Cloudinary. Cloud DB (Supabase/Neon) and Vercel registration get re-provisioned only when deploying again.
 
 ## Dev database (local — verification spec task 1.1)
 

@@ -57,6 +57,15 @@ export async function PUT(request: NextRequest) {
       { status: 400 }
     );
   }
+  // Repointing the embedding alias without re-embedding the corpus silently
+  // breaks semantic search — that switch lives behind the consented
+  // switch-and-reindex endpoint (owner, 2026-07-09).
+  if (alias === 'default-embedding') {
+    return NextResponse.json(
+      { success: false, error: 'default-embedding is managed via /api/admin/ai/embedding-model (switch + full reindex with consent)' },
+      { status: 400 }
+    );
+  }
   if (!provider || !VALID_PROVIDERS.includes(provider)) {
     return NextResponse.json(
       { success: false, error: `provider must be one of: ${VALID_PROVIDERS.join(', ')}` },
