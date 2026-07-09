@@ -110,6 +110,10 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     private _responseStallTimer: ReturnType<typeof setTimeout> | null = null;
     /** True between input_audio_buffer.speech_started and .speech_stopped. */
     private _userSpeechActive = false;
+    /** When the current user utterance began — becomes the user row's timestamp
+     *  (transcription-completion time made user rows sort AFTER the tool calls
+     *  they triggered). Consumed by the first user item that gets content. */
+    private _lastUserSpeechStartedAt: Date | null = null;
     /** Recovery nudges sent in the current silence episode (reset by real audio / user speech). */
     private _stallNudgeCount = 0;
     /** Per-leg token accounting (persisted on leg end/disruption) — the TPM story. */
@@ -688,6 +692,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             if (event.type === 'input_audio_buffer.speech_started') {
                 this._userSpeechActive = true;
                 this._stallNudgeCount = 0; // new user turn = new episode
+                this._lastUserSpeechStartedAt = new Date();
             } else if (event.type === 'input_audio_buffer.speech_stopped') {
                 this._userSpeechActive = false;
             }
@@ -998,11 +1003,28 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
                 // Only add items with content or update existing items that now have content
                 if (content.trim().length > 0) {
+                    const existingIndex = this._transcript.findIndex(t => t.id === itemId);
+
+                    // Ordering truth (owner, 2026-07-08 "transcripts are logged
+                    // shuffled"): stamp user rows at the moment they STARTED
+                    // speaking, not when Whisper finished transcribing — and
+                    // never re-stamp an item on update, which pushed rows even
+                    // later. Rows sort by timestamp, so this is the order fix.
+                    let timestamp: Date;
+                    if (existingIndex >= 0) {
+                        timestamp = this._transcript[existingIndex].timestamp;
+                    } else if (itemType === 'user_speech' && this._lastUserSpeechStartedAt) {
+                        timestamp = this._lastUserSpeechStartedAt;
+                        this._lastUserSpeechStartedAt = null;
+                    } else {
+                        timestamp = new Date();
+                    }
+
                     const transcriptItem: TranscriptItem = {
                         id: itemId,
                         type: itemType,
                         content,
-                        timestamp: new Date(Date.now()),
+                        timestamp,
                         provider: 'openai' as VoiceProvider,
                         // 9b.5 best-effort onset for assistant turns (WebRTC playback
                         // start via output_audio_buffer.started; exact on Gemini).
@@ -1010,9 +1032,6 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                             ? { firstAudioAt: this._turnFirstAudioAt.toISOString() }
                             : undefined
                     };
-
-                    // Update existing item or add new one
-                    const existingIndex = this._transcript.findIndex(t => t.id === itemId);
                     if (existingIndex >= 0) {
                         this._transcript[existingIndex] = transcriptItem;
                     } else {
@@ -1124,6 +1143,24 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 this._legUsage.outputTokens += usage.output_tokens ?? 0;
                 this._legUsage.totalTokens += usage.total_tokens ?? 0;
 
+                // Live counter: flush a per-response delta so the admin header
+                // counts up DURING the session — leg-end persistence never
+                // lands when the tab closes mid-conversation.
+                if ((usage.total_tokens ?? 0) > 0) {
+                    this._postConversationLog({
+                        sessionId: this._generateSessionId(),
+                        provider: 'openai',
+                        reflinkId: this._options?.reflinkId,
+                        usageDelta: {
+                            responses: 1,
+                            inputTokens: usage.input_tokens ?? 0,
+                            outputTokens: usage.output_tokens ?? 0,
+                            totalTokens: usage.total_tokens ?? 0,
+                        },
+                        timestamp: new Date().toISOString(),
+                    });
+                }
+
                 // In-transcript early warning BEFORE the rate limiter mutes the
                 // session: one response consuming a large slice of the 40K/min
                 // window means the next few will start failing.
@@ -1218,8 +1255,14 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                         formattedResult = result.message || 'Tool executed successfully';
                     }
                 } else {
-                    // Fallback to JSON string
-                    formattedResult = JSON.stringify(result);
+                    // Fallback to JSON string. Strip payload the model has no
+                    // use for BEFORE it enters the conversation — everything a
+                    // tool returns is re-billed as input on EVERY subsequent
+                    // turn of the session (realtime has no server-side history
+                    // trimming), and searchMetadata is ~500 tokens of timing
+                    // breakdowns per search.
+                    const { searchMetadata: _dropped, ...slim } = result as Record<string, unknown>;
+                    formattedResult = JSON.stringify(_dropped !== undefined ? slim : result);
                 }
             } else {
                 formattedResult = String(result);

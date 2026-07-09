@@ -109,6 +109,8 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
 
   // Streaming input/output transcript accumulation (Gemini streams transcription in chunks)
   private _pendingInputText = '';
+  /** When the user's current utterance began transcribing — becomes the row timestamp. */
+  private _pendingInputStartedAt: Date | null = null;
   private _pendingOutputText = '';
   private _pendingOutputId: string | null = null;
   private _pendingReasoningText = '';
@@ -360,13 +362,15 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
         // Streams word-by-word while the user speaks — accumulate and flush
         // as one row once the model starts responding (see below), rather
         // than emitting a transcript item per fragment.
+        if (!this._pendingInputText) this._pendingInputStartedAt = new Date();
         this._pendingInputText += sc.inputTranscription.text;
       }
 
       const modelStartedResponding = !!(sc.outputTranscription?.text || sc.modelTurn?.parts?.length);
       if (modelStartedResponding && this._pendingInputText.trim()) {
-        this._emitTranscript('user_speech', this._pendingInputText, { confidence: 1.0 });
+        this._emitTranscript('user_speech', this._pendingInputText, { confidence: 1.0 }, undefined, this._pendingInputStartedAt ?? undefined);
         this._pendingInputText = '';
+        this._pendingInputStartedAt = null;
       }
 
       if (sc.outputTranscription?.text) {
@@ -396,8 +400,9 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
         if (this._pendingInputText.trim()) {
           // Model never produced output (e.g. interrupted before responding) —
           // still flush the user's question so it isn't lost.
-          this._emitTranscript('user_speech', this._pendingInputText, { confidence: 1.0 });
+          this._emitTranscript('user_speech', this._pendingInputText, { confidence: 1.0 }, undefined, this._pendingInputStartedAt ?? undefined);
           this._pendingInputText = '';
+          this._pendingInputStartedAt = null;
         }
         if (this._pendingOutputText.trim()) {
           this._emitTranscript(
@@ -438,6 +443,12 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
     let success = true;
     try {
       responsePayload = await this._executeUnifiedTool(call.name, call.args ?? {});
+      // Tool output re-bills as input on every later turn — drop the timing
+      // breakdowns the model has no use for (same trim as the OpenAI path).
+      if (responsePayload && typeof responsePayload === 'object' && 'searchMetadata' in (responsePayload as Record<string, unknown>)) {
+        const { searchMetadata: _dropped, ...slim } = responsePayload as Record<string, unknown>;
+        responsePayload = slim;
+      }
     } catch (error) {
       success = false;
       responsePayload = { error: error instanceof Error ? error.message : String(error) };
@@ -461,13 +472,16 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
     type: 'user_speech' | 'ai_response' | 'tool_call' | 'tool_result',
     content: string,
     metadata?: TranscriptItem['metadata'],
-    id?: string
+    id?: string,
+    timestamp?: Date
   ): void {
     const item: TranscriptItem = {
       id: id ?? uuidv4(),
       type,
       content,
-      timestamp: new Date(),
+      // Caller-supplied timestamps keep rows in true conversational order —
+      // user rows are stamped at first transcription fragment, not at flush.
+      timestamp: timestamp ?? new Date(),
       provider: 'google',
       metadata
     };

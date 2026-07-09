@@ -581,8 +581,9 @@ export class ConversationHistoryManager {
             data: { endedAt: new Date(), endReason }
         });
         // Per-leg token accounting (owner ask, 2026-07-08): the leg keeps its
-        // realtime usage in metadata, and the conversation aggregate feeds the
-        // "N tok" header that always read 0 for voice sessions.
+        // realtime usage in metadata. The conversation's totalTokens aggregate
+        // is fed by per-response usageDelta posts (live counter), NOT here —
+        // incrementing in both places would double-count.
         if (usage && openLeg && (usage.totalTokens ?? 0) > 0) {
             const existing = (openLeg.metadata && typeof openLeg.metadata === 'object')
                 ? openLeg.metadata as Record<string, unknown>
@@ -591,11 +592,18 @@ export class ConversationHistoryManager {
                 where: { id: openLeg.id },
                 data: { metadata: { ...existing, usage } as any }
             });
-            await prisma.aIConversation.update({
-                where: { id: conversationId },
-                data: { totalTokens: { increment: usage.totalTokens ?? 0 } }
-            });
         }
+    }
+
+    /** Live token counter (owner, 2026-07-08): per-response delta from the
+     *  adapter — the "N tok" header counts up while the conversation runs
+     *  instead of staying 0 until a clean disconnect that may never come. */
+    async addUsageDelta(conversationId: string, totalTokens: number): Promise<void> {
+        if (!totalTokens || totalTokens <= 0) return;
+        await prisma.aIConversation.update({
+            where: { id: conversationId },
+            data: { totalTokens: { increment: totalTokens } }
+        });
     }
 
     /** The currently open leg id, for tagging incoming messages. */

@@ -310,6 +310,30 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
 
     // Handle both full conversation format and individual transcript items
     if (!conversationData) {
+      // Live token counter (owner, 2026-07-08): per-response usage delta from
+      // the adapter — keeps the conversation's "N tok" header counting up
+      // during the session instead of staying 0 until a clean disconnect.
+      if ((body as any).usageDelta) {
+        const delta = (body as any).usageDelta as { totalTokens?: number };
+        const conversationId = await conversationHistoryManager.getOrCreateConversationId(
+          sessionId,
+          reflinkId,
+          { conversationMode: 'voice' }
+        );
+        await conversationHistoryManager.addUsageDelta(conversationId, delta.totalTokens ?? 0);
+        return NextResponse.json({
+          success: true,
+          message: `Usage delta recorded for session ${sessionId}`,
+          metadata: {
+            timestamp: Date.now(),
+            sessionId,
+            conversationId,
+            entriesProcessed: 1,
+            storedSuccessfully: true
+          }
+        });
+      }
+
       // Check if this is an individual transcript item (legacy format)
       if (body.transcriptItem) {
         // Convert individual transcript item to conversation format
