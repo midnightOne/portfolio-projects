@@ -567,11 +567,35 @@ export class ConversationHistoryManager {
     }
 
     /** Close the conversation's open leg (no-op when none is open). */
-    async endLeg(conversationId: string, endReason: LegEndReason): Promise<void> {
+    async endLeg(
+        conversationId: string,
+        endReason: LegEndReason,
+        usage?: { responses?: number; inputTokens?: number; outputTokens?: number; totalTokens?: number }
+    ): Promise<void> {
+        const openLeg = await prisma.aIConversationLeg.findFirst({
+            where: { conversationId, endedAt: null },
+            select: { id: true, metadata: true }
+        });
         await prisma.aIConversationLeg.updateMany({
             where: { conversationId, endedAt: null },
             data: { endedAt: new Date(), endReason }
         });
+        // Per-leg token accounting (owner ask, 2026-07-08): the leg keeps its
+        // realtime usage in metadata, and the conversation aggregate feeds the
+        // "N tok" header that always read 0 for voice sessions.
+        if (usage && openLeg && (usage.totalTokens ?? 0) > 0) {
+            const existing = (openLeg.metadata && typeof openLeg.metadata === 'object')
+                ? openLeg.metadata as Record<string, unknown>
+                : {};
+            await prisma.aIConversationLeg.update({
+                where: { id: openLeg.id },
+                data: { metadata: { ...existing, usage } as any }
+            });
+            await prisma.aIConversation.update({
+                where: { id: conversationId },
+                data: { totalTokens: { increment: usage.totalTokens ?? 0 } }
+            });
+        }
     }
 
     /** The currently open leg id, for tagging incoming messages. */

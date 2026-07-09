@@ -703,6 +703,22 @@ export class StageBasedProcessingService extends EventEmitter {
 
         // Skip if no source content available
         if (!sourceContent || sourceContent.length < 50) {
+          // Parent headings legitimately own no prose — their content lives in
+          // child sections. Synthesize an honest overview line instead of the
+          // 0-token placeholder that trips the dashboard's 'corrupted' flag.
+          const childTitles = allT1T2Chunks
+            .filter(c => c.tier === 2 && c.chunkId !== chunk.chunkId
+              && ((c as any).parentChunkId ?? c.metadata?.parentChunkId) === chunk.chunkId)
+            .map(c => (c.title || '').split('\n')[0].trim())
+            .filter(Boolean);
+          if (childTitles.length > 0) {
+            console.log(`[SummariesStage] ${chunk.chunkId}: no own prose — synthesizing child overview (${childTitles.length} subsections)`);
+            chunk.content = `Covers: ${childTitles.join(', ')}.`;
+            chunk.tokenCount = this.estimateTokenCount(chunk.content);
+            chunk.metadata.needsAIGeneration = false;
+            chunk.metadata.source = 'child-overview';
+            continue;
+          }
           console.log(`[SummariesStage] Skipping ${chunk.chunkId}: insufficient source content`);
           chunk.content = 'No content available for summary';
           chunk.metadata.needsAIGeneration = false;
@@ -932,8 +948,16 @@ export class StageBasedProcessingService extends EventEmitter {
         try {
           console.log(`[EmbeddingsStage] Generating embedding for chunk ${chunk.chunkId} (${stageProgress.itemsProcessed + 1}/${allChunks.length})`);
           
-          // Generate embedding through the shared provider (alias + fake-mode aware)
-          const { embedding, costUsd: cost } = await this.generateEmbedding(chunk.content);
+          // Generate embedding through the shared provider (alias + fake-mode aware).
+          // Embed the TITLE with the content: heading-based chunking means the
+          // heading is the section's most important anchor — a section whose
+          // body never repeats its heading words ("Results and Business
+          // Impact" → "$2M in transactions…") was semantically invisible to
+          // title-phrased asks (owner, 2026-07-08).
+          const embeddingInput = chunk.title && !chunk.content.startsWith(chunk.title)
+            ? `${chunk.title}\n\n${chunk.content}`
+            : chunk.content;
+          const { embedding, costUsd: cost } = await this.generateEmbedding(embeddingInput);
           chunk.embedding = embedding;
 
           checkpoint.embeddingsGenerated.push({
@@ -1198,6 +1222,19 @@ export class StageBasedProcessingService extends EventEmitter {
           description: project.description || project.summary || `AI context for ${project.title}`
         }
       });
+    }
+
+    // Re-chunking REPLACES the scaffold: purge rows whose chunk_id the new
+    // scaffold no longer produces. They used to linger forever — after the
+    // 2026-07-08 heading-body parser fix, the old monster-slug T2s survived
+    // as stale 0-token duplicates alongside their clean replacements.
+    if (!hasEmbeddings) {
+      const stale = await prisma.contextChunk.deleteMany({
+        where: { entityId: entity.id, chunkId: { notIn: chunks.map(c => c.chunkId) } }
+      });
+      if (stale.count > 0) {
+        console.log(`[ChunkingStage] Removed ${stale.count} stale chunks no longer in the scaffold`);
+      }
     }
 
     // Use batch storage for efficiency

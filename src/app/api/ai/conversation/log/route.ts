@@ -248,7 +248,8 @@ async function handleLegEvent(
   } else if (data.eventType === 'session_end') {
     await conversationHistoryManager.endLeg(
       conversationId,
-      (data.endReason as import('@/lib/services/ai/conversation-history-manager').LegEndReason) ?? 'user_disconnect'
+      (data.endReason as import('@/lib/services/ai/conversation-history-manager').LegEndReason) ?? 'user_disconnect',
+      (data as any).usage
     );
   } else if (data.eventType === 'disruption') {
     const legId = await conversationHistoryManager.getOpenLegId(conversationId);
@@ -258,7 +259,7 @@ async function handleLegEvent(
       issueType: data.issueType,
       diagnostics: data.diagnostics,
     });
-    await conversationHistoryManager.endLeg(conversationId, 'disruption');
+    await conversationHistoryManager.endLeg(conversationId, 'disruption', (data as any).usage);
   }
 }
 

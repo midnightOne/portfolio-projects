@@ -112,6 +112,10 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     private _userSpeechActive = false;
     /** Recovery nudges sent in the current silence episode (reset by real audio / user speech). */
     private _stallNudgeCount = 0;
+    /** Per-leg token accounting (persisted on leg end/disruption) — the TPM story. */
+    private _legUsage = { responses: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    /** One tpm_warning row per leg is enough. */
+    private _tpmWarned = false;
     /** Task 8 duration cap: timer armed at connect from the mint's max_session_seconds. */
     private _durationCapTimer: ReturnType<typeof setTimeout> | null = null;
     /** D49 leg endReason for the next session_end ('duration_cap' when the cap fires). */
@@ -587,6 +591,24 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         if (!this._agent) {
             throw new ConnectionError('Agent not initialized', 'openai');
         }
+
+        // Never orphan a live transport: overwriting _session without closing
+        // it leaves the previous WebRTC session running CONCURRENTLY — burning
+        // the same TPM window twice and flapping the mic-button state as both
+        // sessions feed events into the same handlers (owner's "several
+        // sessions at once" suspicion, 2026-07-08). Failed resume attempts hit
+        // this path back-to-back, so close defensively every time.
+        if (this._session) {
+            try {
+                this._session.close();
+                console.log('OpenAIRealtimeAdapter: closed previous RealtimeSession before creating a new one');
+            } catch { /* already closed */ }
+            this._session = null;
+        }
+        // The token-ack listener is attached per session object; without this
+        // reset the NEW session never gets one and every NAV_CONTEXT push on a
+        // resumed leg dies as a 10s "Ack timeout".
+        this.tokenListenerSetup = false;
 
         if (inputKind === 'synthetic') {
             if (!inputStream) {
@@ -1091,6 +1113,26 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                         this._conversationAnalytics.costUsd += usage.cost_usd;
                     }
                     this._conversationAnalytics.lastUpdated = new Date();
+                }
+
+                // Per-leg TPM accounting (owner ask, 2026-07-08): every realtime
+                // response re-bills the WHOLE conversation as input tokens, so
+                // this is the number that trips the org TPM limit — not the
+                // spoken words.
+                this._legUsage.responses += 1;
+                this._legUsage.inputTokens += usage.input_tokens ?? 0;
+                this._legUsage.outputTokens += usage.output_tokens ?? 0;
+                this._legUsage.totalTokens += usage.total_tokens ?? 0;
+
+                // In-transcript early warning BEFORE the rate limiter mutes the
+                // session: one response consuming a large slice of the 40K/min
+                // window means the next few will start failing.
+                const TPM_WARN_TOKENS = 15000;
+                if ((usage.total_tokens ?? 0) >= TPM_WARN_TOKENS && !this._tpmWarned) {
+                    this._tpmWarned = true;
+                    this._logEvent('error',
+                        `High token burn: this response used ${usage.total_tokens} tokens (${usage.input_tokens ?? '?'} in / ${usage.output_tokens ?? '?'} out) — a 40K TPM org limit fits ~${Math.max(1, Math.floor(40000 / usage.total_tokens))} such responses per minute`,
+                        { kind: 'tpm_warning', usage: { input: usage.input_tokens, output: usage.output_tokens, total: usage.total_tokens } });
                 }
             }
 
@@ -1600,7 +1642,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         this._stopDisruptionWatcher();
         this._isConnected = false;
         this._connectionStatus = 'reconnecting';
-        this._logConnectionEvent('disruption', { provider: 'openai', issueType, diagnostics });
+        this._logConnectionEvent('disruption', { provider: 'openai', issueType, diagnostics, usage: { ...this._legUsage } });
         this._emitConnectionEvent('reconnecting', `Connection lost (${issueType}) — resuming`);
 
         try {
@@ -1981,6 +2023,9 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             // session_resumed marker when resuming), then watch for silent drops.
             this._lastConnectOptions = options;
             this._intentionalDisconnect = false;
+            // Fresh leg = fresh token accounting
+            this._legUsage = { responses: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+            this._tpmWarned = false;
             this._logConnectionEvent('session_start', {
                 provider: 'openai',
                 modelAlias: 'default-realtime',
@@ -2089,7 +2134,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 // D49: user-requested disconnect — not a disruption
                 this._intentionalDisconnect = true;
                 this._stopDisruptionWatcher();
-                this._logConnectionEvent('session_end', { provider: 'openai', endReason: this._endReason });
+                this._logConnectionEvent('session_end', { provider: 'openai', endReason: this._endReason, usage: { ...this._legUsage } });
                 this._endReason = 'user_disconnect';
 
                 // Report final conversation data before disconnecting

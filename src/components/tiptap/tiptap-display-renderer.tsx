@@ -78,23 +78,37 @@ export function TiptapDisplayRenderer({
           6: 'text-sm font-medium mb-2 mt-3 first:mt-0',
         };
         
-        // Generate ID from heading text for navigation
-        const headingText = node.content?.map(child => child.text || '').join('') || '';
-        const headingId = headingText
+        // Generate ID from heading text for navigation. Some content arrives
+        // with a whole block pasted into one heading node ("Payment
+        // Processing\n- bullet…") — the FIRST LINE is the heading (same rule
+        // as HierarchicalContentParser, keeping the chunk↔anchor contract);
+        // the remainder renders as body text below instead of giant bold
+        // heading lines.
+        const fullHeadingText = node.content?.map(child => child.text || '').join('') || '';
+        const [headingFirstLine, ...headingRestLines] = fullHeadingText.split('\n');
+        const headingBody = headingRestLines.join('\n').trim();
+        const headingId = headingFirstLine
           .toLowerCase()
           .replace(/[^a-z0-9\s-]/g, '') // Remove special characters
           .replace(/\s+/g, '-') // Replace spaces with hyphens
           .replace(/-+/g, '-') // Replace multiple hyphens with single
           .replace(/^-|-$/g, ''); // Remove leading/trailing hyphens
-        
-        return React.createElement(
+
+        const headingEl = React.createElement(
           HeadingTag,
-          { 
-            key: index, 
+          {
+            key: `${index}-h`,
             id: headingId, // Add ID for navigation
-            className: headingClasses[level as keyof typeof headingClasses] 
+            className: headingClasses[level as keyof typeof headingClasses]
           },
-          node.content?.map((child, childIndex) => renderNode(child, childIndex))
+          headingBody ? headingFirstLine : node.content?.map((child, childIndex) => renderNode(child, childIndex))
+        );
+        if (!headingBody) return headingEl;
+        return (
+          <React.Fragment key={index}>
+            {headingEl}
+            <div className="mb-4 whitespace-pre-line">{headingBody}</div>
+          </React.Fragment>
         );
 
       case 'bulletList':

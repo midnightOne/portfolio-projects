@@ -58,6 +58,10 @@ export interface IndexedSection {
   nodeType: string; // Tiptap node type
   depth: number; // Heading depth for hierarchy
   projectId?: string; // Track which project this section belongs to
+  /** Real Tiptap heading level (node.attrs.level). Without it every heading
+   *  defaulted to level 1, flattening the hierarchy — no heading ever had
+   *  children, so parent sections could not summarize their subsections. */
+  sourceHeadingLevel?: number;
 }
 
 export interface HierarchicalSection extends IndexedSection {
@@ -150,7 +154,11 @@ export class HierarchicalContentParser {
     for (const section of basicSections) {
       const hierarchicalSection: HierarchicalSection = {
         ...section,
-        headingLevel: this.extractHeadingLevel(section.nodeType, section.title),
+        // Prefer the REAL Tiptap level — the markdown-hash fallback made every
+        // heading level 1, so no heading ever had children.
+        headingLevel: section.nodeType === 'heading'
+          ? (section.sourceHeadingLevel ?? this.extractHeadingLevel(section.nodeType, section.title))
+          : this.extractHeadingLevel(section.nodeType, section.title),
         parentSectionId: undefined,
         childSectionIds: [],
         tierAssignment: this.assignTier(section),
@@ -505,25 +513,60 @@ export class HierarchicalContentParser {
       const createdSection = this.shouldCreateSection(node);
       if (createdSection) {
         const sectionId = `section-${++sectionCounter}`;
-        const title = this.extractSectionTitle(node);
-        const summary = this.generateSectionSummary(nodeContent, nodeMarkdown);
-        const keywords = this.extractSectionKeywords(nodeContent);
-        const importance = this.calculateSectionImportance(node, nodeContent);
+        let title = this.extractSectionTitle(node);
+
+        // Real-world content sometimes arrives with a whole block pasted into
+        // ONE heading node ("Payment Processing\n- bullet\n- bullet"). The
+        // first line is the heading; everything after it is section BODY.
+        // Folding it all into the title produced monster anchor ids, left the
+        // section with no T3 source (summaries stage skipped it, writing the
+        // 0-token placeholder that trips the dashboard's 'corrupted' flag),
+        // and made the section invisible to search (owner, 2026-07-08).
+        let headingBody: string | null = null;
+        if (node.type === 'heading' && title.includes('\n')) {
+          const [firstLine, ...rest] = title.split('\n');
+          title = firstLine.trim();
+          headingBody = rest.join('\n').trim() || null;
+        }
+
+        const sectionContent = headingBody !== null ? title : nodeContent;
+        const sectionMarkdown = headingBody !== null ? title : nodeMarkdown;
 
         sections.push({
           id: sectionId,
           title,
-          summary,
-          content: nodeContent,
-          markdownContent: nodeMarkdown,
+          summary: this.generateSectionSummary(sectionContent, sectionMarkdown),
+          content: sectionContent,
+          markdownContent: sectionMarkdown,
           startOffset: nodeStart,
           endOffset: currentOffset,
-          keywords,
-          importance,
+          keywords: this.extractSectionKeywords(sectionContent),
+          importance: this.calculateSectionImportance(node, sectionContent),
           nodeType: node.type,
           depth,
-          projectId
+          projectId,
+          sourceHeadingLevel: node.type === 'heading' ? (node.attrs?.level ?? 1) : undefined
         });
+
+        // The salvaged body becomes a normal content section directly after
+        // its heading — hierarchy building attaches it as the heading's child,
+        // so the T3 chunker gives the section real, searchable content.
+        if (headingBody) {
+          sections.push({
+            id: `section-${++sectionCounter}`,
+            title: `${title} — details`,
+            summary: this.generateSectionSummary(headingBody, headingBody),
+            content: headingBody,
+            markdownContent: headingBody,
+            startOffset: nodeStart,
+            endOffset: currentOffset,
+            keywords: this.extractSectionKeywords(headingBody),
+            importance: this.calculateSectionImportance(node, headingBody),
+            nodeType: 'paragraph',
+            depth: depth + 1,
+            projectId
+          });
+        }
       }
 
       // Process children ONLY if we didn't create a section for this node
