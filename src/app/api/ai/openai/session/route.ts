@@ -116,7 +116,7 @@ async function handleGET(request: NextRequest, ctx: GatewayContext) {
     systemInstructions += `\n\nIMPORTANT TOOL USAGE GUIDELINES - UIManager Navigation System:
 - Answer questions about projects and experience with the SEMANTIC tools (content_search to find, content_get for detail) — their results carry ready-made navTargets with the section anchor and highlight; the legacy project loaders do not
 - Use the NEW UIManager system for ALL navigation via ui_intent
-- Use ui_describe to understand current UI state and available navigation options
+- Your PRIMARY source of UI state is the NAV_CONTEXT message pushed to you automatically after every navigation — call ui_describe ONLY when you have no recent NAV_CONTEXT or suspect it is stale
 - Provide visual guidance with highlighting tools when helpful
 - Whether to SPEAK around a tool call depends on how long it actually takes - follow the TOOL LATENCY AWARENESS section below. Never narrate instant actions (navigation, UI state reads); act silently and describe the result
 
@@ -135,7 +135,7 @@ PRIMARY NAVIGATION TOOLS:
 
 NAVIGATION WORKFLOW:
 For ANY navigation request (projects, sections, routes, modal operations):
-1. ALWAYS start with ui_describe to understand current state
+1. Start from your latest NAV_CONTEXT (call ui_describe only if you have none)
 2. Use ui_intent with appropriate target type:
    - Projects: { target: { type: 'project', id: 'project-slug' } }
    - Sections: { target: { type: 'section', id: 'section-name' } }
@@ -144,7 +144,7 @@ For ANY navigation request (projects, sections, routes, modal operations):
 
 PROJECT OPENING WORKFLOW:
 When users ask to "open", "show", or "navigate to" a project:
-1. Use ui_describe to understand current state
+1. Check your latest NAV_CONTEXT for current state (ui_describe only as fallback)
 2. If you don't know the exact project slug — or the visitor named a SECTION or TOPIC within a project — use content_search and take the navTarget from the best result
 3. Pass that navTarget to ui_intent UNCHANGED (it already carries the slug, the sectionId, and any highlight). Only build the target by hand for a whole-project ask you already know the slug for:
    {
@@ -179,7 +179,7 @@ Use these tools for intelligent content discovery and detailed information retri
    - User asks "tell me about", "find information on", "what do you know about"
    
    HOW TO USE:
-   - Always include current UI state from ui_describe for context-aware ranking
+   - Always include current UI state (from your latest NAV_CONTEXT; ui_describe only as fallback) for context-aware ranking
    - Use specific queries: "React components" not just "React"
    - Set appropriate k (number of results): 3-5 for focused answers, 8-10 for comprehensive
    - Use maxTier to control detail level: 1-2 for summaries, 3 for detailed content
@@ -221,7 +221,8 @@ Use these tools for intelligent content discovery and detailed information retri
 
 CONTENT SEARCH BEST PRACTICES:
 - RELEVANCE HONESTY: results carry a score and facets. A weak match (score below ~0.6, or facets that do not mention what was asked) is NOT an answer — when the visitor asks for something specific and the results do not actually contain it, SAY the portfolio does not have that, instead of presenting the closest result as if it matched. Never navigate to a project as an answer it is not.
-- ALWAYS get UI state with ui_describe before content searches for context awareness
+- Ground context-aware searches in your latest NAV_CONTEXT; call ui_describe only when it is missing or stale
+- CROSS-PROJECT HONESTY: results may come from a DIFFERENT project than the one open — each item's why field says what matched. When the project the user asked about has no real match but another project does, say exactly that ("X has no results section, but Y has one") and offer to navigate there
 - Use content_search for discovery, content_get for detailed retrieval
 - Combine search results with navigation guidance using returned navTargets
 - Prioritize content relevant to user's current context (route, project, visible sections)
@@ -499,7 +500,7 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext) {
     instructions += `\n\nIMPORTANT TOOL USAGE GUIDELINES - UIManager Navigation System:
 - Answer questions about projects and experience with the SEMANTIC tools (content_search to find, content_get for detail) — their results carry ready-made navTargets with the section anchor and highlight; the legacy project loaders do not
 - Use the NEW UIManager system for ALL navigation via ui_intent
-- Use ui_describe to understand current UI state and available navigation options
+- Your PRIMARY source of UI state is the NAV_CONTEXT message pushed to you automatically after every navigation — call ui_describe ONLY when you have no recent NAV_CONTEXT or suspect it is stale
 - Provide visual guidance with highlighting tools when helpful
 - Whether to SPEAK around a tool call depends on how long it actually takes - follow the TOOL LATENCY AWARENESS section below. Never narrate instant actions (navigation, UI state reads); act silently and describe the result
 
@@ -518,7 +519,7 @@ PRIMARY NAVIGATION TOOLS:
 
 NAVIGATION WORKFLOW:
 For ANY navigation request (projects, sections, routes, modal operations):
-1. ALWAYS start with ui_describe to understand current state
+1. Start from your latest NAV_CONTEXT (call ui_describe only if you have none)
 2. Use ui_intent with appropriate target type:
    - Projects: { target: { type: 'project', id: 'project-slug' } }
    - Sections: { target: { type: 'section', id: 'section-name' } }
@@ -527,7 +528,7 @@ For ANY navigation request (projects, sections, routes, modal operations):
 
 PROJECT OPENING WORKFLOW:
 When users ask to "open", "show", or "navigate to" a project:
-1. Use ui_describe to understand current state
+1. Check your latest NAV_CONTEXT for current state (ui_describe only as fallback)
 2. If you don't know the exact project slug — or the visitor named a SECTION or TOPIC within a project — use content_search and take the navTarget from the best result
 3. Pass that navTarget to ui_intent UNCHANGED (it already carries the slug, the sectionId, and any highlight). Only build the target by hand for a whole-project ask you already know the slug for:
    {
@@ -562,7 +563,7 @@ Use these tools for intelligent content discovery and detailed information retri
    - User asks "tell me about", "find information on", "what do you know about"
    
    HOW TO USE:
-   - Always include current UI state from ui_describe for context-aware ranking
+   - Always include current UI state (from your latest NAV_CONTEXT; ui_describe only as fallback) for context-aware ranking
    - Use specific queries: "React components" not just "React"
    - Set appropriate k (number of results): 3-5 for focused answers, 8-10 for comprehensive
    - Use maxTier to control detail level: 1-2 for summaries, 3 for detailed content
@@ -604,7 +605,8 @@ Use these tools for intelligent content discovery and detailed information retri
 
 CONTENT SEARCH BEST PRACTICES:
 - RELEVANCE HONESTY: results carry a score and facets. A weak match (score below ~0.6, or facets that do not mention what was asked) is NOT an answer — when the visitor asks for something specific and the results do not actually contain it, SAY the portfolio does not have that, instead of presenting the closest result as if it matched. Never navigate to a project as an answer it is not.
-- ALWAYS get UI state with ui_describe before content searches for context awareness
+- Ground context-aware searches in your latest NAV_CONTEXT; call ui_describe only when it is missing or stale
+- CROSS-PROJECT HONESTY: results may come from a DIFFERENT project than the one open — each item's why field says what matched. When the project the user asked about has no real match but another project does, say exactly that ("X has no results section, but Y has one") and offer to navigate there
 - Use content_search for discovery, content_get for detailed retrieval
 - Combine search results with navigation guidance using returned navTargets
 - Prioritize content relevant to user's current context (route, project, visible sections)

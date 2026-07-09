@@ -57,6 +57,8 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     private _syntheticInputStream: MediaStream | null = null;
     /** call_id → tool name, captured at output_item.added (arguments.done events carry no name). */
     private _pendingToolNames: Map<string, string> = new Map();
+    /** tool name → latest provider call_id, so the post-execution row can correlate. */
+    private _lastCallIdForTool: Map<string, string> = new Map();
     private _silentAudioContext: AudioContext | null = null;
     // ---- D49 session continuity (task 5b) ----
     /** Options of the live connect, reused verbatim by auto-resume. */
@@ -105,6 +107,10 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
      *  result; cleared by ANY model response signal. If it fires, the silence
      *  gets an honest, replayable error row instead of nothing. */
     private _responseStallTimer: ReturnType<typeof setTimeout> | null = null;
+    /** True between input_audio_buffer.speech_started and .speech_stopped. */
+    private _userSpeechActive = false;
+    /** Recovery nudges sent in the current silence episode (reset by real audio / user speech). */
+    private _stallNudgeCount = 0;
     /** Task 8 duration cap: timer armed at connect from the mint's max_session_seconds. */
     private _durationCapTimer: ReturnType<typeof setTimeout> | null = null;
     /** D49 leg endReason for the next session_end ('duration_cap' when the cap fires). */
@@ -156,7 +162,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             ui_describe: 'Ground your answer in this actual UI state.',
             searchProjects: 'Summarize the most relevant matches conversationally.',
             loadProjectContext: 'Share the key highlights and technical details.',
-            content_search: 'Answer from these results and mention which project they come from. If items is empty, say honestly that nothing was found.',
+            content_search: 'Answer from these results and mention which project each comes from (the why field says what matched). If the best match lives in a DIFFERENT project than the user meant, say so explicitly and offer to navigate. If items is empty, say honestly that nothing was found.',
         };
         const nudge = nudges[toolName];
         return nudge ? `${result}\n\n[guidance] ${nudge}` : result;
@@ -406,6 +412,8 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 parameters: parametersSchema,
                 execute: async (parameters: any) => {
                     console.log(`OpenAI tool execution started: ${toolDef.name}`, parameters);
+                    const execStart = Date.now();
+                    let toolSucceeded = true;
 
                     // A tool that never settles stalls the whole conversation: the
                     // model waits forever for function output and goes silent while
@@ -413,10 +421,14 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                     // timeout converts any hang into an error string the model can
                     // recover from conversationally.
                     const TOOL_TIMEOUT_MS = 20000;
+                    let timedOut = false;
                     const timeoutGuard = new Promise<string>((resolve) =>
-                        setTimeout(() => resolve(
-                            `Tool ${toolDef.name} timed out after ${TOOL_TIMEOUT_MS / 1000}s — tell the user the action did not complete and offer to retry.`
-                        ), TOOL_TIMEOUT_MS)
+                        setTimeout(() => {
+                            timedOut = true;
+                            resolve(
+                                `Tool ${toolDef.name} timed out after ${TOOL_TIMEOUT_MS / 1000}s — tell the user the action did not complete and offer to retry.`
+                            );
+                        }, TOOL_TIMEOUT_MS)
                     );
 
                     const run = async (): Promise<string> => {
@@ -493,12 +505,20 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                         console.error(`OpenAI tool execution failed: ${toolDef.name}`, error);
 
                         // Return error to OpenAI
+                        toolSucceeded = false;
                         const errorMessage = `Failed to execute ${toolDef.name}: ${error instanceof Error ? error.message : String(error)}`;
                         return errorMessage;
                     }
                     };
 
-                    return Promise.race([run(), timeoutGuard]);
+                    const output = await Promise.race([run(), timeoutGuard]);
+                    // Persist ONE complete row now that the outcome exists — the
+                    // exact string the model received, args, success, latency.
+                    // (Rows used to be posted from arguments.done, BEFORE execution,
+                    // so every OpenAI tool replayed as result:"null" — owner,
+                    // 2026-07-08 transcript cmrcs96o3008cw5b0079e6pmh.)
+                    this._logToolRow(toolDef.name, parameters, output, toolSucceeded && !timedOut, Date.now() - execStart);
+                    return output;
                 },
             });
         });
@@ -631,12 +651,22 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             if (event.type === 'output_audio_buffer.started') {
                 if (!this._turnFirstAudioAt) this._turnFirstAudioAt = new Date();
                 this._clearResponseStallWatchdog();
+                this._stallNudgeCount = 0; // real audio = episode over
                 this._emitAudioEvent('speech_start');
             } else if (event.type === 'output_audio_buffer.stopped' || event.type === 'output_audio_buffer.cleared') {
                 this._emitAudioEvent('speech_end');
             }
             if (event.type === 'response.created' || event.type === 'response.output_item.added') {
                 this._clearResponseStallWatchdog();
+            }
+
+            // User-speech state (drives the stall watchdog's nudge deferral —
+            // never inject a response.create while the user is mid-utterance).
+            if (event.type === 'input_audio_buffer.speech_started') {
+                this._userSpeechActive = true;
+                this._stallNudgeCount = 0; // new user turn = new episode
+            } else if (event.type === 'input_audio_buffer.speech_stopped') {
+                this._userSpeechActive = false;
             }
 
             // Handle audio interruption events
@@ -648,6 +678,29 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 console.log('AI response completed');
                 // Process usage metrics when response is complete
                 this._processResponseMetrics(event);
+                // Cancelled/failed responses were INVISIBLE (owner transcript
+                // cmrcs96o3008cw5b0079e6pmh, 8:45 PM silence): response.created
+                // had already cleared the stall watchdog, then VAD barge-in (or
+                // clip audio leaking into the mic) cancelled the turn — silence
+                // with no row and no recovery. Log it and re-arm the watchdog so
+                // 10s of nothing produces the nudge.
+                const status = (event as any).response?.status;
+                if (status === 'cancelled' || status === 'failed') {
+                    const hadAudio = !!this._turnFirstAudioAt;
+                    const statusDetails = (event as any).response?.status_details;
+                    const errCode = statusDetails?.error?.code;
+                    const label = status === 'cancelled'
+                        ? `Model response cancelled ${hadAudio ? 'mid-speech' : 'BEFORE any audio'} (VAD barge-in or clip/mic feedback) — watching for silence`
+                        // The failure reason belongs in the LABEL — live-fire
+                        // found gpt-realtime TPM rate limiting silencing whole
+                        // turns with no visible cause (2026-07-08).
+                        : `Model response FAILED${errCode ? `: ${errCode}` : ''} — will nudge for retry`;
+                    this._logEvent('error', label, { kind: `response_${status}`, statusDetails, hadAudio });
+                    this._armResponseStallWatchdog(`response_${status}`,
+                        // Rate-limited? Nudging on the normal cadence just re-hits
+                        // the same TPM window — wait longer before retrying.
+                        errCode === 'rate_limit_exceeded' ? 20000 : undefined);
+                }
                 // Next response gets a fresh turn-onset timestamp.
                 this._turnFirstAudioAt = null;
             }
@@ -1235,34 +1288,44 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     // fillFormField/submitForm/animateElement removed (D18/D19, Phase 3 task 3.1)
 
     /**
-     * Log tool call completion for monitoring
+     * arguments.done fires BEFORE the tool executes, so this handler cannot
+     * know the result — it only remembers the provider call_id so the
+     * post-execution row (_logToolRow) can correlate. Posting the row from
+     * here is what made every OpenAI tool replay as result:"null" (owner,
+     * 2026-07-08): the /log route dedupes by id, so the result-less row
+     * always won and the real payload never reached the transcript.
      */
     private _logToolCallCompletion(event: any) {
-        try {
-            // Persist the completed tool call through the route's supported
-            // individual-tool format. (The previous payload — `conversationId` +
-            // `type: 'tool_call_completion'` — was a shape the route never
-            // accepted; every voice tool call 400'd and none persisted. Found
-            // 2026-07-07 by the D53 fake-mic drill.)
-            let parsedArgs: unknown = event.arguments;
-            try {
-                parsedArgs = event.arguments ? JSON.parse(event.arguments) : {};
-            } catch { /* keep raw string */ }
+        const name = event.name || this._pendingToolNames.get(event.call_id);
+        if (name && event.call_id) this._lastCallIdForTool.set(name, event.call_id);
+    }
 
+    /**
+     * Persist the completed tool call — args AND the exact output string the
+     * model received — as ONE row after execution (mirrors GoogleLiveAdapter's
+     * 2026-07-08 fix; the route slices results to 8KB).
+     */
+    private _logToolRow(toolName: string, args: unknown, result: string, success: boolean, executionTime: number): void {
+        try {
+            const callId = this._lastCallIdForTool.get(toolName);
+            this._lastCallIdForTool.delete(toolName);
             this._postConversationLog({
                 sessionId: this._generateSessionId(),
                 provider: 'openai',
+                reflinkId: this._options?.reflinkId,
+                toolName,
+                toolArgs: args,
+                toolResult: (result ?? '').slice(0, 6000),
                 timestamp: new Date().toISOString(),
-                toolName: event.name || this._pendingToolNames.get(event.call_id) || 'unknown_tool',
-                toolArgs: parsedArgs,
                 metadata: {
-                    toolCallId: event.call_id,
-                    success: true,
+                    toolCallId: callId,
+                    success,
+                    executionTime,
                     reportType: 'real-time'
                 }
             });
         } catch (error) {
-            console.warn('Error logging tool call completion:', error);
+            console.warn('Error logging tool row:', error);
         }
     }
 
@@ -1475,21 +1538,36 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         }, maxSessionSeconds * 1000);
     }
 
-    private _armResponseStallWatchdog(toolName: string): void {
+    private _armResponseStallWatchdog(toolName: string, delayMs = 10000): void {
         this._clearResponseStallWatchdog();
         this._responseStallTimer = setTimeout(() => {
             this._responseStallTimer = null;
             if (!this._isConnected) return;
-            const message = `Model produced no response within 10s of the ${toolName} tool result (turn stalled)`;
+            // Never inject a response while the user is mid-utterance — their
+            // committed turn will trigger the model naturally. Re-check later.
+            if (this._userSpeechActive) {
+                this._armResponseStallWatchdog(toolName, delayMs);
+                return;
+            }
+            // Cap the nudge loop: each failed retry re-arms via response.done,
+            // and unbounded response.create against a rate-limited session just
+            // burns more of the same TPM window (live-fire, 2026-07-08).
+            if (this._stallNudgeCount >= 3) {
+                console.warn('OpenAIRealtimeAdapter: stall nudge cap reached — leaving the turn silent (user speech will restart it)');
+                this._logEvent('error', 'Turn still stalled after 3 recovery nudges — giving up until the user speaks', { toolName, kind: 'response_stall_capped' });
+                return;
+            }
+            this._stallNudgeCount++;
+            const message = `Model produced no response within ${Math.round(delayMs / 1000)}s of the ${toolName} tool result (turn stalled)`;
             console.warn(`OpenAIRealtimeAdapter: ${message}`);
-            this._logEvent('error', 'Turn stalled after tool result — sending recovery nudge', { toolName, kind: 'response_stall' });
+            this._logEvent('error', `Turn stalled after tool result — sending recovery nudge (${this._stallNudgeCount}/3)`, { toolName, kind: 'response_stall' });
             // Programmatic version of the spoken nudge that revives these
             // turns: ask for a response explicitly. If a response IS active
             // the server rejects it with a harmless error event.
             void this.sendEvent({ type: 'response.create' }).catch((err) =>
                 console.warn('OpenAIRealtimeAdapter: stall recovery nudge failed:', err)
             );
-        }, 10000);
+        }, delayMs);
     }
 
     private _clearResponseStallWatchdog(): void {

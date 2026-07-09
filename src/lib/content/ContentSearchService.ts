@@ -277,9 +277,17 @@ export class ContentSearchService implements ContentProvider {
       const importanceRankedResults = this._applyImportanceRanking(searchResults);
       timings.importanceRankingTime = Date.now() - importanceRankingStartTime;
 
+      // Step 3b: when the query NAMES a project ("results … in the e-commerce
+      // platform project"), that project's chunks must survive ranking and the
+      // MMR cut even while another project's modal is open — the explicit ask
+      // outranks ambient context. Without this, the named project's matching
+      // section lost to the current project's boosted lookalike and never
+      // reached the model (owner report, 2026-07-08).
+      const namedProjectBoosted = this._applyNamedProjectBoost(importanceRankedResults, query);
+
       // Step 4: Apply MMR diversification
       const mmrStartTime = Date.now();
-      const diversifiedResults = this._applyMMR(importanceRankedResults, k, diversifyBy);
+      const diversifiedResults = this._applyMMR(namedProjectBoosted, k, diversifyBy);
       timings.mmrTime = Date.now() - mmrStartTime;
 
       // Step 5: Format results for return
@@ -930,6 +938,40 @@ export class ContentSearchService implements ContentProvider {
       `;
       hybridTimings.fullTextSearchTime = Date.now() - ftStart;
 
+      // Relaxed OR pass: websearch_to_tsquery ANDs plain terms, so a long
+      // spoken ask ("results and lessons or similar section in the e-commerce
+      // platform project") matches almost nothing — the e-commerce section
+      // titled "Results and Business Impact" was invisible to BOTH halves
+      // (its body text never says "results", and strict FTS demanded every
+      // word). When the strict pass comes back thin, retry with the
+      // significant words OR-ed so single-strong-keyword title hits (like a
+      // section heading) still enter the candidate pool; ts_rank keeps
+      // multi-word matches ranked above them.
+      if (ftRows.length < 3) {
+        const orQuery = this._significantQueryWords(query).join(' OR ');
+        if (orQuery) {
+          const relaxedRows = await prisma.$queryRaw<Array<{ id: string; rank: number }>>`
+            SELECT c.id, ts_rank(c.search_vector, websearch_to_tsquery('english', ${orQuery}))::float AS rank
+            FROM context_chunks c
+            WHERE c.search_vector @@ websearch_to_tsquery('english', ${orQuery})
+              AND c.tier <= ${maxTier}
+              AND (${publicOnly}::boolean = false OR EXISTS (
+                SELECT 1 FROM content_entities e
+                WHERE e.id = c.entity_id
+                  AND (e."entityType" <> 'PROJECT' OR EXISTS (
+                    SELECT 1 FROM projects p WHERE p.slug = e.slug AND p.visibility = 'PUBLIC'
+                  ))
+              ))
+            ORDER BY rank DESC
+            LIMIT ${limit}
+          `;
+          const strictIds = new Set(ftRows.map(r => r.id));
+          for (const row of relaxedRows) {
+            if (!strictIds.has(row.id)) ftRows.push(row);
+          }
+        }
+      }
+
       const existingById = new Map(results.map(r => [r.id, r]));
       const missingIds = ftRows.map(r => r.id).filter(id => !existingById.has(id));
 
@@ -1429,52 +1471,92 @@ export class ContentSearchService implements ContentProvider {
     return formatted;
   }
 
+  /** Collapse to lowercase alphanumerics so "e-commerce platform" ≈ "e-commerce-platform" ≈ "E-commerce Platform". */
+  private _normalizeForMatch(text: string): string {
+    return text.toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  /** Words in the query that carry meaning (drops filler common in spoken asks). */
+  private static readonly _QUERY_STOPWORDS = new Set([
+    'the', 'a', 'an', 'and', 'or', 'of', 'in', 'on', 'for', 'to', 'with', 'about',
+    'is', 'are', 'it', 'this', 'that', 'me', 'my', 'show', 'tell', 'find', 'what',
+    'which', 'how', 'can', 'you', 'similar', 'section', 'sections', 'project',
+    'projects', 'part', 'parts', 'something', 'like'
+  ]);
+
+  private _significantQueryWords(query: string): string[] {
+    return query.toLowerCase().split(/[^a-z0-9.+#-]+/)
+      .filter(w => w.length > 2 && !ContentSearchService._QUERY_STOPWORDS.has(w));
+  }
+
   /**
-   * Generate relevance justification for search result
+   * Boost chunks belonging to a project the query names explicitly. Applied
+   * BEFORE MMR so the named project's matching sections survive the k-cut.
+   */
+  private _applyNamedProjectBoost(results: InternalSearchResult[], query: string): InternalSearchResult[] {
+    const normQuery = this._normalizeForMatch(query);
+    if (!normQuery) return results;
+    const boosted = results.map(result => {
+      const slugNorm = this._normalizeForMatch(result.entitySlug || '');
+      const titleNorm = this._normalizeForMatch(result.entityTitle || '');
+      const named = (slugNorm.length > 3 && normQuery.includes(slugNorm))
+        || (titleNorm.length > 3 && normQuery.includes(titleNorm));
+      return named ? { ...result, similarity: result.similarity + 0.25 } : result;
+    });
+    return boosted.sort((a, b) => b.similarity - a.similarity);
+  }
+
+  /**
+   * Generate relevance justification for search result. The strings feed the
+   * model's framing of cross-project answers, so they must say WHAT matched:
+   * a section-title hit, the project the query named, tech/tags, or plain
+   * semantic proximity — not a canned adjective (the old template produced
+   * "Relevant because it highly relevant." — owner, 2026-07-08).
    */
   private _generateRelevanceJustification(result: InternalSearchResult, query: string): string {
+    const words = this._significantQueryWords(query);
+    const titleLower = (result.title || '').toLowerCase();
+    const contentLower = result.content.toLowerCase();
+    const normQuery = this._normalizeForMatch(query);
+    const projectName = result.entityTitle || result.entitySlug || '';
+    const slugNorm = this._normalizeForMatch(result.entitySlug || '');
+    const titleNorm = this._normalizeForMatch(result.entityTitle || '');
+
     const reasons: string[] = [];
 
-    // Check for direct content matches
-    const queryLower = query.toLowerCase();
-    const contentLower = result.content.toLowerCase();
-    const titleLower = (result.title || '').toLowerCase();
-
-    if (titleLower.includes(queryLower)) {
-      reasons.push('matches title');
-    } else if (contentLower.includes(queryLower)) {
-      reasons.push('contains query terms');
+    const titleHits = words.filter(w => titleLower.includes(w));
+    if (titleHits.length > 0 && result.title) {
+      reasons.push(`its "${result.title}" heading matches ${titleHits.map(w => `'${w}'`).join(', ')}`);
     }
 
-    // Check for technology matches
-    const matchingTech = result.technologies.filter(tech =>
-      tech.toLowerCase().includes(queryLower) || queryLower.includes(tech.toLowerCase())
-    );
-    if (matchingTech.length > 0) {
-      reasons.push(`uses ${matchingTech[0]}`);
+    const queryNamesProject = (slugNorm.length > 3 && normQuery.includes(slugNorm))
+      || (titleNorm.length > 3 && normQuery.includes(titleNorm));
+    if (queryNamesProject && projectName) {
+      reasons.push(`it belongs to ${projectName}, the project the query names`);
     }
 
-    // Check for tag matches
-    const matchingTags = result.tags.filter(tag =>
-      tag.toLowerCase().includes(queryLower) || queryLower.includes(tag.toLowerCase())
-    );
-    if (matchingTags.length > 0) {
-      reasons.push(`tagged as ${matchingTags[0]}`);
+    const matchingTech = result.technologies.find(tech =>
+      words.some(w => tech.toLowerCase() === w || tech.toLowerCase().includes(w)));
+    if (matchingTech) reasons.push(`it uses ${matchingTech}`);
+
+    const matchingTag = result.tags.find(tag =>
+      words.some(w => tag.toLowerCase() === w || tag.toLowerCase().includes(w)));
+    if (matchingTag && !matchingTech) reasons.push(`it is tagged '${matchingTag}'`);
+
+    if (reasons.length < 2) {
+      const contentHits = words.filter(w => !titleHits.includes(w) && contentLower.includes(w)).slice(0, 2);
+      if (contentHits.length > 0) {
+        reasons.push(`its text mentions ${contentHits.map(w => `'${w}'`).join(' and ')}`);
+      }
     }
 
-    // Semantic similarity
-    if (result.similarity > 0.8) {
-      reasons.push('highly relevant');
-    } else if (result.similarity > 0.6) {
-      reasons.push('semantically related');
-    }
-
-    // Default reason
     if (reasons.length === 0) {
-      reasons.push('related content');
+      reasons.push(result.similarity > 0.6
+        ? 'it is semantically close to the query'
+        : 'it is only loosely related (weak semantic match)');
     }
 
-    return `Relevant because it ${reasons.slice(0, 2).join(' and ')}.`;
+    return reasons.slice(0, 2).join('; ') + '.';
   }
 
   /**

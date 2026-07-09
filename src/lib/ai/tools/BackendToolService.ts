@@ -1060,7 +1060,10 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
       const searchResult = await this.contentSearchService.searchContent({
         query,
         scope: enhancedScope,
-        k: Math.min(k + 3, k * 1.5), // Get slightly more results for UI state-aware ranking
+        // A real candidate pool for the UI-state ranking: with only k+~2 items
+        // (and the old fractional 1.5x math), a cross-project section the user
+        // explicitly asked for was usually cut before ranking ever saw it.
+        k: Math.max(Math.ceil(k * 2), 10),
         maxTier,
         diversifyBy,
         filters: enhancedFilters,
@@ -1070,7 +1073,7 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
 
       // Apply UI state-aware ranking and filtering
       const rankingStart = Date.now();
-      const rankedResults = this._applyUIStateAwareRanking(searchResult.items, uiState, k);
+      const rankedResults = this._applyUIStateAwareRanking(searchResult.items, uiState, k, query);
       backendTimings.uiStateRanking = Date.now() - rankingStart;
 
       // Enhance navigation targets with UI state compatibility
@@ -1321,10 +1324,20 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
    * STRATEGY: Prioritize current project results, but always include cross-project results
    * This allows the agent to say "this project doesn't have X, but here's relevant info from Y"
    */
-  private _applyUIStateAwareRanking(results: any[], uiState?: any, targetCount: number = 5): any[] {
+  private _applyUIStateAwareRanking(results: any[], uiState?: any, targetCount: number = 5, query?: string): any[] {
     if (!uiState || !results.length) {
       return results.slice(0, targetCount);
     }
+
+    // A project the query names EXPLICITLY outranks the ambient current-project
+    // boost — "show me the results section in the e-commerce platform project"
+    // asked from inside the kiln modal is about e-commerce, not the kiln.
+    const normQuery = (query ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const queryNamesProject = (slug?: string) => {
+      if (!normQuery || !slug) return false;
+      const normSlug = slug.toLowerCase().replace(/[^a-z0-9]/g, '');
+      return normSlug.length > 3 && normQuery.includes(normSlug);
+    };
 
     // Separate results by project context
     const currentProjectResults: any[] = [];
@@ -1346,6 +1359,11 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         // Boost current project results significantly
         if (isCurrentProject) {
           contextScore += 0.5;
+        }
+
+        // Explicitly-named project wins over ambient context (+0.6 > +0.5)
+        if (queryNamesProject(result.project)) {
+          contextScore += 0.6;
         }
 
         // Boost results matching visible anchors
