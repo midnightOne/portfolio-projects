@@ -17,7 +17,8 @@ import {
 import { 
   OpenAIRealtimeConfig,
   OpenAIRealtimeConfigSchema,
-  DEFAULT_OPENAI_CONFIG
+  DEFAULT_OPENAI_CONFIG,
+  OPENAI_REALTIME_MODEL
 } from '../../../types/voice-config';
 import { VoiceProvider } from '../../../types/voice-agent';
 
@@ -225,8 +226,8 @@ export class OpenAIRealtimeSerializer implements VoiceConfigSerializer<OpenAIRea
           type: 'string',
           title: 'Model',
           description: 'OpenAI model to use for realtime conversations',
-          enum: ['gpt-realtime', 'gpt-4o-realtime-preview-2025-06-03'],
-          default: 'gpt-realtime'
+          enum: Array.from(new Set([OPENAI_REALTIME_MODEL, 'gpt-realtime', 'gpt-realtime-2', 'gpt-4o-realtime-preview-2025-06-03'])),
+          default: OPENAI_REALTIME_MODEL
         },
         temperature: {
           type: 'number',

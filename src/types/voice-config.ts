@@ -56,7 +56,18 @@ export type OpenAIVoice = 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'shimm
 /**
  * OpenAI Realtime model options
  */
-export type OpenAIRealtimeModel = 'gpt-realtime' | 'gpt-4o-realtime-preview-2025-06-03' | string;
+export type OpenAIRealtimeModel = 'gpt-realtime' | 'gpt-realtime-2' | 'gpt-4o-realtime-preview-2025-06-03' | string;
+
+/**
+ * THE OpenAI Realtime model id — the single place to swap it (owner, 2026-07-08).
+ * Flip to 'gpt-realtime-2' to test the Firefox ICE-consent interop fix suggested
+ * by OpenAI staff, and back. Every code-level default and fallback resolves
+ * through this constant. CAVEAT: a voice config saved as DEFAULT in the admin
+ * panel pins its own model in the DB and overrides this — none exists today
+ * (verified 2026-07-08: all voice_provider_configs rows have is_default=false,
+ * so the serializer default built from this constant governs live sessions).
+ */
+export const OPENAI_REALTIME_MODEL: OpenAIRealtimeModel = 'gpt-realtime';
 
 /**
  * Voice Activity Detection configuration for OpenAI
@@ -658,7 +669,7 @@ export const DEFAULT_OPENAI_CONFIG: OpenAIRealtimeConfig = {
   displayName: 'OpenAI Realtime Assistant',
   description: 'Real-time voice assistant powered by OpenAI GPT-4o Realtime',
   version: '1.0.0',
-  model: 'gpt-realtime',
+  model: OPENAI_REALTIME_MODEL,
   voice: 'alloy',
   temperature: 0.7,
   maxTokens: 'inf',
@@ -669,7 +680,7 @@ export const DEFAULT_OPENAI_CONFIG: OpenAIRealtimeConfig = {
   tools: [],
   sessionConfig: {
     transport: 'webrtc',
-    model: 'gpt-realtime',
+    model: OPENAI_REALTIME_MODEL,
     maxOutputTokens: 'inf',
     temperature: 0.7,
     audio: {

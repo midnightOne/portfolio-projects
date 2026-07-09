@@ -18,6 +18,7 @@ import {
 } from '@/types/voice-agent';
 import { BaseConversationalAgentAdapter, ConnectOptions } from './IConversationalAgentAdapter';
 import { getClientAIModelManager } from './ClientAIModelManager';
+import { OPENAI_REALTIME_MODEL } from '@/types/voice-config';
 import { UIManager } from '@/lib/navigation/UIManager';
 
 // OpenAI Realtime SDK 0.1.0 imports
@@ -126,7 +127,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         // Initialize with default metadata - will be updated when config is loaded
         const metadata: ProviderMetadata = {
             provider: 'openai',
-            model: 'gpt-realtime',
+            model: OPENAI_REALTIME_MODEL,
             capabilities: ['streaming', 'interruption', 'toolCalling', 'realTimeAudio'],
             quality: 'high'
         };
@@ -218,7 +219,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 displayName: 'OpenAI Realtime Assistant',
                 description: 'Real-time voice assistant powered by OpenAI GPT-4o Realtime',
                 version: '1.0.0',
-                model: 'gpt-realtime',
+                model: OPENAI_REALTIME_MODEL,
                 voice: 'alloy',
                 temperature: 0.7,
                 maxTokens: 'inf',
@@ -226,7 +227,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 tools: [],
                 sessionConfig: {
                     transport: 'webrtc',
-                    model: 'gpt-realtime',
+                    model: OPENAI_REALTIME_MODEL,
                     maxOutputTokens: 'inf',
                     temperature: 0.7,
                     audio: {
@@ -2229,7 +2230,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     getProviderMetadata(): ProviderMetadata {
         return {
             provider: 'openai',
-            model: 'gpt-realtime',
+            model: OPENAI_REALTIME_MODEL,
             capabilities: ['streaming', 'interruption', 'toolCalling', 'realTimeAudio'],
             quality: 'high'
         };

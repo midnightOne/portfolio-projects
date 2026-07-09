@@ -20,6 +20,7 @@
 import { debugEventEmitter } from '../debug/debugEventEmitter';
 import { ContentSearchService } from '../content/ContentSearchService';
 import { NavigationContext } from '../navigation/UIManager';
+import { OPENAI_REALTIME_MODEL } from '@/types/voice-config';
 
 // Environment detection
 const isServer = typeof window === 'undefined';
@@ -634,7 +635,7 @@ export class ContextFrameManager {
           const config = JSON.parse(voiceConfig.configJson);
           return {
             provider: voiceConfig.provider as 'openai' | 'elevenlabs',
-            model: config.model || 'gpt-realtime',
+            model: config.model || OPENAI_REALTIME_MODEL,
             voice: config.voice || 'alloy',
             temperature: config.temperature || 0.7,
             maxTokens: config.maxTokens || 4000
@@ -645,7 +646,7 @@ export class ContextFrameManager {
       // Default settings for both server and browser
       return {
         provider: 'openai',
-        model: 'gpt-realtime',
+        model: OPENAI_REALTIME_MODEL,
         voice: 'alloy',
         temperature: 0.7,
         maxTokens: 4000
@@ -654,7 +655,7 @@ export class ContextFrameManager {
       console.error('Failed to load voice settings:', error);
       return {
         provider: 'openai',
-        model: 'gpt-realtime',
+        model: OPENAI_REALTIME_MODEL,
         voice: 'alloy',
         temperature: 0.7,
         maxTokens: 4000
@@ -972,7 +973,7 @@ export class ContextFrameManager {
       systemRules: 'You are an AI assistant for a portfolio website.',
       voiceSettings: {
         provider: 'openai',
-        model: 'gpt-realtime',
+        model: OPENAI_REALTIME_MODEL,
         voice: 'alloy',
         temperature: 0.7,
         maxTokens: 4000

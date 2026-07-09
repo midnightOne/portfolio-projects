@@ -71,6 +71,7 @@ alloy, ash, ballad, coral, echo, sage, shimmer, verse, marin, cedar*/
 
 const OPENAI_MODELS: { value: OpenAIRealtimeModel; label: string; description: string }[] = [
   { value: 'gpt-realtime', label: 'GPT Realtime', description: 'Newest realtime model' },
+  { value: 'gpt-realtime-2', label: 'GPT Realtime 2', description: 'Suggested by OpenAI staff for the Firefox WebRTC interop issue' },
   { value: 'gpt-4o-realtime-preview-2025-06-03', label: 'GPT-4o Realtime (old model)', description: 'fallback old model' }
 ];
 

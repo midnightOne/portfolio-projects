@@ -11,6 +11,7 @@ import {
   ConfigValidationError,
   ConfigSerializationError
 } from '../index';
+import { OPENAI_REALTIME_MODEL } from '@/types/voice-config';
 
 describe('OpenAI Realtime Serializer', () => {
   const serializer = new OpenAIRealtimeSerializer();
@@ -19,7 +20,9 @@ describe('OpenAI Realtime Serializer', () => {
     const config = serializer.getDefaultConfig();
     expect(config.provider).toBe('openai');
     expect(config.enabled).toBe(true);
-    expect(config.model).toBe('gpt-realtime');
+    // Assert against the constant, not a literal — the whole point of
+    // OPENAI_REALTIME_MODEL is that the owner can flip it without breakage.
+    expect(config.model).toBe(OPENAI_REALTIME_MODEL);
     expect(config.voice).toBe('alloy');
   });
 
