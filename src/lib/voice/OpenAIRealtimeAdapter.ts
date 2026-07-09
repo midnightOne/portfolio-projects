@@ -65,6 +65,16 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     private _intentionalDisconnect = false;
     /** Poller watching the peer connection for silent drops (WebRTC surfaces no reliable close event here). */
     private _disruptionWatcher: ReturnType<typeof setInterval> | null = null;
+    /** Blip debounce: when the pc first reported 'disconnected'; null while healthy. */
+    private _disconnectedSince: number | null = null;
+    private _lastPcState: string | null = null;
+    private _lastIceState: string | null = null;
+    /** Serializes watcher ticks across the async diagnostics snapshot. */
+    private _disruptionTickBusy = false;
+    /** Latest NAV_CONTEXT deferred during a blip window; re-pushed on recovery (newest wins). */
+    private _deferredNavContext: unknown | null = null;
+    /** Size/time of the last NAV_CONTEXT send, surfaced in disruption diagnostics. */
+    private _lastNavPushInfo: { at: number; chars: number } | null = null;
     private _resumeInProgress = false;
     /** Model id returned by the mint route for the current leg. */
     private _mintedModel: string | null = null;
@@ -1299,25 +1309,143 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         }
     }
 
+    private _getDataChannel(): RTCDataChannel | null {
+        try {
+            const transport = (this._session as any)?.transport;
+            return transport?.connectionState?.dataChannel ?? transport?.dataChannel ?? transport?._dataChannel ?? null;
+        } catch {
+            return null;
+        }
+    }
+
     /**
-     * Watch the RTCPeerConnection for silent drops. WebRTC gives no reliable
-     * "closed" callback through the SDK surface here, so poll connectionState;
-     * disconnected/failed/closed without an intentional disconnect = disruption.
+     * Point-in-time transport diagnostics attached to blip/disruption/ack-timeout
+     * rows, so the transcript answers "what exactly happened with the disconnect"
+     * (owner, 2026-07-08) instead of a bare 'network' label. The candidate-pair
+     * consent counters distinguish "ICE consent stopped being answered" (path
+     * dead) from "bytes still flowing" (false alarm).
+     */
+    private async _connectionDiagnostics(): Promise<Record<string, unknown>> {
+        const pc = this._getPeerConnection();
+        const dc = this._getDataChannel();
+        const diag: Record<string, unknown> = {
+            peerConnectionState: pc?.connectionState ?? 'none',
+            iceConnectionState: pc?.iceConnectionState ?? 'none',
+            signalingState: pc?.signalingState ?? 'none',
+            dataChannelState: dc?.readyState ?? 'unknown',
+            dataChannelBuffered: dc?.bufferedAmount,
+            online: typeof navigator !== 'undefined' ? navigator.onLine : undefined,
+            pendingContextAcks: this.pendingTokens.size,
+            lastNavPush: this._lastNavPushInfo
+                ? { ageMs: Date.now() - this._lastNavPushInfo.at, chars: this._lastNavPushInfo.chars }
+                : null,
+        };
+        try {
+            if (pc) {
+                const stats = await pc.getStats();
+                stats.forEach((report: any) => {
+                    if (report.type === 'candidate-pair' && (report.nominated || report.state === 'succeeded')) {
+                        diag.candidatePair = {
+                            state: report.state,
+                            rttSec: report.currentRoundTripTime,
+                            bytesSent: report.bytesSent,
+                            bytesReceived: report.bytesReceived,
+                            requestsSent: report.requestsSent,
+                            responsesReceived: report.responsesReceived,
+                            consentRequestsSent: report.consentRequestsSent,
+                            availableOutgoingBitrate: report.availableOutgoingBitrate,
+                        };
+                    }
+                });
+            }
+        } catch { /* stats are best-effort; never block disruption handling on them */ }
+        return diag;
+    }
+
+    /** How long 'disconnected' may persist before it stops counting as a blip. */
+    private static readonly DISCONNECT_GRACE_MS = 10_000;
+
+    /**
+     * Watch the RTCPeerConnection for drops. WebRTC gives no reliable "closed"
+     * callback through the SDK surface here, so poll connectionState. Two rules
+     * learned from the owner's Firefox sessions (2026-07-08 — four disruptions
+     * in three minutes at a ~36s cadence):
+     * 1. 'disconnected' is a TRANSIENT state that Firefox enters far more
+     *    readily than Chrome and that usually self-recovers; tearing down on
+     *    first sight converts a 2-second blip into a full reconnect cycle with
+     *    apology clips. Only sustained 'disconnected' (grace elapsed),
+     *    'failed', or 'closed' is a disruption.
+     * 2. Every blip, recovery, and disruption gets a replayable transcript row
+     *    carrying transport diagnostics.
      */
     private _startDisruptionWatcher(): void {
         this._stopDisruptionWatcher();
-        this._disruptionWatcher = setInterval(() => {
+        this._lastPcState = null;
+        this._lastIceState = null;
+        this._deferredNavContext = null;
+        this._disruptionWatcher = setInterval(() => { void this._disruptionTick(); }, 2000);
+    }
+
+    private async _disruptionTick(): Promise<void> {
+        if (this._disruptionTickBusy) return;
+        this._disruptionTickBusy = true;
+        try {
             if (!this._isConnected || this._intentionalDisconnect || this._resumeInProgress) return;
             const pc = this._getPeerConnection();
-            const state = pc?.connectionState;
-            if (state === 'disconnected' || state === 'failed' || state === 'closed') {
-                console.warn(`OpenAIRealtimeAdapter: peer connection ${state} without user intent — treating as disruption`);
-                void this._handleDisruption(
-                    state === 'failed' ? 'provider_error' : 'network',
-                    { peerConnectionState: state, online: typeof navigator !== 'undefined' ? navigator.onLine : undefined }
-                );
+            const state = pc?.connectionState ?? 'none';
+            const ice = pc?.iceConnectionState ?? 'none';
+
+            if (state !== this._lastPcState || ice !== this._lastIceState) {
+                console.log(`OpenAIRealtimeAdapter: transport state pc=${this._lastPcState ?? '∅'}→${state} ice=${this._lastIceState ?? '∅'}→${ice}`);
+                this._lastPcState = state;
+                this._lastIceState = ice;
             }
-        }, 2000);
+
+            if (state === 'failed' || state === 'closed') {
+                const diag = await this._connectionDiagnostics();
+                console.warn(`OpenAIRealtimeAdapter: peer connection ${state} without user intent — treating as disruption`, diag);
+                this._disconnectedSince = null;
+                void this._handleDisruption(state === 'failed' ? 'provider_error' : 'network', diag);
+                return;
+            }
+
+            if (state === 'disconnected') {
+                if (this._disconnectedSince === null) {
+                    this._disconnectedSince = Date.now();
+                    const diag = await this._connectionDiagnostics();
+                    console.warn('OpenAIRealtimeAdapter: transport blip (pc disconnected) — grace window started', diag);
+                    this._logEvent('error', 'Connection blip: peer disconnected — waiting for self-recovery', { kind: 'transport_blip', ...diag });
+                } else if (Date.now() - this._disconnectedSince >= OpenAIRealtimeAdapter.DISCONNECT_GRACE_MS) {
+                    const disconnectedForMs = Date.now() - this._disconnectedSince;
+                    this._disconnectedSince = null;
+                    const diag = await this._connectionDiagnostics();
+                    console.warn(`OpenAIRealtimeAdapter: pc disconnected for ${disconnectedForMs}ms (past grace) — treating as disruption`, diag);
+                    void this._handleDisruption('network', { ...diag, disconnectedForMs });
+                }
+                return;
+            }
+
+            // connected / connecting / new — recovery path
+            if (this._disconnectedSince !== null) {
+                const blipMs = Date.now() - this._disconnectedSince;
+                this._disconnectedSince = null;
+                console.log(`OpenAIRealtimeAdapter: transport blip recovered after ${blipMs}ms — session continues, no reconnect`);
+                this._logEvent('error', `Connection blip recovered after ${(blipMs / 1000).toFixed(1)}s — session continued without reconnect`, { kind: 'transport_blip_recovered', blipMs });
+                this._flushDeferredNavContext();
+            }
+        } finally {
+            this._disruptionTickBusy = false;
+        }
+    }
+
+    /** Re-push the newest NAV_CONTEXT that was deferred while the channel was stalled. */
+    private _flushDeferredNavContext(): void {
+        const ctx = this._deferredNavContext;
+        if (ctx === null) return;
+        this._deferredNavContext = null;
+        console.log('OpenAIRealtimeAdapter: re-pushing NAV_CONTEXT deferred during transport blip');
+        void this.pushPassiveContext(ctx).catch((err) =>
+            console.warn('OpenAIRealtimeAdapter: deferred NAV_CONTEXT re-push failed:', err));
     }
 
     private _stopDisruptionWatcher(): void {
@@ -1325,6 +1453,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             clearInterval(this._disruptionWatcher);
             this._disruptionWatcher = null;
         }
+        this._disconnectedSince = null;
     }
 
     /**
@@ -2474,6 +2603,12 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             const timeout = setTimeout(() => {
                 this.pendingTokens.delete(token);
                 console.log('⏰ Timeout waiting for token:', token);
+                // Replayable evidence: the owner's disruption reports showed ack
+                // timeouts ONLY in the console — put them in the transcript with
+                // the transport state at the moment they fired.
+                void this._connectionDiagnostics().then((diag) => {
+                    this._logEvent('error', 'NAV_CONTEXT ack timeout (10s) — transport diagnostics attached', { kind: 'nav_context_ack_timeout', ...diag });
+                }).catch(() => { /* diagnostics only */ });
                 reject(new Error("Ack timeout"));
             }, 10000);
             
@@ -2489,6 +2624,15 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     async pushPassiveContext(fidContext: any): Promise<{ id: string; token: string }> {
         if (!this._session) {
             throw new Error("No active session for context injection");
+        }
+
+        // A push into a stalled channel cannot be acked — it just burns a 10s
+        // "Ack timeout" (the noise in the owner's 2026-07-08 transcript). During
+        // a blip window keep only the LATEST context and re-push on recovery.
+        const dcState = this._getDataChannel()?.readyState;
+        if (this._disconnectedSince !== null || (dcState && dcState !== 'open')) {
+            this._deferredNavContext = fidContext;
+            throw new Error(`Context push deferred: transport not ready (dataChannel=${dcState ?? 'unknown'}) — will re-push on recovery`);
         }
 
         const token = this.uuid();
@@ -2518,6 +2662,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             console.warn(`NAV_CONTEXT compacted: ${text.length} chars (was over ${MAX_NAV_CONTEXT_CHARS})`);
         }
         
+        this._lastNavPushInfo = { at: Date.now(), chars: text.length };
         console.log('📤 Sending NAV_CONTEXT with token:', token);
         console.log('📋 NAV_CONTEXT Content:', {
             frame: fidContext.frame,
