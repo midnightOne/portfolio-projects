@@ -1,6 +1,6 @@
 # Conversation Templating Engine (node-graph) — Backlog Outline
 
-**Status:** backlog — not scheduled; post-roadmap (after Phases 0–5). Registry decision D47 holds the seam constraints that bind current work. This document is an outline to design against, **not** a spec to implement from; it gets promoted to a full spec (requirements/design/tasks) when scheduled.
+**Status:** superseded-by: [`../conversation-engine/requirements.md`](../conversation-engine/requirements.md) — promoted to a full spec on 2026-07-09 (owner decision; Phases 0–5 complete). This outline stays as the rationale record (§1b purpose statement especially); the spec is now authoritative where they differ.
 **Owner-to-be:** likely a new `conversation-engine` spec consuming `ai-assistant`, `ai-admin`, `semantic-content`.
 **Recorded:** 2026-07-02 (owner direction)
 
