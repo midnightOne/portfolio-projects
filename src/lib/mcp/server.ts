@@ -7,6 +7,12 @@
  * visibility enforced in SQL by the services (publicOnly); protocol errors carry
  * no internals; every call is metered to the ledger with feature tag 'mcp' by the
  * route's gateway context. NO write tools in v1 (Req 2.5).
+ *
+ * Latency posture (owner, 2026-07-09): ledger writes are scheduled off the
+ * response path via the route-supplied `defer` (Next `after()`), and tool
+ * results carry precise locations (section anchors + excerpts) so weak clients
+ * — the realtime voice model included — resolve an answer in one or two calls
+ * instead of dumping whole projects.
  */
 
 import { z } from 'zod';
@@ -17,7 +23,7 @@ import type { GatewayContext } from '@/lib/ai/gateway';
 
 export const MCP_SERVER_INFO = {
   name: 'portfolio-mcp',
-  version: '1.0.0',
+  version: '1.1.0',
 } as const;
 
 /** v1 tool names — snapshot-tested; adding a tool is a deliberate spec change. */
@@ -28,6 +34,13 @@ const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,199}$/;
 const searchInput = {
   query: z.string().min(1).max(500).describe('Natural-language search query'),
   limit: z.number().int().min(1).max(10).optional().describe('Max results (default 5)'),
+  project: z
+    .string()
+    .min(1)
+    .max(200)
+    .regex(SLUG_PATTERN, 'project must be a lowercase slug')
+    .optional()
+    .describe('Restrict the search to one project (slug from list_projects)'),
 };
 
 const getProjectInput = {
@@ -37,10 +50,26 @@ const getProjectInput = {
     .max(200)
     .regex(SLUG_PATTERN, 'slug must be lowercase alphanumeric with dashes')
     .describe('Project slug, e.g. from list_projects or search results'),
+  section: z
+    .string()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe("Fetch ONLY this section's full text (anchor id from search results' location.section or the overview section list)"),
+  detail: z
+    .enum(['overview', 'full'])
+    .optional()
+    .describe("'overview' (default): metadata + summary + section index without bodies. 'full': every section's text."),
 };
 
 const listProjectsInput = {
   tag: z.string().min(1).max(100).optional().describe('Filter by tag name'),
+  technology: z
+    .string()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe("Filter to projects that use this technology (matches technologies and tags, case-insensitive), e.g. 'react'"),
   sort: z.enum(['recent', 'title']).optional().describe("Sort order (default 'recent')"),
 };
 
@@ -59,25 +88,44 @@ function textResult(payload: unknown): { content: Array<{ type: 'text'; text: st
   return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }] };
 }
 
+/** Options the route supplies; tests use the defaults. */
+export interface McpServerOptions {
+  /**
+   * Schedule a task off the response's critical path (route passes Next's
+   * `after()`). Default runs the task immediately, fire-and-forget — correct
+   * for tests and long-lived dev servers.
+   */
+  defer?: (task: () => Promise<unknown>) => void;
+}
+
 /**
  * Build a per-request MCP server (stateless, D43). Tool calls meter through the
- * gateway context so ledger rows carry the request's hashed IP + requestId.
+ * gateway context so ledger rows carry the request's hashed IP + requestId —
+ * scheduled via `defer` so the ledger transaction never blocks the response.
  */
-export function buildMcpServer(ctx: GatewayContext): McpServer {
+export function buildMcpServer(ctx: GatewayContext, options?: McpServerOptions): McpServer {
+  const defer = options?.defer ?? ((task) => void task());
+
   const server = new McpServer(MCP_SERVER_INFO, {
     instructions:
-      'Read-only access to a software engineering portfolio. Search grounded content ' +
-      'with search_portfolio, browse with list_projects, then fetch details with get_project. ' +
-      'All content is the portfolio owner\'s published, public material.',
+      "Read-only access to a software engineering portfolio. Recipes:\n" +
+      "- Browse or 'which projects use <tech>?': list_projects (optionally with technology/tag filters).\n" +
+      "- 'Where is <topic> discussed?': search_portfolio — each result carries location {project, section} plus an excerpt.\n" +
+      "- Read one section in full: get_project with slug + section (anchor from a search result or the overview section index).\n" +
+      "- Whole write-up: get_project with detail:'full'.\n" +
+      "- Cross-project synthesis ('lessons learned with React'): search_portfolio with the topic (optionally per project via the project filter), then quote excerpts with their locations.\n" +
+      "All content is the portfolio owner's published, public material.",
   });
 
   const backend = BackendToolService.getInstance();
   const sessionId = `mcp_${ctx.requestId}`;
 
   const meter = (tool: string, ok: boolean) =>
-    ctx
-      .meter({ usageType: 'mcp_tool_call', metadata: { tool, ok } })
-      .catch((error) => console.error('[mcp] meter failed:', error));
+    defer(() =>
+      ctx
+        .meter({ usageType: 'mcp_tool_call', metadata: { tool, ok } })
+        .catch((error) => console.error('[mcp] meter failed:', error))
+    );
 
   server.registerTool(
     'search_portfolio',
@@ -85,40 +133,53 @@ export function buildMcpServer(ctx: GatewayContext): McpServer {
       title: 'Search portfolio content',
       description:
         'Hybrid semantic + keyword search over the public portfolio (projects, write-ups, skills). ' +
-        'Returns ranked excerpts with project provenance.',
+        'Each result carries an excerpt and a precise location {project, section anchor} — ' +
+        'follow up with get_project {slug, section} to read a matched section in full. ' +
+        'Use the project filter to scope the search to one project.',
       inputSchema: searchInput,
     },
-    async ({ query, limit }) => {
+    async ({ query, limit, project }) => {
       try {
         // Same chain as the voice assistant's content_search (Req 2.4);
         // accessLevel 'basic' enforces publicOnly in SQL.
         const result = await backend.executeTool(
           'content_search',
-          { query, k: limit ?? 5 },
+          { query, k: limit ?? 5, ...(project ? { scope: { projectId: project } } : {}) },
           sessionId,
           'basic'
         );
         if (!result.success) {
-          await meter('search_portfolio', false);
+          meter('search_portfolio', false);
           return safeError('search_portfolio');
         }
-        const data = result.data as { items?: Array<Record<string, unknown>>; totalResults?: number };
-        await meter('search_portfolio', true);
+        const data = result.data as { items?: Array<Record<string, any>>; totalResults?: number };
+        meter('search_portfolio', true);
         return textResult({
-          results: (data.items ?? []).map((item) => ({
-            id: item.id,
-            title: item.title,
-            summary: item.oneLiner,
-            relevance: item.why,
-            project: item.project,
-            score: item.score,
-            facets: item.facets,
-          })),
+          results: (data.items ?? []).map((item) => {
+            const navTarget = item.navTarget as { type?: string; id?: string; sectionId?: string } | undefined;
+            const section =
+              navTarget?.type === 'section' ? navTarget.id : navTarget?.sectionId ?? undefined;
+            return {
+              title: item.title,
+              excerpt: item.snippet ?? item.oneLiner,
+              relevance: item.why,
+              score: item.score,
+              location: {
+                project: item.project ?? null,
+                // Section anchor within the project's write-up; null = the
+                // match is the project's top-level summary/metadata.
+                section: section ?? null,
+                tier: item.facets?.tier,
+              },
+              technologies: item.facets?.tech,
+            };
+          }),
           totalResults: data.totalResults ?? 0,
+          hint: 'Read a matched section in full with get_project {slug: location.project, section: location.section}.',
         });
       } catch (error) {
         console.error('[mcp] search_portfolio failed:', error);
-        await meter('search_portfolio', false);
+        meter('search_portfolio', false);
         return safeError('search_portfolio');
       }
     }
@@ -129,10 +190,12 @@ export function buildMcpServer(ctx: GatewayContext): McpServer {
     {
       title: 'Get a project',
       description:
-        'Fetch one public project by slug: metadata, tags, links, and its generated summaries/sections as text.',
+        "Fetch one public project by slug. Default ('overview') returns metadata, summary, and a section index " +
+        "(anchor + title per section) — cheap and small. Pass section:<anchor> to read exactly one section's full text, " +
+        "or detail:'full' for the entire write-up.",
       inputSchema: getProjectInput,
     },
-    async ({ slug }) => {
+    async ({ slug, section, detail }) => {
       try {
         // Visibility enforced in the SQL predicate — PRIVATE/UNLISTED slugs 404 identically
         const project = await prisma.project.findUnique({
@@ -148,7 +211,7 @@ export function buildMcpServer(ctx: GatewayContext): McpServer {
           },
         });
         if (!project) {
-          await meter('get_project', false);
+          meter('get_project', false);
           return {
             content: [{ type: 'text' as const, text: `No public project found for slug '${slug}'.` }],
             isError: true as const,
@@ -163,14 +226,43 @@ export function buildMcpServer(ctx: GatewayContext): McpServer {
             technologies: true,
             contentChunks: {
               where: { tier: { in: [1, 2] } },
-              select: { tier: true, title: true, content: true },
+              select: { tier: true, chunkId: true, title: true, content: true },
               orderBy: [{ tier: 'asc' }, { chunkId: 'asc' }],
               take: 20,
             },
           },
         });
 
-        await meter('get_project', true);
+        const sections = (entity?.contentChunks ?? []).filter((c) => c.tier === 2);
+
+        // section=<anchor>: exactly one section's full text (the fast path a
+        // search result points at via location.section).
+        if (section) {
+          const match = sections.find((c) => c.chunkId === section);
+          meter('get_project', !!match);
+          if (!match) {
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: JSON.stringify({
+                    error: `No section '${section}' in '${slug}'.`,
+                    availableSections: sections.map((c) => ({ section: c.chunkId, title: c.title })),
+                  }),
+                },
+              ],
+              isError: true as const,
+            };
+          }
+          return textResult({
+            slug: project.slug,
+            title: project.title,
+            section: { anchor: match.chunkId, title: match.title, content: match.content },
+          });
+        }
+
+        const full = detail === 'full';
+        meter('get_project', true);
         return textResult({
           slug: project.slug,
           title: project.title,
@@ -181,13 +273,18 @@ export function buildMcpServer(ctx: GatewayContext): McpServer {
           technologies: entity?.technologies ?? [],
           links: project.externalLinks,
           summary: entity?.contentChunks.find((c) => c.tier === 1)?.content ?? null,
-          sections: (entity?.contentChunks ?? [])
-            .filter((c) => c.tier === 2)
-            .map((c) => ({ title: c.title, content: c.content })),
+          sections: sections.map((c) =>
+            full
+              ? { section: c.chunkId, title: c.title, content: c.content }
+              : { section: c.chunkId, title: c.title }
+          ),
+          ...(full
+            ? {}
+            : { hint: "Section bodies omitted — fetch one with {section: <anchor>} or all with {detail: 'full'}." }),
         });
       } catch (error) {
         console.error('[mcp] get_project failed:', error);
-        await meter('get_project', false);
+        meter('get_project', false);
         return safeError('get_project');
       }
     }
@@ -197,40 +294,59 @@ export function buildMcpServer(ctx: GatewayContext): McpServer {
     'list_projects',
     {
       title: 'List projects',
-      description: 'List public projects with title, summary line, tags, and slug for use with get_project.',
+      description:
+        'List public projects with title, summary line, tags, technologies, and slug for use with get_project. ' +
+        "Answer 'which projects use <tech>?' with the technology filter.",
       inputSchema: listProjectsInput,
     },
-    async ({ tag, sort }) => {
+    async ({ tag, technology, sort }) => {
       try {
-        const projects = await prisma.project.findMany({
-          where: {
-            visibility: 'PUBLIC',
-            ...(tag ? { tags: { some: { name: { equals: tag, mode: 'insensitive' } } } } : {}),
-          },
-          select: {
-            slug: true,
-            title: true,
-            description: true,
-            workDate: true,
-            tags: { select: { name: true } },
-          },
-          orderBy: sort === 'title' ? { title: 'asc' } : { workDate: { sort: 'desc', nulls: 'last' } },
-          take: 50,
-        });
-        await meter('list_projects', true);
+        const [projects, entities] = await Promise.all([
+          prisma.project.findMany({
+            where: {
+              visibility: 'PUBLIC',
+              ...(tag ? { tags: { some: { name: { equals: tag, mode: 'insensitive' } } } } : {}),
+            },
+            select: {
+              slug: true,
+              title: true,
+              description: true,
+              workDate: true,
+              tags: { select: { name: true } },
+            },
+            orderBy: sort === 'title' ? { title: 'asc' } : { workDate: { sort: 'desc', nulls: 'last' } },
+            take: 50,
+          }),
+          prisma.contentEntity.findMany({
+            where: { entityType: 'PROJECT' },
+            select: { slug: true, technologies: true },
+          }),
+        ]);
+
+        const techBySlug = new Map(entities.map((e) => [e.slug, (e.technologies as string[]) ?? []]));
+        const techNeedle = technology?.toLowerCase();
+        const filtered = techNeedle
+          ? projects.filter((p) => {
+              const haystack = [...(techBySlug.get(p.slug) ?? []), ...p.tags.map((t) => t.name)];
+              return haystack.some((t) => t.toLowerCase().includes(techNeedle));
+            })
+          : projects;
+
+        meter('list_projects', true);
         return textResult({
-          projects: projects.map((p) => ({
+          projects: filtered.map((p) => ({
             slug: p.slug,
             title: p.title,
             description: p.description,
             workDate: p.workDate,
             tags: p.tags.map((t) => t.name),
+            technologies: techBySlug.get(p.slug) ?? [],
           })),
-          count: projects.length,
+          count: filtered.length,
         });
       } catch (error) {
         console.error('[mcp] list_projects failed:', error);
-        await meter('list_projects', false);
+        meter('list_projects', false);
         return safeError('list_projects');
       }
     }

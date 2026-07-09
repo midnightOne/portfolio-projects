@@ -8,7 +8,7 @@
  * fail-closed like every public AI surface.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { withAIGateway, type GatewayContext } from '@/lib/ai/gateway';
 import { buildMcpServer } from '@/lib/mcp/server';
@@ -16,7 +16,9 @@ import { buildMcpServer } from '@/lib/mcp/server';
 export const maxDuration = 30;
 
 async function handlePOST(request: NextRequest, ctx: GatewayContext): Promise<NextResponse> {
-  const server = buildMcpServer(ctx);
+  // Ledger writes run after the response is sent (durable on serverless via
+  // after()) — metering integrity without the transaction on the latency path.
+  const server = buildMcpServer(ctx, { defer: (task) => after(task) });
   const transport = new WebStandardStreamableHTTPServerTransport({
     // stateless mode: no sessionIdGenerator; plain JSON responses (no SSE stream)
     sessionIdGenerator: undefined,

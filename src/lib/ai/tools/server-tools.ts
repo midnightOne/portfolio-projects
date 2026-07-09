@@ -599,9 +599,13 @@ export const contentGetToolDefinition: UnifiedToolDefinition = {
   }
 };
 
-// NEW: Hierarchical content tools
+// Hierarchical content tools — internal/diagnostic only (owner, 2026-07-09):
+// their inputs (chunkId / sectionGroup) only ever come from a content_search
+// result, and content_search results already carry location + snippet, so
+// exposing these to the model just bloats the tool list it has to reason over.
 export const contentHierarchyToolDefinition: UnifiedToolDefinition = {
   name: 'content_getHierarchy',
+  modelExposed: false,
   description: 'Get the hierarchical relationship of a content chunk (ancestors, descendants, siblings)',
   parameters: {
     type: 'object',
@@ -633,6 +637,8 @@ export const contentHierarchyToolDefinition: UnifiedToolDefinition = {
 
 export const sectionSearchToolDefinition: UnifiedToolDefinition = {
   name: 'content_searchSection',
+  // See hierarchical-tools note above — content_search covers this for models.
+  modelExposed: false,
   description: 'Search within a specific content section or topic group',
   parameters: {
     type: 'object',
@@ -671,6 +677,8 @@ export const sectionSearchToolDefinition: UnifiedToolDefinition = {
 
 export const relatedContentToolDefinition: UnifiedToolDefinition = {
   name: 'content_getRelated',
+  // See hierarchical-tools note above — content_search + content_get cover this.
+  modelExposed: false,
   description: 'Get related content across all tiers for a specific topic or project section',
   parameters: {
     type: 'object',

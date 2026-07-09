@@ -233,8 +233,19 @@ export function withAIGateway(
     const requestId = randomUUID();
     const rawIp = getClientIp(req);
 
-    const admin = await isAdminSession();
+    // Admin resolution and the kill-switch read are independent — one round trip, not two.
+    const [admin, killRead] = await Promise.all([
+      isAdminSession(),
+      getKillSwitchState().then(
+        (state) => ({ state, error: null as unknown }),
+        (error: unknown) => ({ state: null, error })
+      ),
+    ]);
     const debugAuthorized = await resolveDebugAuth(admin);
+
+    // Blacklist is read-only and only consulted for non-admins in step 4 —
+    // start it now so it overlaps the tier/settings reads.
+    const blacklistPromise = admin ? null : isBlacklisted(rawIp);
 
     let hashedIp: string;
     try {
@@ -273,11 +284,9 @@ export function withAIGateway(
     };
 
     // ---- Step 1: kill switch (fail closed for non-admin) ----
-    let killState;
-    try {
-      killState = await getKillSwitchState();
-    } catch (error) {
-      console.error('[gateway] kill-switch read failed:', error);
+    const killState = killRead.state ?? undefined;
+    if (killRead.error) {
+      console.error('[gateway] kill-switch read failed:', killRead.error);
       if (!admin) return friendlyPause();
     }
 
@@ -346,7 +355,7 @@ export function withAIGateway(
 
     // ---- Step 4: rate limits ----
     if (ctx.tier !== 'admin') {
-      if (await isBlacklisted(rawIp)) {
+      if (await (blacklistPromise ?? isBlacklisted(rawIp))) {
         return reject(403, 'FORBIDDEN', 'Access denied.');
       }
 
@@ -356,20 +365,36 @@ export function withAIGateway(
         ctx.settings = settings;
 
         if (opts.bucket === 'mcp') {
-          // Own bucket (mcp-server Req 3.1): per-IP minute + day windows, admin-tunable
-          const minute = await bumpWindow(hashedIp, 'mcp_minute', 60 * 1000, settings.mcpRequestsPerMinute);
+          // Own bucket (mcp-server Req 3.1): per-IP minute + day windows, admin-tunable.
+          // Protocol frames (initialize, tools/list, ping, notifications) bump only
+          // the minute window — a normal MCP handshake was eating the small daily
+          // budget before any real work happened. tools/call consumes both.
+          // The two bumps run in parallel: a minute-rejected call may still count
+          // against the day window, which is acceptable (429s aren't free).
+          let isToolsCall = true;
+          try {
+            const body = await req.clone().json();
+            isToolsCall = body?.method === 'tools/call';
+          } catch {
+            // unparseable body — treat as a billable call
+          }
+          const [minute, day] = await Promise.all([
+            bumpWindow(hashedIp, 'mcp_minute', 60 * 1000, settings.mcpRequestsPerMinute),
+            isToolsCall
+              ? bumpWindow(hashedIp, 'mcp_day', 24 * 60 * 60 * 1000, settings.mcpRequestsPerDay)
+              : Promise.resolve(null),
+          ]);
           if (!minute.allowed) {
             return reject(429, 'RATE_LIMITED', 'Too many MCP requests — slow down.', {
               retryAfterSeconds: minute.retryAfterSeconds,
             });
           }
-          const day = await bumpWindow(hashedIp, 'mcp_day', 24 * 60 * 60 * 1000, settings.mcpRequestsPerDay);
-          if (!day.allowed) {
+          if (day && !day.allowed) {
             return reject(429, 'RATE_LIMITED', 'Daily MCP limit reached — come back tomorrow.', {
               retryAfterSeconds: day.retryAfterSeconds,
             });
           }
-          ctx.debug.rateLimit = { remainingMinute: minute.remaining, remainingDay: day.remaining };
+          ctx.debug.rateLimit = { remainingMinute: minute.remaining, remainingDay: day?.remaining };
         } else if (opts.mode === 'mint') {
           const mint = await bumpWindow(hashedIp, 'session_mint', 60 * 60 * 1000, settings.sessionsPerIpPerHour);
           if (!mint.allowed) {
