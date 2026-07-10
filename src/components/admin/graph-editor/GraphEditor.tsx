@@ -35,8 +35,12 @@ import { NodeInspector } from './NodeInspector';
 import { EdgeInspector } from './EdgeInspector';
 import { PublishDialog } from './PublishDialog';
 import { VersionHistoryPanel, type VersionRow } from './VersionHistoryPanel';
+import { AnnotationsDrawer } from './AnnotationsDrawer';
+import { CoveragePanel } from './CoveragePanel';
 import { makeEdge, makeNode, summarizeCondition, type EditorMeta } from './graph-editor-utils';
-import { ArrowLeft, Plus, Upload, History, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Plus, Upload, History, AlertTriangle, Flag, BarChart3 } from 'lucide-react';
+import type { AnnotationRow } from '@/lib/services/ai/graph-store';
+import type { CoverageReport } from '@/lib/services/ai/graph-coverage';
 
 const nodeTypes = { graphNode: GraphCanvasNode };
 
@@ -75,6 +79,64 @@ export function GraphEditor({ graphId }: { graphId: string }) {
   const [historyOpen, setHistoryOpen] = React.useState(false);
   const [versions, setVersions] = React.useState<VersionRow[]>([]);
   const [activating, setActivating] = React.useState(false);
+  // Block E2 — review TODO drawer
+  const [annotationsOpen, setAnnotationsOpen] = React.useState(false);
+  const [annotations, setAnnotations] = React.useState<AnnotationRow[]>([]);
+  const [showResolved, setShowResolved] = React.useState(false);
+  const [annotationBusyId, setAnnotationBusyId] = React.useState<string | null>(null);
+  // Block E3 — coverage overlay
+  const [coverageOn, setCoverageOn] = React.useState(false);
+  const [coverage, setCoverage] = React.useState<CoverageReport | null>(null);
+  const [coverageDays, setCoverageDays] = React.useState(30);
+  const [coverageLoading, setCoverageLoading] = React.useState(false);
+
+  const loadAnnotations = React.useCallback(async () => {
+    try {
+      const res = await fetch(`/api/admin/ai/graph-annotations?graphId=${encodeURIComponent(graphId)}`);
+      const json = await res.json();
+      if (json.success) setAnnotations(json.data);
+    } catch {
+      /* drawer stays empty; editing is unaffected */
+    }
+  }, [graphId]);
+
+  React.useEffect(() => {
+    void loadAnnotations();
+  }, [loadAnnotations]);
+
+  const patchAnnotation = async (id: string, status: 'open' | 'resolved') => {
+    setAnnotationBusyId(id);
+    try {
+      await fetch('/api/admin/ai/graph-annotations', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status }),
+      });
+      await loadAnnotations();
+    } finally {
+      setAnnotationBusyId(null);
+    }
+  };
+
+  React.useEffect(() => {
+    if (!coverageOn) return;
+    let cancelled = false;
+    setCoverageLoading(true);
+    (async () => {
+      try {
+        const res = await fetch(`/api/admin/ai/graphs/${graphId}/coverage?days=${coverageDays}`);
+        const json = await res.json();
+        if (!cancelled) setCoverage(json.success ? json.data : null);
+      } catch {
+        if (!cancelled) setCoverage(null);
+      } finally {
+        if (!cancelled) setCoverageLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [coverageOn, coverageDays, graphId]);
 
   // Positions live in document.layout; keep a ref for drag updates without re-rendering per pixel.
   const layoutRef = React.useRef<LayoutMap>({});
@@ -153,6 +215,11 @@ export function GraphEditor({ graphId }: { graphId: string }) {
   }, [document, name, graphId]);
 
   // ---- React Flow derived state ----
+  const coverageByNode = React.useMemo(() => {
+    if (!coverageOn || !coverage) return null;
+    return new Map(coverage.nodes.map((n) => [n.nodeId, n.entries]));
+  }, [coverageOn, coverage]);
+
   const [rfNodes, setRfNodes] = React.useState<CanvasNode[]>([]);
   React.useEffect(() => {
     if (!document) return;
@@ -166,11 +233,17 @@ export function GraphEditor({ graphId }: { graphId: string }) {
           type: 'graphNode' as const,
           position,
           selected: existing?.selected ?? false,
-          data: { node, ...issueCounts(issues, node.id) },
+          data: {
+            node,
+            ...issueCounts(issues, node.id),
+            // E3 overlay: entries in the window; a draft node the report doesn't
+            // know yet honestly shows "no traffic"
+            coverage: coverageByNode ? { entries: coverageByNode.get(node.id) ?? 0 } : null,
+          },
         };
       });
     });
-  }, [document, issues]);
+  }, [document, issues, coverageByNode]);
 
   const rfEdges: Edge[] = React.useMemo(() => {
     if (!document) return [];
@@ -178,7 +251,9 @@ export function GraphEditor({ graphId }: { graphId: string }) {
       id: edge.id,
       source: edge.from,
       target: edge.to,
-      label: `${edge.priority} · ${summarizeCondition(edge.condition)}${edge.purge === 'keep' ? ' · keep ctx' : ''}`,
+      label:
+        `${edge.priority} · ${summarizeCondition(edge.condition)}${edge.purge === 'keep' ? ' · keep ctx' : ''}` +
+        (coverageOn && coverage ? ` · ${coverage.edgeFires[edge.id] ?? 0}×` : ''),
       selected: selection?.kind === 'edge' && selection.id === edge.id,
       animated: edge.condition.type === 'always',
       labelStyle: { fontSize: 10 },
@@ -186,7 +261,7 @@ export function GraphEditor({ graphId }: { graphId: string }) {
         ? { stroke: 'var(--destructive, #dc2626)', strokeWidth: 2 }
         : undefined,
     }));
-  }, [document, selection, issues]);
+  }, [document, selection, issues, coverageOn, coverage]);
 
   const onNodesChange = React.useCallback((changes: NodeChange<CanvasNode>[]) => {
     setRfNodes((nds) => applyNodeChanges(changes, nds));
@@ -367,11 +442,40 @@ export function GraphEditor({ graphId }: { graphId: string }) {
           <Plus className="h-3.5 w-3.5 mr-1" /> Edge
         </Button>
         <Button
+          variant={coverageOn ? 'default' : 'outline'}
+          size="sm"
+          className="h-7 px-2 text-xs"
+          onClick={() => setCoverageOn((v) => !v)}
+          title="Node hit rates, dead nodes, off-graph exits, edge fires over real (non-test) traffic"
+          data-testid="toggle-coverage"
+        >
+          <BarChart3 className="h-3.5 w-3.5 mr-1" /> Coverage
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          onClick={() => {
+            setAnnotationsOpen((v) => !v);
+            setHistoryOpen(false);
+            void loadAnnotations();
+          }}
+          data-testid="toggle-annotations"
+        >
+          <Flag className="h-3.5 w-3.5 mr-1" /> TODOs
+          {annotations.filter((a) => a.status === 'open').length > 0 && (
+            <span className="ml-1 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-400 px-1.5 text-[10px] font-semibold" data-testid="todo-count">
+              {annotations.filter((a) => a.status === 'open').length}
+            </span>
+          )}
+        </Button>
+        <Button
           variant="outline"
           size="sm"
           className="h-7 px-2 text-xs"
           onClick={() => {
             setHistoryOpen((v) => !v);
+            setAnnotationsOpen(false);
             void loadVersions();
           }}
           data-testid="toggle-history"
@@ -416,6 +520,15 @@ export function GraphEditor({ graphId }: { graphId: string }) {
         <div className="w-96 shrink-0 border-l border-border overflow-y-auto p-3">
           {historyOpen ? (
             <VersionHistoryPanel graphId={graphId} versions={versions} onActivate={activateVersion} activating={activating} />
+          ) : annotationsOpen ? (
+            <AnnotationsDrawer
+              annotations={annotations}
+              showResolved={showResolved}
+              onToggleResolved={setShowResolved}
+              onResolve={(id) => void patchAnnotation(id, 'resolved')}
+              onReopen={(id) => void patchAnnotation(id, 'open')}
+              busyId={annotationBusyId}
+            />
           ) : selectedNode ? (
             <NodeInspector
               node={selectedNode}
@@ -433,6 +546,8 @@ export function GraphEditor({ graphId }: { graphId: string }) {
               onChange={updateEdge}
               onDelete={() => deleteEdge(selectedEdge.id)}
             />
+          ) : coverageOn ? (
+            <CoveragePanel coverage={coverage} days={coverageDays} onDaysChange={setCoverageDays} loading={coverageLoading} />
           ) : (
             <div className="space-y-2 text-xs text-muted-foreground p-2">
               <p>Select a node or edge to edit it. Drag between node handles to create an edge.</p>

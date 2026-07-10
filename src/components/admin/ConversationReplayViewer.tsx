@@ -5,9 +5,17 @@
  * old static window.open() + document.write() HTML dump with a real
  * Previous/Next stepper through the full timeline: turns, tool calls,
  * labeled navigation/error events, and D49 session-resume markers.
+ *
+ * Block E1 (Req 9.1): when the conversation ran under a graph, every turn
+ * carries a node chip (attribution from the in-order transition-marker walk),
+ * node_transition markers render as first-class hops, and "Show on graph"
+ * opens the read-only traversal view pinned to the run's graph version.
+ * Block E2 (Req 9.2): any turn can be marked (bad answer / missed transition /
+ * note) — the annotation lands in the editor's TODO drawer.
  */
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   Dialog,
   DialogContent,
@@ -18,7 +26,10 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { ChevronLeft, ChevronRight, Loader2, Flag, GitBranch } from 'lucide-react';
+import { nodeAtEachStep } from './graph-editor/traversal-utils';
+import type { AnnotationRow } from '@/lib/services/ai/graph-store';
 
 export interface ReplayStep {
   step: number;
@@ -45,6 +56,15 @@ export interface ReplayStep {
   } | null;
 }
 
+/** Graph pin resolved by the replay API when the run had one (Block E1). */
+export interface ReplayEngineMeta {
+  graphId: string;
+  graphName: string;
+  graphVersionId: string;
+  version: number;
+  nodeNames: Record<string, string>;
+}
+
 export interface ReplayData {
   conversation: {
     id: string;
@@ -56,6 +76,7 @@ export interface ReplayData {
     totalTokens: number;
     totalCost: number;
   };
+  engine?: ReplayEngineMeta | null;
   legs: Array<{
     id: string;
     provider: string;
@@ -103,6 +124,102 @@ export const TYPE_LABELS: Record<string, string> = {
   clip: 'Clip (client audio)',
 };
 
+const ANNOTATION_KINDS = [
+  { value: 'bad_answer', label: 'Bad answer' },
+  { value: 'missed_transition', label: 'Missed transition' },
+  { value: 'note', label: 'Note' },
+] as const;
+export type AnnotationKind = (typeof ANNOTATION_KINDS)[number]['value'];
+
+export const ANNOTATION_KIND_LABELS: Record<string, string> = Object.fromEntries(
+  ANNOTATION_KINDS.map((k) => [k.value, k.label])
+);
+
+/**
+ * Shared annotation state for the two replay surfaces (E2): loads the
+ * conversation's annotations and exposes a create handler. Enabled only when
+ * the conversation ran under a graph — annotations anchor to {node, version}.
+ */
+export function useGraphAnnotations(conversationId: string | null | undefined, engine: ReplayEngineMeta | null | undefined) {
+  const [annotations, setAnnotations] = useState<AnnotationRow[]>([]);
+  const enabled = !!conversationId && !!engine;
+
+  const reload = useCallback(async () => {
+    if (!conversationId) return;
+    try {
+      const res = await fetch(`/api/admin/ai/graph-annotations?conversationId=${encodeURIComponent(conversationId)}`);
+      const json = await res.json();
+      if (json.success) setAnnotations(json.data);
+    } catch {
+      /* annotation load failure never breaks replay */
+    }
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (enabled) void reload();
+    else setAnnotations([]);
+  }, [enabled, reload]);
+
+  const annotate = useCallback(
+    async (input: { messageId: string; nodeId: string; kind: AnnotationKind; note: string }): Promise<boolean> => {
+      if (!conversationId || !engine) return false;
+      try {
+        const res = await fetch('/api/admin/ai/graph-annotations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversationId,
+            messageId: input.messageId,
+            nodeId: input.nodeId,
+            graphVersionId: engine.graphVersionId,
+            kind: input.kind,
+            note: input.note || undefined,
+          }),
+        });
+        const json = await res.json();
+        if (json.success) {
+          await reload();
+          return true;
+        }
+        return false;
+      } catch {
+        return false;
+      }
+    },
+    [conversationId, engine, reload]
+  );
+
+  const byMessageId = useMemo(() => {
+    const map = new Map<string, AnnotationRow[]>();
+    for (const a of annotations) {
+      if (!a.messageId) continue;
+      if (!map.has(a.messageId)) map.set(a.messageId, []);
+      map.get(a.messageId)!.push(a);
+    }
+    return map;
+  }, [annotations]);
+
+  return { annotations, byMessageId, annotate, enabled };
+}
+
+/** Header chip + link: which graph/version the run pinned, and the way onto the canvas (E1). */
+export function ShowOnGraphLink({ engine, conversationId }: { engine: ReplayEngineMeta; conversationId: string }) {
+  return (
+    <span className="flex items-center gap-2">
+      <Badge variant="outline" className="text-[10px]">
+        graph: {engine.graphName} v{engine.version}
+      </Badge>
+      <Link
+        href={`/admin/ai/conversation-graphs/${engine.graphId}?traversal=${encodeURIComponent(conversationId)}&version=${encodeURIComponent(engine.graphVersionId)}`}
+        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+        data-testid="show-on-graph"
+      >
+        <GitBranch className="h-3.5 w-3.5" /> Show on graph
+      </Link>
+    </span>
+  );
+}
+
 export function ConversationReplayViewer({ sessionId, conversationId, onClose }: ConversationReplayViewerProps) {
   const [data, setData] = useState<ReplayData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -131,6 +248,10 @@ export function ConversationReplayViewer({ sessionId, conversationId, onClose }:
   const step = timeline[stepIndex];
   const legIndex = new Map((data?.legs ?? []).map((leg, i) => [leg.id, i + 1]));
 
+  const engine = data?.engine ?? null;
+  const stepNodes = useMemo(() => nodeAtEachStep(timeline), [timeline]);
+  const { byMessageId, annotate, enabled: annotationsEnabled } = useGraphAnnotations(data?.conversation?.id, engine);
+
   const goPrev = () => setStepIndex(i => Math.max(0, i - 1));
   const goNext = () => setStepIndex(i => Math.min(timeline.length - 1, i + 1));
 
@@ -144,6 +265,8 @@ export function ConversationReplayViewer({ sessionId, conversationId, onClose }:
     return () => window.removeEventListener('keydown', handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, timeline.length]);
+
+  const activeNodeId = stepNodes[stepIndex] ?? null;
 
   return (
     <Dialog open={!!key} onOpenChange={(open) => !open && onClose()}>
@@ -167,7 +290,7 @@ export function ConversationReplayViewer({ sessionId, conversationId, onClose }:
 
         {!loading && data && (
           <>
-            <div className="text-xs text-muted-foreground flex flex-wrap gap-3 pb-2 border-b">
+            <div className="text-xs text-muted-foreground flex flex-wrap gap-3 pb-2 border-b items-center">
               <span>Started: {new Date(data.conversation.startedAt).toLocaleString()}</span>
               <span>Messages: {data.conversation.messageCount}</span>
               <span>Tokens: {data.conversation.totalTokens}</span>
@@ -175,6 +298,7 @@ export function ConversationReplayViewer({ sessionId, conversationId, onClose }:
               {data.summary.errorCount > 0 && (
                 <span className="text-red-600">Errors: {data.summary.errorCount}</span>
               )}
+              {engine && <ShowOnGraphLink engine={engine} conversationId={data.conversation.id} />}
             </div>
 
             {data.legs.length > 0 && (
@@ -189,7 +313,18 @@ export function ConversationReplayViewer({ sessionId, conversationId, onClose }:
 
             <div className="flex-1 overflow-y-auto min-h-[200px]">
               {step ? (
-                <ReplayStepCard step={step} legIndex={legIndex} />
+                <ReplayStepCard
+                  step={step}
+                  legIndex={legIndex}
+                  nodeId={activeNodeId}
+                  nodeNames={engine?.nodeNames}
+                  annotations={byMessageId.get(step.message.id)}
+                  onAnnotate={
+                    annotationsEnabled && activeNodeId && step.message.id
+                      ? (kind, note) => annotate({ messageId: step.message.id, nodeId: activeNodeId, kind, note })
+                      : undefined
+                  }
+                />
               ) : (
                 <p className="text-sm text-muted-foreground text-center py-8">No steps recorded.</p>
               )}
@@ -215,8 +350,64 @@ export function ConversationReplayViewer({ sessionId, conversationId, onClose }:
   );
 }
 
-export function ReplayStepCard({ step, legIndex }: { step: ReplayStep; legIndex: Map<string, number> }) {
+/** Marker headline per markerType — node_transition/summary/edge_evaluated became first-class in Block E. */
+function markerHeadline(step: ReplayStep, nodeNames?: Record<string, string>): string {
+  const meta = step.message.metadata ?? {};
+  const name = (id: string | null | undefined) => (id ? nodeNames?.[id] ?? id : '∅');
+  switch (meta.markerType) {
+    case 'session_resumed':
+      return '🟢 Session resumed';
+    case 'session_disruption':
+      return '🔴 Session disruption';
+    case 'node_transition':
+      return `🧭 ${name(meta.fromNode)} → ${name(meta.toNode)}${meta.conditionType ? ` (${meta.conditionType})` : ''}`;
+    case 'conversation_summary':
+      return `📝 Running summary v${meta.summaryVersion ?? '?'}`;
+    case 'edge_evaluated':
+      return '⚖️ Edges evaluated (debug)';
+    default:
+      return `Marker: ${meta.markerType ?? 'unknown'}`;
+  }
+}
+
+export function ReplayStepCard({
+  step,
+  legIndex,
+  nodeId,
+  nodeNames,
+  annotations,
+  onAnnotate,
+}: {
+  step: ReplayStep;
+  legIndex: Map<string, number>;
+  /** Node active when this step was produced (E1); undefined = engine-less rendering. */
+  nodeId?: string | null;
+  nodeNames?: Record<string, string>;
+  annotations?: AnnotationRow[];
+  /** Present ⇒ the annotate affordance renders (E2). */
+  onAnnotate?: (kind: AnnotationKind, note: string) => Promise<boolean>;
+}) {
   const markerType = step.message.metadata?.markerType;
+  const isTransition = markerType === 'node_transition';
+  const [formOpen, setFormOpen] = useState(false);
+  const [kind, setKind] = useState<AnnotationKind>('bad_answer');
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveFailed, setSaveFailed] = useState(false);
+
+  const submit = async () => {
+    if (!onAnnotate) return;
+    setSaving(true);
+    setSaveFailed(false);
+    const ok = await onAnnotate(kind, note.trim());
+    setSaving(false);
+    if (ok) {
+      setFormOpen(false);
+      setNote('');
+    } else {
+      setSaveFailed(true);
+    }
+  };
 
   return (
     <div className={`p-4 rounded border-l-4 text-sm text-foreground ${TYPE_STYLES[step.type] ?? 'bg-gray-50 dark:bg-gray-900/60 border-gray-400'}`}>
@@ -227,6 +418,17 @@ export function ReplayStepCard({ step, legIndex }: { step: ReplayStep; legIndex:
             <Badge variant="outline" className="text-xs">leg {legIndex.get(step.legId)}</Badge>
           )}
           {step.message.mode && <Badge variant="outline" className="text-xs">{step.message.mode}</Badge>}
+          {/* E1: node attribution chip — which graph state governed this step */}
+          {nodeId && !isTransition && (
+            <Badge
+              variant="outline"
+              className="text-xs border-indigo-400/60 text-indigo-600 dark:text-indigo-400"
+              title={`Node active when this was produced: ${nodeId}`}
+              data-testid="node-chip"
+            >
+              ⦿ {nodeNames?.[nodeId] ?? nodeId}
+            </Badge>
+          )}
         </div>
         <span className="text-xs text-muted-foreground">
           {/* The row timestamp is turn-END; firstAudioAt is when the visitor
@@ -244,8 +446,11 @@ export function ReplayStepCard({ step, legIndex }: { step: ReplayStep; legIndex:
 
       {step.type === 'marker' ? (
         <div>
-          <p className="font-medium">{markerType === 'session_resumed' ? '🟢 Session resumed' : '🔴 Session disruption'}</p>
-          <p className="whitespace-pre-wrap mt-1">{step.message.content}</p>
+          <p className="font-medium" data-testid="marker-headline">{markerHeadline(step, nodeNames)}</p>
+          {isTransition && step.message.metadata?.evidence && (
+            <p className="text-xs text-muted-foreground mt-1">evidence: {step.message.metadata.evidence}</p>
+          )}
+          {!isTransition && <p className="whitespace-pre-wrap mt-1">{step.message.content}</p>}
         </div>
       ) : (
         <p className="whitespace-pre-wrap">{step.message.content}</p>
@@ -259,6 +464,15 @@ export function ReplayStepCard({ step, legIndex }: { step: ReplayStep; legIndex:
           <p className="text-xs text-muted-foreground whitespace-pre-wrap mt-1 pl-2 border-l-2 border-gray-300 dark:border-gray-600">
             {step.message.metadata.reasoning}
           </p>
+        </details>
+      )}
+
+      {markerType === 'edge_evaluated' && step.message.metadata?.evaluated && (
+        <details className="mt-2">
+          <summary className="text-xs text-muted-foreground cursor-pointer select-none">Evaluated edges</summary>
+          <pre className="text-xs whitespace-pre-wrap mt-1 bg-black/5 dark:bg-white/5 rounded p-2">
+            {JSON.stringify(step.message.metadata.evaluated, null, 2)}
+          </pre>
         </details>
       )}
 
@@ -287,6 +501,73 @@ export function ReplayStepCard({ step, legIndex }: { step: ReplayStep; legIndex:
 
       {step.debugInfo?.error && (
         <p className="text-xs text-red-600 mt-2">Error: {step.debugInfo.error}</p>
+      )}
+
+      {/* E2: existing annotations on this message */}
+      {annotations && annotations.length > 0 && (
+        <div className="mt-2 space-y-1" data-testid="step-annotations">
+          {annotations.map((a) => (
+            <div key={a.id} className="flex items-start gap-1.5 text-xs">
+              <Badge
+                variant="outline"
+                className={`text-[10px] shrink-0 ${a.status === 'resolved' ? 'opacity-60' : 'border-amber-500/60 text-amber-700 dark:text-amber-400'}`}
+              >
+                <Flag className="h-2.5 w-2.5 mr-1" />
+                {ANNOTATION_KIND_LABELS[a.kind] ?? a.kind}
+                {a.status === 'resolved' ? ' · resolved' : ''}
+              </Badge>
+              {a.note && <span className="text-muted-foreground">{a.note}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* E2: mark-turn affordance */}
+      {onAnnotate && !formOpen && (
+        <div className="mt-2 flex justify-end">
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[11px] text-muted-foreground"
+            onClick={() => setFormOpen(true)}
+            data-testid="annotate-open"
+          >
+            <Flag className="h-3 w-3 mr-1" /> Annotate
+          </Button>
+        </div>
+      )}
+      {onAnnotate && formOpen && (
+        <div className="mt-2 space-y-2 rounded border border-border bg-background/60 p-2" data-testid="annotate-form">
+          <div className="flex gap-1.5">
+            {ANNOTATION_KINDS.map((k) => (
+              <Button
+                key={k.value}
+                size="sm"
+                variant={kind === k.value ? 'default' : 'outline'}
+                className="h-6 px-2 text-[11px]"
+                onClick={() => setKind(k.value)}
+              >
+                {k.label}
+              </Button>
+            ))}
+          </div>
+          <Textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="What went wrong / what should the graph do here?"
+            className="text-xs min-h-16"
+            data-testid="annotate-note"
+          />
+          {saveFailed && <p className="text-[11px] text-destructive">Failed to save — try again.</p>}
+          <div className="flex justify-end gap-1.5">
+            <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]" onClick={() => setFormOpen(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button size="sm" className="h-6 px-2 text-[11px]" onClick={submit} disabled={saving} data-testid="annotate-save">
+              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   );

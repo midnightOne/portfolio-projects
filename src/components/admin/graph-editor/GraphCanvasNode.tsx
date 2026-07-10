@@ -13,6 +13,8 @@ export type CanvasNodeData = {
   node: GraphNode;
   errorCount: number;
   warningCount: number;
+  /** Coverage overlay (Block E3 — Req 9.3): entries in the window; null = overlay off. */
+  coverage?: { entries: number } | null;
 };
 export type CanvasNode = Node<CanvasNodeData, 'graphNode'>;
 
@@ -23,7 +25,7 @@ const ROLE_STYLES: Record<GraphNode['role'], string> = {
 };
 
 function GraphCanvasNodeInner({ data, selected }: NodeProps<CanvasNode>) {
-  const { node, errorCount, warningCount } = data;
+  const { node, errorCount, warningCount, coverage } = data;
   return (
     <div
       className={`rounded-lg border-2 bg-card text-card-foreground shadow-sm px-3 py-2 min-w-40 max-w-56 ${
@@ -67,6 +69,20 @@ function GraphCanvasNodeInner({ data, selected }: NodeProps<CanvasNode>) {
             chips {node.ux.chips.length}
           </span>
         ) : null}
+        {/* E3 coverage overlay: hit count over the selected window; 0 = dead node (Req 9.3) */}
+        {coverage != null && (
+          <span
+            className={`text-[10px] rounded border px-1 py-px font-semibold ${
+              coverage.entries > 0
+                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                : 'border-zinc-500/40 bg-zinc-500/10 text-zinc-500'
+            }`}
+            title={coverage.entries > 0 ? `${coverage.entries} entries in the window` : 'dead node — never entered in the window'}
+            data-testid="coverage-badge"
+          >
+            {coverage.entries > 0 ? `${coverage.entries}×` : 'no traffic'}
+          </span>
+        )}
       </div>
       <Handle type="source" position={Position.Right} className="!bg-muted-foreground" />
     </div>

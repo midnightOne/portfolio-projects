@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { conversationHistoryManager } from '@/lib/services/ai/conversation-history-manager';
+import { getVersionMeta } from '@/lib/services/ai/graph-store';
 
 export async function GET(request: NextRequest) {
   try {
@@ -48,6 +49,21 @@ export async function GET(request: NextRequest) {
       .map((msg) => msg.metadata?.performanceMetrics?.totalProcessingTime ?? msg.metadata?.processingTime ?? 0)
       .filter((t) => t > 0);
 
+    // Block E1 (Req 9.1): resolve the conversation's pinned graph version to
+    // graph + node names so the viewers can attribute each message to the node
+    // active when it was produced. Pin source: latestState.engine (authoritative,
+    // P6), else the first transition marker (older conversations whose state was
+    // since overwritten). Absent both → no engine section, viewers render as today.
+    const latestEngine = ((conversation.latestState ?? {}) as { engine?: { graphVersionId?: unknown } }).engine;
+    const pinnedVersionId =
+      (typeof latestEngine?.graphVersionId === 'string' ? latestEngine.graphVersionId : null) ??
+      conversation.messages
+        .map((m) => (m.metadata as { markerType?: string; graphVersionId?: unknown } | undefined))
+        .filter((meta) => meta?.markerType === 'node_transition' && typeof meta?.graphVersionId === 'string')
+        .map((meta) => meta!.graphVersionId as string)[0] ??
+      null;
+    const engineMeta = pinnedVersionId ? await getVersionMeta(pinnedVersionId).catch(() => null) : null;
+
     const replayData = {
       conversation: {
         id: conversation.id,
@@ -60,6 +76,8 @@ export async function GET(request: NextRequest) {
         totalCost: conversation.totalCost,
         latestState: conversation.latestState ?? null
       },
+      // Present only when the conversation ran under a graph (Block E1).
+      engine: engineMeta,
       // D49 5b.2: provider legs — a multi-leg conversation reads as one timeline
       legs: (conversation.legs ?? []).map((leg) => ({
         id: leg.id,

@@ -9,14 +9,21 @@
  * replay (that stepper is for replaying a conversation over the live portfolio
  * homepage, a separate surface). Rendered as a right-hand panel beside the
  * conversation list so the list stays visible. Reuses ReplayStepCard so the
- * per-step rendering matches the stepper exactly.
+ * per-step rendering matches the stepper exactly — including the Block E node
+ * chips, transition markers, annotate affordance, and "Show on graph" link.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Loader2, X } from 'lucide-react';
-import { ReplayStepCard, type ReplayData } from './ConversationReplayViewer';
+import {
+  ReplayStepCard,
+  ShowOnGraphLink,
+  useGraphAnnotations,
+  type ReplayData,
+} from './ConversationReplayViewer';
+import { nodeAtEachStep } from './graph-editor/traversal-utils';
 
 interface ConversationTranscriptPanelProps {
   conversationId: string | null;
@@ -42,6 +49,9 @@ export function ConversationTranscriptPanel({ conversationId, onClose }: Convers
 
   const timeline = data?.timeline ?? [];
   const legIndex = new Map((data?.legs ?? []).map((leg, i) => [leg.id, i + 1]));
+  const engine = data?.engine ?? null;
+  const stepNodes = useMemo(() => nodeAtEachStep(timeline), [timeline]);
+  const { byMessageId, annotate, enabled: annotationsEnabled } = useGraphAnnotations(data?.conversation?.id, engine);
 
   if (!conversationId) {
     return (
@@ -69,7 +79,7 @@ export function ConversationTranscriptPanel({ conversationId, onClose }: Convers
 
         {data && (
           <>
-            <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-1">
+            <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 items-center">
               <span>{new Date(data.conversation.startedAt).toLocaleString()}</span>
               <span>{data.conversation.messageCount} msgs</span>
               <span>{data.conversation.totalTokens} tok</span>
@@ -78,6 +88,7 @@ export function ConversationTranscriptPanel({ conversationId, onClose }: Convers
                 <span className="text-red-600 dark:text-red-400">{data.summary.errorCount} errors</span>
               )}
             </div>
+            {engine && <ShowOnGraphLink engine={engine} conversationId={data.conversation.id} />}
             {data.legs.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {data.legs.map((leg, i) => (
@@ -104,9 +115,24 @@ export function ConversationTranscriptPanel({ conversationId, onClose }: Convers
         {!loading && data && timeline.length === 0 && (
           <p className="text-sm text-muted-foreground text-center py-8">No messages recorded.</p>
         )}
-        {!loading && data && timeline.map((step) => (
-          <ReplayStepCard key={step.message.id || step.step} step={step} legIndex={legIndex} />
-        ))}
+        {!loading && data && timeline.map((step, i) => {
+          const activeNodeId = stepNodes[i] ?? null;
+          return (
+            <ReplayStepCard
+              key={step.message.id || step.step}
+              step={step}
+              legIndex={legIndex}
+              nodeId={activeNodeId}
+              nodeNames={engine?.nodeNames}
+              annotations={byMessageId.get(step.message.id)}
+              onAnnotate={
+                annotationsEnabled && activeNodeId && step.message.id
+                  ? (kind, note) => annotate({ messageId: step.message.id, nodeId: activeNodeId, kind, note })
+                  : undefined
+              }
+            />
+          );
+        })}
       </div>
     </div>
   );

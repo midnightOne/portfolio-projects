@@ -114,7 +114,17 @@ export function ConversationBrowser() {
   }, [idQuery, provider, contentQuery, startDate, endDate]);
 
   useEffect(() => {
-    load(0);
+    // Deep link (Block E2): /admin/ai/conversations?conversationId=… lands from
+    // the graph editor's TODO drawer with the conversation pre-filtered and its
+    // transcript open. window.location avoids a useSearchParams Suspense boundary.
+    const linked = new URLSearchParams(window.location.search).get('conversationId');
+    if (linked) {
+      setIdQuery(linked);
+      setSelectedId(linked);
+      load(0, { idQuery: linked });
+    } else {
+      load(0);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

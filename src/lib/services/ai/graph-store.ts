@@ -13,6 +13,7 @@ import type { GraphSource, ActiveGraphRef } from '@/lib/ai/engine/graph-source';
 import { GraphDocument, GraphDocumentSchema } from '@/lib/ai/engine/types';
 import { validateGraph, ValidationContext, ValidationIssue } from '@/lib/ai/engine/validation';
 import { diffGraphDocuments, GraphDiff } from './graph-diff';
+import { aggregateCoverage, CoverageReport, TransitionMarkerRow } from './graph-coverage';
 import { unifiedToolRegistry } from '@/lib/ai/tools';
 import { generateEmbeddings } from '@/lib/ai/embeddings';
 import { recordUsage } from '@/lib/ai/ledger';
@@ -486,6 +487,316 @@ export async function activateVersion(graphId: string, versionId: string): Promi
     });
   });
   return { version: row.version };
+}
+
+// ============================================================================
+// Block E — review, annotation, coverage (Req 9)
+// ============================================================================
+
+/**
+ * Version lookup for replay/traversal rendering (Req 9.1): the conversation
+ * pins a graphVersionId (P6); this resolves it to the graph + human-readable
+ * node names without shipping the full document (edge conditions/exemplars
+ * stay server-side for the REPLAY payload; the traversal viewer is a separate
+ * admin-only fetch of the document itself).
+ */
+export async function getVersionMeta(versionId: string): Promise<{
+  graphId: string;
+  graphName: string;
+  graphVersionId: string;
+  version: number;
+  nodeNames: Record<string, string>;
+} | null> {
+  const row = await prisma.conversationGraphVersion.findUnique({
+    where: { id: versionId },
+    select: { id: true, version: true, graph: { select: { id: true, name: true } } },
+  });
+  if (!row) return null;
+  const document = await loadVersionDocument(versionId);
+  return {
+    graphId: row.graph.id,
+    graphName: row.graph.name,
+    graphVersionId: row.id,
+    version: row.version,
+    nodeNames: Object.fromEntries((document?.nodes ?? []).map((n) => [n.id, n.name])),
+  };
+}
+
+/**
+ * Full immutable version document for the read-only traversal viewer
+ * (Req 9.1 "show on graph"). Embedding vectors are stripped — they are
+ * publish-time derivation data the canvas never renders, and they dominate
+ * the payload size.
+ */
+export async function getVersionDetail(
+  graphId: string,
+  versionId: string
+): Promise<{ id: string; version: number; note: string | null; createdAt: string; document: GraphDocument } | null> {
+  const row = await prisma.conversationGraphVersion.findFirst({
+    where: { id: versionId, graphId },
+    select: { id: true, version: true, note: true, createdAt: true },
+  });
+  if (!row) return null;
+  const document = await loadVersionDocument(versionId);
+  if (!document) return null;
+  return {
+    id: row.id,
+    version: row.version,
+    note: row.note,
+    createdAt: row.createdAt.toISOString(),
+    document: { ...document, embeddings: undefined },
+  };
+}
+
+export interface AnnotationRow {
+  id: string;
+  conversationId: string;
+  messageId: string | null;
+  nodeId: string;
+  nodeName: string | null;
+  graphId: string | null;
+  graphVersionId: string;
+  version: number | null;
+  kind: string;
+  note: string | null;
+  status: string;
+  resolvedByVersionId: string | null;
+  resolvedByVersion: number | null;
+  createdAt: string;
+}
+
+async function decorateAnnotations(
+  rows: Array<{
+    id: string;
+    conversationId: string;
+    messageId: string | null;
+    nodeId: string;
+    graphVersionId: string;
+    kind: string;
+    note: string | null;
+    status: string;
+    resolvedByVersionId: string | null;
+    createdAt: Date;
+  }>
+): Promise<AnnotationRow[]> {
+  const versionIds = [
+    ...new Set(rows.flatMap((r) => [r.graphVersionId, r.resolvedByVersionId].filter((v): v is string => !!v))),
+  ];
+  const versions = versionIds.length
+    ? await prisma.conversationGraphVersion.findMany({
+        where: { id: { in: versionIds } },
+        select: { id: true, version: true, graphId: true },
+      })
+    : [];
+  const versionById = new Map(versions.map((v) => [v.id, v]));
+  const nameCache = new Map<string, Record<string, string>>();
+  const out: AnnotationRow[] = [];
+  for (const r of rows) {
+    const v = versionById.get(r.graphVersionId);
+    let nodeName: string | null = null;
+    if (v) {
+      if (!nameCache.has(r.graphVersionId)) {
+        const doc = await loadVersionDocument(r.graphVersionId);
+        nameCache.set(r.graphVersionId, Object.fromEntries((doc?.nodes ?? []).map((n) => [n.id, n.name])));
+      }
+      nodeName = nameCache.get(r.graphVersionId)?.[r.nodeId] ?? null;
+    }
+    out.push({
+      id: r.id,
+      conversationId: r.conversationId,
+      messageId: r.messageId,
+      nodeId: r.nodeId,
+      nodeName,
+      graphId: v?.graphId ?? null,
+      graphVersionId: r.graphVersionId,
+      version: v?.version ?? null,
+      kind: r.kind,
+      note: r.note,
+      status: r.status,
+      resolvedByVersionId: r.resolvedByVersionId,
+      resolvedByVersion: r.resolvedByVersionId ? versionById.get(r.resolvedByVersionId)?.version ?? null : null,
+      createdAt: r.createdAt.toISOString(),
+    });
+  }
+  return out;
+}
+
+/**
+ * Annotations list (Req 9.2). `graphId` scoping joins through the graph's
+ * version ids — GraphAnnotation deliberately has no graphId column (the
+ * version pin is the interpretation context, design §2).
+ */
+export async function listAnnotations(filter: {
+  graphId?: string;
+  conversationId?: string;
+  status?: 'open' | 'resolved';
+}): Promise<AnnotationRow[]> {
+  let versionScope: string[] | undefined;
+  if (filter.graphId) {
+    const versions = await prisma.conversationGraphVersion.findMany({
+      where: { graphId: filter.graphId },
+      select: { id: true },
+    });
+    versionScope = versions.map((v) => v.id);
+    if (versionScope.length === 0) return [];
+  }
+  const rows = await prisma.graphAnnotation.findMany({
+    where: {
+      ...(versionScope ? { graphVersionId: { in: versionScope } } : {}),
+      ...(filter.conversationId ? { conversationId: filter.conversationId } : {}),
+      ...(filter.status ? { status: filter.status } : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  return decorateAnnotations(rows);
+}
+
+export async function createAnnotation(input: {
+  conversationId: string;
+  messageId?: string;
+  nodeId: string;
+  graphVersionId: string;
+  kind: 'bad_answer' | 'missed_transition' | 'note';
+  note?: string;
+}): Promise<AnnotationRow | { error: string }> {
+  const version = await prisma.conversationGraphVersion.findUnique({
+    where: { id: input.graphVersionId },
+    select: { id: true },
+  });
+  if (!version) return { error: `graph version ${input.graphVersionId} not found` };
+  const row = await prisma.graphAnnotation.create({
+    data: {
+      conversationId: input.conversationId,
+      messageId: input.messageId ?? null,
+      nodeId: input.nodeId,
+      graphVersionId: input.graphVersionId,
+      kind: input.kind,
+      note: input.note ?? null,
+      status: 'open',
+    },
+  });
+  const [decorated] = await decorateAnnotations([row]);
+  return decorated;
+}
+
+/**
+ * Annotation update (Req 9.2). Resolving without an explicit
+ * `resolvedByVersionId` links the graph's CURRENT version (active pointer,
+ * else latest) — the publish that addressed the mark is by construction the
+ * newest one when the owner clicks resolve in the drawer. Reopening clears
+ * the link.
+ */
+export async function updateAnnotation(
+  id: string,
+  patch: { status?: 'open' | 'resolved'; note?: string; resolvedByVersionId?: string }
+): Promise<AnnotationRow | null> {
+  const existing = await prisma.graphAnnotation.findUnique({ where: { id } });
+  if (!existing) return null;
+
+  let resolvedByVersionId = existing.resolvedByVersionId;
+  if (patch.status === 'resolved') {
+    resolvedByVersionId = patch.resolvedByVersionId ?? null;
+    if (!resolvedByVersionId) {
+      const version = await prisma.conversationGraphVersion.findUnique({
+        where: { id: existing.graphVersionId },
+        select: { graphId: true },
+      });
+      if (version) {
+        const graph = await prisma.conversationGraph.findUnique({
+          where: { id: version.graphId },
+          select: { activeVersionId: true },
+        });
+        resolvedByVersionId =
+          graph?.activeVersionId ??
+          (
+            await prisma.conversationGraphVersion.findFirst({
+              where: { graphId: version.graphId },
+              orderBy: { version: 'desc' },
+              select: { id: true },
+            })
+          )?.id ??
+          null;
+      }
+    }
+  } else if (patch.status === 'open') {
+    resolvedByVersionId = null;
+  }
+
+  const row = await prisma.graphAnnotation.update({
+    where: { id },
+    data: {
+      ...(patch.status ? { status: patch.status } : {}),
+      ...(patch.note !== undefined ? { note: patch.note } : {}),
+      ...(patch.status ? { resolvedByVersionId } : {}),
+    },
+  });
+  const [decorated] = await decorateAnnotations([row]);
+  return decorated;
+}
+
+/**
+ * Coverage report (Req 9.3): bounded-window fetch of node_transition marker
+ * rows (P14 — SQL filters markerType + timestamp only), then pure TS
+ * aggregation with version scoping + P17 test exclusion in graph-coverage.ts.
+ * Reference document = active version when one exists, else the draft — the
+ * "where to invest the next node" view tracks what the owner is editing.
+ */
+export async function graphCoverage(graphId: string, windowDays: number): Promise<CoverageReport | null> {
+  const graph = await prisma.conversationGraph.findUnique({
+    where: { id: graphId },
+    select: { id: true, activeVersionId: true, draftDocument: true },
+  });
+  if (!graph) return null;
+
+  const versions = await prisma.conversationGraphVersion.findMany({
+    where: { graphId },
+    select: { id: true },
+  });
+  const versionIds = new Set(versions.map((v) => v.id));
+
+  let reference: GraphDocument | null = null;
+  if (graph.activeVersionId && versionIds.has(graph.activeVersionId)) {
+    reference = await loadVersionDocument(graph.activeVersionId);
+  }
+  if (!reference) {
+    const parsed = GraphDocumentSchema.safeParse(graph.draftDocument);
+    reference = parsed.success ? parsed.data : null;
+  }
+  if (!reference) return null;
+
+  const days = Math.min(Math.max(Math.floor(windowDays), 1), 365);
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const markers = await prisma.aIConversationMessage.findMany({
+    where: {
+      timestamp: { gte: since },
+      metadata: { path: ['markerType'], equals: 'node_transition' },
+    },
+    select: {
+      conversationId: true,
+      timestamp: true,
+      metadata: true,
+      conversation: { select: { metadata: true } },
+    },
+  });
+
+  const rows: TransitionMarkerRow[] = [];
+  for (const m of markers) {
+    const meta = (m.metadata ?? {}) as Record<string, unknown>;
+    if (typeof meta.toNode !== 'string' || typeof meta.graphVersionId !== 'string') continue;
+    const convMeta = (m.conversation?.metadata ?? {}) as Record<string, unknown>;
+    rows.push({
+      conversationId: m.conversationId,
+      timestamp: m.timestamp.toISOString(),
+      fromNode: typeof meta.fromNode === 'string' ? meta.fromNode : null,
+      toNode: meta.toNode,
+      edgeId: typeof meta.edgeId === 'string' ? meta.edgeId : null,
+      conditionType: typeof meta.conditionType === 'string' ? meta.conditionType : null,
+      graphVersionId: meta.graphVersionId,
+      isTest: convMeta.test === true,
+    });
+  }
+
+  return aggregateCoverage(reference, rows, { versionIds, windowDays: days, since: since.toISOString() });
 }
 
 /**
