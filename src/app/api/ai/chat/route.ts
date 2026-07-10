@@ -261,7 +261,15 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
     const conversationId = await conversationHistoryManager.getOrCreateConversationId(
       persistSessionId,
       ctx.reflink?.id,
-      { conversationMode: inputMode, accessLevel: ctx.tier === 'public' ? 'basic' : 'premium' }
+      {
+        conversationMode: inputMode,
+        accessLevel: ctx.tier === 'public' ? 'basic' : 'premium',
+        // Runtime identity for the admin browser: /chat conversations have no
+        // provider legs (legs are the voice-session mechanism, D49), so the
+        // browse view reads these metadata fields as its fallback.
+        provider: body.modality === 'voice' ? 'cascade' : 'text',
+        modelAlias: aliasUsed,
+      }
     );
     persistedConversationId = conversationId;
 

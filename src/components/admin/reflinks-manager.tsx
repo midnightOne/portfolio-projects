@@ -77,6 +77,17 @@ const RATE_LIMIT_TIERS = {
   UNLIMITED: { dailyLimit: -1, name: 'Unlimited', color: 'default' }
 } as const;
 
+/**
+ * Render-tolerant tier lookup: the API validates tiers on write, but rows
+ * seeded outside the API (test scripts) have shipped off-enum values (e.g.
+ * lowercase 'standard') — bad data must degrade to a visible fallback badge,
+ * never crash the whole admin page.
+ */
+function tierConfig(tier: string | null | undefined) {
+  const key = String(tier ?? '').toUpperCase() as keyof typeof RATE_LIMIT_TIERS;
+  return RATE_LIMIT_TIERS[key] ?? { dailyLimit: 0, name: tier || 'Unknown', color: 'outline' };
+}
+
 export function ReflinksManager() {
   const [reflinks, setReflinks] = useState<Reflink[]>([]);
   const [loading, setLoading] = useState(true);
@@ -693,8 +704,8 @@ export function ReflinksManager() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={RATE_LIMIT_TIERS[reflink.rateLimitTier].color as any}>
-                        {RATE_LIMIT_TIERS[reflink.rateLimitTier].name}
+                      <Badge variant={tierConfig(reflink.rateLimitTier).color as any}>
+                        {tierConfig(reflink.rateLimitTier).name}
                       </Badge>
                     </TableCell>
                     <TableCell>

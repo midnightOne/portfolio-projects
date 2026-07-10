@@ -9,7 +9,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, MicOff, X, Sparkles, MessageCircle, Volume2, VolumeX, Play, Pause, Settings, AlertCircle, Navigation } from 'lucide-react';
+import { Mic, MicOff, X, Sparkles, MessageCircle, Volume2, VolumeX, Play, Pause, Settings, AlertCircle, Navigation, Briefcase } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { gsap } from 'gsap';
 import { useConversationalAgent } from '@/components/providers/conversational-agent-provider';
@@ -19,6 +19,7 @@ import type { ConnectOptions } from '@/lib/voice/IConversationalAgentAdapter';
 import { EngineChipsRow, EngineTopicLabel } from './engine-chips';
 import { JobDescriptionModal } from './job-description-modal';
 import { getAutoNav, setAutoNav, subscribeAutoNav } from '@/lib/ai/autonav';
+import { setJdFormOpen } from '@/lib/ai/jd-form';
 import type { EngineChip, EngineUx } from '@/lib/ai/engine/types';
 
 // Types for the floating AI interface
@@ -1346,6 +1347,25 @@ export function FloatingAIInterface({
                 >
                   <Navigation className="text-sm" size={16} />
                 </button>
+
+                {/* Job-description analysis (Req 13.4, G3): direct rail to the
+                    same modal the job_description_form tool opens. Feature-
+                    gated per reflink; all spend protection is server-side in
+                    the gateway (kill switch → tier → rate limits → metered
+                    ledger + spend watchdog) — the button grants nothing. */}
+                {isFeatureEnabled('job_analysis') && (
+                  <button
+                    onClick={() => {
+                      setHasInteracted(true);
+                      setJdFormOpen(true);
+                    }}
+                    className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted/10 transition-all duration-200"
+                    title="Analyze a job posting against this portfolio"
+                    data-testid="jd-form-button"
+                  >
+                    <Briefcase className="text-sm" size={16} />
+                  </button>
+                )}
               </div>
 
               {/* Settings Button */}

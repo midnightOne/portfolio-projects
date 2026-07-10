@@ -35,6 +35,9 @@ export async function GET(request: NextRequest) {
       metadata: a.metadata,
       reflink: a.reflink,
       sessionId: a.sessionId,
+      // G3: visitor "email me the result" capture (send ships with H2)
+      visitorEmail: a.visitorEmail,
+      emailRequestedAt: a.emailRequestedAt,
     })),
   });
 }

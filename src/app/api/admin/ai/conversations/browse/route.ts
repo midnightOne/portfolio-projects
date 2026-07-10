@@ -78,6 +78,7 @@ export async function GET(request: NextRequest) {
     const rows = conversations.map((c) => {
       const latestLeg = c.legs[0];
       const metaProvider = (c.metadata as any)?.provider as string | undefined;
+      const metaModel = (c.metadata as any)?.modelAlias as string | undefined;
       return {
         id: c.id,
         sessionId: c.sessionId,
@@ -89,7 +90,7 @@ export async function GET(request: NextRequest) {
         messageCount: c.messageCount,
         totalCost: Number(c.totalCost),
         provider: latestLeg?.provider ?? metaProvider ?? 'unknown',
-        model: latestLeg?.modelAlias ?? latestLeg?.modelId ?? null,
+        model: latestLeg?.modelAlias ?? latestLeg?.modelId ?? metaModel ?? null,
         legCount: c.legs.length,
         open: latestLeg ? !latestLeg.endReason : false,
       };

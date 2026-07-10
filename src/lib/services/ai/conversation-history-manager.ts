@@ -183,6 +183,11 @@ export interface ConversationMetadata {
     accessLevel?: 'no_access' | 'basic' | 'limited' | 'premium';
     sessionStartTime?: Date;
     conversationMode?: 'text' | 'voice' | 'hybrid';
+    /** Runtime identity for leg-less conversations (/chat text/cascade — legs
+     *  are the voice-session mechanism, D49): the admin browse view reads
+     *  these as its provider/model fallback. */
+    provider?: string;
+    modelAlias?: string;
     averageResponseTime?: number;
     errorCount?: number;
     navigationCommandsUsed?: number;
