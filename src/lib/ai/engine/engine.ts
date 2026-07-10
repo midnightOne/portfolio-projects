@@ -15,6 +15,7 @@ import type { GraphSource } from './graph-source';
 import type {
   EngineDirective,
   EngineState,
+  EngineUx,
   GraphDocument,
   GraphNode,
   StartDirective,
@@ -23,7 +24,7 @@ import type {
 } from './types';
 import { EngineStateSchema, type VisitorFlags } from './types';
 import { evaluateEdges, EvaluatorDeps, EvaluatedEdge } from './evaluator';
-import { buildEngineContextText, buildTransitionDirective, buildProfileDirective } from './directive';
+import { buildEngineContextText, buildTransitionDirective, buildProfileDirective, nodeUx } from './directive';
 import { renderProfileText, flagsEqual, mergeFastFlags } from './profile';
 
 const DEFAULT_NODE_BUDGET_TOKENS = 1200; // notes §6
@@ -107,6 +108,13 @@ export interface ProcessTurnResult {
   directive: EngineDirective | null;
   transition: TransitionRecord | null;
   debug: ProcessTurnDebug | null;
+  /**
+   * Target node's visitor-visible surface when a transition fired (Req 13,
+   * G1) — set for EVERY runtime (the /chat response envelope is the text-tier
+   * delivery path; native voice additionally gets it inside the directive).
+   * Null when no transition fired (the pill keeps its current surface).
+   */
+  ux: EngineUx | null;
 }
 
 export class ConversationEngine {
@@ -177,7 +185,30 @@ export class ConversationEngine {
       toolAllowlist: landing.toolAllowlist,
       modelAlias: landing.modelAlias,
       contextDrops: context.drops,
+      ux: nodeUx(landing),
     };
+  }
+
+  /**
+   * Lightweight visitor-surface read (Req 13, G1): the landing node's chips +
+   * topic label WITHOUT resolving the context set (no search calls, no DB
+   * beyond the graph read) — safe on a public, un-metered endpoint so the
+   * pill can render chips BEFORE the first turn ("chips draw the visitor into
+   * first contact", owner 2026-07-10). Carries no graph structure (Req 13.5).
+   */
+  async startUx(): Promise<EngineUx | null> {
+    const active = await this.deps.graphSource.getActiveGraph();
+    if (!active) return null;
+    const landing = this.resolveLandingNode(active.document);
+    return landing ? nodeUx(landing) : null;
+  }
+
+  /** Same lightweight read for an in-flight conversation's PERSISTED node (resume/reload). */
+  async currentUx(engineState: EngineState | null): Promise<EngineUx | null> {
+    if (!engineState || !engineState.nodeId || !engineState.graphVersionId) return null;
+    const document = await this.deps.graphSource.getVersion(engineState.graphVersionId);
+    const node = document?.nodes.find((n) => n.id === engineState.nodeId);
+    return node ? nodeUx(node) : null;
   }
 
   /**
@@ -214,6 +245,7 @@ export class ConversationEngine {
       toolAllowlist: node.toolAllowlist,
       modelAlias: node.modelAlias,
       contextDrops: context.drops,
+      ux: nodeUx(node),
     };
   }
 
@@ -232,7 +264,7 @@ export class ConversationEngine {
       return await this.processTurnInner(conversationId, evidence, ctx);
     } catch (err) {
       this.log('engine: processTurn failed — turn proceeds unsteered (P1)', err);
-      return { directive: null, transition: null, debug: null };
+      return { directive: null, transition: null, debug: null, ux: null };
     }
   }
 
@@ -241,7 +273,7 @@ export class ConversationEngine {
     evidence: TurnEvidence,
     ctx: ProcessTurnContext
   ): Promise<ProcessTurnResult> {
-    const none: ProcessTurnResult = { directive: null, transition: null, debug: null };
+    const none: ProcessTurnResult = { directive: null, transition: null, debug: null, ux: null };
     let state = await this.deps.stateStore.readEngineState(conversationId);
 
     // ---- First sight of this conversation: stamp graph entry (or engine-off) ----
@@ -376,6 +408,7 @@ export class ConversationEngine {
       return {
         directive: profileDirective,
         transition: null,
+        ux: null,
         debug: {
           nodeId: currentNode.id,
           graphVersionId: state.graphVersionId,
@@ -435,16 +468,19 @@ export class ConversationEngine {
       ...(ctx.isNative && profileText !== null ? { deliveredProfileVersion: profileVersion } : {}),
     });
 
+    const targetUx = nodeUx(targetNode);
     const directive = buildTransitionDirective({
       seq,
       engineContextText: engineText,
       providerTools,
       profileText,
+      ux: targetUx,
     });
 
     return {
       directive: ctx.isNative ? directive : null,
       transition,
+      ux: targetUx,
       debug: {
         nodeId: currentNode.id,
         graphVersionId: state.graphVersionId,

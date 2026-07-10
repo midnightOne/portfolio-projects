@@ -588,12 +588,29 @@ model AIJobAnalysis {
   costUsd          Decimal?   @map("cost_usd") @db.Decimal(10, 4)
   createdAt        DateTime   @default(now()) @map("created_at")
   metadata         Json       @default("{}")
+  /// G3 (Req 13.4 expanded): visitor-supplied address for "email me the result".
+  /// CAPTURE only — the send ships with the H2 visitor-bound email channel.
+  visitorEmail     String?    @map("visitor_email")
+  emailRequestedAt DateTime?  @map("email_requested_at")
   reflink          AIReflink? @relation(fields: [reflinkId], references: [id])
 
   @@index([reflinkId])
   @@index([createdAt])
   @@index([companyName])
   @@map("ai_job_analyses")
+}
+
+/// G3 (Req 13.4 expanded, owner 2026-07-10): the owner's work preferences —
+/// fed to the JD compatibility analysis alongside portfolio evidence, judged
+/// against BOTH experience and preferred work. Server-side only, NEVER public:
+/// deliberately not a ContextChunk (non-project chunks are always public in
+/// retrieval + full-text indexed — this must not leak through search, P13).
+model AIOwnerPreferences {
+  id              String   @id @default("owner")
+  workPreferences String   @default("") @map("work_preferences")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("ai_owner_preferences")
 }
 
 model VoiceProviderConfig {

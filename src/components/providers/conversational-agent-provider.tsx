@@ -56,7 +56,14 @@ interface ConversationalAgentContextType {
   
   // Conversation management
   sendMessage: (message: string) => Promise<void>;
+  /** G1 (Req 13.1, P22): chip tap → visitor turn + deterministic chipId evidence. */
+  sendChipTap: (chip: { id: string; text: string }) => Promise<void>;
+  /** G3/D55: publish app-layer context into the live session's floating block. */
+  publishContext: (key: string, text: string) => void;
   interrupt: () => Promise<void>;
+
+  /** G1 (Req 13.1/13.3): current visitor surface from applied engine directives; null = surfaces hidden. */
+  engineUx: import('@/lib/ai/engine/types').EngineUx | null;
   
   // Transcript and history
   transcript: TranscriptItem[];
@@ -99,6 +106,8 @@ export function ConversationalAgentProvider({
   const [audioInputMode, setAudioInputMode] = useState<AudioInputMode | null>(null);
   /** DB conversation id (cuid) once persisted — surfaced for debug display/lookup. */
   const [conversationId, setConversationId] = useState<string | null>(null);
+  /** G1: latest visitor surface delivered by an applied engine directive. */
+  const [engineUx, setEngineUx] = useState<import('@/lib/ai/engine/types').EngineUx | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolumeState] = useState(1.0);
   const [availableTools, setAvailableTools] = useState<string[]>([]);
@@ -420,6 +429,8 @@ export function ConversationalAgentProvider({
           onAudioEvent: handleAudioEvent,
           onToolEvent: handleToolEvent,
           onConversationPersisted: (cid: string) => setConversationId(cid),
+          // G1: directive-carried chips/label surface to the pill
+          onEngineUx: (ux) => setEngineUx(ux),
 
           // Provider-specific configuration
           providerConfig: {
@@ -805,8 +816,25 @@ export function ConversationalAgentProvider({
     if (!currentAdapter) {
       throw new Error('No adapter initialized');
     }
-    
+
     await currentAdapter.sendMessage(message);
+  };
+
+  /** G1 (Req 13.1, P22): chip tap = normal visitor turn + chipId turn evidence. */
+  const sendChipTap = async (chip: { id: string; text: string }) => {
+    if (!currentAdapter) {
+      throw new Error('No adapter initialized');
+    }
+    await currentAdapter.sendChipTap(chip);
+  };
+
+  /** G3/D55: app-layer context (JD analysis outcome etc.) → floating block. No adapter = silently dropped. */
+  const publishContext = (key: string, text: string) => {
+    try {
+      currentAdapter?.publishAssistantContext(key, text);
+    } catch (err) {
+      console.warn('publishContext failed:', err);
+    }
   };
 
   /**
@@ -896,8 +924,11 @@ export function ConversationalAgentProvider({
     
     // Conversation management
     sendMessage,
+    sendChipTap,
+    publishContext,
     interrupt,
-    
+    engineUx,
+
     // Transcript and history
     transcript,
     clearTranscript,

@@ -225,6 +225,7 @@ export class CascadeVoiceAdapter extends BaseConversationalAgentAdapter {
 
   async cleanup(): Promise<void> {
     await this.disconnect().catch(() => {});
+    this._releaseBaseSubscriptions();
     if (this._playbackContext && this._playbackContext.state !== 'closed') {
       await this._playbackContext.close().catch(() => {});
     }

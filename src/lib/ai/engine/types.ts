@@ -300,6 +300,8 @@ export interface StartDirective {
   modelAlias?: string;
   /** Context items dropped during assembly (budget/visibility/failure — P12), for `_debug.engine`. */
   contextDrops: string[];
+  /** Node's visitor-visible surfaces (Req 13, Block G1) — chips + topic label. */
+  ux: EngineUx;
 }
 
 /**
@@ -359,6 +361,30 @@ export const EngineWindowUpdateSchema = z.object({
 });
 export type EngineWindowUpdate = z.infer<typeof EngineWindowUpdateSchema>;
 
+/**
+ * Visitor-facing node UX surface (Req 13, Block G1) — the ONLY part of a
+ * directive that is rendered to the visitor. Full snapshot semantics like the
+ * rest of the directive: the current set REPLACES the previous set entirely
+ * (empty chips + null label = node declares nothing → surfaces hidden).
+ * Carries no graph structure (Req 13.5) — safe on every public envelope.
+ */
+export const EngineChipSchema = z.object({
+  /** Stable authored id — `chip` edge conditions match on THIS alone (P22/P40). */
+  id: z.string().min(1),
+  label: z.string().min(1),
+  /** Sent as the visitor turn on tap; label used when absent. */
+  sendText: z.string().optional(),
+});
+export type EngineChip = z.infer<typeof EngineChipSchema>;
+
+export const EngineUxSchema = z.object({
+  /** Max 3 rendered (owner 2026-07-10); runtime truncates, validation warns. */
+  chips: z.array(EngineChipSchema).max(8).default([]),
+  /** Pill topic indicator (Req 13.3); null/absent = indicator hidden. */
+  topicLabel: z.string().nullable().default(null),
+});
+export type EngineUx = z.infer<typeof EngineUxSchema>;
+
 export const EngineDirectiveSchema = z.object({
   seq: z.number().int().nonnegative(),
   /** Complete assembled instruction string (replacement semantics, P8). */
@@ -375,5 +401,7 @@ export const EngineDirectiveSchema = z.object({
       })
     )
     .optional(),
+  /** Visitor-visible surfaces (Req 13.1/13.3) — replace-on-transition snapshot. */
+  ux: EngineUxSchema.optional(),
 });
 export type EngineDirective = z.infer<typeof EngineDirectiveSchema>;

@@ -9,22 +9,21 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, MicOff, X, Sparkles, MessageCircle, Volume2, VolumeX, Play, Pause, Settings, AlertCircle } from 'lucide-react';
+import { Mic, MicOff, X, Sparkles, MessageCircle, Volume2, VolumeX, Play, Pause, Settings, AlertCircle, Navigation } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { gsap } from 'gsap';
 import { useConversationalAgent } from '@/components/providers/conversational-agent-provider';
 import { useReflinkSession } from '@/components/providers/reflink-session-provider';
 import { readContinuityMarker, writeContinuityMarker, clearContinuityMarker } from '@/lib/ai/continuity-marker';
 import type { ConnectOptions } from '@/lib/voice/IConversationalAgentAdapter';
+import { EngineChipsRow, EngineTopicLabel } from './engine-chips';
+import { JobDescriptionModal } from './job-description-modal';
+import { getAutoNav, setAutoNav, subscribeAutoNav } from '@/lib/ai/autonav';
+import type { EngineChip, EngineUx } from '@/lib/ai/engine/types';
 
 // Types for the floating AI interface
-export interface QuickAction {
-  id: string;
-  label: string;
-  icon?: React.ComponentType<{ className?: string }>;
-  description?: string;
-  command?: string;
-}
+// (The legacy QuickAction placeholder surface was removed with conversation-engine
+//  Block G1 — engine chips own the suggestion rail now; owner 2026-07-10.)
 
 export interface FloatingAIInterfaceProps {
   // Position Management
@@ -47,12 +46,7 @@ export interface FloatingAIInterfaceProps {
   onTextSubmit?: (text: string) => void;
   onSettingsClick?: () => void;
   onClear?: () => void;
-  
-  // Quick Actions
-  showQuickActions?: boolean;
-  quickActions?: QuickAction[];
-  onQuickAction?: (action: QuickAction) => void;
-  
+
   // Styling
   theme?: 'default' | 'minimal' | 'accent';
   size?: 'sm' | 'md' | 'lg';
@@ -85,9 +79,6 @@ export function FloatingAIInterface({
   onTextSubmit,
   onSettingsClick,
   onClear,
-  showQuickActions = true,
-  quickActions = [],
-  onQuickAction,
   theme = 'default',
   size = 'md',
   className,
@@ -125,6 +116,9 @@ export function FloatingAIInterface({
     setVolume,
     volume,
     sendMessage,
+    sendChipTap,
+    publishContext,
+    engineUx: directiveUx,
     interrupt,
     transcript,
     clearTranscript,
@@ -174,6 +168,34 @@ export function FloatingAIInterface({
   const isPublicTextTier = accessLevel === 'basic' || accessLevel === 'limited';
   const [publicMessages, setPublicMessages] = useState<Array<{ id: string; type: 'user_speech' | 'ai_response'; content: string }>>([]);
   const [publicBusy, setPublicBusy] = useState(false);
+
+  // G1 (Req 13.1/13.3): visitor surface. Three sources, one precedence rule —
+  // whatever arrived LAST wins because each is a full replace-on-transition
+  // snapshot: mount fetch (start node, so chips draw first contact) → /chat
+  // response envelope (text tier) → applied engine directives (adapter tiers).
+  const [envelopeUx, setEnvelopeUx] = useState<EngineUx | null>(null);
+  const [chipsBusy, setChipsBusy] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/ai/engine/ux')
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled && data?.ux) setEnvelopeUx(data.ux as EngineUx);
+      })
+      .catch(() => { /* surfaces stay hidden (Req 2.7) */ });
+    return () => { cancelled = true; };
+  }, []);
+  const effectiveUx: EngineUx | null = directiveUx ?? envelopeUx;
+
+  // G2 (Req 13.8, P36): the auto-navigation consent toggle — default OFF for
+  // every new visitor. The store fans flips (tap here, set_auto_navigation
+  // tool from spoken requests) to the adapter's floating block + turn
+  // evidence; this state just renders the visible control.
+  const [autoNavOn, setAutoNavOn] = useState(false);
+  useEffect(() => {
+    setAutoNavOn(getAutoNav());
+    return subscribeAutoNav((enabled) => setAutoNavOn(enabled));
+  }, []);
 
   // Minimal chat log: the conversational turns (user text/speech + AI replies).
   // Tool calls/results and system messages are kept out of the visitor view.
@@ -583,7 +605,7 @@ export function FloatingAIInterface({
   };
 
   // Public tier: send through the gateway-fronted text endpoint
-  const sendPublicMessage = async (text: string) => {
+  const sendPublicMessage = async (text: string, opts?: { chipId?: string }) => {
     const { sendPublicChatMessage } = await import('@/lib/ai/public-chat-client');
     const userMsg = { id: `pub_u_${Date.now()}`, type: 'user_speech' as const, content: text };
     const history = publicMessages.map((m) => ({
@@ -593,16 +615,47 @@ export function FloatingAIInterface({
     setPublicMessages((prev) => [...prev, userMsg]);
     setPublicBusy(true);
     try {
-      const result = await sendPublicChatMessage(text, history);
+      // G2: the consent-toggle state rides every public turn (policy line + prefs persistence)
+      const result = await sendPublicChatMessage(text, history, { ...opts, autoNav: getAutoNav() });
       let reply: string;
       if (result.ok === true) {
         reply = result.reply;
+        // G1: chips/label ride the /chat envelope on the text tier
+        if (result.engineUx) setEnvelopeUx(result.engineUx);
       } else {
         reply = result.error;
       }
       setPublicMessages((prev) => [...prev, { id: `pub_a_${Date.now()}`, type: 'ai_response', content: reply }]);
     } finally {
       setPublicBusy(false);
+    }
+  };
+
+  /**
+   * G1 (Req 13.1, P22): a chip tap sends its text as a NORMAL visitor turn —
+   * it appears in the transcript as the visitor's own words — while the chip
+   * id rides the turn evidence so `chip` edges fire deterministically.
+   */
+  const handleChipTap = async (chip: EngineChip) => {
+    const text = chip.sendText ?? chip.label;
+    if (chipsBusy || publicBusy) return;
+    setChipsBusy(true);
+    setHasInteracted(true);
+    try {
+      if (mode !== 'expanded') onModeChange?.('expanded');
+      if (isPublicTextTier) {
+        await sendPublicMessage(text, { chipId: chip.id });
+      } else {
+        if (!isConnected) {
+          await connectWithContinuity({ audioInput: false });
+        }
+        await sendChipTap({ id: chip.id, text });
+      }
+      onTextSubmit?.(text);
+    } catch (error) {
+      console.error('Chip tap failed:', error);
+    } finally {
+      setChipsBusy(false);
     }
   };
 
@@ -828,15 +881,6 @@ export function FloatingAIInterface({
     }
   };
 
-  // Handle quick action
-  const handleQuickAction = (action: QuickAction) => {
-    onQuickAction?.(action);
-    if (action.command) {
-      setInputValue(action.command);
-    }
-    setHasInteracted(true);
-  };
-
   // Handle audio controls
   const toggleAudio = () => {
     setAudioEnabled(!audioEnabled);
@@ -870,60 +914,6 @@ export function FloatingAIInterface({
     md: 'max-w-2xl',     // 672px (was 448px) 
     lg: 'max-w-4xl'      // 896px (was 512px)
   };
-
-  // Generate quick actions based on access level and personalized context
-  const generateQuickActions = (): QuickAction[] => {
-    if (quickActions.length > 0) return quickActions;
-
-    const actions: QuickAction[] = [
-      {
-        id: 'show-projects',
-        label: 'Show me your projects',
-        icon: MessageCircle,
-        command: 'Show me your best projects'
-      },
-      {
-        id: 'about-skills',
-        label: 'Tell me about your skills',
-        icon: Sparkles,
-        command: 'Tell me about your skills and experience'
-      }
-    ];
-
-    // Add personalized actions for premium users
-    if (personalizedContext?.conversationStarters) {
-      personalizedContext.conversationStarters.slice(0, 2).forEach((starter, index) => {
-        actions.push({
-          id: `personalized-${index}`,
-          label: starter.length > 30 ? starter.substring(0, 30) + '...' : starter,
-          icon: Sparkles,
-          command: starter
-        });
-      });
-    }
-
-    // Add job analysis for premium users
-    if (isFeatureEnabled('job_analysis')) {
-      actions.push({
-        id: 'job-analysis',
-        label: 'Analyze a job posting',
-        icon: MessageCircle,
-        command: 'I can analyze job postings for you - just paste the job description'
-      });
-    }
-
-    // Add contact info
-    actions.push({
-      id: 'contact-info',
-      label: 'How can I contact you?',
-      icon: MessageCircle,
-      command: 'How can I get in touch with you?'
-    });
-
-    return actions.slice(0, 4); // Limit to 4 actions
-  };
-
-  const effectiveQuickActions = generateQuickActions();
 
   // Don't render if access level is 'no_access'
   if (accessLevel === 'no_access') {
@@ -1026,8 +1016,35 @@ export function FloatingAIInterface({
             )}
           </AnimatePresence>
 
+          {/* Job-description intake modal (Req 13.4, G3): opened by the
+              job_description_form client tool; delivery-menu choices speak
+              through the conversation as visitor turns. */}
+          <JobDescriptionModal
+            reflinkId={session?.reflink?.id}
+            onVisitorTurn={(text) => {
+              void (async () => {
+                try {
+                  if (!isConnected) await connectWithContinuity({ audioInput: false });
+                  await sendMessage(text);
+                } catch (err) {
+                  console.error('JD delivery-choice send failed:', err);
+                }
+              })();
+            }}
+            onAssistantContext={(text) => publishContext('jd_analysis', text)}
+          />
+
+          {/* Engine chips (Req 13.1, G1): float aesthetically above the input
+              section — they animate outwards from it on entry and never move
+              once shown. Owner-authored per node; hidden when no graph steers. */}
+          {effectiveUx && effectiveUx.chips.length > 0 && (
+            <div className="mb-2">
+              <EngineChipsRow ux={effectiveUx} onChipTap={handleChipTap} disabled={chipsBusy || publicBusy} />
+            </div>
+          )}
+
           {/* Main Voice Interface Container - Pill Shape with GSAP animations */}
-          <div 
+          <div
             ref={aiPanelRef}
             className={cn(
               'relative overflow-hidden bg-background/95 backdrop-blur-md border-2 border-border/50',
@@ -1054,20 +1071,7 @@ export function FloatingAIInterface({
                   </div>
                   
                   {/* Controls bar */}
-                  <div className="bg-card/50 border-b border-border/50 px-6 py-3 flex items-center justify-between">
-                    {/* Quick Action buttons */}
-                    <div className="flex gap-2">
-                      {effectiveQuickActions.slice(0, 3).map((action) => (
-                        <button
-                          key={action.id}
-                          onClick={() => handleQuickAction(action)}
-                          className="bg-card border border-border px-3 py-1 rounded-lg text-xs font-medium hover:scale-105 transition-all duration-200 text-foreground hover:bg-accent/20"
-                        >
-                          {action.label}
-                        </button>
-                      ))}
-                    </div>
-
+                  <div className="bg-card/50 border-b border-border/50 px-6 py-3 flex items-center justify-end">
                     {/* Audio and close controls */}
                     <div className="flex items-center gap-3">
                       {/* Budget status for premium users */}
@@ -1253,6 +1257,12 @@ export function FloatingAIInterface({
               </div>
             )}
 
+            {/* Topic indicator (Req 13.3): small grayish line above the input
+                field; hidden when the active node declares none. */}
+            <div className="px-6 pt-2 -mb-2 min-h-0">
+              <EngineTopicLabel label={effectiveUx?.topicLabel ?? null} />
+            </div>
+
             {/* Main Input Row - Always at bottom */}
             <div className="flex items-center gap-4 px-6 py-4">
               {/* Text Input */}
@@ -1311,6 +1321,30 @@ export function FloatingAIInterface({
                   )}
                 >
                   {audioEnabled ? <Volume2 className="text-sm" /> : <VolumeX className="text-sm" />}
+                </button>
+
+                {/* Auto-navigation consent toggle (Req 13.8, G2): visible two-state
+                    control — OFF (default) = the agent asks before taking you
+                    anywhere; ON = the agent may navigate freely. The agent can
+                    flip it too, but only via the set_auto_navigation tool after
+                    you agree — the state you see here is always the real one. */}
+                <button
+                  onClick={() => setAutoNav(!autoNavOn, 'tap')}
+                  className={cn(
+                    'p-2 rounded-full transition-all duration-200',
+                    autoNavOn
+                      ? 'text-primary bg-primary/10 hover:bg-primary/20'
+                      : 'text-muted-foreground hover:bg-muted/10'
+                  )}
+                  title={
+                    autoNavOn
+                      ? 'Auto-navigation ON — the assistant may move around the site for you. Click to make it ask first.'
+                      : 'Auto-navigation OFF — the assistant asks before taking you anywhere. Click to let it navigate freely.'
+                  }
+                  aria-pressed={autoNavOn}
+                  data-testid="autonav-toggle"
+                >
+                  <Navigation className="text-sm" size={16} />
                 </button>
               </div>
 

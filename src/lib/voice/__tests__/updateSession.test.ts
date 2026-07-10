@@ -89,6 +89,24 @@ const directive = (seq: number, extra: Record<string, unknown> = {}) => ({
 });
 
 describe('engine directive application (tasks A2/A4 — P2, P4, P19)', () => {
+  it('surfaces directive-carried ux (chips + topic label) via onEngineUx, once per seq (G1, Req 13.1)', async () => {
+    const a = new TestAdapter();
+    const seen: unknown[] = [];
+    (a as unknown as { _options: Partial<AdapterInitOptions> })._options = {
+      onEngineUx: (ux: unknown) => seen.push(ux),
+    } as Partial<AdapterInitOptions>;
+    const ux = { chips: [{ id: 'c1', label: 'Chip one' }], topicLabel: 'Kiln project' };
+    a.handleDirective(directive(1, { ux }));
+    a.handleDirective(directive(1, { ux })); // retried POST — applies once (P4)
+    await flush();
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toEqual(ux);
+    // a directive without ux leaves the surface untouched (no callback)
+    a.handleDirective(directive(2));
+    await flush();
+    expect(seen).toHaveLength(1);
+  });
+
   it('applies a directive exactly once when the same seq arrives twice (retried /log POST)', async () => {
     const a = new TestAdapter();
     a.handleDirective(directive(1));

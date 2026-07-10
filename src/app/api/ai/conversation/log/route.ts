@@ -326,6 +326,23 @@ async function handleLegEvent(
  * the same directive seq applies once client-side (P4). The dev synthetic
  * seam (non-production) remains as a fallback for drills.
  */
+/**
+ * G2 (Req 13.8, P36): mirror the client's auto-navigation toggle into
+ * ConversationState.prefs (non-engine sibling key) whenever a turn's UI
+ * evidence carries a flip. Fire-and-forget — preference persistence never
+ * delays or fails the log write; the newest flip in the evidence wins.
+ */
+function persistAutoNavPref(conversationId: string, uiEvidence?: Array<Record<string, unknown>>): void {
+  if (!uiEvidence?.length) return;
+  const flip = [...uiEvidence].reverse().find(
+    (e) => e.event === 'autonav_changed' && typeof e.value === 'boolean'
+  );
+  if (!flip) return;
+  void conversationHistoryManager
+    .mergeConversationPrefs(conversationId, { autoNav: flip.value })
+    .catch((err) => console.warn('[conversation/log] autonav pref persist failed:', err));
+}
+
 async function resolveEngineDirective(args: {
   sessionId: string;
   provider: string;
@@ -334,6 +351,7 @@ async function resolveEngineDirective(args: {
   userTurn?: { itemId: string; content: string; chipId?: string } | null;
   uiEvidence?: Array<Record<string, unknown>>;
 }): Promise<{ directive: EngineDirective | undefined; window: EngineWindowUpdate | undefined }> {
+  persistAutoNavPref(args.conversationId, args.uiEvidence);
   if (args.provider !== 'openai' && args.provider !== 'google') return { directive: undefined, window: undefined };
   let directive: EngineDirective | null = null;
   let window: EngineWindowUpdate | null = null;

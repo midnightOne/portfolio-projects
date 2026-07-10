@@ -794,6 +794,26 @@ export class ConversationHistoryManager {
     }
 
     /**
+     * G2 (Req 13.8, P36): visitor preferences under latestState.prefs — a
+     * NON-engine sibling key (the auto-nav toggle must survive graph archival
+     * and exist graph-less). Same atomic jsonb merge discipline as the engine
+     * key (P18): merge, never blob-replace; stateVersion bumps in SQL.
+     */
+    async mergeConversationPrefs(conversationId: string, patch: Record<string, unknown>): Promise<void> {
+        const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+        if (Object.keys(defined).length === 0) return;
+        await prisma.$executeRaw`
+            UPDATE ai_conversations
+            SET latest_state = jsonb_set(
+                    COALESCE(latest_state, '{}'::jsonb),
+                    '{prefs}',
+                    COALESCE(latest_state->'prefs', '{}'::jsonb) || ${JSON.stringify(defined)}::jsonb
+                ) || jsonb_build_object('updatedAt', ${new Date().toISOString()}::text)
+                  || jsonb_build_object('stateVersion', COALESCE((latest_state->>'stateVersion')::int, 0) + 1)
+            WHERE id = ${conversationId}`;
+    }
+
+    /**
      * P3 optimistic claim: set engine.lastEvaluatedTurnId = turnId iff it still
      * equals `expected` (IS NOT DISTINCT FROM handles the turn-zero null).
      * Zero rows updated = a concurrent invocation won; the caller aborts the

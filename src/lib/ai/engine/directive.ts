@@ -8,7 +8,25 @@
  * cascade/text at prompt assembly).
  */
 
-import type { EngineDirective, GraphNode, VisitorFlags } from './types';
+import type { EngineDirective, EngineUx, GraphNode, VisitorFlags } from './types';
+
+/** Owner 2026-07-10: at most three chips render (design-ux-and-behavior §9.1). */
+const MAX_CHIPS = 3;
+
+/**
+ * A node's visitor-visible surface (Req 13, Block G1) — full snapshot: what
+ * this returns REPLACES whatever the pill showed before. Chips keep authored
+ * order and truncate at three (validation warns at authoring; runtime never
+ * renders more). Nodes with no `ux` yield the empty surface, which HIDES
+ * chips/label — absence is a valid state, not "keep previous" (P22 stays
+ * intact: only authored ids ever appear here).
+ */
+export function nodeUx(node: GraphNode): EngineUx {
+  return {
+    chips: (node.ux?.chips ?? []).slice(0, MAX_CHIPS),
+    topicLabel: node.ux?.topicLabel ?? null,
+  };
+}
 
 /** P21: slot values are user-provided text entering prompts — delimited, length-capped, data-not-instructions framing. */
 const SLOT_VALUE_CAP = 200;
@@ -84,6 +102,18 @@ export function renderNodeGuidance(
   if (node.guidance.onEnterSuggestion) {
     lines.push(`Suggestion (you decide whether/when — Req 6.4): ${resolve(node.guidance.onEnterSuggestion)}`);
   }
+  if (node.ux?.onEnterStaging) {
+    // Req 13.2 AS AMENDED (owner 2026-07-10): staging is a suggestion to the
+    // MODEL — the engine never executes navigation. One staged move at most,
+    // via ui_intent, honoring the auto-navigation consent policy in the
+    // context block; preview-level (scroll/highlight) over context-destroying
+    // jumps unless the visitor asked (Req 13.6).
+    const staging = node.ux.onEnterStaging;
+    lines.push(
+      `Staging suggestion for this state (optional; at most ONE staged move via ui_intent, honoring the AUTO-NAVIGATION policy shown in your context; prefer preview-level moves unless the visitor asked to be taken there): ${staging.navTarget}` +
+        (staging.highlightText ? ` — highlight "${staging.highlightText}"` : '')
+    );
+  }
   return { text: lines.join('\n'), unresolvedSlots };
 }
 
@@ -109,6 +139,8 @@ export function buildTransitionDirective(args: {
   providerTools?: Array<Record<string, unknown>>;
   /** Rendered visitor profile (J2) — rides the same floating block under its own key (Req 19.1). */
   profileText?: string | null;
+  /** Target node's visitor-visible surface (Req 13, G1) — replace-on-transition. */
+  ux?: EngineUx;
 }): EngineDirective {
   return {
     seq: args.seq,
@@ -117,6 +149,7 @@ export function buildTransitionDirective(args: {
       ...(args.profileText ? [{ key: 'profile', text: args.profileText }] : []),
     ],
     ...(args.providerTools ? { tools: args.providerTools } : {}),
+    ...(args.ux ? { ux: args.ux } : {}),
   };
 }
 

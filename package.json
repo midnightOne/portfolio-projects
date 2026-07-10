@@ -15,6 +15,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force && tsx scripts/seed-fixture.ts",
     "seed:fixture": "tsx scripts/seed-fixture.ts",
+    "ingest:about-ai": "tsx scripts/ingest-about-ai.ts",
+    "seed:visitor-intro": "tsx scripts/seed-visitor-intro.ts",
     "check:semantic": "tsx scripts/check-semantic.ts",
     "check:gateway": "tsx scripts/checks/check-gateway.ts",
     "check:specs": "tsx scripts/checks/check-specs.ts",

@@ -2418,6 +2418,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     // Required abstract methods from IConversationalAgentAdapter
     async cleanup(): Promise<void> {
         await this.disconnect();
+        this._releaseBaseSubscriptions();
         this._agent = null;
         this._session = null;
         this._history = [];

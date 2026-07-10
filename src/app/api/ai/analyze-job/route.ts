@@ -33,12 +33,18 @@ interface AnalysisShape {
   recommendations: string[];
   skillsMatch: Array<{ skill: string; match: number; evidence: string[] }>;
   experienceMatch: Array<{ area: string; match: number; relevantProjects: string[] }>;
+  /** G3 (Req 13.4 expanded): visitor-facing compatibility document — rendered
+   *  in the job-description modal; covers experience fit AND preferred-work
+   *  fit (against the owner's work-preferences record when present). */
+  document?: string;
 }
 
 const SYSTEM_PROMPT = `You are an analyst comparing a job specification against a software engineer's ACTUAL portfolio evidence (provided as grounding). Be honest and specific:
 - Only claim strengths the grounding supports; cite project names as evidence.
 - Name real gaps — missing skills are informative, not embarrassing.
 - Scores are 0..1 and should vary meaningfully (never all the same value).
+- When "Owner work preferences" appear in the grounding, judge PREFERRED-WORK fit too (does this role match what he wants to do?) — separately from capability fit. Never quote the preferences verbatim; paraphrase professionally.
+- "document" is a visitor-facing compatibility write-up in plain prose (350-600 words, markdown headings allowed): open with the overall verdict, then experience fit with cited project evidence, then preferred-work fit (when preferences were provided), then honest gaps. Written ABOUT the engineer in third person, for the recruiter reading it.
 Respond with ONLY a JSON object (no markdown fences) of this exact shape:
 {
   "overallMatch": number 0..1,
@@ -48,7 +54,8 @@ Respond with ONLY a JSON object (no markdown fences) of this exact shape:
   "gaps": string[],
   "recommendations": string[],
   "skillsMatch": [{ "skill": string, "match": number 0..1, "evidence": string[] }],
-  "experienceMatch": [{ "area": string, "match": number 0..1, "relevantProjects": string[] }]
+  "experienceMatch": [{ "area": string, "match": number 0..1, "relevantProjects": string[] }],
+  "document": string
 }`;
 
 function parseAnalysis(raw: string | null): AnalysisShape | null {
@@ -65,6 +72,19 @@ function parseAnalysis(raw: string | null): AnalysisShape | null {
 
 async function assembleGrounding(jobDescription: string, ctx: GatewayContext): Promise<string> {
   const frame = await assembleStartFrame();
+
+  // G3: the owner's work-preferences record (admin-edited, server-side only —
+  // never a content chunk, P13) joins the grounding so fit is judged against
+  // preferred work too. Absent/empty = capability-fit-only, as before.
+  let preferences = '';
+  try {
+    const prefs = await prisma.aIOwnerPreferences.findUnique({ where: { id: 'owner' } });
+    if (prefs?.workPreferences?.trim()) {
+      preferences = `\n\nOwner work preferences (server-side context — paraphrase, never quote verbatim):\n${prefs.workPreferences.trim()}`;
+    }
+  } catch (error) {
+    console.error('[analyze-job] preferences read failed (continuing without):', error);
+  }
 
   // Retrieval grounding: search the semantic store with the job spec's own text
   // (same chain the assistant uses — D39). Reflink/admin tiers see full content.
@@ -91,7 +111,7 @@ async function assembleGrounding(jobDescription: string, ctx: GatewayContext): P
     console.error('[analyze-job] grounding search failed (continuing with frame only):', error);
   }
 
-  return `${frame}\n\nRelevant portfolio evidence for this job spec:\n${hits || '(no additional retrieval hits)'}`;
+  return `${frame}\n\nRelevant portfolio evidence for this job spec:\n${hits || '(no additional retrieval hits)'}${preferences}`;
 }
 
 async function handlePOST(request: NextRequest, ctx: GatewayContext) {

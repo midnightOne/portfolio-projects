@@ -257,6 +257,12 @@ export interface AdapterInitOptions {
    *  write — lets the UI display it for later lookup. */
   onConversationPersisted?: (conversationId: string) => void;
 
+  /** G1 (Req 13.1/13.3): fired when an applied engine directive carries a new
+   *  visitor surface (chips + topic label) — the pill renders/replaces from
+   *  this. Fires at directive-application time, so surface swaps respect turn
+   *  boundaries (P19). */
+  onEngineUx?: (ux: import('@/lib/ai/engine/types').EngineUx) => void;
+
   // Debug and logging
   debug?: boolean;
   logLevel?: 'error' | 'warn' | 'info' | 'debug';

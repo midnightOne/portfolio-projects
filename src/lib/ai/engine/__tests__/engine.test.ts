@@ -528,7 +528,7 @@ describe('ConversationEngine.processTurn', () => {
       throw new Error('db exploded');
     };
     const engine = makeEngine(validDoc(), store);
-    await expect(engine.processTurn('c1', evidence('hi'), turnCtx)).resolves.toEqual({ directive: null, transition: null, debug: null });
+    await expect(engine.processTurn('c1', evidence('hi'), turnCtx)).resolves.toEqual({ directive: null, transition: null, debug: null, ux: null });
   });
 });
 
@@ -659,5 +659,131 @@ describe('Block C — model edges, swap-machinery removal, ProcessTurnDebug', ()
     const engine = makeEngine(validDoc(), store);
     const result = await engine.processTurn('c1', evidence('the kiln'), turnCtx);
     expect(result.debug).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block G1 — visitor UX surface (Req 13.1/13.3/13.5, P22/P37/P40)
+// ---------------------------------------------------------------------------
+
+describe('Block G1 — chips + topic label on the directive/result', () => {
+  const uxDoc = (): GraphDocument => {
+    const d = validDoc();
+    (d.nodes[0] as Record<string, unknown>).ux = {
+      chips: [
+        { id: 'chip-projects', label: 'Show me projects' },
+        { id: 'chip-ai', label: 'How does this AI work?', sendText: 'Tell me how this AI assistant works' },
+      ],
+      topicLabel: 'Overview',
+    };
+    (d.nodes[1] as Record<string, unknown>).ux = {
+      chips: [
+        { id: 'k1', label: 'Control loop?' },
+        { id: 'k2', label: 'Firmware?' },
+        { id: 'k3', label: 'Glazes?' },
+        { id: 'k4', label: 'NEVER RENDERED — over the max' },
+      ],
+      topicLabel: 'Kiln project',
+    };
+    return d;
+  };
+
+  it('startPolicy carries the landing node ux; chips truncate at three (§9.1)', async () => {
+    const engine = makeEngine(uxDoc(), makeStore(null));
+    const directive = await engine.startPolicy({ isPublic: true });
+    expect(directive?.ux.chips.map((c) => c.id)).toEqual(['chip-projects', 'chip-ai']);
+    expect(directive?.ux.topicLabel).toBe('Overview');
+    const resume = await engine.resumePolicy(freshState('kiln'), { isPublic: true });
+    expect(resume?.ux.chips).toHaveLength(3); // 4 authored, max 3 rendered
+    expect(resume?.ux.chips.map((c) => c.id)).toEqual(['k1', 'k2', 'k3']);
+  });
+
+  it('a fired transition returns the TARGET node ux on result AND directive (replace-on-transition)', async () => {
+    const store = makeStore(freshState());
+    const engine = makeEngine(uxDoc(), store);
+    const result = await engine.processTurn('c1', evidence('the kiln please'), turnCtx);
+    expect(result.transition?.toNode).toBe('kiln');
+    expect(result.ux?.topicLabel).toBe('Kiln project');
+    expect(result.ux?.chips.map((c) => c.id)).toEqual(['k1', 'k2', 'k3']);
+    expect(result.directive?.ux).toEqual(result.ux); // native voice gets it inside the directive too
+  });
+
+  it('cascade/text transitions still return ux on the RESULT (the /chat envelope path) with no directive', async () => {
+    const store = makeStore(freshState());
+    const engine = makeEngine(uxDoc(), store);
+    const result = await engine.processTurn('c1', evidence('kiln'), { provider: 'text', isNative: false, isPublic: true });
+    expect(result.directive).toBeNull();
+    expect(result.ux?.topicLabel).toBe('Kiln project');
+  });
+
+  it('no-fire turns return ux: null — the pill keeps its current surface', async () => {
+    const store = makeStore(freshState());
+    const engine = makeEngine(uxDoc(), store);
+    const result = await engine.processTurn('c1', evidence('nothing matches'), turnCtx);
+    expect(result.ux).toBeNull();
+  });
+
+  it('a node without ux yields the EMPTY surface (hidden), not a carried-over one', async () => {
+    const d = uxDoc();
+    delete (d.nodes[1] as Record<string, unknown>).ux;
+    const store = makeStore(freshState());
+    const engine = makeEngine(d, store);
+    const result = await engine.processTurn('c1', evidence('the kiln'), turnCtx);
+    expect(result.ux).toEqual({ chips: [], topicLabel: null });
+  });
+
+  it('chip-tap evidence fires the chip edge by id alone — sendText/label irrelevant (P22)', async () => {
+    const store = makeStore(freshState('kiln'));
+    const engine = makeEngine(uxDoc(), store);
+    const result = await engine.processTurn(
+      'c1',
+      evidence('completely unrelated words', { chipId: 'chip-home' }),
+      turnCtx
+    );
+    expect(result.transition?.edgeId).toBe('e-back');
+    expect(result.transition?.conditionType).toBe('chip');
+    expect(result.ux?.topicLabel).toBe('Overview'); // back at start
+  });
+
+  it('onEnterStaging renders as a MODEL suggestion honoring the auto-nav policy — never engine-executed (Req 13.2 as amended, G2)', async () => {
+    const d = uxDoc();
+    (d.nodes[1] as Record<string, unknown>).ux = {
+      onEnterStaging: { navTarget: 'project:verification-fixture-kiln#thermal-control-system', highlightText: 'PID control loop' },
+    };
+    const store = makeStore(freshState());
+    const engine = makeEngine(d, store);
+    const result = await engine.processTurn('c1', evidence('the kiln please'), turnCtx);
+    const engineText = result.directive?.contextItems?.find((i) => i.key === 'engine')?.text ?? '';
+    expect(engineText).toContain('Staging suggestion');
+    expect(engineText).toContain('AUTO-NAVIGATION policy');
+    expect(engineText).toContain('project:verification-fixture-kiln#thermal-control-system');
+    expect(engineText).toContain('highlight "PID control loop"');
+    // and the suggestion never leaks into the visitor-visible surface
+    expect(result.ux).toEqual({ chips: [], topicLabel: null });
+  });
+
+  it('startUx/currentUx are lightweight surface reads (no context resolution)', async () => {
+    let contextResolved = 0;
+    const d = uxDoc();
+    const engine = new ConversationEngine({
+      graphSource: {
+        async getActiveGraph() {
+          return { graphId: 'g1', versionId: 'v1', document: d };
+        },
+        async getVersion(id: string) {
+          return id === 'v1' ? d : null;
+        },
+      },
+      stateStore: makeStore(null),
+      evaluator: fakeDeps(),
+      resolveContextSet: async () => {
+        contextResolved++;
+        return { text: 'ctx', drops: [] };
+      },
+    });
+    expect((await engine.startUx())?.topicLabel).toBe('Overview');
+    expect((await engine.currentUx(freshState('kiln')))?.topicLabel).toBe('Kiln project');
+    expect(await engine.currentUx(null)).toBeNull();
+    expect(contextResolved).toBe(0); // the surface read never assembles context
   });
 });

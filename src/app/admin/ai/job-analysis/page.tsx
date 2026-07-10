@@ -32,6 +32,73 @@ interface AnalysisRow {
   sessionId: string | null;
 }
 
+/**
+ * Owner work-preferences editor (conversation-engine Req 13.4 expanded, G3):
+ * plain text the JD analysis judges preferred-work fit against. Kept out of
+ * the semantic index by design — GET/PUT /api/admin/ai/owner-preferences.
+ */
+function OwnerPreferencesPanel() {
+  const [text, setText] = useState('');
+  const [state, setState] = useState<'loading' | 'idle' | 'saving' | 'saved' | 'error'>('loading');
+
+  useEffect(() => {
+    fetch('/api/admin/ai/owner-preferences')
+      .then((res) => res.json())
+      .then((data) => {
+        setText(typeof data.workPreferences === 'string' ? data.workPreferences : '');
+        setState('idle');
+      })
+      .catch(() => setState('error'));
+  }, []);
+
+  const save = async () => {
+    setState('saving');
+    try {
+      const res = await fetch('/api/admin/ai/owner-preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workPreferences: text }),
+      });
+      if (!res.ok) throw new Error('save failed');
+      setState('saved');
+      setTimeout(() => setState('idle'), 2000);
+    } catch {
+      setState('error');
+    }
+  };
+
+  return (
+    <Card data-testid="owner-preferences-panel">
+      <CardHeader>
+        <CardTitle className="text-base">Work preferences (fed to every analysis)</CardTitle>
+        <CardDescription>
+          What you want to work on, deal-breakers, preferred domains/stack — the analysis judges
+          preferred-work fit against this, paraphrased and never quoted verbatim. Server-side only;
+          never enters the public search index.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={4}
+          disabled={state === 'loading'}
+          placeholder="e.g. Prefers embedded/firmware and AI-systems work; enjoys greenfield architecture; not interested in pure CRUD maintenance roles…"
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:border-primary/60 resize-y"
+          data-testid="owner-preferences-text"
+        />
+        <div className="flex items-center gap-3">
+          <Button size="sm" onClick={save} disabled={state === 'loading' || state === 'saving'}>
+            {state === 'saving' ? 'Saving…' : 'Save'}
+          </Button>
+          {state === 'saved' && <span className="text-xs text-green-600">Saved.</span>}
+          {state === 'error' && <span className="text-xs text-red-600">Failed — try again.</span>}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function MatchBadge({ value }: { value?: number }) {
   if (typeof value !== 'number') return null;
   const pct = Math.round(value * 100);
@@ -77,6 +144,11 @@ export default function JobAnalysisReviewPage() {
           Refresh
         </Button>
       </div>
+
+      {/* G3 (Req 13.4 expanded): the owner work-preferences record fed to every
+          JD analysis — server-side only, deliberately not a content chunk so it
+          never leaks through retrieval (P13). */}
+      <OwnerPreferencesPanel />
 
       {error && <p className="text-sm text-red-600">{error}</p>}
       {loading && <p className="text-sm text-muted-foreground">Loading…</p>}

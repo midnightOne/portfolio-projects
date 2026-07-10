@@ -1,6 +1,6 @@
 # conversation-engine — Design: Visitor UX & Behavior Policy
 
-**Status:** current — **unimplemented**; companion to [design.md](./design.md), sourced from the owner interview of 2026-07-09 (two rounds: structured scenario choices + open-ended behavior descriptions). This file is the record of the owner's *vision*; requirements 13–18 bind the mechanics, this file binds the intended behavior and seeds the first graph's content.
+**Status:** current — **partially implemented** (Blocks A–E, I, J live; Block G in progress); companion to [design.md](./design.md), sourced from the owner interview of 2026-07-09 (two rounds: structured scenario choices + open-ended behavior descriptions) **plus the 2026-07-10 Block G interview (§9 — chips choreography, auto-nav consent, memory-without-graph, JD modal, suggestion taxonomy)**. This file is the record of the owner's *vision*; requirements 13–18 bind the mechanics, this file binds the intended behavior and seeds the first graph's content.
 **Owner domain:** visitor-facing UX surfaces of node state, persona/style policy, scenario behavior specs, slot filling, lead capture, question analytics, cross-session continuity
 **Last verified against code:** 2026-07-09 (nothing implemented)
 
@@ -128,3 +128,34 @@ Purpose: replace intuition-picked chips with data-picked chips — *in the edito
 | off-graph (required by Req 2.5) | — | baseline everything |
 
 Every row above must exist as at least one golden scenario before the graph goes live (F2); the §2 vignettes are their scripts.
+
+## 9. Block G interview addendum (owner, 2026-07-10) — normative for Blocks G/M and the ui-system pill work
+
+### 9.1 Chip choreography (mechanics — Req 13.1; Block G1)
+- Chips animate **outwards from the text input section** and float *aesthetically* above it — they never reposition once shown ("to not make it harder for the user to click"). Max **3**.
+- Stale chips (node transition) play a **disintegration** animation; the new set then appears. On tap: the tapped chip plays a **distinct "proper choice" animation** while its siblings disintegrate.
+- Untapped-sibling behavior is an **A/B flag** (retain vs. vanish) — one system flag, both variants testable; no schema fork.
+- Chips **persist during voice**; a tapped chip's text enters the transcript **as the visitor's own turn** (voice: text-injected into the live session; text: normal send). Chips replace the legacy quick-actions placeholder entirely (owner: "basically not even a prototype").
+- Topic label: small **grayish text line next to the pill edge / above the input field**; transitions use disintegrate → appear-from-blur. Absent label = hidden.
+- Re-entry note (seed-graph content, not v1 mechanics): re-entering a node should feel remembered — guidance tells the agent to offer "clarify what we covered vs. explore a different part"; data-different chips per re-entry are a later refinement.
+
+### 9.2 Auto-navigation consent (mechanics — Req 13.8/13.9; Block G2)
+- A **two-state toggle on the pill** governs commit-level navigation autonomy. OFF (default for every new visitor) = agent asks first ("do you want me to take you there?"); ON = agent may move the visitor freely, including multi-leg tours, until switched off.
+- Flip paths: visitor tap; visitor spoken request (**model tool call** — a registry client tool, so the flip is real state, never a prompt-only pretense); agent-initiated only after explicit visitor consent in-conversation.
+- Node transitions **suggest** staging to the model; the engine never executes navigation. UI state and conversation state are orthogonal: the visitor may browse anywhere while a topic stays active — the agent keeps talking, acknowledges, offers to follow when the answer completes. "Present and aware… not overbearing."
+- New-visitor intro (content — Req 18.5): owner-authored, admin-editable text introducing the portfolio, what the AI can do, and the auto-nav option — fed into system-prompt assembly, never hardcoded.
+
+### 9.3 The pill becomes liquid; the chat becomes a sidebar (ui-system domain — pointer only)
+Owner vision recorded here, **built in the ui-system spec, not this one**: pill docks at the bottom edge with a water-drop "wetting" morph (metaball-style aesthetics via formula-driven animated beziers — explicitly NO physics sim or heavy shaders; mobile portrait/landscape responsive); transcript history graduates to a proper right sidebar the pill morphs into (mobile: full-screen glance, close to navigate). Block G builds chips/label/toggle as self-contained components against the CURRENT pill; they relocate during the redesign. See ui-system tasks.
+
+### 9.4 JD form expansion (mechanics — Req 13.4; Block G3)
+Modal with paste field + file-drop; **extraction strictly client-side, only text is sent** (v1 file types: plain text; PDF/DOCX extraction is a follow-up task, lazy-loaded libs). Processing animation → result rendered in-modal as an LLM-written **compatibility document** (experience fit AND preferred-work fit). The analysis is additionally fed an **owner work-preferences record** — admin-editable, server-side, never public. Post-result the agent offers: spoken summary / full read-aloud / read in peace / **email me the result** (address validated + stored on the conversation; the send goes through the Req 15 notification seam as a visitor-bound, rate-limited channel — capture ships in G3, sending ships with the H2 email module; the same channel later serves conversation summaries etc.).
+
+### 9.5 Suggestions taxonomy (mechanics — Req 16.4 clarified; Blocks M4/M5 deferred)
+One chips pipeline, three sources: (a) **owner-authored** chips (ids → deterministic edges) — live; (b) **graph-tied automatic** best-3-of-N from `NodeEntryQuestion` clusters — deferred (the original 16.4 deferral); (c) **graph-less model-initiated**: the model calls a suggestions tool, a lightweight LLM generates 3 options from the streaming response transcript — potentially completing before speech playback ends (assumption must be DRIVEN before designing to it, D22) — and the resulting *text* chips feed the same rendering path (no ids; off-graph has no deterministic edges; the text itself is the prompt). Also deferred. **Not deferred: the shared secondary-LLM job infrastructure (M1, prioritized)** — cheap-call, summarizer, safety investigation, JD analysis, and both deferred suggestion variants must all be consumers of one documented pattern (alias + gateway + ledger + JSON-forced schema + in-flight/staleness discipline), never bespoke plumbing.
+
+### 9.6 Memory without the graph (mechanics — Req 19.7; Block M2)
+The floating block is a **sum of source-attributed parts** behind one provider contract: F-I-D, engine node context, visitor profile/notes, running summary, auto-nav preference — each a cache updated by its own system, merged fresh at injection, tolerant of any subset being absent. The D55 buffer already implements the mechanics; M2 formalizes the contract (typed provider interface, source labels in the rendered block) and **un-gates the user/conversation memory providers from graph presence** (today the summarizer/profile only run when a graph steers). The memory layer gets its own admin switch (default on) and graph-less sessions get an owner-curated default tool set. Removal safety re-scoped: both layers off = pre-engine behavior.
+
+### 9.7 Organic conversations as graph-design data (mechanics — Req 16 extension; Block M3)
+Entry-question sampling must not require a graph: UI events (project modal opened, section viewed) act as **proto-node keys** for the same first-1–2-user-turns sampling join, queryable in admin by condition — so the first real graph's shape is derived from organic conversations rather than intuition.

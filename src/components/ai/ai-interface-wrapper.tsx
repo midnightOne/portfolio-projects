@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { FloatingAIInterface, QuickAction } from './floating-ai-interface';
+import { FloatingAIInterface } from './floating-ai-interface';
 import { ConversationalAgentProvider } from '@/components/providers/conversational-agent-provider';
 import { ReflinkSessionProvider } from '@/components/providers/reflink-session-wrapper';
 import { useReflinkSession } from '@/components/providers/reflink-session-provider';
@@ -110,21 +110,6 @@ export function AIInterfaceWrapper({
     // For now, just log it
   };
 
-  // Handle quick actions
-  const handleQuickAction = (action: QuickAction) => {
-    console.log('Quick action triggered:', action);
-    
-    // Set narration based on action
-    if (action.command) {
-      setCurrentNarration(`Processing: ${action.label}`);
-      
-      // Clear narration after a delay
-      setTimeout(() => {
-        setCurrentNarration(null);
-      }, 3000);
-    }
-  };
-
   // Handle settings click
   const handleSettingsClick = () => {
     if (onSettingsClick) {
@@ -151,7 +136,6 @@ export function AIInterfaceWrapper({
         isVisible={isVisible}
         setIsVisible={setIsVisible}
         handleTextSubmit={handleTextSubmit}
-        handleQuickAction={handleQuickAction}
         handleSettingsClick={handleSettingsClick}
         className={className}
         isAdmin={isAdmin}
@@ -172,7 +156,6 @@ interface AIInterfaceContentProps {
   isVisible: boolean;
   setIsVisible: (visible: boolean) => void;
   handleTextSubmit: (text: string) => void;
-  handleQuickAction: (action: QuickAction) => void;
   handleSettingsClick: () => void;
   className?: string;
   isAdmin?: boolean;
@@ -189,7 +172,6 @@ function AIInterfaceContent({
   isVisible,
   setIsVisible,
   handleTextSubmit,
-  handleQuickAction,
   handleSettingsClick,
   className,
   isAdmin = false
@@ -223,9 +205,7 @@ function AIInterfaceContent({
         currentNarration={currentNarration ?? undefined}
         placeholder="Ask me about my work..."
         onTextSubmit={handleTextSubmit}
-        onQuickAction={handleQuickAction}
         onSettingsClick={handleSettingsClick}
-        showQuickActions={true}
         theme="default"
         size="md"
         hideOnScroll={false}

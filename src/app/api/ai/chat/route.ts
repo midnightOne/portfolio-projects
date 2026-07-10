@@ -15,6 +15,7 @@ import { getPublicAccessSettings } from '@/lib/ai/public-access';
 import { assembleStartFrame } from '@/lib/ai/start-frame';
 import { conversationHistoryManager } from '@/lib/services/ai/conversation-history-manager';
 import { buildEnginePromptSuffix, runEngineTurn, getNodeToolAllowlist } from '@/lib/services/ai/engine-runtime';
+import { renderAutoNavPolicy } from '@/lib/ai/autonav';
 import type { ModelAliasName } from '@/lib/ai/model-registry';
 
 const MAX_MESSAGE_CHARS = 2000;
@@ -52,6 +53,12 @@ interface ChatRequestBody {
    *  is rendering this exchange as speech; defaults to 'text'. Label only —
    *  no behavior change. */
   modality?: string;
+  /** G1 (Req 13.1, P22): set when this message came from a chip tap — rides
+   *  turn evidence so `chip` edges fire deterministically by id. */
+  chipId?: string;
+  /** G2 (Req 13.8, P36): current auto-navigation toggle state — renders the
+   *  consent policy into this turn's prompt and persists to prefs. */
+  autoNav?: boolean;
 }
 
 async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextResponse> {
@@ -110,7 +117,13 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
   // recent verbatim window, then this turn). Never a re-mint; this IS the
   // cascade/text pruning mechanism.
   const summarySection = enginePlan.summaryText ? `\n\n${enginePlan.summaryText}` : '';
-  const systemPrompt = basePrompt + summarySection + enginePlan.suffix;
+  // G2 (Req 13.8, P36): the auto-navigation consent policy joins the VOLATILE
+  // tail whenever the client reports the toggle (this runtime navigates too —
+  // ui_intent is public-allowlisted). Engine-independent: the policy applies
+  // with or without a steering graph.
+  const autoNavSection =
+    typeof body.autoNav === 'boolean' ? `\n\n${renderAutoNavPolicy(body.autoNav)}` : '';
+  const systemPrompt = basePrompt + summarySection + enginePlan.suffix + autoNavSection;
   // The verbatim window: client history is already bounded by tier settings;
   // when the engine steers and a summary covers the older turns, the window
   // cap applies on top — old verbatim turns collapse into the summary above.
@@ -241,6 +254,8 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
   // exchange as speech), _debug-parity debugInfo on the assistant message,
   // ledger requestId cross-reference. Failures never fail the chat.
   let persistedConversationId: string | null = null;
+  /** G1: chips/label riding the response envelope (Req 13.1 text delivery). */
+  let engineUx: import('@/lib/ai/engine/types').EngineUx | null = null;
   const inputMode = body.modality === 'voice' ? 'voice' : 'text';
   try {
     const conversationId = await conversationHistoryManager.getOrCreateConversationId(
@@ -259,15 +274,32 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
       metadata: { requestId: ctx.requestId },
     });
 
+    // G2 (P36): mirror the reported toggle into ConversationState.prefs —
+    // fire-and-forget, never delays the reply.
+    if (typeof body.autoNav === 'boolean') {
+      void conversationHistoryManager
+        .mergeConversationPrefs(conversationId, { autoNav: body.autoNav })
+        .catch((err) => console.warn('[chat] autonav pref persist failed:', err));
+    }
+
     // D47 B3: evaluate edges AFTER the user turn is durable (notes §2.2).
     // Swallow-all inside runEngineTurn (P1). Text/cascade ignore the returned
     // directive — the NEXT turn's prompt re-derives from latestState (§2.2.9).
     const engineTurn = await runEngineTurn({
       conversationId,
-      evidence: { turnMessageId: userRecord.id, utterance: message, toolEvents: engineToolEvents },
+      evidence: {
+        turnMessageId: userRecord.id,
+        utterance: message,
+        toolEvents: engineToolEvents,
+        // G1 (P22): chip-tap evidence — deterministic edge fuel, id only.
+        chipId: typeof body.chipId === 'string' && body.chipId.length <= 100 ? body.chipId : undefined,
+      },
       provider: body.modality === 'voice' ? 'cascade' : 'text',
       isPublic: ctx.tier === 'public',
     });
+    // G1 (Req 13.1): the text tier's ux delivery — the target node's surface
+    // when this turn fired a transition, else the current node's (pre-turn).
+    engineUx = engineTurn.ux ?? enginePlan.ux;
 
     // D47 C3 (Req 7.5): the `_debug.engine` section — present only when the
     // engine is steering this conversation (absent = envelope byte-identical
@@ -335,7 +367,14 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
 
   // conversationId (cuid) rides along for debug display/lookup (same contract
   // as the /log response) — null when persistence failed.
-  return NextResponse.json({ reply: reply ?? '', requestId: ctx.requestId, conversationId: persistedConversationId });
+  return NextResponse.json({
+    reply: reply ?? '',
+    requestId: ctx.requestId,
+    conversationId: persistedConversationId,
+    // G1 (Req 13.1/13.5): visitor surface for the pill — post-turn node's
+    // chips + topic label; null/absent hides the surfaces (Req 2.7).
+    ...(engineUx ? { engineUx } : {}),
+  });
 }
 
 export const POST = withAIGateway({ feature: 'chat', publicAllowed: true }, handler);

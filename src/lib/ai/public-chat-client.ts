@@ -16,7 +16,7 @@ export interface PublicChatTurn {
 }
 
 export type PublicChatResult =
-  | { ok: true; reply: string; requestId?: string }
+  | { ok: true; reply: string; requestId?: string; engineUx?: import('@/lib/ai/engine/types').EngineUx | null }
   | { ok: false; error: string; code?: string };
 
 const SESSION_EXPIRY_KEY = 'ai_public_chat_session_until';
@@ -47,13 +47,21 @@ function sessionLooksValid(): boolean {
 
 export async function sendPublicChatMessage(
   message: string,
-  history: PublicChatTurn[]
+  history: PublicChatTurn[],
+  /** G1 (P22): chipId when this message came from a chip tap — deterministic
+   *  edge evidence. G2 (P36): autoNav = current consent-toggle state. */
+  opts?: { chipId?: string; autoNav?: boolean }
 ): Promise<PublicChatResult> {
   const doSend = () =>
     fetch('/api/ai/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, history }),
+      body: JSON.stringify({
+        message,
+        history,
+        ...(opts?.chipId ? { chipId: opts.chipId } : {}),
+        ...(typeof opts?.autoNav === 'boolean' ? { autoNav: opts.autoNav } : {}),
+      }),
     });
 
   if (!sessionLooksValid() && !(await mintSession())) {
@@ -70,7 +78,13 @@ export async function sendPublicChatMessage(
 
   const data = await res.json().catch(() => ({} as Record<string, unknown>));
   if (res.ok) {
-    return { ok: true, reply: typeof data.reply === 'string' ? data.reply : '', requestId: data.requestId as string | undefined };
+    return {
+      ok: true,
+      reply: typeof data.reply === 'string' ? data.reply : '',
+      requestId: data.requestId as string | undefined,
+      // G1 (Req 13.1): chips/label riding the text-tier response envelope
+      engineUx: (data.engineUx as import('@/lib/ai/engine/types').EngineUx | undefined) ?? null,
+    };
   }
   return {
     ok: false,

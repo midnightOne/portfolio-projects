@@ -664,6 +664,7 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
 
   async cleanup(): Promise<void> {
     await this.disconnect();
+    this._releaseBaseSubscriptions();
     this._transcript = [];
     this._tools.clear();
     this._lastError = null;

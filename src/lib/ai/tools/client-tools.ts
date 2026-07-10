@@ -309,6 +309,56 @@ export const uiIntentToolDefinition: UnifiedToolDefinition = {
   }
 };
 
+// Auto-navigation consent toggle (conversation-engine Req 13.8, Block G2, P36).
+// Spoken flips MUST be this tool call — the toggle is real state the visitor
+// can see on the pill; the agent may enable it ONLY after explicit visitor
+// consent in-conversation (guidance-enforced; the tool call is the honest
+// transcript evidence either way).
+export const setAutoNavigationToolDefinition: UnifiedToolDefinition = {
+  name: 'set_auto_navigation',
+  description:
+    'Flip the visitor-visible auto-navigation consent toggle. enabled=true ONLY after the visitor explicitly agreed to you navigating for them (e.g. accepted a tour); enabled=false whenever they ask you to stop navigating. While OFF you must ask before commit-level navigation.',
+  parameters: {
+    type: 'object',
+    properties: {
+      enabled: {
+        type: 'boolean',
+        description: 'true = visitor consented to autonomous navigation; false = ask-before-navigating mode',
+      },
+    },
+    required: ['enabled'],
+  },
+  executionContext: 'client',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean' },
+      message: { type: 'string' },
+      autoNavigation: { type: 'boolean' },
+    },
+  },
+};
+
+// Job-description intake form (conversation-engine Req 13.4, Block G3 —
+// scoped D18 exception: exactly ONE purpose-built form tool; the generic
+// form-builder stays backlogged). Opens the paste/drop modal; the submission
+// runs the existing job-analysis pipeline (reflink-gated + enableJobAnalysis
+// server-side — this tool only opens UI, it grants nothing).
+export const jobDescriptionFormToolDefinition: UnifiedToolDefinition = {
+  name: 'job_description_form',
+  description:
+    'Open the job-description intake form (a modal where the visitor pastes or drops the job posting as text) — the reliable channel for job specs; suggest it FIRST when a visitor wants a role analyzed. The analysis result appears to the visitor as a compatibility document; you will be told when it completes so you can offer a spoken summary, a read-aloud, or to let them read in peace.',
+  parameters: { type: 'object', properties: {} },
+  executionContext: 'client',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean' },
+      message: { type: 'string' },
+    },
+  },
+};
+
 // Export all client-side tool definitions
 export const clientToolDefinitions: UnifiedToolDefinition[] = [
   // Removed: navigateToToolDefinition, showProjectDetailsToolDefinition, reportUIStateToolDefinition
@@ -317,7 +367,9 @@ export const clientToolDefinitions: UnifiedToolDefinition[] = [
   clearHighlightsToolDefinition,
   focusElementToolDefinition,
   uiDescribeToolDefinition,
-  uiIntentToolDefinition
+  uiIntentToolDefinition,
+  setAutoNavigationToolDefinition,
+  jobDescriptionFormToolDefinition
 ];
 
 // Individual tools are already exported above with their definitions
@@ -858,6 +910,54 @@ export class UINavigationTools {
   }
 
   // Removed ui_navigate - consolidated into ui_intent
+
+  /**
+   * Auto-navigation consent toggle (Req 13.8, G2, P36). The store fans the
+   * change out to the pill (visible control) and the adapter (floating-block
+   * policy line + turn evidence for server persistence) — the tool result is
+   * honest state, never a claim.
+   */
+  async ['set_auto_navigation'](args: { enabled?: boolean } | string, _sessionId?: string): Promise<NavigationResult> {
+    return this.executeAndReport('set_auto_navigation', args, async () => {
+      let params = args as { enabled?: boolean };
+      if (typeof args === 'string') {
+        try {
+          params = JSON.parse(args);
+        } catch {
+          return { success: false, message: 'Invalid JSON parameters for set_auto_navigation', error: 'bad_args' };
+        }
+      }
+      if (typeof params.enabled !== 'boolean') {
+        return { success: false, message: 'set_auto_navigation requires boolean `enabled`', error: 'bad_args' };
+      }
+      const { setAutoNav } = await import('@/lib/ai/autonav');
+      const value = setAutoNav(params.enabled, 'tool');
+      return {
+        success: true,
+        message: `Auto-navigation is now ${value ? 'ON — you may navigate for the visitor until they turn it off' : 'OFF — ask before commit-level navigation'}`,
+        data: { autoNavigation: value },
+      };
+    });
+  }
+
+  /**
+   * Job-description form opener (Req 13.4, G3). Opening is the tool's whole
+   * job — the submission outcome reaches the model later through the context
+   * buffer (`jd_analysis` key) when the analysis completes, and a dismissal
+   * becomes turn evidence so the graph knows the form was declined (read-aloud
+   * fallback per design-ux-and-behavior §2.5).
+   */
+  async ['job_description_form'](_args: unknown, _sessionId?: string): Promise<NavigationResult> {
+    return this.executeAndReport('job_description_form', {}, async () => {
+      const { setJdFormOpen } = await import('@/lib/ai/jd-form');
+      setJdFormOpen(true);
+      return {
+        success: true,
+        message:
+          'Job-description form opened. The visitor can paste the posting or drop a text file; you will be told when the analysis completes. If they close it without submitting, they may prefer to read the posting aloud instead.',
+      };
+    });
+  }
 
   async ['ui_describe'](args: any = {}, sessionId?: string): Promise<NavigationResult> {
     return this.executeAndReport('ui_describe', args, async () => {

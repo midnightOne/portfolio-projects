@@ -17,6 +17,7 @@ import type {
   ContextItemSpec,
   EngineDirective,
   EngineState,
+  EngineUx,
   EngineWindowUpdate,
   StartDirective,
   TurnEvidence,
@@ -567,6 +568,8 @@ export async function runEngineTurn(args: {
   debug: ProcessTurnDebug | null;
   /** J4: rolling-window update for the live NATIVE session (null otherwise). */
   window: EngineWindowUpdate | null;
+  /** G1 (Req 13.1): target node's chips/label when a transition fired — the /chat envelope's delivery path. */
+  ux: EngineUx | null;
 }> {
   try {
     const isNative = args.provider === 'openai' || args.provider === 'google';
@@ -590,10 +593,38 @@ export async function runEngineTurn(args: {
         console.warn('[engine] window update failed (turn unaffected):', err);
       }
     }
-    return { directive: result.directive, debug: result.debug, window };
+    return { directive: result.directive, debug: result.debug, window, ux: result.ux };
   } catch (err) {
     console.error('[engine] processTurn failed — conversation proceeds unsteered (P1):', err);
-    return { directive: null, debug: null, window: null };
+    return { directive: null, debug: null, window: null, ux: null };
+  }
+}
+
+/**
+ * G1 (Req 13.1/13.5): current visitor surface for the pill — the
+ * conversation's persisted node when a session is running, else the active
+ * graph's landing node (chips shown BEFORE any turn draw the visitor into
+ * first contact — owner 2026-07-10). Cheap (graph read only, no context
+ * resolution, no spend) and safe on a public endpoint: chips/label carry no
+ * graph structure. Swallow-all (P1): null on any failure → surfaces hidden.
+ */
+export async function getCurrentEngineUx(sessionId?: string | null): Promise<EngineUx | null> {
+  try {
+    const engine = getConversationEngine();
+    if (sessionId) {
+      const ref = await conversationHistoryManager.getConversationRefBySessionId(sessionId);
+      if (ref) {
+        const engineState = ConversationEngine.parseEngineState(
+          (ref.latestState as Record<string, unknown> | null)?.engine ?? null
+        );
+        // A pinned engine-off conversation shows no surfaces — not the start node's.
+        if (engineState) return engine.currentUx(engineState);
+      }
+    }
+    return await engine.startUx();
+  } catch (err) {
+    console.warn('[engine] ux read failed — surfaces hidden (P1):', err);
+    return null;
   }
 }
 
@@ -603,6 +634,8 @@ export interface EngineTurnPrompt {
   suffix: string;
   /** Current node's D4 alias → THIS turn's `resolveModel` resolution (Req 5.2); null = session default. */
   modelAlias: string | null;
+  /** G1: the CURRENT node's chips/label (pre-turn) — /chat's fallback when no transition fires this turn. */
+  ux: EngineUx | null;
   /**
    * J4 (Req 20.3): the framed running summary — STABLE-prefix material.
    * Cascade/text assembly places it right after the base instructions
@@ -644,7 +677,7 @@ export interface EngineTurnPrompt {
  * cap tells the caller how much verbatim history to keep.
  */
 export async function buildEnginePromptSuffix(sessionId: string, opts: { isPublic: boolean }): Promise<EngineTurnPrompt> {
-  const inactive: EngineTurnPrompt = { suffix: '', modelAlias: null, summaryText: null, maxVerbatimTurns: null, debug: null };
+  const inactive: EngineTurnPrompt = { suffix: '', modelAlias: null, ux: null, summaryText: null, maxVerbatimTurns: null, debug: null };
   try {
     const ref = await conversationHistoryManager.getConversationRefBySessionId(sessionId);
     let directive: StartDirective | null;
@@ -681,6 +714,7 @@ export async function buildEnginePromptSuffix(sessionId: string, opts: { isPubli
     return {
       suffix: suffixParts.length ? `${ENGINE_SUFFIX_HEADER}${suffixParts.join('\n\n')}` : '',
       modelAlias: directive.modelAlias ?? null,
+      ux: directive.ux,
       summaryText,
       maxVerbatimTurns: config.maxVerbatimTurns,
       debug: {

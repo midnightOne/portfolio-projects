@@ -18,6 +18,7 @@ import {
   VoiceAgentError
 } from '@/types/voice-agent';
 import { ContextBuffer, ContextBlock } from '@/lib/ai/context-buffer';
+import { getAutoNav, subscribeAutoNav, renderAutoNavPolicy } from '@/lib/ai/autonav';
 import {
   EngineDirective,
   EngineDirectiveSchema,
@@ -134,9 +135,13 @@ export interface IConversationalAgentAdapter {
   
   // Conversation management
   sendMessage(message: string): Promise<void>;
+  /** G1 (Req 13.1, P22): chip tap → normal visitor turn + deterministic chipId evidence. */
+  sendChipTap(chip: { id: string; text: string }): Promise<void>;
+  /** G3/D55: publish app-layer context into the session's floating block. */
+  publishAssistantContext(key: string, text: string, opts?: { ttlMs?: number }): void;
   sendAudioData(audioData: ArrayBuffer): Promise<void>;
   interrupt(): Promise<void>;
-  
+
   // Tool calling
   registerTool(tool: import('@/types/voice-agent').ToolDefinition): void;
   unregisterTool(toolName: string): void;
@@ -230,10 +235,36 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
   private _lastAppliedWindowVersion = 0;
   /** A window update arrived (possibly mid-response) and awaits the next boundary (P19). */
   private _windowDirty = false;
+  /** G1 (P22): chip id awaiting attachment to the next user-turn /log post. */
+  private _pendingChipId: string | null = null;
+  /** G2 (Req 13.8, P36): auto-nav store unsubscribe — released in cleanup(). */
+  private _autonavUnsubscribe: (() => void) | null = null;
 
   constructor(provider: VoiceProvider, metadata: ProviderMetadata) {
     this._provider = provider;
     this._metadata = metadata;
+
+    // G2 (Req 13.8, P36): the auto-navigation consent policy is ALWAYS in the
+    // floating block — the model must never guess whether it may move the
+    // visitor. The store fans tap/tool flips here; each flip re-publishes the
+    // policy line (flushed at the next boundary) and records turn evidence so
+    // the server persists ConversationState.prefs.autoNav from ground truth.
+    if (typeof window !== 'undefined') {
+      this._contextBuffer.publish('autonav', renderAutoNavPolicy(getAutoNav()));
+      this._autonavUnsubscribe = subscribeAutoNav((enabled, source) => {
+        this._contextBuffer.publish('autonav', renderAutoNavPolicy(enabled));
+        this._recordUiEvidence({ event: 'autonav_changed', value: enabled, source });
+        if (this.isConnected() && !this._isModelResponding()) {
+          void this._flushContextBlock('autonav');
+        }
+      });
+    }
+  }
+
+  /** Release base-class subscriptions — concrete adapters call this from cleanup(). */
+  protected _releaseBaseSubscriptions(): void {
+    this._autonavUnsubscribe?.();
+    this._autonavUnsubscribe = null;
   }
 
   /** DB conversation id (cuid) once the first /log write has resolved, else null. */
@@ -252,9 +283,23 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
       // since the last user turn (navigation, F-I-D refreshes) so the engine
       // can evaluate ui_state edge conditions server-side. Small and additive;
       // consumed (cleared) only when actually attached.
-      const transcript = body.transcriptItem as { type?: string } | undefined;
+      const transcript = body.transcriptItem as { type?: string; metadata?: Record<string, unknown> } | undefined;
       if (transcript?.type === 'user_speech' && this._pendingUiEvidence.length > 0) {
         body = { ...body, uiEvidence: this._pendingUiEvidence.splice(0) };
+      }
+      // G1 (P22): chip-tap evidence rides THIS user turn's metadata — /log
+      // lifts transcriptItem.metadata.chipId into TurnEvidence, and `chip`
+      // edges fire deterministically on the id alone. Consumed once; a voice
+      // utterance racing the tap could steal it (single-visitor UI, accepted).
+      if (transcript?.type === 'user_speech' && this._pendingChipId) {
+        body = {
+          ...body,
+          transcriptItem: {
+            ...(body.transcriptItem as Record<string, unknown>),
+            metadata: { ...(transcript.metadata ?? {}), chipId: this._pendingChipId },
+          },
+        };
+        this._pendingChipId = null;
       }
       void fetch('/api/ai/conversation/log', {
         method: 'POST',
@@ -813,6 +858,12 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
     this._lastAppliedDirectiveSeq = directive.seq;
 
     try {
+      // G1 (Req 13.1/13.3): the visitor surface swaps at application time —
+      // the same boundary discipline as the model-facing payload (P19), so
+      // chips never advertise a state the model isn't in yet.
+      if (directive.ux) {
+        this._options?.onEngineUx?.(directive.ux);
+      }
       for (const item of directive.contextItems ?? []) {
         this._contextBuffer.publish(item.key, item.text, { ttlMs: item.ttlMs });
       }
@@ -915,6 +966,35 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
    */
   protected _windowNeedsBoundaryCheck(): boolean {
     return false;
+  }
+
+  /**
+   * G3/D55: publish app-layer context (e.g. the JD-analysis completion note)
+   * into this session's floating block under a source key — the same bus every
+   * passive source uses; flushed at the next safe boundary (P19).
+   */
+  publishAssistantContext(key: string, text: string, opts?: { ttlMs?: number }): void {
+    this._contextBuffer.publish(key, text, opts);
+    if (this.isConnected() && !this._isModelResponding()) {
+      void this._flushContextBlock('app-context');
+    }
+  }
+
+  /**
+   * G1 (Req 13.1, P22): send a chip tap as a normal visitor turn. The text
+   * enters the live session exactly like a typed message (it appears in the
+   * transcript as the visitor's own — owner 2026-07-10) while the chip id
+   * rides the turn's /log metadata as deterministic edge evidence. The model
+   * sees ordinary text; only the engine sees the id.
+   */
+  async sendChipTap(chip: { id: string; text: string }): Promise<void> {
+    this._pendingChipId = chip.id;
+    try {
+      await this.sendMessage(chip.text);
+    } catch (err) {
+      this._pendingChipId = null; // don't let a failed send poison the next real turn
+      throw err;
+    }
   }
 
   /** Record a UI-state delta as turn evidence for the next user-turn /log POST (task A4). */

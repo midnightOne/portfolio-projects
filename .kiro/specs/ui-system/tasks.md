@@ -13,6 +13,14 @@ Light/dark theme system with tokens, persistence, and flicker-free switching; cu
 
 ## Open tasks
 
+- [ ] 3. **The liquid pill** (owner vision 2026-07-10 — recorded in conversation-engine `design-ux-and-behavior.md` §9.3 and `docs/article-notes-design-judgment.md` 2026-07-10 session; sequencing: after conversation-engine Block G, whose chips/topic-label/auto-nav-toggle components are built self-contained against the current pill and relocate here):
+  - [ ] 3.1 Bottom-edge docking with a water-drop "wetting" morph: floating pill = pill shape; docked pill = drop-on-a-surface silhouette whose lower boundary "wets" the screen edge (metaball-style thin-neck-then-merge aesthetic, referencing blur+threshold liquid rendering). **Constraint (owner): NO physics simulation, NO heavy shaders** — formula-driven animated bezier edge; must stay cheap on mobile.
+  - [ ] 3.2 Liquidy dynamic edge rendering for the floating state (subtle, formula-governed animation).
+  - [ ] 3.3 Responsive behavior: desktop/tablet share the docked layout; portrait phone gets a tighter fit that stays fully functional.
+  - [ ] 3.4 Transcript sidebar: chat history becomes a proper right sidebar; expanding = the sidebar slides in while the pill's parts animate into their positions at its bottom; floating/docked pill carries only input + mic/hang-up/sound/settings + a recognizable history affordance (floating speech-boxes icon); on mobile the history overlays full-screen for at-a-glance reading, closes to resume navigating.
+  - [ ] 3.5 Relocate the Block G components (chips row, topic label, auto-nav toggle, resume-confirm card) into the new pill/sidebar without contract changes.
+  - _Requirements: conversation-engine Req 13 surfaces unchanged; this is presentation only_
+
 - [x] 1. Remove public `test-*` pages (D16/D42) — **done 2026-07-06**
   - [x] 1.1 All 40 test/demo/debug page dirs deleted (38 `test-*` + `theme-demo` + `debug-nav-context`)
   - [x] 1.2 Nothing folded — every subsystem already has its D16 admin playground: wave hero → admin wave config panel with live preview; voice → `/admin/ai/voice-debug`; chat → `/admin/ai/debug`. Theme/animation testbeds judged not worth an admin page (theme switching is exercised by the real UI).
