@@ -51,6 +51,7 @@ import {
   AudioLines,
   Activity,
   BookOpen,
+  Workflow,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -126,6 +127,7 @@ const ADMIN_NAVIGATION: AdminNavGroup[] = [
       { id: "content-sources", title: "Content Sources", href: "/admin/ai/content-sources", icon: FileText },
       { id: "voice-config", title: "Voice Config", href: "/admin/ai/voice-config", icon: Mic },
       { id: "voice-clips", title: "Voice Clips", href: "/admin/ai/voice-clips", icon: AudioLines },
+      { id: "conversation-graphs", title: "Conversation Graphs", href: "/admin/ai/conversation-graphs", icon: Workflow },
     ],
   },
   {

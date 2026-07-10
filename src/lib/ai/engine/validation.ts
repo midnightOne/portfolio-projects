@@ -8,7 +8,7 @@
  */
 
 import { GraphDocument, GraphDocumentSchema } from './types';
-import { estimateTokensFromChars } from '@/lib/ai/pricing';
+import { estimateTokensFromChars } from '@/lib/ai/token-estimate';
 
 export interface ValidationIssue {
   severity: 'error' | 'warning';
@@ -25,7 +25,12 @@ export interface ValidationIssue {
     | 'unknown_alias'
     | 'context_budget'
     | 'undeclared_slot'
-    | 'model_edge_native';
+    | 'model_edge_native'
+    // Host-side content checks (Req 11.2) — composed by graph-store (DB reads
+    // stay out of this core module), same issue shape so the editor renders
+    // one list.
+    | 'private_content'
+    | 'missing_content';
   message: string;
   nodeId?: string;
   edgeId?: string;

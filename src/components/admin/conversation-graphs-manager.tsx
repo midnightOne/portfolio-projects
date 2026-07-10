@@ -1,0 +1,160 @@
+"use client";
+
+/**
+ * Conversation-graph list (Req 8.1): list + create/duplicate/archive; opening
+ * a graph goes to the canvas editor.
+ */
+
+import React from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Plus, Copy, Archive, Workflow } from "lucide-react";
+
+interface GraphListItem {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  activeVersion: number | null;
+  versionCount: number;
+  nodeCount: number;
+  updatedAt: string;
+}
+
+export function ConversationGraphsManager() {
+  const router = useRouter();
+  const [graphs, setGraphs] = React.useState<GraphListItem[] | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
+  const [newName, setNewName] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/ai/graphs");
+      const json = await res.json();
+      if (json.success) setGraphs(json.data);
+      else setError(json.error?.message ?? "Failed to load graphs");
+    } catch {
+      setError("Failed to load graphs");
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
+  const create = async () => {
+    if (!newName.trim()) return;
+    setBusy(true);
+    try {
+      const res = await fetch("/api/admin/ai/graphs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName.trim() }),
+      });
+      const json = await res.json();
+      if (json.success) router.push(`/admin/ai/conversation-graphs/${json.data.id}`);
+      else setError(json.error?.message ?? "Create failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const duplicate = async (id: string) => {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/admin/ai/graphs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ duplicateFrom: id }),
+      });
+      const json = await res.json();
+      if (json.success) await load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const archive = async (id: string) => {
+    if (!confirm("Archive this graph? It stops serving traffic; versions and telemetry are kept.")) return;
+    setBusy(true);
+    try {
+      await fetch(`/api/admin/ai/graphs/${id}`, { method: "DELETE" });
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (error) return <p className="text-sm text-destructive">{error}</p>;
+  if (!graphs) return <p className="text-sm text-muted-foreground">Loading…</p>;
+
+  return (
+    <div className="space-y-4" data-testid="graphs-manager">
+      <div className="flex gap-2">
+        <Input
+          className="w-72"
+          placeholder="New graph name"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && void create()}
+          data-testid="new-graph-name"
+        />
+        <Button onClick={() => void create()} disabled={busy || !newName.trim()} data-testid="create-graph">
+          <Plus className="h-4 w-4 mr-1" /> Create
+        </Button>
+      </div>
+
+      {graphs.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          No graphs yet. Create one — it seeds a start node (with the current start frame as context) and the required
+          off-graph node.
+        </p>
+      )}
+
+      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+        {graphs.map((g) => (
+          <Card key={g.id} data-testid={`graph-card-${g.id}`}>
+            <CardContent className="p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <Workflow className="h-4 w-4 text-muted-foreground shrink-0" />
+                <Link
+                  href={`/admin/ai/conversation-graphs/${g.id}`}
+                  className="font-medium text-sm truncate hover:underline flex-1"
+                >
+                  {g.name}
+                </Link>
+                <Badge variant={g.status === "active" ? "default" : "outline"} className="text-[10px]">
+                  {g.status}
+                  {g.activeVersion ? ` · v${g.activeVersion}` : ""}
+                </Badge>
+              </div>
+              {g.description && <p className="text-xs text-muted-foreground line-clamp-2">{g.description}</p>}
+              <p className="text-[11px] text-muted-foreground">
+                {g.nodeCount} nodes · {g.versionCount} version{g.versionCount === 1 ? "" : "s"} · updated{" "}
+                {new Date(g.updatedAt).toLocaleString()}
+              </p>
+              <div className="flex gap-1.5">
+                <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => router.push(`/admin/ai/conversation-graphs/${g.id}`)}>
+                  Open
+                </Button>
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" disabled={busy} onClick={() => void duplicate(g.id)} title="Duplicate (new ids — a fresh lineage)">
+                  <Copy className="h-3.5 w-3.5" />
+                </Button>
+                {g.status !== "archived" && (
+                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-destructive" disabled={busy} onClick={() => void archive(g.id)} title="Archive">
+                    <Archive className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}

@@ -115,10 +115,8 @@ export async function listEmbeddingPricing(): Promise<Array<{ modelId: string; p
     .map(r => ({ modelId: r.modelId, provider: r.provider, inputPerMTokUsd: r.inputPerMTokUsd }));
 }
 
-/** Rough pre-flight token estimate (chars/4). Never for ledger writes — provider usage wins. */
-export function estimateTokensFromChars(chars: number): number {
-  return Math.ceil(chars / 4);
-}
+/** Re-exported from the client-safe module (Block D: the editor's token meter imports the SAME estimator, notes §6). */
+export { estimateTokensFromChars } from './token-estimate';
 
 /** Test hook: drop the per-instance memo. */
 export function __clearPricingCache(): void {

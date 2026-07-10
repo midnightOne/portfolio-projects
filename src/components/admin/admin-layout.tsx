@@ -30,7 +30,8 @@ export function AdminLayout({ children, saveControls }: AdminLayoutProps) {
   const pathname = usePathname();
   
   // Remove padding for editor pages to allow full-width content
-  const isEditorPage = pathname?.includes('/editor');
+  // (the conversation-graph canvas is an editor too — /admin/ai/conversation-graphs/[graphId])
+  const isEditorPage = pathname?.includes('/editor') || /\/admin\/ai\/conversation-graphs\/.+/.test(pathname ?? '');
   const mainClasses = isEditorPage ? "flex-1" : "flex-1 p-6";
 
   return (
