@@ -122,7 +122,6 @@ interface ConversationState {          // authoritative; provider sessions are d
   engine?: {
     nodeId: string; graphVersionId: string;
     lastEvaluatedTurnId: string | null;
-    pendingModelSwap?: { alias: string; requestedAt: string };
     slots?: Record<string, string>;    // stated facts (Req 14)
     flags?: {                          // inferred profile (Req 19.2) — same templating/conditions as slots
       register?: 'technical' | 'layman';
@@ -213,7 +212,7 @@ Condition evaluation ladder (cheap-first): `pattern`/`ui_state`/`tool_result` ar
 2. Gather evidence: latest user turn text, tool events this turn (already in the log payload), UI-state events (client includes F-I-D/navigation deltas in the log payload — small addition to the existing `/log` contract).
 3. Evaluate current node's outgoing edges by priority; also evaluate the off-graph node's re-entry edges when currently off-graph. At most one fires.
 4. On fire: write `node_transition` marker; update `latestState`; publish new node's context set into the D55 buffer (source key `engine`, replace semantics; `purge:'keep'` merges instead); build directive `{ instructions, toolAllowlist, modelAlias? }`.
-5. Model alias handling per runtime (Req 5): cascade/text → directive carries alias, next turn uses it; native → alias becomes `latestState.pendingModelSwap`, directive carries everything else; the client schedules re-mint at the next natural pause (VAD silence / turn boundary) through the **existing** `resumeOnProvider` path (D49) — the resume briefing already restores history and now also restores node state (Req 2.6).
+5. Model alias handling per runtime (Req 5): cascade/text → directive carries alias, next turn uses it; native → the alias is **ignored mid-session** (owner decision 2026-07-09: native sessions keep their mint-time model; the start node's alias participates at mint only). There is no deferred-swap machinery — the D49 `resumeOnProvider` path serves recovery and deliberate provider switching, nothing engine-driven.
 6. Debug/test sessions: record `edge_evaluated` events (evaluated-but-not-taken with reasons) as sampled marker rows (Req 7.3).
 
 Session start: `ConversationEngine.startPolicy(runtime, sessionCtx)` returns the start node's directive; mint routes and `/api/ai/chat` feed it into `context-provider`/`start-frame` assembly — when no graph is active, `start-frame.ts` behaves exactly as today (Req 2.7). The static start frame literally becomes the default start node's `contextSet` seed when a graph is first created (ai-assistant task 5d.3 closes here).
@@ -263,7 +262,7 @@ Coverage aggregation queries marker rows (`metadata->>'markerType' = 'node_trans
 
 - **Deterministic:** evaluator unit tests per condition type/priority/purge; `check:scenarios` runs `GraphScenario`s through the real engine + `FakeReasoningAdapter` + fake embeddings (intent conditions get deterministic vectors), diffing traversal paths. Runs in `npm run verify`.
 - **In-session e2e:** fixture graph over the fixture project; drive text chat and fake-mic voice (D53); assert `_debug.engine`, marker rows via `/api/ai/conversation/log` GET, tool-filter enforcement via a node that narrows tools, context flush events.
-- **Live-fire (phase completion):** one real conversation per runtime on the fixture graph incl. a native-session deferred model swap through the D49 re-mint (capped spend, pennies).
+- **Live-fire (phase completion):** one real conversation per runtime on the fixture graph incl. a node-driven model-alias switch on cascade/text visible in ledger rows (capped spend, pennies).
 - **Removal safety:** full pre-engine suite green with no graph active (Req 2.7 / 12.3).
 
 ## 9. External dependencies (per spec-management format)
