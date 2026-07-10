@@ -2,7 +2,10 @@
 
 /**
  * Conversation-graph list (Req 8.1): list + create/duplicate/archive; opening
- * a graph goes to the canvas editor.
+ * a graph goes to the canvas editor. Also hosts the admin triggers for the
+ * Block I engine batches (P23: batches run from admin or cron, never inside
+ * conversations) — question analytics (Req 16.2, also triggerable per-node in
+ * the editor) and summary backfill (Req 17.2).
  */
 
 import React from "react";
@@ -12,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Plus, Copy, Archive, Workflow } from "lucide-react";
+import { Plus, Copy, Archive, Workflow, MessagesSquare, FileClock } from "lucide-react";
 
 interface GraphListItem {
   id: string;
@@ -90,6 +93,37 @@ export function ConversationGraphsManager() {
     }
   };
 
+  // Block I batch triggers (admin path of "admin AND/OR cron" — P23).
+  const [batchBusy, setBatchBusy] = React.useState<null | "questions" | "summaries">(null);
+  const [batchStatus, setBatchStatus] = React.useState<string | null>(null);
+
+  const runBatch = async (kind: "questions" | "summaries") => {
+    setBatchBusy(kind);
+    setBatchStatus(null);
+    try {
+      const res = await fetch(`/api/admin/ai/engine/batch/${kind}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const json = await res.json();
+      if (json.success) {
+        const r = json.data;
+        setBatchStatus(
+          kind === "questions"
+            ? `Question analytics: ${r.transitionsScanned} transitions scanned → +${r.rowsInserted} rows, ${r.rowsEmbedded} embedded, ${r.rowsClustered} clustered${r.notes?.length ? ` — ${r.notes.join("; ")}` : ""}`
+            : `Summaries: ${r.candidates} candidate conversation(s), ${r.claimed} summarized${r.failed ? `, ${r.failed} failed` : ""}`
+        );
+      } else {
+        setBatchStatus(json.error?.message ?? "Batch failed");
+      }
+    } catch {
+      setBatchStatus("Batch failed");
+    } finally {
+      setBatchBusy(null);
+    }
+  };
+
   if (error) return <p className="text-sm text-destructive">{error}</p>;
   if (!graphs) return <p className="text-sm text-muted-foreground">Loading…</p>;
 
@@ -107,7 +141,39 @@ export function ConversationGraphsManager() {
         <Button onClick={() => void create()} disabled={busy || !newName.trim()} data-testid="create-graph">
           <Plus className="h-4 w-4 mr-1" /> Create
         </Button>
+        <div className="ml-auto flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 text-xs"
+            disabled={batchBusy !== null}
+            onClick={() => void runBatch("questions")}
+            title="Scan node entries → embed → cluster visitor questions (Req 16.2; budget-gated)"
+            data-testid="run-batch-questions"
+          >
+            <MessagesSquare className="h-3.5 w-3.5 mr-1" />
+            {batchBusy === "questions" ? "Running…" : "Question analytics"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-9 text-xs"
+            disabled={batchBusy !== null}
+            onClick={() => void runBatch("summaries")}
+            title="Backfill running summaries for engine conversations with new activity (Req 17.2)"
+            data-testid="run-batch-summaries"
+          >
+            <FileClock className="h-3.5 w-3.5 mr-1" />
+            {batchBusy === "summaries" ? "Running…" : "Summary backfill"}
+          </Button>
+        </div>
       </div>
+
+      {batchStatus && (
+        <p className="text-xs text-muted-foreground" data-testid="batch-status">
+          {batchStatus}
+        </p>
+      )}
 
       {graphs.length === 0 && (
         <p className="text-sm text-muted-foreground">

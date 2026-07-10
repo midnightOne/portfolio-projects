@@ -6,13 +6,28 @@
  * assumed. Both native mint routes (OpenAI, ElevenLabs) and later the cascade
  * consume this same function; the D47 engine replaces its internals, not its
  * callers.
+ *
+ * Block I3 (Req 17.3): when a running conversation summary exists (the ONE
+ * Req 20.5 artifact), the briefing is `summary + a short verbatim tail`; with
+ * no summary yet it stays the full-recap briefing (P24 ladder — a resume is
+ * never blocked on generating a summary inline). Returning-visitor resumes
+ * ride this same path (Req 17.1 — "the D49 resume path with a third trigger");
+ * the recall tone rule (unceremonious, no fanfare — Req 17.4) is stated in the
+ * briefing itself.
  */
 
 import { conversationHistoryManager } from '@/lib/services/ai/conversation-history-manager';
 
-export async function buildResumeBriefing(sessionId: string): Promise<string | null> {
-  const briefing = await conversationHistoryManager.getResumeBriefing(sessionId);
-  if (!briefing || briefing.recentTurns.length === 0) return null;
+export interface ResumeBriefingInput {
+  recentTurns: Array<{ role: string; content: string }>;
+  lastDisruption?: { issueType?: string };
+  snapshot?: { provider?: string; modelAlias?: string } | null;
+  summary?: { text: string; version: number } | null;
+}
+
+/** Pure renderer (unit-tested): input → briefing text, or null when there is nothing to brief. */
+export function renderResumeBriefing(briefing: ResumeBriefingInput): string | null {
+  if (briefing.recentTurns.length === 0 && !briefing.summary) return null;
 
   const lines: string[] = [
     '',
@@ -21,12 +36,17 @@ export async function buildResumeBriefing(sessionId: string): Promise<string | n
       (briefing.lastDisruption?.issueType ? ` (${briefing.lastDisruption.issueType})` : '') +
       ' and has just been re-established. The visitor is the same person.',
     'Do NOT greet them as if new and do NOT restart the conversation. Briefly acknowledge the reconnection in one short clause, then continue naturally from where things left off.',
+    'If you reference earlier context, do it unceremoniously and honestly ("last time you were looking at X") — no reintroduction fanfare.',
     'Keep answering in the language the conversation was already using.',
-    '',
-    'Recent conversation (ground truth from the server log):',
   ];
-  for (const turn of briefing.recentTurns) {
-    lines.push(`${turn.role === 'user' ? 'Visitor' : 'You'}: ${turn.content}`);
+  if (briefing.summary) {
+    lines.push('', `Conversation so far (running summary v${briefing.summary.version}, ground truth from the server log):`, briefing.summary.text);
+  }
+  if (briefing.recentTurns.length > 0) {
+    lines.push('', briefing.summary ? 'Most recent turns verbatim:' : 'Recent conversation (ground truth from the server log):');
+    for (const turn of briefing.recentTurns) {
+      lines.push(`${turn.role === 'user' ? 'Visitor' : 'You'}: ${turn.content}`);
+    }
   }
   if (briefing.snapshot?.modelAlias || briefing.snapshot?.provider) {
     lines.push(
@@ -35,4 +55,10 @@ export async function buildResumeBriefing(sessionId: string): Promise<string | n
     );
   }
   return lines.join('\n');
+}
+
+export async function buildResumeBriefing(sessionId: string): Promise<string | null> {
+  const briefing = await conversationHistoryManager.getResumeBriefing(sessionId);
+  if (!briefing) return null;
+  return renderResumeBriefing(briefing);
 }

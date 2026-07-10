@@ -34,6 +34,12 @@ interface ConversationalAgentContextType {
   disconnect: () => Promise<void>;
   /** D49: resume the current conversation on another (or the same) provider. */
   resumeOnProvider: (provider: VoiceProvider, options?: ConnectOptions) => Promise<void>;
+  /**
+   * The logical (adapter) session id the conversation persists under — the
+   * `resumeFromSessionId` handle. Block I3 writes it into the same-device
+   * continuity marker; null until a session exists.
+   */
+  getConversationSessionId: () => string | null;
   isConnected: boolean;
   audioInputMode: AudioInputMode | null;
   /** DB conversation id (cuid) once persisted — for debug display and lookup. */
@@ -874,6 +880,7 @@ export function ConversationalAgentProvider({
     connect,
     disconnect,
     resumeOnProvider,
+    getConversationSessionId: () => currentAdapter?.getConversationSessionId?.() ?? null,
     isConnected,
     audioInputMode,
     conversationId,

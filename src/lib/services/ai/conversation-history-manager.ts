@@ -923,9 +923,51 @@ export class ConversationHistoryManager {
     }
 
     /**
+     * Latest conversation on a reflink that actually got somewhere (≥1 user
+     * turn) — the returning-visitor resume target (Block I3, Req 17.1). The
+     * reflink is the ONLY access control on this lookup (P32 — the client
+     * continuity marker merely selects auto-resume vs confirm UX); a revoked
+     * reflink never reaches here because validation fails upstream (Req 21.5).
+     * `summaryLine` is the safe one-liner for the cross-device confirmation
+     * (Req 21.1) — never raw transcript content.
+     */
+    async getLatestConversationForReflink(reflinkId: string): Promise<{
+        conversationId: string;
+        sessionId: string;
+        lastActivityAt: Date | null;
+        summaryLine: string | null;
+    } | null> {
+        const conversation = await prisma.aIConversation.findFirst({
+            where: { reflinkId, messages: { some: { role: 'user' } } },
+            orderBy: [{ lastMessageAt: 'desc' }, { startedAt: 'desc' }],
+            select: { id: true, sessionId: true, lastMessageAt: true }
+        });
+        if (!conversation) return null;
+        const summary = await this.getLatestConversationSummary(conversation.id);
+        const summaryLine = summary
+            ? (() => {
+                  const firstSentence = summary.summaryText.split(/(?<=[.!?])\s/)[0] ?? summary.summaryText;
+                  return firstSentence.length > 160 ? `${firstSentence.slice(0, 157)}…` : firstSentence;
+              })()
+            : null;
+        return {
+            conversationId: conversation.id,
+            sessionId: conversation.sessionId,
+            lastActivityAt: conversation.lastMessageAt,
+            summaryLine
+        };
+    }
+
+    /**
      * Everything a new leg needs to continue an interrupted conversation:
      * the latest-state snapshot + a bounded recap of recent turns. Ground truth
      * only — provider-side memory from earlier legs is gone and never assumed.
+     *
+     * Req 17.3 (Block I3): when a running summary exists, the briefing is
+     * `summary + the last few verbatim turns` instead of a longer raw recap;
+     * no summary yet (same-day resume before any summarizer run) falls back to
+     * the full-recap briefing — the P24 ladder, never blocking on generating
+     * a summary inline.
      */
     async getResumeBriefing(
         sessionId: string,
@@ -935,6 +977,8 @@ export class ConversationHistoryManager {
         snapshot: LatestStateSnapshot | null;
         recentTurns: Array<{ role: string; content: string }>;
         lastDisruption?: { issueType?: string; at?: Date };
+        /** The running conversation summary (Req 20.5 — the ONE artifact), when one exists. */
+        summary?: { text: string; version: number; createdAt: Date };
     } | null> {
         const conversation = await prisma.aIConversation.findFirst({
             where: { sessionId },
@@ -942,10 +986,15 @@ export class ConversationHistoryManager {
         });
         if (!conversation) return null;
 
+        const summary = await this.getLatestConversationSummary(conversation.id);
+        // Summary present → a short verbatim tail suffices (the summary carries
+        // the rest); absent → today's full-recap briefing (P24 fallback).
+        const verbatimCap = summary ? Math.min(recapTurns, 4) : recapTurns;
+
         const recent = await prisma.aIConversationMessage.findMany({
             where: { conversationId: conversation.id, role: { in: ['user', 'assistant'] } },
             orderBy: { timestamp: 'desc' },
-            take: recapTurns,
+            take: verbatimCap,
             select: { role: true, content: true }
         });
         const lastMarker = await prisma.aIConversationMessage.findFirst({
@@ -966,6 +1015,9 @@ export class ConversationHistoryManager {
             })),
             lastDisruption: lastMarker
                 ? { issueType: (lastMarker.metadata as any)?.issueType, at: lastMarker.timestamp }
+                : undefined,
+            summary: summary
+                ? { text: summary.summaryText, version: summary.summaryVersion, createdAt: summary.createdAt }
                 : undefined
         };
     }

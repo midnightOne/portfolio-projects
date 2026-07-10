@@ -534,7 +534,11 @@ export function GraphEditor({ graphId }: { graphId: string }) {
               node={selectedNode}
               meta={meta}
               issues={issues}
+              graphId={graphId}
+              edges={document.edges}
+              nodeNames={Object.fromEntries(document.nodes.map((n) => [n.id, n.name]))}
               onChange={updateNode}
+              onEdgeChange={updateEdge}
               onDelete={() => deleteNode(selectedNode.id)}
             />
           ) : selectedEdge ? (

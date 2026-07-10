@@ -5,14 +5,12 @@
  * token meter (SAME estimator as runtime — notes §6), registry-enumerated
  * tool picker (Req 4.2), alias dropdown (Req 5.1/5.4 labeling), voice-clip
  * categories (D50), UX surfaces (chips/topic/staging — Req 13), slot capture
- * specs (Req 14).
- *
- * "What visitors actually asked" (Req 16.3 / task D4) is deliberately absent:
- * it depends on the Block I1 analytics batch, which has not landed.
+ * specs (Req 14), and the "What visitors actually asked" analytics panel
+ * (Req 16.3 / task D4 — backed by the Block I1 batch).
  */
 
 import React from 'react';
-import type { ContextItemSpec, GraphNode } from '@/lib/ai/engine/types';
+import type { ContextItemSpec, GraphEdge, GraphNode } from '@/lib/ai/engine/types';
 import type { ValidationIssue } from '@/lib/ai/engine/validation';
 import { estimateTokensFromChars } from '@/lib/ai/token-estimate';
 import { Input } from '@/components/ui/input';
@@ -23,6 +21,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Trash2, Plus } from 'lucide-react';
 import { arrayToLines, linesToArray, newChipId, type EditorMeta } from './graph-editor-utils';
+import { QuestionsPanel } from './QuestionsPanel';
 
 const DEFAULT_BUDGET = 1200; // notes §6 default
 
@@ -30,7 +29,13 @@ interface NodeInspectorProps {
   node: GraphNode;
   meta: EditorMeta | null;
   issues: ValidationIssue[];
+  /** D4 questions panel inputs: the graph + draft edges for exemplar promotion.
+   *  Optional so the inspector renders (panel hidden) if a host omits them. */
+  graphId?: string;
+  edges?: GraphEdge[];
+  nodeNames?: Record<string, string>;
   onChange: (node: GraphNode) => void;
+  onEdgeChange?: (edge: GraphEdge) => void;
   onDelete: () => void;
 }
 
@@ -227,7 +232,7 @@ function ContextSetEditor({
   );
 }
 
-export function NodeInspector({ node, meta, issues, onChange, onDelete }: NodeInspectorProps) {
+export function NodeInspector({ node, meta, issues, graphId, edges, nodeNames, onChange, onEdgeChange, onDelete }: NodeInspectorProps) {
   const nodeIssues = issues.filter((i) => i.nodeId === node.id);
   const patch = (p: Partial<GraphNode>) => onChange({ ...node, ...p });
   const patchGuidance = (p: Partial<GraphNode['guidance']>) => onChange({ ...node, guidance: { ...node.guidance, ...p } });
@@ -449,6 +454,20 @@ export function NodeInspector({ node, meta, issues, onChange, onDelete }: NodeIn
           <Plus className="h-3 w-3 mr-0.5" /> chip
         </Button>
       </div>
+
+      {graphId && onEdgeChange && (
+        <>
+          <Separator />
+          <QuestionsPanel
+            graphId={graphId}
+            node={node}
+            edges={edges ?? []}
+            nodeNames={nodeNames ?? {}}
+            onNodeChange={onChange}
+            onEdgeChange={onEdgeChange}
+          />
+        </>
+      )}
 
       <div className="space-y-1">
         <FieldLabel hint='Subtle pill indicator ("Topic: Kiln project"). Empty = hidden.'>Topic label</FieldLabel>

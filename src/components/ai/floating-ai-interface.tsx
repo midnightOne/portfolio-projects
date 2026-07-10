@@ -14,6 +14,8 @@ import { cn } from '@/lib/utils';
 import { gsap } from 'gsap';
 import { useConversationalAgent } from '@/components/providers/conversational-agent-provider';
 import { useReflinkSession } from '@/components/providers/reflink-session-provider';
+import { readContinuityMarker, writeContinuityMarker, clearContinuityMarker } from '@/lib/ai/continuity-marker';
+import type { ConnectOptions } from '@/lib/voice/IConversationalAgentAdapter';
 
 // Types for the floating AI interface
 export interface QuickAction {
@@ -112,6 +114,7 @@ export function FloatingAIInterface({
     switchProvider,
     connect,
     disconnect,
+    getConversationSessionId,
     isConnected,
     audioInputMode,
     startAudioInput,
@@ -144,6 +147,21 @@ export function FloatingAIInterface({
   // 'denied' = browser blocked the mic, conversation continues text-only with retry
   const [micPrompt, setMicPrompt] = useState<null | 'ask' | 'denied'>(null);
   const [micBusy, setMicBusy] = useState(false);
+
+  // Returning-visitor resume (Block I3, Req 17.1/21.1). 'auto' = same-device
+  // continuity marker matched → the next session silently resumes ("as if
+  // after a brief disruption"); 'confirm' = same reflink from a new device/
+  // browser → explicit choice with a safe one-line summary, never a silent
+  // transcript exposure (a forwarded reflink URL must not leak the previous
+  // holder's conversation). The marker is a UX selector only — the reflink
+  // stays the sole access control (P32).
+  const [resumeOffer, setResumeOffer] = useState<null | {
+    sessionId: string;
+    summaryLine: string | null;
+    mode: 'auto' | 'confirm';
+  }>(null);
+  const pendingResumeRef = useRef<string | null>(null);
+  const resumeCheckedRef = useRef(false);
   
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -486,6 +504,84 @@ export function FloatingAIInterface({
     }
   }, [mode, animationState, expandContainer, contractContainer]);
 
+  // ---- Returning-visitor resume (Block I3) ----
+
+  /**
+   * Every pill-initiated connect goes through here: when a resume is pending
+   * (same-device auto-match or explicit "Continue"), the session opens with
+   * resumeFromSessionId — the one D49 resume code path, third trigger. A
+   * connect with nothing pending is a fresh conversation, which also clears
+   * any unanswered confirm offer (typing first = implicit "start fresh";
+   * resuming without the explicit choice would silently expose a prior
+   * conversation, Req 21.1).
+   */
+  const connectWithContinuity = async (options: ConnectOptions) => {
+    const resumeId = pendingResumeRef.current;
+    pendingResumeRef.current = null;
+    setResumeOffer(null);
+    await connect(resumeId ? { ...options, resumeFromSessionId: resumeId } : options);
+  };
+
+  // Look up the reflink's latest conversation once per page load (server-side
+  // the reflink is validated again — the marker never authorizes anything, P32).
+  useEffect(() => {
+    const code = session?.reflink?.code;
+    if (resumeCheckedRef.current || !code || accessLevel !== 'premium' || isConnected) return;
+    resumeCheckedRef.current = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/ai/conversation/latest?reflink=${encodeURIComponent(code)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.resumable || typeof data.sessionId !== 'string') return;
+        const marker = readContinuityMarker(code);
+        if (marker === data.sessionId) {
+          pendingResumeRef.current = data.sessionId;
+          setResumeOffer({ sessionId: data.sessionId, summaryLine: data.summaryLine ?? null, mode: 'auto' });
+        } else {
+          setResumeOffer({ sessionId: data.sessionId, summaryLine: data.summaryLine ?? null, mode: 'confirm' });
+        }
+      } catch {
+        /* resume is best-effort — a failed lookup just means a fresh conversation */
+      }
+    })();
+  }, [session, accessLevel, isConnected]);
+
+  // Same-device continuity marker: once the conversation has a real user turn,
+  // remember its logical session id on this device (idempotent per session).
+  useEffect(() => {
+    const code = session?.reflink?.code;
+    if (!code || !isConnected) return;
+    if (!transcript.some((t) => t.type === 'user_speech')) return;
+    const sid = getConversationSessionId();
+    if (sid) writeContinuityMarker(code, sid);
+  }, [transcript, isConnected, session, getConversationSessionId]);
+
+  /** Explicit "Continue where you left off" — opens a text-only resumed session immediately. */
+  const acceptResume = async () => {
+    if (!resumeOffer) return;
+    pendingResumeRef.current = resumeOffer.sessionId;
+    setHasInteracted(true);
+    try {
+      if (!isConnected) {
+        await connectWithContinuity({ audioInput: false });
+      }
+      if (mode !== 'expanded') {
+        onModeChange?.('expanded');
+      }
+    } catch (error) {
+      console.error('Resume connect failed (visitor can start fresh):', error);
+    }
+  };
+
+  /** "Start fresh" — always offered (Req 21.1); drops this device's marker too. */
+  const declineResume = () => {
+    const code = session?.reflink?.code;
+    if (code) clearContinuityMarker(code);
+    pendingResumeRef.current = null;
+    setResumeOffer(null);
+  };
+
   // Public tier: send through the gateway-fronted text endpoint
   const sendPublicMessage = async (text: string) => {
     const { sendPublicChatMessage } = await import('@/lib/ai/public-chat-client');
@@ -535,10 +631,11 @@ export function FloatingAIInterface({
           return;
         }
 
-        // Typing while disconnected starts a text-only session (no mic permission needed)
+        // Typing while disconnected starts a text-only session (no mic permission needed);
+        // a pending returning-visitor resume rides this connect (Block I3)
         if (!isConnected) {
           console.log('Not connected - establishing text-only session for typed message...');
-          await connect({ audioInput: false });
+          await connectWithContinuity({ audioInput: false });
         }
         await sendMessage(text);
         onTextSubmit?.(text);
@@ -663,7 +760,7 @@ export function FloatingAIInterface({
           // Browser has the mic blocked: keep/put the conversation in text-only and offer retry
           setMicPrompt('denied');
           if (!isConnected) {
-            await connect({ audioInput: false });
+            await connectWithContinuity({ audioInput: false });
           }
         } else {
           // 'prompt' — let the user choose before triggering the native permission dialog
@@ -697,7 +794,7 @@ export function FloatingAIInterface({
     try {
       if (!isConnected) {
         console.log('Not connected, establishing voice connection first...');
-        await connect({ audioInput: true });
+        await connectWithContinuity({ audioInput: true });
       }
       // If the session is text-only, startAudioInput performs the mic upgrade (reconnect)
       console.log('Starting audio input...');
@@ -709,7 +806,7 @@ export function FloatingAIInterface({
       setMicPrompt('denied');
       if (!isConnected) {
         try {
-          await connect({ audioInput: false });
+          await connectWithContinuity({ audioInput: false });
         } catch (fallbackError) {
           console.error('Text-only fallback connection failed:', fallbackError);
         }
@@ -724,7 +821,7 @@ export function FloatingAIInterface({
     setMicPrompt(null);
     if (!isConnected) {
       try {
-        await connect({ audioInput: false });
+        await connectWithContinuity({ audioInput: false });
       } catch (error) {
         console.error('Text-only connection failed:', error);
       }
@@ -1047,6 +1144,56 @@ export function FloatingAIInterface({
                 })}
                 <div ref={transcriptEndRef} />
               </div>
+            )}
+
+            {/* Returning-visitor resume (Block I3): confirm on a new device
+                (explicit choice + safe summary, Req 21.1), subtle notice on a
+                same-device auto-resume. Gone after any conversation starts. */}
+            {resumeOffer && !isConnected && chatMessages.length === 0 && (
+              resumeOffer.mode === 'confirm' ? (
+                <div
+                  className="mx-6 mb-2 rounded-lg border border-border bg-muted/30 px-4 py-3 text-sm"
+                  data-testid="resume-prompt"
+                >
+                  <p className="text-foreground mb-1">Continue where you left off?</p>
+                  {resumeOffer.summaryLine && (
+                    <p className="text-muted-foreground text-xs mb-2 italic" data-testid="resume-summary">
+                      {resumeOffer.summaryLine}
+                    </p>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={acceptResume}
+                      className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                      data-testid="resume-continue"
+                    >
+                      Continue
+                    </button>
+                    <button
+                      onClick={declineResume}
+                      className="px-3 py-1.5 rounded-md border border-border text-foreground hover:bg-muted/50 transition-colors"
+                      data-testid="resume-start-fresh"
+                    >
+                      Start fresh
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className="mx-6 mb-2 px-4 py-2 text-xs text-muted-foreground"
+                  data-testid="resume-auto-notice"
+                >
+                  <Sparkles className="inline h-3 w-3 mr-1 text-primary" />
+                  Welcome back — your last conversation will pick up where it left off.
+                  <button
+                    onClick={declineResume}
+                    className="ml-2 underline hover:text-foreground transition-colors"
+                    data-testid="resume-auto-start-fresh"
+                  >
+                    Start fresh instead
+                  </button>
+                </div>
+              )
             )}
 
             {/* Microphone permission prompt (voice requested without mic access) */}
