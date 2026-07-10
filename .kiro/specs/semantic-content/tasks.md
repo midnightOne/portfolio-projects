@@ -71,6 +71,16 @@ T0–T3 heading-bounded generation with contextual prefixes and section hashes; 
   - [x] 7.3 Automation: `npm run db:reset` (= `prisma migrate reset` + fixture) with a `prisma.seed` hook so reset re-provisions extension + HNSW and reseeds in one command. (Prisma's AI-agent guardrail blocks `migrate reset` for assistants; works in a human terminal.)
   - _Requirements: registry D54_
 
+### Ingestion quality — hierarchical summarization (added 2026-07-09)
+
+- [ ] 9. **Parent T2 summaries are not cumulative** (owner design intent: terminal tier carries verbatim text; every higher tier summarizes the cumulative content of ALL its children). Verified against code 2026-07-09:
+  - Holds today: T3 = verbatim heading-bounded content (`T3HeadingBoundedChunking`); T1 = AI summary over **all** of the project's T3 chunks; **leaf** T2 = AI summary over its own section's T3 chunks (auto-populated verbatim when the section fits the budget) — `StageBasedProcessingService.executeSummariesStage`.
+  - Broken for parents: T3 chunks bind to the **nearest** heading (`sectionGroup = currentHeading.anchorId`, `T3HeadingBoundedChunking.ts:112`), and the summaries stage gathers source content by exact `sectionGroup` match (`StageBasedProcessingService.ts:696-701`) — so a parent T2 with subsections summarizes only the prose directly under its own heading, excluding every child section. When it has no own prose, the fallback writes a literal `"Covers: <child titles>."` line (`StageBasedProcessingService.ts:709-721`, `source: 'child-overview'`) — a heading list, not a summary.
+  - [ ] 9.1 Fix: for T2 chunks that have child sections, build the summary source as the transitive closure — own T3 prose + descendants' content via the `parentChunkId` hierarchy (either concatenated descendant T3s, or cheaper and more in the design's spirit: own prose + the already-generated child T2 summaries, processing deepest-first). Retire the `"Covers:"` fallback to the truly-empty case.
+  - [ ] 9.2 Ensure regenerated parent summaries flow into re-embedding (the embeddings stage keys off the summaries checkpoint — verify modified parents are included) and that selective section regeneration (`SelectiveSectionRegenerator`) invalidates a parent when a child changes.
+  - [ ] 9.3 Verify via fixture: give the fixture project a nested section (H2 with H3 children), re-ingest, assert the parent T2 content references child material and `check:semantic` stays green.
+  - Related: the voice-UX suggestion doc (`docs/voice-conversation-ux-improvements-2026-07-09.md` S3) wants T2 search results to carry a real gist — cumulative parent summaries are the ingestion-side half of that fix.
+
 ## Backlog
 
 Multi-embedding-model A/B (model-comparison endpoint exists; keep frozen); cross-project T0 variants; per-audience summaries (reflink personalization) — needs a registry decision.
