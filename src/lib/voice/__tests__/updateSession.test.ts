@@ -59,6 +59,9 @@ class TestAdapter extends BaseConversationalAgentAdapter {
   handleDirective(raw: unknown): void {
     this._handleEngineDirective(raw);
   }
+  handleWindow(raw: unknown): void {
+    this._handleEngineWindow(raw);
+  }
   turnBoundary(): void {
     this._onTurnBoundary();
   }
@@ -284,6 +287,65 @@ describe('turn evidence (task A4)', () => {
     expect(bodies[1].uiEvidence).toHaveLength(1); // user row carries it
     expect(bodies[1].uiEvidence[0].type).toBe('navigation');
     expect(bodies[2].uiEvidence).toBeUndefined(); // consumed — not re-sent
+  });
+});
+
+describe('rolling-window intake (task J4 — versioned, boundary-gated, P19/P28)', () => {
+  const windowUpdate = (v: number) => ({
+    summaryVersion: v,
+    summaryText: `CONVERSATION SO FAR (running summary v${v} …): the kiln discussion`,
+    upToItemId: 'item_5',
+    config: { maxVerbatimAgeMs: 300_000, maxVerbatimTurns: 16 },
+  });
+
+  it('default mechanics put the summary into the floating block under key "summary"', async () => {
+    const a = new TestAdapter();
+    a.handleWindow(windowUpdate(1));
+    await flush();
+    const blockApplies = a.applied.filter((x) => x.field === 'contextBlock');
+    expect(blockApplies.length).toBeGreaterThanOrEqual(1);
+    expect(String(blockApplies[blockApplies.length - 1].value)).toContain('running summary v1');
+  });
+
+  it('applies a version exactly once — retried /log responses are dropped', async () => {
+    const a = new TestAdapter();
+    a.handleWindow(windowUpdate(1));
+    await flush();
+    const before = a.applied.filter((x) => x.field === 'contextBlock').length;
+    a.handleWindow(windowUpdate(1));
+    await flush();
+    expect(a.applied.filter((x) => x.field === 'contextBlock')).toHaveLength(before);
+  });
+
+  it('drops stale versions — latest wins', async () => {
+    const a = new TestAdapter();
+    a.handleWindow(windowUpdate(2));
+    await flush();
+    a.handleWindow(windowUpdate(1));
+    await flush();
+    const blockApplies = a.applied.filter((x) => x.field === 'contextBlock');
+    expect(String(blockApplies[blockApplies.length - 1].value)).toContain('running summary v2');
+  });
+
+  it('defers application while the model is responding; the boundary catches up (P19)', async () => {
+    const a = new TestAdapter();
+    a.responding = true;
+    a.handleWindow(windowUpdate(1));
+    await flush();
+    expect(a.applied).toHaveLength(0);
+    a.responding = false;
+    a.turnBoundary();
+    await flush();
+    const blockApplies = a.applied.filter((x) => x.field === 'contextBlock');
+    expect(blockApplies.length).toBeGreaterThanOrEqual(1);
+    expect(String(blockApplies[blockApplies.length - 1].value)).toContain('running summary v1');
+  });
+
+  it('rejects malformed window updates without applying anything', async () => {
+    const a = new TestAdapter();
+    a.handleWindow({ summaryVersion: 'x', summaryText: 1 });
+    await flush();
+    expect(a.applied).toHaveLength(0);
   });
 });
 

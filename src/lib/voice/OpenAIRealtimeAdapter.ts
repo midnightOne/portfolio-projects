@@ -31,6 +31,8 @@ import {
 } from '@/types/voice-agent';
 import { BaseConversationalAgentAdapter, ConnectOptions, SessionUpdateFieldResult } from './IConversationalAgentAdapter';
 import type { ContextBlock } from '@/lib/ai/context-buffer';
+import type { EngineWindowUpdate } from '@/lib/ai/engine/types';
+import { selectPrunableTurns, type WindowTurnRef } from '@/lib/ai/engine/window';
 import { getClientAIModelManager } from './ClientAIModelManager';
 import { OPENAI_REALTIME_MODEL } from '@/types/voice-config';
 import { UIManager } from '@/lib/navigation/UIManager';
@@ -145,6 +147,16 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     private _lastNavItemId: string | null = null; // Track most recent NAV_CONTEXT item ID
     private pendingTokens: Map<string, { resolve: (id: string) => void; reject: (error: Error) => void; timeout: NodeJS.Timeout }> = new Map();
     private tokenListenerSetup: boolean = false;
+
+    // ---- J4 rolling window (Req 20.2, P28): item deletes + a summary item ----
+    /** The inserted running-summary item (one per session; replaced on refresh). */
+    private _summaryItemId: string | null = null;
+    /** summaryVersion the current summary item carries. */
+    private _appliedSummaryVersion = 0;
+    /** Items already deleted from the provider conversation (never re-deleted). */
+    private _prunedItemIds: Set<string> = new Set();
+    /** Gentle per-boundary delete cap — pruning may lag, it must never flood the channel. */
+    private static readonly PRUNE_MAX_DELETES_PER_BOUNDARY = 10;
 
     constructor() {
         // Initialize with default metadata - will be updated when config is loaded
@@ -657,6 +669,13 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
         this._sessionInputKind = inputKind;
         this._sessionEpoch++;
+        // J4: a fresh provider session has no summary item and none of the old
+        // items — window mechanics start over (the server re-sends the current
+        // summary snapshot on version gap; the resume briefing carries it
+        // meanwhile).
+        this._summaryItemId = null;
+        this._appliedSummaryVersion = 0;
+        this._prunedItemIds.clear();
         this._setupEventListeners();
     }
 
@@ -1018,8 +1037,9 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
                 // NAV_CONTEXT frames are harness-injected context (D55), not visitor
                 // speech — never show or persist them as user turns. (They surfaced
-                // as "User" rows once real itemIds fixed the dedupe.)
-                if (content.trimStart().startsWith('NAV_CONTEXT')) {
+                // as "User" rows once real itemIds fixed the dedupe.) CONV_SUMMARY
+                // is the J4 running-summary item — same rule.
+                if (content.trimStart().startsWith('NAV_CONTEXT') || content.trimStart().startsWith('CONV_SUMMARY')) {
                     continue;
                 }
 
@@ -3032,6 +3052,102 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
      */
     async replaceNavContext(_oldItemId: string | null, newCtx: any): Promise<void> {
         this.publishPassiveContext('fid', newCtx);
+    }
+
+    // ---- J4 rolling window (Req 20.2, P28): TRUE pruning on the mutable conversation ----
+
+    /** Age-based prune candidates accrue with time — check every boundary once a window exists. */
+    protected _windowNeedsBoundaryCheck(): boolean {
+        return true;
+    }
+
+    /**
+     * OpenAI mechanics: (1) keep ONE summary item pinned at the conversation
+     * head (`previous_item_id: 'root'`), replaced when the running summary
+     * refreshes; (2) delete verbatim turn items that are outside the window
+     * AND covered by the summary (selection logic is the shared core module —
+     * the adapter only executes). Boundary-only (base class guarantees it),
+     * never a re-mint (P28). Deletes are fire-and-forget like the NAV_CONTEXT
+     * path — an unknown-id error from the server is tolerable, a stalled
+     * channel is not (checked first).
+     */
+    protected async _applyWindowMechanics(window: EngineWindowUpdate, reason: string): Promise<void> {
+        if (!this._session) return;
+        const dcState = this._getDataChannel()?.readyState;
+        if (this._disconnectedSince !== null || (dcState && dcState !== 'open')) {
+            throw new Error('transport not open — window application retried at next boundary');
+        }
+
+        // (1) Summary item refresh — create the NEW one first (never a gap
+        // where old turns are deleted and no summary exists), then drop the old.
+        if (window.summaryVersion > this._appliedSummaryVersion && window.summaryText.trim()) {
+            const token = this.uuid();
+            const text = `CONV_SUMMARY ${token} ${window.summaryText}`;
+            await this.sendEvent({
+                type: 'conversation.item.create',
+                previous_item_id: 'root', // head of the conversation — stable-prefix position (Req 20.1)
+                item: {
+                    type: 'message',
+                    role: 'user',
+                    content: [{ type: 'input_text', text }],
+                },
+            });
+            const newItemId = await this.waitForCreatedWithToken(token);
+            const oldSummaryId = this._summaryItemId;
+            this._summaryItemId = newItemId;
+            this._appliedSummaryVersion = window.summaryVersion;
+            if (oldSummaryId) {
+                try {
+                    await this.sendEvent({ type: 'conversation.item.delete', item_id: oldSummaryId });
+                } catch (error) {
+                    console.warn('Failed to delete previous summary item (superseded copy remains):', error);
+                }
+            }
+        }
+
+        // (2) Prune covered, out-of-window verbatim turns. Only items with
+        // PROVIDER ids are deletable — locally-generated fallback ids
+        // (`item-<epoch>-<index>…`) never reached the server as addressable items.
+        const turns: WindowTurnRef[] = this._transcript
+            .filter(
+                (t) =>
+                    (t.type === 'user_speech' || t.type === 'ai_response') &&
+                    !this._prunedItemIds.has(t.id) &&
+                    !/^item-\d+-\d+/.test(t.id)
+            )
+            .map((t) => ({
+                id: t.id,
+                role: t.type === 'user_speech' ? ('user' as const) : ('assistant' as const),
+                timestamp: t.timestamp.getTime(),
+            }))
+            .sort((a, b) => a.timestamp - b.timestamp);
+
+        const candidates = selectPrunableTurns(turns, window.upToItemId, window.config, Date.now()).slice(
+            0,
+            OpenAIRealtimeAdapter.PRUNE_MAX_DELETES_PER_BOUNDARY
+        );
+        if (candidates.length === 0) return;
+
+        const deleted: string[] = [];
+        for (const turn of candidates) {
+            try {
+                await this.sendEvent({ type: 'conversation.item.delete', item_id: turn.id });
+                this._prunedItemIds.add(turn.id);
+                deleted.push(turn.id);
+            } catch (error) {
+                console.warn(`Failed to delete turn item ${turn.id} (kept verbatim):`, error);
+            }
+        }
+        if (deleted.length > 0) {
+            // Replayable prune record (Req 7.4 spirit): what collapsed, into
+            // which summary version — replay explains why old turns vanished
+            // from the provider context while the transcript still shows them.
+            this._logEvent(
+                'window_prune',
+                `Pruned ${deleted.length} verbatim turn(s) → running summary v${window.summaryVersion}`,
+                { deletedItemIds: deleted, summaryVersion: window.summaryVersion, upToItemId: window.upToItemId, reason }
+            );
+        }
     }
 
     /**

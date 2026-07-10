@@ -51,8 +51,8 @@ export interface ConversationMessage {
         /** Internal reasoning/thinking trace, stored separately from `content` (D22 amendment) — never the spoken answer, rendered collapsed by default. */
         reasoning?: string;
         /** Labeled event row (owner, 2026-07-07; clip_played D50/9b; context_flush/engine_directive
-         *  conversation-engine A3/A4) — `content` carries the human-readable label. */
-        eventType?: 'navigation' | 'error' | 'clip_played' | 'context_flush' | 'engine_directive';
+         *  conversation-engine A3/A4; window_prune J4) — `content` carries the human-readable label. */
+        eventType?: 'navigation' | 'error' | 'clip_played' | 'context_flush' | 'engine_directive' | 'window_prune';
         detail?: string;
         /** 9b.5 turn ONSET (assistant voice rows): when the turn's first audio became audible; the row timestamp is turn-END. */
         firstAudioAt?: string;
@@ -110,6 +110,13 @@ export interface LatestStateSnapshot {
     activeTools?: string[];
     /** D47 node pointer, later. */
     nodeId?: string;
+    /**
+     * ConversationState optimistic-concurrency counter (Req 7.2, task J1):
+     * bumped by EVERY latestState write in this manager — merge, engine merge,
+     * and turn claim alike — generalizing the B3 CAS. The full typed contract
+     * is ConversationStateSchema in src/lib/ai/engine/types.ts.
+     */
+    stateVersion?: number;
     updatedAt: string;
 }
 
@@ -118,7 +125,10 @@ export type SessionMarkerType =
     | 'session_resumed'
     /** D47 traversal telemetry (conversation-engine Req 7.1/7.3) */
     | 'node_transition'
-    | 'edge_evaluated';
+    | 'edge_evaluated'
+    /** Running conversation summary (Req 17.2/20.5, task J3) — ONE artifact for
+     *  in-session pruning, cross-session briefings, and the admin transcript. */
+    | 'conversation_summary';
 
 export interface SessionMarker {
     type: SessionMarkerType;
@@ -141,6 +151,15 @@ export interface SessionMarker {
     turnMessageId?: string | null;
     /** edge_evaluated: the evaluated-but-not-taken rows (debug sessions, Req 7.3). */
     evaluated?: Array<{ edgeId: string; fired: boolean; reason: string }>;
+    // ---- conversation_summary (Req 17.2/20.5, task J3) ----
+    /** The running summary text itself — rendered as the row's content. */
+    summaryText?: string;
+    summaryVersion?: number;
+    /** Last message the summary covers (adapter transcriptItemId when the row
+     *  has one, else the DB message id) — the J4 prune boundary. */
+    upToMessageId?: string | null;
+    /** The profile assessment this run produced (replay: what changed and when). */
+    profile?: Record<string, unknown>;
 }
 
 export interface ConversationMessageRecord {
@@ -654,6 +673,10 @@ export class ConversationHistoryManager {
             // D47 traversal telemetry (Req 7.1): inline with the transcript,
             // attributable to the exact graph version the conversation runs under
             : marker.type === 'node_transition' ? `[node_transition] ${marker.fromNode ?? '∅'} → ${marker.toNode}${marker.conditionType ? ` (${marker.conditionType})` : ''}`
+            // Summary rows carry the summary TEXT as content — the admin
+            // transcript renders it directly (Req 17.2), replay shows the
+            // memory the model resumes/prunes onto.
+            : marker.type === 'conversation_summary' ? `[summary v${marker.summaryVersion ?? '?'}] ${marker.summaryText ?? ''}`
             : `[edge_evaluated] ${marker.evaluated?.length ?? 0} edge(s)${marker.evaluated?.some((r) => r.fired) ? ' — one fired' : ', none fired'}`;
         await prisma.$transaction([
             prisma.aIConversationMessage.create({
@@ -681,7 +704,12 @@ export class ConversationHistoryManager {
                         // Capped whole-row (never mid-JSON truncation): 30 edges × 150-char reasons
                         evaluated: marker.evaluated
                             ? marker.evaluated.slice(0, 30).map((r) => ({ ...r, reason: r.reason.slice(0, 150) }))
-                            : undefined
+                            : undefined,
+                        // conversation_summary fields (J3) — version + prune
+                        // boundary + the profile this run produced
+                        summaryVersion: marker.summaryVersion,
+                        upToMessageId: marker.upToMessageId,
+                        profile: marker.profile
                     } as any
                 }
             }),
@@ -708,6 +736,9 @@ export class ConversationHistoryManager {
                 latestState: {
                     ...current,
                     ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)),
+                    // ConversationState contract (Req 7.2, J1): every write bumps
+                    // the snapshot's optimistic-concurrency counter
+                    stateVersion: (typeof current.stateVersion === 'number' ? current.stateVersion : 0) + 1,
                     updatedAt: new Date().toISOString()
                 } as any
             }
@@ -749,6 +780,8 @@ export class ConversationHistoryManager {
         const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
         const topLevel: Record<string, unknown> = { updatedAt: new Date().toISOString() };
         if ('nodeId' in defined) topLevel.nodeId = defined.nodeId;
+        // stateVersion bump (Req 7.2, J1) is computed in SQL so it stays
+        // correct under concurrent writers — jsonb || applies left to right.
         await prisma.$executeRaw`
             UPDATE ai_conversations
             SET latest_state = jsonb_set(
@@ -756,6 +789,7 @@ export class ConversationHistoryManager {
                     '{engine}',
                     COALESCE(latest_state->'engine', '{}'::jsonb) || ${JSON.stringify(defined)}::jsonb
                 ) || ${JSON.stringify(topLevel)}::jsonb
+                  || jsonb_build_object('stateVersion', COALESCE((latest_state->>'stateVersion')::int, 0) + 1)
             WHERE id = ${conversationId}`;
     }
 
@@ -772,10 +806,120 @@ export class ConversationHistoryManager {
                     COALESCE(latest_state, '{}'::jsonb),
                     '{engine}',
                     COALESCE(latest_state->'engine', '{}'::jsonb) || jsonb_build_object('lastEvaluatedTurnId', ${turnId}::text)
-                )
+                ) || jsonb_build_object('stateVersion', COALESCE((latest_state->>'stateVersion')::int, 0) + 1)
             WHERE id = ${conversationId}
               AND (latest_state->'engine'->>'lastEvaluatedTurnId') IS NOT DISTINCT FROM ${expected}`;
         return updated > 0;
+    }
+
+    /**
+     * P29 staleness trigger + in-flight guard for the behavior summarizer
+     * (task J3), as ONE atomic claim: succeeds only when the engine steers
+     * this conversation (nodeId non-null — removal safety, Req 2.7), no run is
+     * in flight (or the in-flight stamp is stale — a crashed serverless
+     * invocation must not wedge the summarizer forever), and the last
+     * completed run is older than the interval. Winning the claim stamps
+     * summarizerInFlightSince; the job clears it on completion or failure.
+     */
+    async claimSummarizerRun(
+        conversationId: string,
+        intervalMs: number,
+        inFlightStaleMs: number
+    ): Promise<boolean> {
+        const now = new Date();
+        const nowIso = now.toISOString();
+        const intervalFloor = new Date(now.getTime() - intervalMs).toISOString();
+        const staleFloor = new Date(now.getTime() - inFlightStaleMs).toISOString();
+        const updated = await prisma.$executeRaw`
+            UPDATE ai_conversations
+            SET latest_state = jsonb_set(
+                    COALESCE(latest_state, '{}'::jsonb),
+                    '{engine}',
+                    COALESCE(latest_state->'engine', '{}'::jsonb) || jsonb_build_object('summarizerInFlightSince', ${nowIso}::text)
+                ) || jsonb_build_object('stateVersion', COALESCE((latest_state->>'stateVersion')::int, 0) + 1)
+            WHERE id = ${conversationId}
+              AND (latest_state->'engine'->>'nodeId') IS NOT NULL
+              AND (
+                    (latest_state->'engine'->>'summarizerInFlightSince') IS NULL
+                 OR (latest_state->'engine'->>'summarizerInFlightSince')::timestamptz < ${staleFloor}::timestamptz
+              )
+              AND (
+                    (latest_state->'engine'->>'lastSummarizerRunAt') IS NULL
+                 OR (latest_state->'engine'->>'lastSummarizerRunAt')::timestamptz < ${intervalFloor}::timestamptz
+              )`;
+        return updated > 0;
+    }
+
+    /** Latest running-summary row (Req 20.5) — the ONE artifact briefings, pruning, and the batch share. */
+    async getLatestConversationSummary(conversationId: string): Promise<{
+        summaryText: string;
+        summaryVersion: number;
+        upToMessageId: string | null;
+        createdAt: Date;
+    } | null> {
+        const row = await prisma.aIConversationMessage.findFirst({
+            where: {
+                conversationId,
+                metadata: { path: ['markerType'], equals: 'conversation_summary' }
+            },
+            orderBy: { timestamp: 'desc' },
+            select: { content: true, timestamp: true, metadata: true }
+        });
+        if (!row) return null;
+        const meta = (row.metadata ?? {}) as Record<string, unknown>;
+        const version = typeof meta.summaryVersion === 'number' ? meta.summaryVersion : 0;
+        // Content carries a "[summary vN] " prefix for transcript readability —
+        // strip it back off for prompt use.
+        const text = row.content.replace(/^\[summary v[^\]]*\]\s*/, '');
+        return {
+            summaryText: text,
+            summaryVersion: version,
+            upToMessageId: typeof meta.upToMessageId === 'string' ? meta.upToMessageId : null,
+            createdAt: row.timestamp
+        };
+    }
+
+    /**
+     * User/assistant turns AFTER a given message (by that row's timestamp;
+     * null = from the start), oldest first — the summarizer's incremental
+     * input (J3). Returns the adapter transcriptItemId alongside the DB id so
+     * the summary's prune boundary can speak the CLIENT's item language (J4).
+     */
+    async getTurnsSince(
+        conversationId: string,
+        afterMessageId: string | null,
+        cap = 60
+    ): Promise<Array<{ id: string; itemId: string; role: 'user' | 'assistant'; content: string }>> {
+        let afterTimestamp: Date | null = null;
+        if (afterMessageId) {
+            const anchor = await prisma.aIConversationMessage.findFirst({
+                where: {
+                    conversationId,
+                    OR: [
+                        { id: afterMessageId },
+                        { metadata: { path: ['transcriptItemId'], equals: afterMessageId } }
+                    ]
+                },
+                select: { timestamp: true }
+            });
+            afterTimestamp = anchor?.timestamp ?? null;
+        }
+        const rows = await prisma.aIConversationMessage.findMany({
+            where: {
+                conversationId,
+                role: { in: ['user', 'assistant'] },
+                ...(afterTimestamp ? { timestamp: { gt: afterTimestamp } } : {})
+            },
+            orderBy: { timestamp: 'asc' },
+            take: cap,
+            select: { id: true, role: true, content: true, metadata: true }
+        });
+        return rows.map((r) => ({
+            id: r.id,
+            itemId: ((r.metadata as Record<string, unknown> | null)?.transcriptItemId as string | undefined) ?? r.id,
+            role: r.role as 'user' | 'assistant',
+            content: r.content
+        }));
     }
 
     /**

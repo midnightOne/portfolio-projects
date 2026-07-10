@@ -180,11 +180,37 @@ export interface TurnEvidence {
 }
 
 /**
+ * Inferred visitor profile (Req 19.2) — engine-owned state. Slots are *stated*
+ * facts, flags are *inferred* ones; they unify for templating ({{flags.x}})
+ * and edge conditions (slot condition on `flags.<name>`). Every field is
+ * individually `.catch`-tolerant: a garbage value from the cheap call or the
+ * summarizer degrades that ONE flag to undefined instead of invalidating the
+ * whole engine state (P18 — a bad flag must never turn the engine off).
+ */
+export const VisitorFlagsSchema = z
+  .object({
+    register: z.enum(['technical', 'layman']).optional().catch(undefined),
+    intent: z.enum(['hiring', 'browsing', 'specific_role', 'general']).optional().catch(undefined),
+    behavior: z.enum(['cooperative', 'probing', 'rude']).optional().catch(undefined),
+    /** Richer read from the behavior summarizer only (Req 19.3) — short free text. */
+    mood: z.string().max(80).optional().catch(undefined),
+    topics: z.array(z.string().max(80)).max(12).optional().catch(undefined),
+    /** Conversation start (ISO) — duration renders from it (Req 19.2). */
+    startedAt: z.string().optional().catch(undefined),
+  })
+  .catch({});
+export type VisitorFlags = z.infer<typeof VisitorFlagsSchema>;
+
+/**
  * The engine's keys inside AIConversation.latestState (design §2
  * ConversationState.engine). Reads are tolerant (missing = engine inactive);
  * writes MERGE, never replace the blob (P18). `nodeId: null` means the
  * conversation started with no active graph and stays engine-off for its
  * lifetime (P6 pinning applies to "no graph" too).
+ *
+ * Keys added by Block J default on parse, so pre-J persisted blobs read
+ * cleanly. `flags` is replaced WHOLESALE on every write (P30 — a profile is a
+ * current assessment, not a ledger); everything else merges per key.
  */
 export const EngineStateSchema = z.object({
   engineStateVersion: z.literal(1),
@@ -196,6 +222,23 @@ export const EngineStateSchema = z.object({
   consecutiveLowEffort: z.number().int().nonnegative().default(0),
   /** Stated facts captured from user turns (Req 14; extraction shares the P26 call). */
   slots: z.record(z.string()).default({}),
+  /** Inferred visitor profile (Req 19.2): fast flags per turn, richer read per summarizer run. */
+  flags: VisitorFlagsSchema.default({}),
+  /** Req 19.6 — agenda items the model has visibly worked through (node-scoped). */
+  agendaProgress: z.array(z.string()).default([]),
+  /** Version of the latest persisted running summary (Req 20.5); 0 = none yet. */
+  summaryVersion: z.number().int().nonnegative().default(0),
+  /** Bumps with every engine context publish (design §2 — buffer coherence). */
+  contextSetVersion: z.number().int().nonnegative().default(0),
+  /** Bumps whenever the rendered profile changes — native delivery tracking. */
+  profileVersion: z.number().int().nonnegative().default(0),
+  /** Highest profileVersion delivered to the live native session (directive path). */
+  deliveredProfileVersion: z.number().int().nonnegative().default(0),
+  /** Highest summaryVersion delivered to the live native session (window path, J4). */
+  deliveredSummaryVersion: z.number().int().nonnegative().default(0),
+  /** Behavior-summarizer bookkeeping (P29): staleness trigger + in-flight guard. */
+  lastSummarizerRunAt: z.string().nullable().default(null),
+  summarizerInFlightSince: z.string().nullable().default(null),
   // NOTE: no pendingModelSwap and no swap scheduling of any kind — the owner
   // removed native mid-session model switching (Req 5.3, 2026-07-09). Node
   // modelAlias is per-turn resolution data on cascade/text and mint-time input
@@ -203,6 +246,24 @@ export const EngineStateSchema = z.object({
   // carry the key — z.object strips unknown keys on parse, so reads stay tolerant.)
 });
 export type EngineState = z.infer<typeof EngineStateSchema>;
+
+/**
+ * The authoritative ConversationState contract over AIConversation.latestState
+ * (Req 7.2, task J1): ONE versioned, Zod-typed snapshot — the provider session
+ * is always a derived cache of this, never the other way around. `stateVersion`
+ * is bumped by EVERY latestState write (manager-level, generalizing the B3
+ * CAS, P3) so any consumer can do optimistic concurrency against the whole
+ * snapshot. Sibling keys owned by ai-assistant legs/mode code pass through
+ * untouched (P18) — this schema types what the engine owns and tolerates the
+ * rest.
+ */
+export const ConversationStateSchema = z
+  .object({
+    stateVersion: z.number().int().nonnegative().default(0),
+    engine: EngineStateSchema.optional(),
+  })
+  .passthrough();
+export type ConversationState = z.infer<typeof ConversationStateSchema>;
 
 /** node_transition marker payload (Req 7.1). */
 export interface TransitionRecord {
@@ -266,6 +327,38 @@ export interface StartDirective {
  * `modelAlias` rides `latestState` into next-turn `resolveModel` resolution
  * (Req 5.2), never this directive.
  */
+/**
+ * Rolling-window update riding the /log response (Req 20, task J4) — native
+ * voice only, exactly like EngineDirective. Carries the CURRENT running
+ * summary (server-produced; assembly is server-side, D47(e)) plus the window
+ * config; the ADAPTER owns the provider mechanics (OpenAI: item deletes + a
+ * summary item; Gemini: summary text into the superseded context block —
+ * native compression was configured at mint; cascade/text never receive this,
+ * their window is applied at server-side prompt assembly). Versioned like
+ * directives: the client applies only `summaryVersion` > last applied, and
+ * every update is a full snapshot, so drops/repeats are harmless.
+ */
+export const EngineWindowUpdateSchema = z.object({
+  summaryVersion: z.number().int().positive(),
+  /** Full current running-summary text (replaces any previous copy). */
+  summaryText: z.string(),
+  /**
+   * Adapter transcript-item id of the LAST turn the summary covers — the
+   * prune boundary (P28): verbatim turns at or before it are summarized and
+   * safe to delete; anything after it must stay verbatim. Null when unknown
+   * (text-modality rows) → age/count limits alone apply, but only to turns
+   * older than the summary's creation.
+   */
+  upToItemId: z.string().nullable(),
+  config: z.object({
+    /** Verbatim turns older than this collapse into the summary (~5 min default). */
+    maxVerbatimAgeMs: z.number().int().positive(),
+    /** Keep at most this many verbatim user+assistant items regardless of age. */
+    maxVerbatimTurns: z.number().int().positive(),
+  }),
+});
+export type EngineWindowUpdate = z.infer<typeof EngineWindowUpdateSchema>;
+
 export const EngineDirectiveSchema = z.object({
   seq: z.number().int().nonnegative(),
   /** Complete assembled instruction string (replacement semantics, P8). */

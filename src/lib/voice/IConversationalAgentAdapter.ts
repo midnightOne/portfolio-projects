@@ -18,7 +18,12 @@ import {
   VoiceAgentError
 } from '@/types/voice-agent';
 import { ContextBuffer, ContextBlock } from '@/lib/ai/context-buffer';
-import { EngineDirective, EngineDirectiveSchema } from '@/lib/ai/engine/types';
+import {
+  EngineDirective,
+  EngineDirectiveSchema,
+  EngineWindowUpdate,
+  EngineWindowUpdateSchema,
+} from '@/lib/ai/engine/types';
 
 /**
  * Per-field outcome of an `updateSession` call (D47(d); conversation-engine
@@ -218,6 +223,13 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
   private _pendingDirective: EngineDirective | null = null;
   /** UI-state deltas since the last user turn — turn evidence for /log (task A4). */
   private _pendingUiEvidence: Array<Record<string, unknown>> = [];
+  // ---- J4 rolling window (Req 20; P28) ----
+  /** Latest window update from the /log response — full snapshot, versioned. */
+  protected _windowState: EngineWindowUpdate | null = null;
+  /** Highest summaryVersion already handed to the provider mechanics (latest-wins gate). */
+  private _lastAppliedWindowVersion = 0;
+  /** A window update arrived (possibly mid-response) and awaits the next boundary (P19). */
+  private _windowDirty = false;
 
   constructor(provider: VoiceProvider, metadata: ProviderMetadata) {
     this._provider = provider;
@@ -265,6 +277,11 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
           // owns staleness/queueing and applies it via updateSession.
           if (data?.engineDirective) {
             this._handleEngineDirective(data.engineDirective);
+          }
+          // J4: rolling-window update (running summary + config) — same
+          // delivery rules as directives: versioned, latest-wins, full snapshot.
+          if (data?.engineWindow) {
+            this._handleEngineWindow(data.engineWindow);
           }
         })
         .catch((err) => console.warn('[conversation/log] post failed:', err));
@@ -431,7 +448,7 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
    * replay timeline (owner, 2026-07-07). Shared across all adapters since it
    * lives in the base class; fire-and-forget, never blocks the voice path.
    */
-  protected _logEvent(eventType: 'navigation' | 'error' | 'context_flush' | 'engine_directive', label: string, detail?: unknown): void {
+  protected _logEvent(eventType: 'navigation' | 'error' | 'context_flush' | 'engine_directive' | 'window_prune', label: string, detail?: unknown): void {
     const sessionId = this.getConversationSessionId?.();
     if (!sessionId) return;
     this._postConversationLog({
@@ -817,10 +834,66 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
   }
 
   /**
+   * Rolling-window intake (task J4): Zod-validated, latest-wins by
+   * `summaryVersion` (a retried /log POST returning the same snapshot twice
+   * applies once), applied immediately when idle, else at the next turn
+   * boundary (P19 — never mid-response). Every update is a full snapshot, so
+   * dropping stale/duplicate ones is always safe.
+   */
+  protected _handleEngineWindow(raw: unknown): void {
+    const parsed = EngineWindowUpdateSchema.safeParse(raw);
+    if (!parsed.success) {
+      console.warn(`[${this._provider}] invalid engine window update dropped:`, parsed.error.message);
+      return;
+    }
+    if (parsed.data.summaryVersion <= this._lastAppliedWindowVersion) return;
+    this._lastAppliedWindowVersion = parsed.data.summaryVersion;
+    this._windowState = parsed.data;
+    this._windowDirty = true;
+    if (!this._isModelResponding()) {
+      void this._applyWindowState('window-update');
+    }
+  }
+
+  /**
+   * Hand the current window state to the provider mechanics (never
+   * mid-response — call sites are the intake above and the turn boundary).
+   * Default mechanics: the running summary joins the floating block under
+   * source key 'summary' at the highest merge priority — on Gemini's
+   * on-change cadence that is versioned supersession (one send per summary
+   * refresh, P27's economics); providers with item control (OpenAI) override
+   * `_applyWindowMechanics` with true pruning (P28). Cascade never receives
+   * window updates (server-side assembly owns its window).
+   */
+  protected async _applyWindowState(reason: string): Promise<void> {
+    const window = this._windowState;
+    if (!window) return;
+    this._windowDirty = false;
+    try {
+      await this._applyWindowMechanics(window, reason);
+    } catch (err) {
+      this._windowDirty = true; // stays dirty → retried at the next boundary
+      console.warn(`[${this._provider}] window application failed (retried at next boundary):`, err);
+    }
+  }
+
+  /** Provider mechanics for the rolling window. Default: summary rides the floating block. */
+  protected async _applyWindowMechanics(window: EngineWindowUpdate, _reason: string): Promise<void> {
+    // Priority 1 puts the summary at the TOP of the merged block: memory
+    // first, then live UI state, then node guidance/profile.
+    this._contextBuffer.publish('summary', window.summaryText, { priority: 1 });
+    if (!this._isModelResponding()) {
+      await this._flushContextBlock('window-summary');
+    }
+  }
+
+  /**
    * Turn-boundary hook — concrete adapters call this when a model response
    * completes. Applies the queued directive (which flushes) or re-appends the
    * floating block (P27: every turn, even unchanged, where the provider
-   * permits).
+   * permits), then gives the rolling window its boundary slot (J4: prune
+   * checks are boundary-only — deleting items mid-response would yank context
+   * from under an in-flight answer).
    */
   protected _onTurnBoundary(): void {
     const pending = this._pendingDirective;
@@ -830,6 +903,18 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
     } else {
       void this._flushContextBlock('turn-end');
     }
+    if (this._windowState && (this._windowDirty || this._windowNeedsBoundaryCheck())) {
+      void this._applyWindowState('turn-boundary');
+    }
+  }
+
+  /**
+   * True when the provider mechanics want a look at EVERY boundary even
+   * without a new summary (OpenAI: age-based prune candidates accrue with
+   * time). Default false — summary-in-block providers only act on change.
+   */
+  protected _windowNeedsBoundaryCheck(): boolean {
+    return false;
   }
 
   /** Record a UI-state delta as turn evidence for the next user-turn /log POST (task A4). */

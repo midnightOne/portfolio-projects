@@ -13,8 +13,23 @@
 
 import { prisma } from '@/lib/prisma';
 import { ConversationEngine, EngineStateStore, type ProcessTurnDebug } from '@/lib/ai/engine/engine';
-import type { ContextItemSpec, EngineDirective, StartDirective, TurnEvidence } from '@/lib/ai/engine/types';
+import type {
+  ContextItemSpec,
+  EngineDirective,
+  EngineState,
+  EngineWindowUpdate,
+  StartDirective,
+  TurnEvidence,
+} from '@/lib/ai/engine/types';
 import { buildCheapCallPrompt, parseCheapCallResponse, CheapCallInput, CheapCallResult } from '@/lib/ai/engine/cheap-call';
+import {
+  buildSummarizerPrompt,
+  parseSummarizerResponse,
+  summarizerNeeded,
+  applySummarizerProfile,
+} from '@/lib/ai/engine/summarizer';
+import { renderProfileText, flagsEqual } from '@/lib/ai/engine/profile';
+import { DEFAULT_WINDOW_CONFIG, renderSummaryText, type WindowConfig } from '@/lib/ai/engine/window';
 import { prismaGraphSource } from './graph-store';
 import { conversationHistoryManager } from './conversation-history-manager';
 import { getReasoningAdapter } from '@/lib/ai/reasoning';
@@ -26,6 +41,31 @@ import { ContentSearchService } from '@/lib/content/ContentSearchService';
 
 /** P10: hard classifier timeout — no transition beats a wrong one. */
 const CLASSIFIER_TIMEOUT_MS = 2000;
+
+// ---------------------------------------------------------------------------
+// Context-lifecycle config (Block J). Env-overridable so drills and the owner
+// can tighten the window without code changes (Req 20.1 "configurable");
+// invalid values fall back to the spec defaults.
+// ---------------------------------------------------------------------------
+
+function envInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/** Req 19.3: behavior summarizer at most once per interval (default 60s). */
+const SUMMARIZER_INTERVAL_MS = envInt('ENGINE_SUMMARIZER_INTERVAL_MS', 60_000);
+/** A crashed invocation's in-flight stamp goes stale after this (self-healing guard, P29). */
+const SUMMARIZER_IN_FLIGHT_STALE_MS = 120_000;
+
+function windowConfig(): WindowConfig {
+  return {
+    maxVerbatimAgeMs: envInt('ENGINE_WINDOW_MAX_AGE_MS', DEFAULT_WINDOW_CONFIG.maxVerbatimAgeMs),
+    maxVerbatimTurns: envInt('ENGINE_WINDOW_MAX_TURNS', DEFAULT_WINDOW_CONFIG.maxVerbatimTurns),
+  };
+}
 
 /**
  * v1 probe patterns (Req 18.2 "pattern + classifier"). Conservative, injected
@@ -227,6 +267,152 @@ const stateStore: EngineStateStore = {
 };
 
 // ---------------------------------------------------------------------------
+// J3: behavior summarizer + running summary — ONE cheap-LLM job, two outputs
+// (profile assessment from USER turns, Req 19.3; running conversation summary,
+// Req 20.5), staleness-triggered at turn boundaries via an atomic claim (P29),
+// fully async (never blocks a turn), gateway-metered like every internal call
+// (D33). The Block I2 batch reuses runSummarizerJob directly — one pipeline,
+// two triggers.
+// ---------------------------------------------------------------------------
+
+async function readEngineState(conversationId: string): Promise<EngineState | null> {
+  return ConversationEngine.parseEngineState(
+    await conversationHistoryManager.readEngineStateRaw(conversationId)
+  );
+}
+
+/**
+ * Produce/refresh the running summary + profile for one conversation. Exported
+ * for the Block I2 batch (admin/cron backfill); in-session callers go through
+ * maybeRunSummarizer, which owns the staleness claim. Assumes the caller holds
+ * the in-flight claim; always clears it, success or failure.
+ */
+export async function runSummarizerJob(conversationId: string): Promise<void> {
+  const finishedAt = () => new Date().toISOString();
+  try {
+    const state = await readEngineState(conversationId);
+    if (!state) {
+      // Claim raced an engine-off rewrite — nothing to do.
+      await conversationHistoryManager.mergeEngineState(conversationId, { summarizerInFlightSince: null });
+      return;
+    }
+    const previous = await conversationHistoryManager.getLatestConversationSummary(conversationId);
+    const turns = await conversationHistoryManager.getTurnsSince(
+      conversationId,
+      previous?.upToMessageId ?? null,
+      60
+    );
+    const input = {
+      previousSummary: previous?.summaryText ?? null,
+      turns: turns.map((t) => ({ role: t.role, content: t.content })),
+    };
+    if (!summarizerNeeded(input)) {
+      // No new user turns since the last summary — count it as a run so the
+      // staleness check stays quiet for another interval.
+      await conversationHistoryManager.mergeEngineState(conversationId, {
+        summarizerInFlightSince: null,
+        lastSummarizerRunAt: finishedAt(),
+      });
+      return;
+    }
+
+    const adapter = await getReasoningAdapter('default-cheap');
+    const result = await adapter.chat([{ role: 'user', content: buildSummarizerPrompt(input) }], {
+      temperature: 0.2,
+      maxOutputTokens: 700,
+    });
+    void recordUsage({
+      feature: 'chat',
+      usageType: 'engine_summarizer',
+      provider: result.provider,
+      modelId: result.modelId,
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+    }).catch(() => undefined);
+
+    const parsed = parseSummarizerResponse(result.content);
+    if (!parsed || !parsed.summary.trim()) {
+      throw new Error('summarizer returned no parseable summary');
+    }
+
+    const summaryVersion = state.summaryVersion + 1;
+    const upToMessageId = turns.length > 0 ? turns[turns.length - 1].itemId : previous?.upToMessageId ?? null;
+    // Row FIRST, state pointer after — a crash between the two leaves an
+    // unreferenced row, never a dangling pointer.
+    await conversationHistoryManager.recordSessionMarker(conversationId, {
+      type: 'conversation_summary',
+      summaryText: parsed.summary,
+      summaryVersion,
+      upToMessageId,
+      profile: parsed.profile as Record<string, unknown>,
+    });
+
+    // P30: the summarizer's profile REPLACES the previous one wholesale —
+    // stale judgments decay by omission ("rude five minutes ago" is gone
+    // unless it is still the current read). startedAt survives (an anchor,
+    // not an assessment).
+    const flags = applySummarizerProfile(state.flags, parsed.profile);
+    const profileChanged = !flagsEqual(state.flags, flags);
+    await conversationHistoryManager.mergeEngineState(conversationId, {
+      flags,
+      ...(profileChanged ? { profileVersion: state.profileVersion + 1 } : {}),
+      summaryVersion,
+      lastSummarizerRunAt: finishedAt(),
+      summarizerInFlightSince: null,
+    });
+  } catch (err) {
+    console.error('[engine] summarizer run failed (guard cleared; retried after next interval):', err);
+    // lastSummarizerRunAt is stamped even on failure so a persistently broken
+    // summarizer costs one attempt per interval, never one per turn.
+    await conversationHistoryManager
+      .mergeEngineState(conversationId, { summarizerInFlightSince: null, lastSummarizerRunAt: finishedAt() })
+      .catch(() => undefined);
+  }
+}
+
+/** Turn-boundary staleness check (P29): claim atomically, then fire-and-forget. */
+async function maybeRunSummarizer(conversationId: string): Promise<void> {
+  try {
+    const claimed = await conversationHistoryManager.claimSummarizerRun(
+      conversationId,
+      SUMMARIZER_INTERVAL_MS,
+      SUMMARIZER_IN_FLIGHT_STALE_MS
+    );
+    if (!claimed) return;
+    void runSummarizerJob(conversationId).catch((err) =>
+      console.error('[engine] summarizer job crashed (P29 guard goes stale in 2min):', err)
+    );
+  } catch (err) {
+    console.warn('[engine] summarizer claim failed (turn unaffected):', err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// J4: rolling-window delivery for native voice. The server owns the POLICY
+// (window config + the framed summary text — assembly is server-side,
+// D47(e)); the adapters own the MECHANICS (OpenAI item surgery / Gemini
+// superseded block). Versioned like directives: sent when the persisted
+// summaryVersion is ahead of what the live session last received; every
+// update is a full snapshot, so a lost response just re-sends next turn.
+// ---------------------------------------------------------------------------
+
+async function resolveWindowUpdate(conversationId: string): Promise<EngineWindowUpdate | null> {
+  const state = await readEngineState(conversationId);
+  if (!state?.nodeId || state.summaryVersion <= state.deliveredSummaryVersion) return null;
+  const summary = await conversationHistoryManager.getLatestConversationSummary(conversationId);
+  if (!summary) return null;
+  await conversationHistoryManager.mergeEngineState(conversationId, {
+    deliveredSummaryVersion: state.summaryVersion,
+  });
+  return {
+    summaryVersion: summary.summaryVersion,
+    summaryText: renderSummaryText(summary.summaryText, summary.summaryVersion),
+    upToItemId: summary.upToMessageId,
+    config: windowConfig(),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Singleton + route helpers
 // ---------------------------------------------------------------------------
 
@@ -282,9 +468,10 @@ export async function buildEngineStartSuffix(opts: {
   try {
     const engine = getConversationEngine();
     let directive: StartDirective | null;
+    let engineState: EngineState | null = null;
     if (opts.resumeSessionId) {
       const ref = await conversationHistoryManager.getConversationRefBySessionId(opts.resumeSessionId);
-      const engineState = ref
+      engineState = ref
         ? ConversationEngine.parseEngineState((ref.latestState as Record<string, unknown> | null)?.engine ?? null)
         : null;
       directive = await engine.resumePolicy(engineState, { isPublic: opts.isPublic });
@@ -292,8 +479,15 @@ export async function buildEngineStartSuffix(opts: {
       directive = await engine.startPolicy({ isPublic: opts.isPublic });
     }
     if (!directive) return inactive;
+    // J2: on resume the new leg is briefed with the current profile assessment
+    // too — the floating block takes over live updates once the session runs.
+    const profileText = engineState ? renderProfileText(engineState.flags) : null;
+    const parts = [
+      ...(directive.contextText ? [directive.contextText] : []),
+      ...(profileText ? [profileText] : []),
+    ];
     return {
-      suffix: directive.contextText ? `${ENGINE_SUFFIX_HEADER}${directive.contextText}` : '',
+      suffix: parts.length ? `${ENGINE_SUFFIX_HEADER}${parts.join('\n\n')}` : '',
       modelAlias: directive.modelAlias ?? null,
     };
   } catch (err) {
@@ -368,7 +562,12 @@ export async function runEngineTurn(args: {
   evidence: TurnEvidence;
   provider: string;
   isPublic: boolean;
-}): Promise<{ directive: EngineDirective | null; debug: ProcessTurnDebug | null }> {
+}): Promise<{
+  directive: EngineDirective | null;
+  debug: ProcessTurnDebug | null;
+  /** J4: rolling-window update for the live NATIVE session (null otherwise). */
+  window: EngineWindowUpdate | null;
+}> {
   try {
     const isNative = args.provider === 'openai' || args.provider === 'google';
     const result = await getConversationEngine().processTurn(args.conversationId, args.evidence, {
@@ -377,21 +576,58 @@ export async function runEngineTurn(args: {
       isPublic: args.isPublic,
       debug: debugTelemetryOn(),
     });
-    return { directive: result.directive, debug: result.debug };
+    // J3 (P29): staleness-triggered summarizer — fire-and-forget, never blocks
+    // or delays this turn; the claim gates to ≥1 interval + engine steering.
+    void maybeRunSummarizer(args.conversationId);
+    // J4: deliver a fresh running summary to the live native session (the
+    // adapter prunes against it — P28 mechanics are the adapter's). One-turn
+    // lag behind the async summarizer, same accepted race contract as D55.
+    let window: EngineWindowUpdate | null = null;
+    if (isNative) {
+      try {
+        window = await resolveWindowUpdate(args.conversationId);
+      } catch (err) {
+        console.warn('[engine] window update failed (turn unaffected):', err);
+      }
+    }
+    return { directive: result.directive, debug: result.debug, window };
   } catch (err) {
     console.error('[engine] processTurn failed — conversation proceeds unsteered (P1):', err);
-    return { directive: null, debug: null };
+    return { directive: null, debug: null, window: null };
   }
 }
 
-/** What the engine contributes to one cascade/text turn's assembly (+ `_debug.engine` inputs, C3). */
+/** What the engine contributes to one cascade/text turn's assembly (+ `_debug.engine` inputs, C3/J5). */
 export interface EngineTurnPrompt {
   /** Appended AFTER the base system prompt; '' when the engine is not steering (Req 2.7). */
   suffix: string;
   /** Current node's D4 alias → THIS turn's `resolveModel` resolution (Req 5.2); null = session default. */
   modelAlias: string | null;
+  /**
+   * J4 (Req 20.3): the framed running summary — STABLE-prefix material.
+   * Cascade/text assembly places it right after the base instructions
+   * (cache-stable ordering: stable prefix first, volatile material last);
+   * null when no summary exists yet.
+   */
+  summaryText: string | null;
+  /** J4: verbatim-history cap for this turn's assembly; null = engine not steering (no window). */
+  maxVerbatimTurns: number | null;
   /** Prompt-phase debug for `_debug.engine` (Req 7.5); null when the engine is not steering. */
-  debug: { nodeId: string; graphVersionId: string; contextDrops: string[] } | null;
+  debug: {
+    nodeId: string;
+    graphVersionId: string;
+    contextDrops: string[];
+    /** J5: window + summarizer state exposure. */
+    window: {
+      summaryVersion: number;
+      summaryIncluded: boolean;
+      maxVerbatimTurns: number;
+      lastSummarizerRunAt: string | null;
+      summarizerInFlight: boolean;
+    } | null;
+    /** J5: the current profile assessment (Req 19.2). */
+    profile: Record<string, unknown> | null;
+  } | null;
 }
 
 /**
@@ -400,31 +636,65 @@ export interface EngineTurnPrompt {
  * the response field is never used on these runtimes (notes §2.2.9). Also the
  * cascade/text model-switch path (Req 5.2, task C1): the node's alias rides
  * out as pure data for this turn's adapter resolution — no session surgery.
+ *
+ * Block J additions: the visitor profile renders into the VOLATILE tail
+ * (Req 19.1/19.5 — cascade/text's floating-block equivalent is "assembled
+ * last every turn"), the running summary rides out separately as STABLE
+ * material (Req 20.3 cache ordering is the caller's to apply), and the window
+ * cap tells the caller how much verbatim history to keep.
  */
 export async function buildEnginePromptSuffix(sessionId: string, opts: { isPublic: boolean }): Promise<EngineTurnPrompt> {
-  const inactive: EngineTurnPrompt = { suffix: '', modelAlias: null, debug: null };
+  const inactive: EngineTurnPrompt = { suffix: '', modelAlias: null, summaryText: null, maxVerbatimTurns: null, debug: null };
   try {
     const ref = await conversationHistoryManager.getConversationRefBySessionId(sessionId);
     let directive: StartDirective | null;
+    let engineState: EngineState | null = null;
     if (!ref) {
       // First turn — the start node shapes the prompt (notes §2.1; stamping
       // happens at the first processTurn).
       directive = await getConversationEngine().startPolicy({ isPublic: opts.isPublic });
     } else {
-      const engineState = ConversationEngine.parseEngineState(
+      engineState = ConversationEngine.parseEngineState(
         (ref.latestState as Record<string, unknown> | null)?.engine ?? null
       );
       if (engineState && !engineState.nodeId) return inactive; // engine off for this conversation (pinned)
       directive = await getConversationEngine().resumePolicy(engineState, { isPublic: opts.isPublic });
     }
     if (!directive) return inactive;
+
+    // J2: the profile joins the volatile tail — transparent observations, re-
+    // derived server-side every turn (the cascade/text application layer).
+    const profileText = engineState ? renderProfileText(engineState.flags) : null;
+    const suffixParts = [
+      ...(directive.contextText ? [directive.contextText] : []),
+      ...(profileText ? [profileText] : []),
+    ];
+
+    // J4: running summary as stable-prefix material + the verbatim cap.
+    const config = windowConfig();
+    let summaryText: string | null = null;
+    if (ref && engineState && engineState.summaryVersion > 0) {
+      const summary = await conversationHistoryManager.getLatestConversationSummary(ref.id);
+      if (summary) summaryText = renderSummaryText(summary.summaryText, summary.summaryVersion);
+    }
+
     return {
-      suffix: directive.contextText ? `${ENGINE_SUFFIX_HEADER}${directive.contextText}` : '',
+      suffix: suffixParts.length ? `${ENGINE_SUFFIX_HEADER}${suffixParts.join('\n\n')}` : '',
       modelAlias: directive.modelAlias ?? null,
+      summaryText,
+      maxVerbatimTurns: config.maxVerbatimTurns,
       debug: {
         nodeId: directive.nodeId,
         graphVersionId: directive.graphVersionId,
         contextDrops: directive.contextDrops,
+        window: {
+          summaryVersion: engineState?.summaryVersion ?? 0,
+          summaryIncluded: summaryText !== null,
+          maxVerbatimTurns: config.maxVerbatimTurns,
+          lastSummarizerRunAt: engineState?.lastSummarizerRunAt ?? null,
+          summarizerInFlight: (engineState?.summarizerInFlightSince ?? null) !== null,
+        },
+        profile: engineState ? (engineState.flags as Record<string, unknown>) : null,
       },
     };
   } catch (err) {

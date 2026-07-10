@@ -142,6 +142,10 @@ export async function evaluateEdges(args: {
     slots: node.slots?.capture ?? [],
     wantProbe: probeEdges && !probeByPattern,
     wantTurnQuality: turnQualityEdges && !heuristicLow,
+    // J2 (Req 19.2): fast profile flags free-ride on a call that is already
+    // happening — cheapCallNeeded ignores this field, so flags alone never
+    // force a call (P26). Between calls the summarizer keeps the profile fresh.
+    wantFlags: true,
   };
 
   let cheap: CheapCallResult | null = null;

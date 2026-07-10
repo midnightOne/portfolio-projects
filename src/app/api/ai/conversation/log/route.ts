@@ -11,7 +11,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 import { conversationHistoryManager } from '@/lib/services/ai/conversation-history-manager';
-import type { EngineDirective } from '@/lib/ai/engine/types';
+import type { EngineDirective, EngineWindowUpdate } from '@/lib/ai/engine/types';
 import { peekSyntheticDirective } from '@/lib/ai/dev/synthetic-engine-directive';
 import { runEngineTurn } from '@/lib/services/ai/engine-runtime';
 
@@ -73,9 +73,10 @@ interface ConversationLogRequest {
   toolName?: string;
   toolArgs?: any;
   /** Labeled event rows (owner, 2026-07-07; context_flush/engine_directive added
-   *  by conversation-engine A3/A4 — D55 flush + directive-application telemetry). */
+   *  by conversation-engine A3/A4 — D55 flush + directive-application telemetry;
+   *  window_prune by J4 — rolling-window prune visibility, Req 7.4 spirit). */
   event?: {
-    type: 'navigation' | 'error' | 'context_flush' | 'engine_directive';
+    type: 'navigation' | 'error' | 'context_flush' | 'engine_directive' | 'window_prune';
     label: string;
     detail?: unknown;
   };
@@ -101,6 +102,14 @@ interface ConversationLogResponse {
    * landed, only the dev drill seam can populate it.
    */
   engineDirective?: EngineDirective;
+  /**
+   * J4 rolling-window update (Req 20) — same delivery rules as the directive:
+   * native voice only, versioned full snapshot, applied latest-wins by the
+   * base adapter. Carries the framed running summary + window config; the
+   * adapter executes the provider mechanics (OpenAI item surgery, Gemini
+   * superseded block). Absent while the engine is off (Req 2.7).
+   */
+  engineWindow?: EngineWindowUpdate;
   metadata: {
     timestamp: number;
     sessionId: string;
@@ -127,7 +136,7 @@ interface ConversationLogResponse {
 type PersistableEntry =
   | { kind: 'transcript'; id?: string; type?: string; content?: string; timestamp?: string | Date; duration?: number; reasoning?: string; firstAudioAt?: string; uiEvidence?: Array<Record<string, unknown>> }
   | { kind: 'tool'; id?: string; toolName?: string; args?: unknown; result?: unknown; success?: boolean; executionTime?: number; timestamp?: string | Date }
-  | { kind: 'event'; id?: string; eventType?: 'navigation' | 'error' | 'clip_played' | 'context_flush' | 'engine_directive'; label?: string; detail?: unknown; timestamp?: string | Date };
+  | { kind: 'event'; id?: string; eventType?: 'navigation' | 'error' | 'clip_played' | 'context_flush' | 'engine_directive' | 'window_prune'; label?: string; detail?: unknown; timestamp?: string | Date };
 
 /**
  * Cap turn evidence (task A4): whole events only, newest kept when over the
@@ -324,9 +333,10 @@ async function resolveEngineDirective(args: {
   reflinkId?: string;
   userTurn?: { itemId: string; content: string; chipId?: string } | null;
   uiEvidence?: Array<Record<string, unknown>>;
-}): Promise<EngineDirective | undefined> {
-  if (args.provider !== 'openai' && args.provider !== 'google') return undefined;
+}): Promise<{ directive: EngineDirective | undefined; window: EngineWindowUpdate | undefined }> {
+  if (args.provider !== 'openai' && args.provider !== 'google') return { directive: undefined, window: undefined };
   let directive: EngineDirective | null = null;
+  let window: EngineWindowUpdate | null = null;
   if (args.userTurn) {
     // Turn debug rides only the gateway `_debug` envelope (Req 7.5) — /log
     // responses are not debug-authorized surfaces; voice telemetry lives in
@@ -345,8 +355,9 @@ async function resolveEngineDirective(args: {
       isPublic: !args.reflinkId,
     });
     directive = engineTurn.directive;
+    window = engineTurn.window;
   }
-  return directive ?? peekSyntheticDirective(args.sessionId);
+  return { directive: directive ?? peekSyntheticDirective(args.sessionId), window: window ?? undefined };
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse<ConversationLogResponse>> {
@@ -467,7 +478,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           persisted: stored.persisted
         });
 
-        const engineDirective = await resolveEngineDirective({
+        const engineOutcome = await resolveEngineDirective({
           sessionId,
           provider,
           conversationId: stored.conversationId,
@@ -481,7 +492,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
         return NextResponse.json({
           success: true,
           message: `Transcript item processed successfully for session ${sessionId}`,
-          ...(engineDirective ? { engineDirective } : {}),
+          ...(engineOutcome.directive ? { engineDirective: engineOutcome.directive } : {}),
+          ...(engineOutcome.window ? { engineWindow: engineOutcome.window } : {}),
           metadata: {
             timestamp: Date.now(),
             sessionId,
@@ -728,7 +740,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
         (e): e is Extract<PersistableEntry, { kind: 'transcript' }> =>
           e.kind === 'transcript' && e.type === 'user_speech' && !!e.id && !!e.content
       );
-    const batchDirective = await resolveEngineDirective({
+    const batchOutcome = await resolveEngineDirective({
       sessionId,
       provider,
       conversationId: batchStored.conversationId,
@@ -739,7 +751,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
     const response: ConversationLogResponse = {
       success: true,
       message: `Conversation log processed successfully for session ${sessionId}`,
-      ...(batchDirective ? { engineDirective: batchDirective } : {}),
+      ...(batchOutcome.directive ? { engineDirective: batchOutcome.directive } : {}),
+      ...(batchOutcome.window ? { engineWindow: batchOutcome.window } : {}),
       metadata: {
         timestamp: Date.now(),
         sessionId,

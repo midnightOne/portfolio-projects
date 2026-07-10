@@ -8,14 +8,35 @@
  * cascade/text at prompt assembly).
  */
 
-import type { EngineDirective, GraphNode } from './types';
+import type { EngineDirective, GraphNode, VisitorFlags } from './types';
 
 /** P21: slot values are user-provided text entering prompts — delimited, length-capped, data-not-instructions framing. */
 const SLOT_VALUE_CAP = 200;
 
-export function resolveSlotTemplates(text: string, slots: Record<string, string>): { text: string; unresolved: string[] } {
+/** Flags render into templates as plain values (Req 19.2 unification) — engine-inferred, not user-typed, so no P21 delimiting. */
+function flagTemplateValue(flags: VisitorFlags, name: string): string | null {
+  const value = flags[name as keyof VisitorFlags];
+  if (value === undefined) return null;
+  if (Array.isArray(value)) return value.length ? value.join(', ') : null;
+  return String(value).trim() || null;
+}
+
+export function resolveSlotTemplates(
+  text: string,
+  slots: Record<string, string>,
+  flags: VisitorFlags = {}
+): { text: string; unresolved: string[] } {
   const unresolved: string[] = [];
-  const resolved = text.replace(/\{\{slots\.([a-zA-Z0-9_]+)\}\}/g, (_m, name: string) => {
+  const resolved = text.replace(/\{\{(slots|flags)\.([a-zA-Z0-9_]+)\}\}/g, (_m, kind: string, name: string) => {
+    if (kind === 'flags') {
+      // Req 19.2: flags template like slots — same syntax, inferred source.
+      const value = flagTemplateValue(flags, name);
+      if (value === null) {
+        unresolved.push(`flags.${name}`);
+        return '';
+      }
+      return value;
+    }
     const value = slots[name];
     if (typeof value !== 'string' || value.trim() === '') {
       unresolved.push(name);
@@ -31,11 +52,15 @@ export function resolveSlotTemplates(text: string, slots: Record<string, string>
  * (Req 1.2). This is the model-visible text; phrase everything as sayable
  * observations/goals (P31 applies to the whole block).
  */
-export function renderNodeGuidance(node: GraphNode, slots: Record<string, string>): { text: string; unresolvedSlots: string[] } {
+export function renderNodeGuidance(
+  node: GraphNode,
+  slots: Record<string, string>,
+  flags: VisitorFlags = {}
+): { text: string; unresolvedSlots: string[] } {
   const lines: string[] = [`CURRENT CONVERSATION STATE: ${node.name}`];
   const unresolvedSlots: string[] = [];
   const resolve = (t: string) => {
-    const r = resolveSlotTemplates(t, slots);
+    const r = resolveSlotTemplates(t, slots, flags);
     unresolvedSlots.push(...r.unresolved);
     return r.text;
   };
@@ -66,9 +91,10 @@ export function renderNodeGuidance(node: GraphNode, slots: Record<string, string
 export function buildEngineContextText(
   node: GraphNode,
   resolvedContext: string | null,
-  slots: Record<string, string>
+  slots: Record<string, string>,
+  flags: VisitorFlags = {}
 ): { text: string; unresolvedSlots: string[] } {
-  const guidance = renderNodeGuidance(node, slots);
+  const guidance = renderNodeGuidance(node, slots, flags);
   const parts = [guidance.text];
   if (resolvedContext && resolvedContext.trim()) {
     parts.push('', 'PREPARED CONTEXT for this state (grounding material — cite/use it before searching):', resolvedContext);
@@ -81,10 +107,28 @@ export function buildTransitionDirective(args: {
   engineContextText: string;
   /** Full provider-ready tool schema array when the node narrows tools (P8). */
   providerTools?: Array<Record<string, unknown>>;
+  /** Rendered visitor profile (J2) — rides the same floating block under its own key (Req 19.1). */
+  profileText?: string | null;
 }): EngineDirective {
   return {
     seq: args.seq,
-    contextItems: [{ key: 'engine', text: args.engineContextText }],
+    contextItems: [
+      { key: 'engine', text: args.engineContextText },
+      ...(args.profileText ? [{ key: 'profile', text: args.profileText }] : []),
+    ],
     ...(args.providerTools ? { tools: args.providerTools } : {}),
+  };
+}
+
+/**
+ * Profile-only directive (J2): fast flags changed but no edge fired — the
+ * live native session still gets the current assessment through the same
+ * versioned, full-snapshot directive path (cascade/text re-derive it at
+ * next-turn assembly instead, notes §2.2.9).
+ */
+export function buildProfileDirective(args: { seq: number; profileText: string }): EngineDirective {
+  return {
+    seq: args.seq,
+    contextItems: [{ key: 'profile', text: args.profileText }],
   };
 }

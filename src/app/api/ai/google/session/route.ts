@@ -175,6 +175,14 @@ async function mintEphemeralToken(
       tools: functionDeclarations.length ? [{ functionDeclarations }] : undefined,
       ...(config.transcription.input ? { inputAudioTranscription: {} } : {}),
       ...(config.transcription.output ? { outputAudioTranscription: {} } : {}),
+      // J4 (Req 20.2, P28): Gemini Live has NO item control (append-only
+      // stream — adapter header), so the rolling window is the provider's own
+      // sliding-window compression, configured HERE at mint (the setup is
+      // locked into the token; there is no post-setup reconfiguration — the
+      // 1007 probe). Provider defaults for trigger/target; the harness adds
+      // the running summary as superseding context text (base adapter's
+      // window mechanics), and re-mint is NEVER used for pruning.
+      contextWindowCompression: { slidingWindow: {} },
     },
     // No fieldMask: per Gemini's ephemeral-token docs, when bidiGenerateContentSetup is
     // present and lockAdditionalFields is omitted, every field named above is locked —

@@ -21,9 +21,10 @@ import type {
   TransitionRecord,
   TurnEvidence,
 } from './types';
-import { EngineStateSchema } from './types';
+import { EngineStateSchema, type VisitorFlags } from './types';
 import { evaluateEdges, EvaluatorDeps, EvaluatedEdge } from './evaluator';
-import { buildEngineContextText, buildTransitionDirective } from './directive';
+import { buildEngineContextText, buildTransitionDirective, buildProfileDirective } from './directive';
+import { renderProfileText, flagsEqual, mergeFastFlags } from './profile';
 
 const DEFAULT_NODE_BUDGET_TOKENS = 1200; // notes §6
 const MAX_ALWAYS_HOPS = 3; // P5 hard cap
@@ -59,6 +60,8 @@ export interface EngineHostDeps {
   ): Promise<{ text: string | null; drops: string[] }>;
   /** Full provider-ready tool array for a node allowlist (P8); undefined = don't carry tools. */
   buildProviderTools?(provider: string, allowlist: string[]): Array<Record<string, unknown>> | undefined;
+  /** Injectable clock (P16 determinism) — flags.startedAt stamping + profile duration. */
+  now?: () => number;
   log?: (message: string, data?: unknown) => void;
 }
 
@@ -138,14 +141,14 @@ export class ConversationEngine {
   private async buildNodeContext(
     node: GraphNode,
     slots: Record<string, string>,
-    opts: { isPublic: boolean }
+    opts: { isPublic: boolean; flags?: VisitorFlags }
   ): Promise<{ text: string; drops: string[] }> {
     const budget = node.contextBudgetTokens ?? DEFAULT_NODE_BUDGET_TOKENS;
     const resolved = await this.deps.resolveContextSet(node.contextSet, {
       isPublic: opts.isPublic,
       budgetTokens: budget,
     });
-    const built = buildEngineContextText(node, resolved.text, slots);
+    const built = buildEngineContextText(node, resolved.text, slots, opts.flags ?? {});
     return { text: built.text, drops: resolved.drops };
   }
 
@@ -198,7 +201,10 @@ export class ConversationEngine {
       });
       return this.startPolicy(opts);
     }
-    const context = await this.buildNodeContext(node, engineState.slots, { isPublic: opts.isPublic });
+    const context = await this.buildNodeContext(node, engineState.slots, {
+      isPublic: opts.isPublic,
+      flags: engineState.flags,
+    });
     return {
       graphId: '',
       graphVersionId: engineState.graphVersionId,
@@ -264,6 +270,16 @@ export class ConversationEngine {
         directiveSeq: 0,
         consecutiveLowEffort: 0,
         slots: {},
+        // J1/J2 keys: startedAt anchors the profile's duration observation
+        flags: { startedAt: new Date((this.deps.now ?? Date.now)()).toISOString() },
+        agendaProgress: [],
+        summaryVersion: 0,
+        contextSetVersion: 0,
+        profileVersion: 0,
+        deliveredProfileVersion: 0,
+        deliveredSummaryVersion: 0,
+        lastSummarizerRunAt: null,
+        summarizerInFlightSince: null,
       };
       await this.deps.stateStore.mergeEngineState(conversationId, state);
       // Turn-zero entry marker (notes §2.1.5) — replay shows graph entry
@@ -313,11 +329,20 @@ export class ConversationEngine {
     );
     if (!claimed) return none; // loser writes nothing — no markers, no directive
 
-    // Per-turn state (counters, slot extractions) — merge-write (P18)
+    // Per-turn state (counters, slot extractions, fast flags — J2) — merge-write
+    // (P18). Fast flags REFINE the current profile per key (mergeFastFlags);
+    // wholesale replacement is the summarizer's move alone (P30). The flags
+    // value itself writes atomically (one key of the engine merge), so a
+    // concurrent summarizer completion is last-write-wins, not interleaved.
+    const flags = mergeFastFlags(state.flags, outcome.cheap?.flags ?? {});
+    const profileChanged = !flagsEqual(state.flags, flags);
+    const profileVersion = state.profileVersion + (profileChanged ? 1 : 0);
     await this.deps.stateStore.mergeEngineState(conversationId, {
       consecutiveLowEffort: outcome.lowEffortCount,
       slots: outcome.slots,
+      ...(profileChanged ? { flags, profileVersion } : {}),
     });
+    const profileText = renderProfileText(flags, this.deps.now);
 
     if (ctx.debug && outcome.evaluated.length > 0) {
       try {
@@ -328,10 +353,28 @@ export class ConversationEngine {
     }
 
     if (!outcome.fired) {
+      // Staying put is the default (§2.2.7) — but a changed profile still
+      // reaches the live native session (J2/Req 19.1: the floating block stays
+      // current even without transitions). deliveredProfileVersion covers
+      // summarizer-produced changes too (the async job bumps profileVersion;
+      // this next turn notices the gap and delivers). Cascade/text re-derive
+      // the profile at next-turn assembly instead — no directive.
+      let profileDirective: EngineDirective | null = null;
+      let seq = state.directiveSeq;
+      const pendingProfile =
+        ctx.isNative && profileVersion > state.deliveredProfileVersion ? profileText : null;
+      if (pendingProfile !== null) {
+        seq = state.directiveSeq + 1;
+        profileDirective = buildProfileDirective({ seq, profileText: pendingProfile });
+        await this.deps.stateStore.mergeEngineState(conversationId, {
+          directiveSeq: seq,
+          deliveredProfileVersion: profileVersion,
+        });
+      }
       // Staying put is the default (§2.2.7) — but the turn WAS evaluated, so
       // the debug envelope reports it (Req 7.5: "fired edge (or none)").
       return {
-        directive: null,
+        directive: profileDirective,
         transition: null,
         debug: {
           nodeId: currentNode.id,
@@ -340,8 +383,8 @@ export class ConversationEngine {
           evaluated: outcome.evaluated,
           contextDrops: [],
           toolAllowlist: currentNode.toolAllowlist,
-          directiveSeq: state.directiveSeq,
-          directiveDelivery: 'none',
+          directiveSeq: seq,
+          directiveDelivery: profileDirective ? 'log-response' : 'none',
         },
       };
     }
@@ -367,10 +410,11 @@ export class ConversationEngine {
 
     // Purge policy (Req 3.6): 'replace' = target's context set replaces the
     // engine key; 'keep' = previous node's rendered context rides along.
-    const targetContext = await this.buildNodeContext(targetNode, outcome.slots, { isPublic: ctx.isPublic });
+    const contextOpts = { isPublic: ctx.isPublic, flags };
+    const targetContext = await this.buildNodeContext(targetNode, outcome.slots, contextOpts);
     let engineText = targetContext.text;
     if (firedEdge.purge === 'keep') {
-      const previous = await this.buildNodeContext(currentNode, outcome.slots, { isPublic: ctx.isPublic });
+      const previous = await this.buildNodeContext(currentNode, outcome.slots, contextOpts);
       engineText = `${targetContext.text}\n\n[carried over from previous state — purge:'keep']\n${previous.text}`;
     }
 
@@ -383,12 +427,19 @@ export class ConversationEngine {
     await this.deps.stateStore.mergeEngineState(conversationId, {
       nodeId: targetNode.id,
       directiveSeq: seq,
+      // Buffer coherence pointer (design §2): tracks the engine context
+      // publish this directive carries.
+      contextSetVersion: seq,
+      // The transition directive carries the current profile too (below), so
+      // native delivery is caught up in the same snapshot.
+      ...(ctx.isNative && profileText !== null ? { deliveredProfileVersion: profileVersion } : {}),
     });
 
     const directive = buildTransitionDirective({
       seq,
       engineContextText: engineText,
       providerTools,
+      profileText,
     });
 
     return {

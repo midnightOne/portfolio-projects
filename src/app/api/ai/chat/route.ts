@@ -103,7 +103,21 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
   // never from the response field (notes §2.2.9). suffix '' when no graph is
   // active, so the static path stays byte-identical (Req 2.7).
   const enginePlan = await buildEnginePromptSuffix(persistSessionId, { isPublic: ctx.tier === 'public' });
-  const systemPrompt = basePrompt + enginePlan.suffix;
+  // J4 (Req 20.1/20.3) — cache-stable ordering on the runtime where prompt-
+  // caching economics bite hardest: STABLE material first (base instructions,
+  // then the running summary — it changes only per summarizer run), VOLATILE
+  // material last (node state + visitor profile in the suffix, then the
+  // recent verbatim window, then this turn). Never a re-mint; this IS the
+  // cascade/text pruning mechanism.
+  const summarySection = enginePlan.summaryText ? `\n\n${enginePlan.summaryText}` : '';
+  const systemPrompt = basePrompt + summarySection + enginePlan.suffix;
+  // The verbatim window: client history is already bounded by tier settings;
+  // when the engine steers and a summary covers the older turns, the window
+  // cap applies on top — old verbatim turns collapse into the summary above.
+  const windowedHistory =
+    enginePlan.maxVerbatimTurns !== null && enginePlan.summaryText !== null
+      ? history.slice(-enginePlan.maxVerbatimTurns)
+      : history;
 
   // D47 C1 (Req 5.2): the current node's alias resolves THIS turn's model —
   // pure data through resolveModel, no session surgery; the ledger row below
@@ -134,7 +148,7 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
 
   const messages: ReasoningMessage[] = [
     { role: 'system', content: systemPrompt },
-    ...history,
+    ...windowedHistory,
     { role: 'user', content: message },
   ];
 
@@ -272,6 +286,13 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
         directive: engineTurn.debug
           ? { seq: engineTurn.debug.directiveSeq, delivery: engineTurn.debug.directiveDelivery }
           : null,
+        // J5 (Reqs 19/20 exposure): window state — running-summary version,
+        // whether it entered THIS prompt, the verbatim cap actually applied —
+        // plus the current profile and the summarizer's last run.
+        window: enginePlan.debug?.window
+          ? { ...enginePlan.debug.window, verbatimTurns: windowedHistory.length }
+          : null,
+        profile: enginePlan.debug?.profile ?? null,
       };
     }
 

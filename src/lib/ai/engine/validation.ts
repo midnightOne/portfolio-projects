@@ -45,6 +45,9 @@ export interface ValidationContext {
 
 const DEFAULT_NODE_BUDGET_TOKENS = 1200; // notes §6
 
+/** VisitorFlags keys addressable from templates and slot conditions (Req 19.2, J2). */
+const KNOWN_FLAG_KEYS = new Set(['register', 'intent', 'behavior', 'mood', 'topics', 'startedAt']);
+
 export function validateGraph(documentRaw: unknown, ctx: ValidationContext = {}): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
@@ -177,7 +180,8 @@ export function validateGraph(documentRaw: unknown, ctx: ValidationContext = {})
       issues.push({ severity: 'error', code: 'unknown_alias', message: `Node "${node.name}": model alias "${node.modelAlias}" is not in the registry (D4)`, nodeId: node.id });
     }
 
-    // {{slots.x}} placeholders must reference a slot declared SOMEWHERE (P21)
+    // {{slots.x}} placeholders must reference a slot declared SOMEWHERE (P21);
+    // {{flags.x}} (Req 19.2 unification, J2) must name a known profile flag.
     const declared = new Set(document.nodes.flatMap((n) => n.slots?.capture.map((c) => c.name) ?? []));
     const texts = [...node.guidance.promptFragments, ...node.contextSet.filter((i) => i.type === 'static').map((i) => (i as { text: string }).text)];
     for (const text of texts) {
@@ -186,14 +190,27 @@ export function validateGraph(documentRaw: unknown, ctx: ValidationContext = {})
           issues.push({ severity: 'error', code: 'undeclared_slot', message: `Node "${node.name}": template references undeclared slot "${match[1]}" (P21)`, nodeId: node.id });
         }
       }
+      for (const match of text.matchAll(/\{\{flags\.([a-zA-Z0-9_]+)\}\}/g)) {
+        if (!KNOWN_FLAG_KEYS.has(match[1])) {
+          issues.push({ severity: 'error', code: 'undeclared_slot', message: `Node "${node.name}": template references unknown profile flag "${match[1]}" (known: ${[...KNOWN_FLAG_KEYS].join(', ')})`, nodeId: node.id });
+        }
+      }
     }
   }
 
-  // Slot conditions referencing undeclared slots
+  // Slot conditions referencing undeclared slots (a `flags.<key>` name reads
+  // the visitor profile instead — Req 19.2 unification — and validates against
+  // the known flag keys rather than declared captures).
   const declaredSlots = new Set(document.nodes.flatMap((n) => n.slots?.capture.map((c) => c.name) ?? []));
   for (const edge of document.edges) {
-    if (edge.condition.type === 'slot' && !declaredSlots.has(edge.condition.name)) {
-      issues.push({ severity: 'error', code: 'undeclared_slot', message: `Edge "${edge.id}": slot condition references undeclared slot "${edge.condition.name}"`, edgeId: edge.id });
+    if (edge.condition.type !== 'slot') continue;
+    const name = edge.condition.name;
+    if (name.startsWith('flags.')) {
+      if (!KNOWN_FLAG_KEYS.has(name.slice('flags.'.length))) {
+        issues.push({ severity: 'error', code: 'undeclared_slot', message: `Edge "${edge.id}": slot condition references unknown profile flag "${name}" (known: ${[...KNOWN_FLAG_KEYS].map((k) => `flags.${k}`).join(', ')})`, edgeId: edge.id });
+      }
+    } else if (!declaredSlots.has(name)) {
+      issues.push({ severity: 'error', code: 'undeclared_slot', message: `Edge "${edge.id}": slot condition references undeclared slot "${name}"`, edgeId: edge.id });
     }
   }
 
