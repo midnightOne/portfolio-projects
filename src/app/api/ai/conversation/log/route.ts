@@ -13,6 +13,7 @@ import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 import { conversationHistoryManager } from '@/lib/services/ai/conversation-history-manager';
 import type { EngineDirective } from '@/lib/ai/engine/types';
 import { peekSyntheticDirective } from '@/lib/ai/dev/synthetic-engine-directive';
+import { runEngineTurn } from '@/lib/services/ai/engine-runtime';
 
 interface ConversationLogRequest {
   sessionId: string;
@@ -304,18 +305,44 @@ async function handleLegEvent(
 }
 
 /**
- * Task A4 directive return path: what control-plane update (if any) rides
- * this /log response back to the live session. NATIVE voice only — cascade/
- * text re-derive server-side from latestState and never consume the field
- * (notes §2.2.9). While no graph is active the engine is inert (Req 2.7):
- * Block B's evaluator will plug in here; today only the dev drill seam
- * (synthetic directives, non-production) can produce one. Duplicate delivery
- * on retries is safe by contract — directives carry a monotonic seq and the
- * base adapter applies latest-wins (P2/P4).
+ * Directive return path (A4 plumbing + B3 evaluation): what control-plane
+ * update (if any) rides this /log response back to the live session. NATIVE
+ * voice only — cascade/text re-derive server-side from latestState and never
+ * consume the field (notes §2.2.9).
+ *
+ * The engine evaluates only when a USER turn just persisted (notes §2.2
+ * trigger; assistant/tool rows become evidence for the NEXT user turn) and is
+ * inert while no graph is active (Req 2.7). runEngineTurn is swallow-all (P1)
+ * and idempotent per turn id (P2) — a retried POST re-evaluates nothing and
+ * the same directive seq applies once client-side (P4). The dev synthetic
+ * seam (non-production) remains as a fallback for drills.
  */
-function resolveEngineDirective(sessionId: string, provider: string): EngineDirective | undefined {
-  if (provider !== 'openai' && provider !== 'google') return undefined;
-  return peekSyntheticDirective(sessionId);
+async function resolveEngineDirective(args: {
+  sessionId: string;
+  provider: string;
+  conversationId: string;
+  reflinkId?: string;
+  userTurn?: { itemId: string; content: string; chipId?: string } | null;
+  uiEvidence?: Array<Record<string, unknown>>;
+}): Promise<EngineDirective | undefined> {
+  if (args.provider !== 'openai' && args.provider !== 'google') return undefined;
+  let directive: EngineDirective | null = null;
+  if (args.userTurn) {
+    directive = await runEngineTurn({
+      conversationId: args.conversationId,
+      evidence: {
+        turnMessageId: args.userTurn.itemId,
+        utterance: args.userTurn.content,
+        chipId: args.userTurn.chipId,
+        uiEvents: args.uiEvidence,
+      },
+      provider: args.provider,
+      // Voice is reflink/admin-gated today; sessions without a reflink get the
+      // stricter PUBLIC visibility filtering (P13 fail-safe direction).
+      isPublic: !args.reflinkId,
+    });
+  }
+  return directive ?? peekSyntheticDirective(args.sessionId);
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse<ConversationLogResponse>> {
@@ -436,7 +463,17 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           persisted: stored.persisted
         });
 
-        const engineDirective = resolveEngineDirective(sessionId, provider);
+        const engineDirective = await resolveEngineDirective({
+          sessionId,
+          provider,
+          conversationId: stored.conversationId,
+          reflinkId,
+          userTurn:
+            transcriptItem.type === 'user_speech' && transcriptItem.id && transcriptItem.content
+              ? { itemId: transcriptItem.id, content: transcriptItem.content, chipId: transcriptItem.metadata?.chipId }
+              : null,
+          uiEvidence: body.uiEvidence,
+        });
         return NextResponse.json({
           success: true,
           message: `Transcript item processed successfully for session ${sessionId}`,
@@ -680,7 +717,21 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
     const batchStored = await persistVoiceEntries(sessionId, reflinkId, persistable);
     console.log(`[conversation/log] persisted ${batchStored.persisted}/${persistable.length} entries for session ${sessionId}`);
 
-    const batchDirective = resolveEngineDirective(sessionId, provider);
+    // Engine evidence from the batch: the LAST user transcript entry (if any)
+    const lastUserEntry = [...persistable]
+      .reverse()
+      .find(
+        (e): e is Extract<PersistableEntry, { kind: 'transcript' }> =>
+          e.kind === 'transcript' && e.type === 'user_speech' && !!e.id && !!e.content
+      );
+    const batchDirective = await resolveEngineDirective({
+      sessionId,
+      provider,
+      conversationId: batchStored.conversationId,
+      reflinkId,
+      userTurn: lastUserEntry ? { itemId: lastUserEntry.id!, content: lastUserEntry.content! } : null,
+      uiEvidence: lastUserEntry?.uiEvidence,
+    });
     const response: ConversationLogResponse = {
       success: true,
       message: `Conversation log processed successfully for session ${sessionId}`,

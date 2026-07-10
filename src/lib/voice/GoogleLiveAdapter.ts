@@ -772,13 +772,26 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
   }
 
   /**
+   * MID-SESSION TOOL CHANGES ARE UNSUPPORTED ON GEMINI LIVE — and the
+   * adaptation strategy is decided (owner, 2026-07-09):
+   *
    * Tool declarations are locked into the ephemeral token's
    * bidiGenerateContentSetup at mint; the Live protocol has no post-setup
    * tool-update message. Verified by DRIVING it (D22; Block A drill,
    * 2026-07-09): sending a second `setup` frame mid-session closes the socket
    * with code 1007 "setup must be the first message and only the first".
-   * Fallback for a tool-set change is a D49 re-mint, which the engine
-   * schedules like a model swap (Req 5.3 path).
+   *
+   * How the conversation engine adapts (owner decision — do NOT re-mint per
+   * node transition here): Gemini sessions mint with the FULL tool surface
+   * and full base guidance, and node state reaches the model as STRONG
+   * appended guidance instead — the superseding `realtimeInput.text` sends
+   * (`_applyInstructions`/`_applyContextBlock` below) tell the model which
+   * capabilities the current state wants used or left alone. Model-side tool
+   * narrowing is therefore advisory on this provider; the REAL enforcement of
+   * a node's allowlist is server-side in /api/ai/tools/execute
+   * (tier ∩ session ∩ node — Req 4.1), which no provider limitation can
+   * bypass. A D49 re-mint remains the fallback only where a tool-set change
+   * is truly structural (rides the Req 5.3 model-swap path).
    */
   protected async _applyToolSchema(_tools: Array<Record<string, unknown>>): Promise<SessionUpdateFieldResult> {
     return 'unsupported';

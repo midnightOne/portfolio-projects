@@ -330,6 +330,14 @@ LANGUAGE POLICY (strict):
       }
     }
 
+    // D47 conversation engine (B3): start-node (or, on resume, persisted-node
+    // — Req 2.6) guidance + prepared context appended AFTER the base policy
+    // (notes §2.1.4). '' when no graph is active — static path unchanged (Req 2.7).
+    {
+      const { buildEngineStartSuffix } = await import('@/lib/services/ai/engine-runtime');
+      systemInstructions += await buildEngineStartSuffix({ isPublic: false, resumeSessionId });
+    }
+
     console.log('System instructions:', systemInstructions);
 
     // Get all tools from unified tool registry (no duplicates)
@@ -695,6 +703,13 @@ LANGUAGE POLICY (strict):
       }
     } else {
       console.log('No reflink ID provided, personalized context not loaded for reflink: ', body.reflinkId);
+    }
+
+    // D47 conversation engine (B3): start-node guidance + prepared context,
+    // '' when no graph is active (Req 2.7). POST mint has no resume path.
+    {
+      const { buildEngineStartSuffix } = await import('@/lib/services/ai/engine-runtime');
+      instructions += await buildEngineStartSuffix({ isPublic: false });
     }
 
     // Use custom tools or default from unified registry

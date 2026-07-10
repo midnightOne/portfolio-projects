@@ -21,6 +21,7 @@ import { unifiedToolRegistry } from '@/lib/ai/tools/UnifiedToolRegistry';
 import { reflinkManager } from '@/lib/services/ai/reflink-manager';
 import { buildResumeBriefing } from '@/lib/ai/resume-briefing';
 import { assembleStartFrame } from '@/lib/ai/start-frame';
+import { buildEngineStartSuffix } from '@/lib/services/ai/engine-runtime';
 import { buildToolLatencyGuidance } from '@/lib/ai/tool-latency';
 import { withAIGateway, type GatewayContext } from '@/lib/ai/gateway';
 
@@ -112,6 +113,14 @@ async function buildSystemInstructions(
       console.error('[google/session] Failed to build resume briefing (continuing without):', error);
     }
   }
+
+  // D47 conversation engine (B3): the start node's guidance + prepared
+  // context — or, on resume, the PERSISTED node's (Req 2.6). '' when no graph
+  // is active, keeping the static path byte-identical (Req 2.7). On this
+  // provider the whole session strategy is "full tools + full guidance at
+  // mint, strong appended guidance per state" (adapter header; owner
+  // 2026-07-09) — this is the mint half of that strategy.
+  instructions += await buildEngineStartSuffix({ isPublic: false, resumeSessionId });
 
   return instructions;
 }

@@ -113,7 +113,12 @@ export interface LatestStateSnapshot {
     updatedAt: string;
 }
 
-export type SessionMarkerType = 'session_disruption' | 'session_resumed';
+export type SessionMarkerType =
+    | 'session_disruption'
+    | 'session_resumed'
+    /** D47 traversal telemetry (conversation-engine Req 7.1/7.3) */
+    | 'node_transition'
+    | 'edge_evaluated';
 
 export interface SessionMarker {
     type: SessionMarkerType;
@@ -125,6 +130,17 @@ export interface SessionMarker {
     provider?: string;
     modelAlias?: string;
     briefingSummary?: string;
+    // ---- node_transition / edge_evaluated (D47, Req 7.1) ----
+    fromNode?: string | null;
+    toNode?: string;
+    edgeId?: string | null;
+    conditionType?: string | null;
+    /** Compact evidence reference (utterance snippet / chip id / tool name). */
+    evidence?: string;
+    graphVersionId?: string;
+    turnMessageId?: string | null;
+    /** edge_evaluated: the evaluated-but-not-taken rows (debug sessions, Req 7.3). */
+    evaluated?: Array<{ edgeId: string; fired: boolean; reason: string }>;
 }
 
 export interface ConversationMessageRecord {
@@ -632,9 +648,13 @@ export class ConversationHistoryManager {
      * not typed text).
      */
     async recordSessionMarker(conversationId: string, marker: SessionMarker): Promise<void> {
-        const content = marker.type === 'session_disruption'
-            ? `[session_disruption] ${marker.issueType ?? 'unknown'}`
-            : `[session_resumed] ${marker.provider ?? 'unknown'}${marker.modelAlias ? ` (${marker.modelAlias})` : ''}`;
+        const content =
+            marker.type === 'session_disruption' ? `[session_disruption] ${marker.issueType ?? 'unknown'}`
+            : marker.type === 'session_resumed' ? `[session_resumed] ${marker.provider ?? 'unknown'}${marker.modelAlias ? ` (${marker.modelAlias})` : ''}`
+            // D47 traversal telemetry (Req 7.1): inline with the transcript,
+            // attributable to the exact graph version the conversation runs under
+            : marker.type === 'node_transition' ? `[node_transition] ${marker.fromNode ?? '∅'} → ${marker.toNode}${marker.conditionType ? ` (${marker.conditionType})` : ''}`
+            : `[edge_evaluated] ${marker.evaluated?.length ?? 0} edge(s)${marker.evaluated?.some((r) => r.fired) ? ' — one fired' : ', none fired'}`;
         await prisma.$transaction([
             prisma.aIConversationMessage.create({
                 data: {
@@ -649,7 +669,19 @@ export class ConversationHistoryManager {
                         diagnostics: marker.diagnostics,
                         provider: marker.provider,
                         modelAlias: marker.modelAlias,
-                        briefingSummary: marker.briefingSummary
+                        briefingSummary: marker.briefingSummary,
+                        // D47 fields (undefined keys are dropped by Prisma Json)
+                        fromNode: marker.fromNode,
+                        toNode: marker.toNode,
+                        edgeId: marker.edgeId,
+                        conditionType: marker.conditionType,
+                        evidence: marker.evidence,
+                        graphVersionId: marker.graphVersionId,
+                        turnMessageId: marker.turnMessageId,
+                        // Capped whole-row (never mid-JSON truncation): 30 edges × 150-char reasons
+                        evaluated: marker.evaluated
+                            ? marker.evaluated.slice(0, 30).map((r) => ({ ...r, reason: r.reason.slice(0, 150) }))
+                            : undefined
                     } as any
                 }
             }),
@@ -680,6 +712,70 @@ export class ConversationHistoryManager {
                 } as any
             }
         });
+    }
+
+    // ---- D47 engine state (conversation-engine Block B; notes §3 serverless truths) ----
+    // The engine's keys live under latestState.engine; every write MERGES at
+    // the JSONB level (P18 — sibling keys owned by legs code stay untouched)
+    // and the per-turn claim is a single atomic compare-and-set (P3 — no
+    // advisory locks, no queues). Raw SQL because Prisma's update() cannot
+    // merge JSON and updateMany() cannot CAS-and-merge in one statement
+    // (implementer's call blessed by notes §3; recorded in the Block B ledger).
+
+    /** Light conversation lookup for engine hooks (no message loading). */
+    async getConversationRefBySessionId(sessionId: string): Promise<{ id: string; latestState: unknown } | null> {
+        const row = await prisma.aIConversation.findUnique({
+            where: { sessionId },
+            select: { id: true, latestState: true }
+        });
+        return row ? { id: row.id, latestState: row.latestState } : null;
+    }
+
+    /** Raw latestState.engine value (tolerant parsing is the engine's job — P18). */
+    async readEngineStateRaw(conversationId: string): Promise<unknown> {
+        const row = await prisma.aIConversation.findUnique({
+            where: { id: conversationId },
+            select: { latestState: true }
+        });
+        return (row?.latestState as Record<string, unknown> | null)?.engine ?? null;
+    }
+
+    /**
+     * Merge a patch into latestState.engine atomically (JSONB-level merge, P18).
+     * When the patch moves the node pointer, the top-level `nodeId` mirror (the
+     * D49 snapshot's reserved D47 pointer) is updated in the same statement.
+     */
+    async mergeEngineState(conversationId: string, patch: Record<string, unknown>): Promise<void> {
+        const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+        const topLevel: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+        if ('nodeId' in defined) topLevel.nodeId = defined.nodeId;
+        await prisma.$executeRaw`
+            UPDATE ai_conversations
+            SET latest_state = jsonb_set(
+                    COALESCE(latest_state, '{}'::jsonb),
+                    '{engine}',
+                    COALESCE(latest_state->'engine', '{}'::jsonb) || ${JSON.stringify(defined)}::jsonb
+                ) || ${JSON.stringify(topLevel)}::jsonb
+            WHERE id = ${conversationId}`;
+    }
+
+    /**
+     * P3 optimistic claim: set engine.lastEvaluatedTurnId = turnId iff it still
+     * equals `expected` (IS NOT DISTINCT FROM handles the turn-zero null).
+     * Zero rows updated = a concurrent invocation won; the caller aborts the
+     * whole transition silently — no markers, no directive.
+     */
+    async claimEngineTurn(conversationId: string, expected: string | null, turnId: string): Promise<boolean> {
+        const updated = await prisma.$executeRaw`
+            UPDATE ai_conversations
+            SET latest_state = jsonb_set(
+                    COALESCE(latest_state, '{}'::jsonb),
+                    '{engine}',
+                    COALESCE(latest_state->'engine', '{}'::jsonb) || jsonb_build_object('lastEvaluatedTurnId', ${turnId}::text)
+                )
+            WHERE id = ${conversationId}
+              AND (latest_state->'engine'->>'lastEvaluatedTurnId') IS NOT DISTINCT FROM ${expected}`;
+        return updated > 0;
     }
 
     /**

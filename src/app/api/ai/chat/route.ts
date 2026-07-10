@@ -14,6 +14,7 @@ import { BackendToolService } from '@/lib/ai/tools/BackendToolService';
 import { getPublicAccessSettings } from '@/lib/ai/public-access';
 import { assembleStartFrame } from '@/lib/ai/start-frame';
 import { conversationHistoryManager } from '@/lib/services/ai/conversation-history-manager';
+import { buildEnginePromptSuffix, runEngineTurn } from '@/lib/services/ai/engine-runtime';
 
 const MAX_MESSAGE_CHARS = 2000;
 const MAX_TOOL_ROUNDS = 3;
@@ -88,7 +89,23 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
   const adapter = await getReasoningAdapter('default-cheap');
   ctx.debug.model = { alias: 'default-cheap', resolved: `${adapter.provider}/${adapter.modelId}` };
 
-  const { prompt: systemPrompt, frame: contextString } = await buildSystemPrompt();
+  // Conversation key derived BEFORE the model call so the engine can shape
+  // this turn's prompt from persisted node state (D47 B3; same derivation the
+  // persistence block used — public tier is always keyed by the gateway sid).
+  const persistSessionId =
+    ctx.tier === 'public'
+      ? ctx.sessionId ?? `req_${ctx.requestId}`
+      : typeof body.sessionId === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(body.sessionId)
+        ? body.sessionId
+        : `req_${ctx.requestId}`;
+
+  const { prompt: basePrompt, frame: contextString } = await buildSystemPrompt();
+  // D47 (Req 6.1 second application layer): cascade/text apply node state at
+  // next-turn prompt assembly — re-derived server-side from latestState,
+  // never from the response field (notes §2.2.9). '' when no graph is active,
+  // so the static path stays byte-identical (Req 2.7).
+  const engineSuffix = await buildEnginePromptSuffix(persistSessionId, { isPublic: ctx.tier === 'public' });
+  const systemPrompt = basePrompt + engineSuffix;
   // Debug parity with the deleted Gen-1 manager's per-turn snapshots (task 2.4b):
   // expose the assembled policy + context through the _debug envelope.
   ctx.debug.systemPrompt = systemPrompt;
@@ -105,6 +122,8 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let reply: string | null = null;
+  /** Tool events this turn — engine transition evidence (D47 tool_result conditions). */
+  const engineToolEvents: Array<{ tool: string; result: unknown }> = [];
 
   for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
     const lastRound = round === MAX_TOOL_ROUNDS;
@@ -143,6 +162,7 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
       );
       const ms = Date.now() - toolStart;
       ctx.debug.toolCalls.push({ name: call.name, args: parsedArgs, ok: toolResult.success, ms, error: toolResult.error });
+      if (toolResult.success) engineToolEvents.push({ tool: call.name, result: toolResult.data });
       if (call.name === 'content_search' && toolResult.success && toolResult.data) {
         // ContentSearchService returns hits under `items` (see BackendToolService)
         const items = (toolResult.data as { items?: Array<Record<string, unknown>> }).items;
@@ -182,13 +202,6 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
   let persistedConversationId: string | null = null;
   const inputMode = body.modality === 'voice' ? 'voice' : 'text';
   try {
-    const persistSessionId =
-      ctx.tier === 'public'
-        ? ctx.sessionId ?? `req_${ctx.requestId}`
-        : typeof body.sessionId === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(body.sessionId)
-          ? body.sessionId
-          : `req_${ctx.requestId}`;
-
     const conversationId = await conversationHistoryManager.getOrCreateConversationId(
       persistSessionId,
       ctx.reflink?.id,
@@ -196,13 +209,23 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
     );
     persistedConversationId = conversationId;
 
-    await conversationHistoryManager.addMessage(conversationId, {
+    const userRecord = await conversationHistoryManager.addMessage(conversationId, {
       id: `user_${ctx.requestId}`,
       role: 'user',
       content: message,
       timestamp: new Date(),
       inputMode,
       metadata: { requestId: ctx.requestId },
+    });
+
+    // D47 B3: evaluate edges AFTER the user turn is durable (notes §2.2).
+    // Swallow-all inside runEngineTurn (P1). Text/cascade ignore the returned
+    // directive — the NEXT turn's prompt re-derives from latestState (§2.2.9).
+    await runEngineTurn({
+      conversationId,
+      evidence: { turnMessageId: userRecord.id, utterance: message, toolEvents: engineToolEvents },
+      provider: body.modality === 'voice' ? 'cascade' : 'text',
+      isPublic: ctx.tier === 'public',
     });
 
     await conversationHistoryManager.addMessage(

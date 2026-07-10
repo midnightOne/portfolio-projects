@@ -145,6 +145,31 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext): Promise<Ne
       }, { status: 403 });
     }
 
+    // D47 node tool scoping (conversation-engine B5, Req 4.1): one more filter
+    // layered on the chain — tier ∩ session ∩ node. The node layer only ever
+    // NARROWS (a lookup failure falls open to the tier check above, which it
+    // can never widen); baseline retrieval survives start/off-graph states
+    // (Req 3.5) via getNodeToolAllowlist itself. This server-side check is the
+    // real enforcement on providers whose model-side tool set can't change
+    // mid-session (Gemini — adapter header doc).
+    {
+      const { getNodeToolAllowlist } = await import('@/lib/services/ai/engine-runtime');
+      const nodeAllowlist = await getNodeToolAllowlist(sessionId);
+      if (nodeAllowlist && !nodeAllowlist.includes(toolName)) {
+        return NextResponse.json({
+          success: false,
+          error: `Tool '${toolName}' is not available in the current conversation state.`,
+          metadata: {
+            timestamp: Date.now(),
+            source: 'unified-tools-api',
+            sessionId,
+            toolCallId,
+            executionTime: Date.now() - startTime
+          }
+        }, { status: 403 });
+      }
+    }
+
     // Validate tool exists and is server-side
     const toolDef = unifiedToolRegistry.getToolDefinition(toolName);
     if (!toolDef) {

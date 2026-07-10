@@ -143,6 +143,36 @@ async function embedWithGoogle(
   };
 }
 
+/**
+ * Embed with a SPECIFIC recorded model id, bypassing the `default-embedding`
+ * alias (conversation-engine P11: intent-exemplar similarity is only
+ * meaningful when exemplars and the runtime utterance embed with the SAME
+ * model — graph versions record the id used at publish, and runtime MUST use
+ * that id even after the alias moves on). Fake mode still short-circuits so
+ * scenario runs stay deterministic (P16). Provider is inferred from the model
+ * id; callers meter via recordUsage themselves (same contract as the other
+ * exports here).
+ */
+export async function generateEmbeddingsForModel(
+  inputs: string[],
+  modelId: string,
+  options: EmbeddingOptions = {}
+): Promise<EmbeddingResult> {
+  if (inputs.length === 0) return { vectors: [], tokensUsed: 0, modelId, provider: 'none' };
+  if (isFakeMode('embeddings') || modelId === 'fake-embedding') {
+    return {
+      vectors: inputs.map((t) => fakeVector(t)),
+      tokensUsed: estimateTokens(inputs),
+      modelId: 'fake-embedding',
+      provider: 'fake',
+    };
+  }
+  const provider = /gemini|text-embedding-00\d/.test(modelId) && !modelId.startsWith('text-embedding-3') ? 'google' : 'openai';
+  return provider === 'google'
+    ? embedWithGoogle(inputs, modelId, options.taskType)
+    : embedWithOpenAI(inputs, modelId);
+}
+
 export async function generateEmbeddings(
   inputs: string[],
   options?: EmbeddingOptions
