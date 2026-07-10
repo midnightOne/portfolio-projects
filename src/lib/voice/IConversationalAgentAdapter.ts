@@ -17,6 +17,58 @@ import {
   ProviderMetadata,
   VoiceAgentError
 } from '@/types/voice-agent';
+import { ContextBuffer, ContextBlock } from '@/lib/ai/context-buffer';
+import { EngineDirective, EngineDirectiveSchema } from '@/lib/ai/engine/types';
+
+/**
+ * Per-field outcome of an `updateSession` call (D47(d); conversation-engine
+ * notes §4 — telemetry must record what ACTUALLY reached the model, P7):
+ *
+ * - `applied`             — exact semantics on this provider.
+ * - `degraded`            — delivered with reduced fidelity (Gemini: fixed
+ *                           systemInstruction, so guidance folds into a
+ *                           superseding context text instead).
+ * - `superseded`          — delivered by versioned supersession on an
+ *                           append-only stream (Gemini context block): the new
+ *                           content is labeled as replacing all previous
+ *                           copies, but stale copies persist until the
+ *                           provider's native compression evicts them.
+ * - `deferred-to-remint`  — cannot apply mid-session; takes effect at the next
+ *                           D49 re-mint (model swaps ride this path, Req 5.3).
+ * - `unsupported`         — the provider has no mechanism this session
+ *                           (recorded, never silently skipped — P7).
+ * - `failed`              — a supported mechanism errored at transport level
+ *                           (honest telemetry; the caller may retry at the
+ *                           next turn boundary).
+ */
+export type SessionUpdateFieldResult =
+  | 'applied'
+  | 'degraded'
+  | 'superseded'
+  | 'deferred-to-remint'
+  | 'unsupported'
+  | 'failed';
+
+/**
+ * Control-plane update for a LIVE session (D47(d)). Always full snapshots,
+ * never deltas (notes P8): `instructions` is the complete assembled string,
+ * `tools` the complete provider-ready schema array, `contextBlock` the
+ * complete merged floating block. Assembly happens server-side — the client
+ * never composes policy (D47(e)); it only applies what it is handed.
+ */
+export interface SessionUpdate {
+  instructions?: string;
+  tools?: Array<Record<string, unknown>>;
+  contextBlock?: ContextBlock;
+}
+
+export interface SessionUpdateResult {
+  fields: {
+    instructions?: SessionUpdateFieldResult;
+    tools?: SessionUpdateFieldResult;
+    contextBlock?: SessionUpdateFieldResult;
+  };
+}
 
 /**
  * How the session takes user input.
@@ -93,6 +145,16 @@ export interface IConversationalAgentAdapter {
   // Configuration
   updateConfig(config: Partial<AdapterInitOptions>): Promise<void>;
   getConfig(): AdapterInitOptions;
+
+  /**
+   * D47(d): non-disruptive mid-session reconfiguration — instructions,
+   * context, tools — applied to the LIVE provider session without
+   * reconnecting. The single control-plane seam the conversation engine (and
+   * the D55 buffer injector) drives; per-field results record what actually
+   * reached the model (notes §4 fidelity matrix, P7). Model changes never
+   * travel here — they are D49 re-mints (Req 5.3).
+   */
+  updateSession(update: SessionUpdate): Promise<SessionUpdateResult>;
   
   // Error handling
   getLastError(): VoiceAgentError | null;
@@ -145,6 +207,18 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
    *  logical `session_…` id the adapter writes under. */
   protected _persistedConversationId: string | null = null;
 
+  // ---- D55 context buffer + D47 engine directive state (conversation-engine Block A) ----
+  /** The per-conversation passive-context buffer this adapter injects from (D55). */
+  protected _contextBuffer = new ContextBuffer();
+  /** Content version of the last successfully flushed block (change detection). */
+  private _lastFlushedContextVersion = 0;
+  /** Highest engine-directive seq applied — latest-wins, duplicates dropped (P4). */
+  private _lastAppliedDirectiveSeq = 0;
+  /** Directive that arrived mid-response, applied at the next turn boundary (P19). Latest wins. */
+  private _pendingDirective: EngineDirective | null = null;
+  /** UI-state deltas since the last user turn — turn evidence for /log (task A4). */
+  private _pendingUiEvidence: Array<Record<string, unknown>> = [];
+
   constructor(provider: VoiceProvider, metadata: ProviderMetadata) {
     this._provider = provider;
     this._metadata = metadata;
@@ -162,6 +236,14 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
    */
   protected _postConversationLog(body: Record<string, unknown>): void {
     try {
+      // Task A4 turn evidence: user turns carry the UI-state deltas collected
+      // since the last user turn (navigation, F-I-D refreshes) so the engine
+      // can evaluate ui_state edge conditions server-side. Small and additive;
+      // consumed (cleared) only when actually attached.
+      const transcript = body.transcriptItem as { type?: string } | undefined;
+      if (transcript?.type === 'user_speech' && this._pendingUiEvidence.length > 0) {
+        body = { ...body, uiEvidence: this._pendingUiEvidence.splice(0) };
+      }
       void fetch('/api/ai/conversation/log', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -177,6 +259,12 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
           if (typeof cid === 'string' && cid) {
             this._persistedConversationId = cid;
             this._options?.onConversationPersisted?.(cid);
+          }
+          // Task A4 directive return path (design §1): the /log response may
+          // carry an engine directive for this live session; the base adapter
+          // owns staleness/queueing and applies it via updateSession.
+          if (data?.engineDirective) {
+            this._handleEngineDirective(data.engineDirective);
           }
         })
         .catch((err) => console.warn('[conversation/log] post failed:', err));
@@ -343,7 +431,7 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
    * replay timeline (owner, 2026-07-07). Shared across all adapters since it
    * lives in the base class; fire-and-forget, never blocks the voice path.
    */
-  protected _logEvent(eventType: 'navigation' | 'error', label: string, detail?: unknown): void {
+  protected _logEvent(eventType: 'navigation' | 'error' | 'context_flush' | 'engine_directive', label: string, detail?: unknown): void {
     const sessionId = this.getConversationSessionId?.();
     if (!sessionId) return;
     this._postConversationLog({
@@ -507,6 +595,7 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
 
       if (toolName === 'ui_intent') {
         this._logEvent('navigation', this._describeNavigationIntent(args, result), { args, result });
+        this._recordUiEvidence({ type: 'navigation', target: (args as { target?: unknown })?.target });
       }
 
       return result;
@@ -531,6 +620,222 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
 
       throw error;
     }
+  }
+
+  // ==========================================================================
+  // D47(d) updateSession + D55 buffer injector + engine-directive application
+  // (conversation-engine Block A tasks A2/A3/A4)
+  // ==========================================================================
+
+  /**
+   * Apply a control-plane update to the live session. Orchestration lives
+   * here; provider mechanics live in the `_apply*` hooks each adapter
+   * overrides. Per-field failures are isolated — one field erroring records
+   * `failed` for that field and never blocks the others (a broken control
+   * plane must degrade to "the engine stopped steering", never to a broken
+   * conversation — P1 spirit).
+   */
+  async updateSession(update: SessionUpdate): Promise<SessionUpdateResult> {
+    const fields: SessionUpdateResult['fields'] = {};
+    if (update.instructions !== undefined) {
+      try {
+        fields.instructions = await this._applyInstructions(update.instructions);
+      } catch (err) {
+        console.warn(`[${this._provider}] updateSession instructions failed:`, err);
+        fields.instructions = 'failed';
+      }
+    }
+    if (update.tools !== undefined) {
+      try {
+        fields.tools = await this._applyToolSchema(update.tools);
+      } catch (err) {
+        console.warn(`[${this._provider}] updateSession tools failed:`, err);
+        fields.tools = 'failed';
+      }
+    }
+    if (update.contextBlock !== undefined) {
+      try {
+        fields.contextBlock = await this._applyContextBlock(update.contextBlock);
+      } catch (err) {
+        console.warn(`[${this._provider}] updateSession contextBlock failed:`, err);
+        fields.contextBlock = 'failed';
+      }
+    }
+    return { fields };
+  }
+
+  /** Provider mechanics for a FULL instruction replacement. Default: no mechanism (P7 — recorded, not skipped). */
+  protected async _applyInstructions(_instructions: string): Promise<SessionUpdateFieldResult> {
+    return 'unsupported';
+  }
+
+  /** Provider mechanics for a FULL tool-schema replacement. */
+  protected async _applyToolSchema(_tools: Array<Record<string, unknown>>): Promise<SessionUpdateFieldResult> {
+    return 'unsupported';
+  }
+
+  /** Provider mechanics for delivering the merged floating block (P27). */
+  protected async _applyContextBlock(_block: ContextBlock): Promise<SessionUpdateFieldResult> {
+    return 'unsupported';
+  }
+
+  /**
+   * Floating-block delivery cadence (notes P27):
+   *  - 'every-turn': exact invariant — remove + re-append at each turn
+   *    boundary even when bit-identical (OpenAI, where items are addressable).
+   *  - 'on-change' : versioned supersession — send only when content changed
+   *    (Gemini, append-only stream; re-sending unchanged blocks would multiply
+   *    copies with zero benefit — the inverse economics).
+   *  - 'none'      : no live-session delivery; server-side per-turn prompt
+   *    assembly owns the block (cascade — and the default, so an adapter that
+   *    hasn't opted in never gets surprise injections).
+   */
+  protected _contextFlushMode(): 'every-turn' | 'on-change' | 'none' {
+    return 'none';
+  }
+
+  /** True while the model is mid-response — directives/flushes queue until the boundary (P19). */
+  protected _isModelResponding(): boolean {
+    return false;
+  }
+
+  /**
+   * Publish a passive-context item into the D55 buffer (last-write-wins per
+   * source key) and deliver it: immediately when the model is idle (predictive
+   * push — state arrives BEFORE the follow-up question), else at the next turn
+   * boundary (P19 — never mid-response). F-I-D publishes under key 'fid';
+   * the engine's directive items land under their own keys via
+   * `_handleEngineDirective`.
+   */
+  publishPassiveContext(key: string, value: unknown, opts?: { ttlMs?: number; priority?: number }): void {
+    const text = typeof value === 'string' ? value : JSON.stringify(value);
+    this._contextBuffer.publish(key, text, { priority: key === 'fid' ? 10 : 50, ...opts });
+    if (key === 'fid') {
+      const v = value as { index?: { route?: string; currentProject?: unknown } } | null;
+      this._recordUiEvidence({
+        type: 'ui_state',
+        route: v?.index?.route,
+        project: v?.index?.currentProject ?? undefined,
+      });
+    }
+    if (!this._isModelResponding()) {
+      void this._flushContextBlock('publish');
+    }
+  }
+
+  /** Remove a source key from the buffer (delivered at the next flush). */
+  removePassiveContext(key: string): void {
+    this._contextBuffer.remove(key);
+    if (!this._isModelResponding()) {
+      void this._flushContextBlock('remove');
+    }
+  }
+
+  /**
+   * Flush the merged floating block through the provider mechanics per this
+   * adapter's cadence. Failures leave the buffer dirty; the next turn
+   * boundary retries — passive context is eventually consistent, never
+   * turn-blocking (D55 race contract).
+   *
+   * Every content CHANGE is a D49 history event (D55/Req 7.4) so replay shows
+   * what the model knew and when; bit-identical every-turn re-appends are not
+   * logged — between change events the block is constant, so replay fidelity
+   * costs no extra rows.
+   */
+  protected async _flushContextBlock(reason: string): Promise<void> {
+    const mode = this._contextFlushMode();
+    if (mode === 'none' || !this.isConnected()) return;
+
+    const block = this._contextBuffer.getBlock();
+    const changed = block.version !== this._lastFlushedContextVersion;
+    if (!changed && (mode === 'on-change' || block.keys.length === 0)) return;
+
+    try {
+      const result = await this._applyContextBlock(block);
+      if (result === 'failed' || result === 'unsupported') return; // stays dirty → retried at next boundary
+      if (changed) {
+        this._lastFlushedContextVersion = block.version;
+        this._logEvent(
+          'context_flush',
+          `Context block v${block.version} → model (${block.keys.join('+') || 'empty'})`,
+          { version: block.version, keys: block.keys, dropped: block.dropped, tokens: block.tokens, fidelity: result, reason }
+        );
+      }
+    } catch (err) {
+      console.warn(`[${this._provider}] context flush failed (retried at next turn boundary):`, err);
+    }
+  }
+
+  /**
+   * Engine directive intake (task A4, notes P4/P19): Zod-validated,
+   * latest-wins by `seq` (stale and duplicate directives — e.g. from a
+   * retried /log POST returning the same payload twice — are dropped), queued
+   * while the model is mid-response and applied at the boundary. Every
+   * directive is a full snapshot, so dropping is always safe.
+   */
+  protected _handleEngineDirective(raw: unknown): void {
+    const parsed = EngineDirectiveSchema.safeParse(raw);
+    if (!parsed.success) {
+      console.warn(`[${this._provider}] invalid engine directive dropped:`, parsed.error.message);
+      return;
+    }
+    const directive = parsed.data;
+    if (directive.seq <= this._lastAppliedDirectiveSeq) return; // stale/duplicate (P4)
+    if (this._pendingDirective && directive.seq <= this._pendingDirective.seq) return;
+
+    if (this._isModelResponding()) {
+      this._pendingDirective = directive; // latest wins at the boundary (P19)
+      return;
+    }
+    void this._applyEngineDirective(directive);
+  }
+
+  private async _applyEngineDirective(directive: EngineDirective): Promise<void> {
+    if (directive.seq <= this._lastAppliedDirectiveSeq) return;
+    // Claim the seq BEFORE any await so a concurrent duplicate can't double-apply.
+    this._lastAppliedDirectiveSeq = directive.seq;
+
+    try {
+      for (const item of directive.contextItems ?? []) {
+        this._contextBuffer.publish(item.key, item.text, { ttlMs: item.ttlMs });
+      }
+      const result = await this.updateSession({
+        ...(directive.instructions !== undefined ? { instructions: directive.instructions } : {}),
+        ...(directive.tools !== undefined ? { tools: directive.tools } : {}),
+      });
+      await this._flushContextBlock('directive');
+      // Durable telemetry: exactly one row per applied seq — the in-session
+      // assertion that a retried /log POST applied nothing twice (task A4).
+      this._logEvent('engine_directive', `Engine directive seq ${directive.seq} applied`, {
+        seq: directive.seq,
+        results: result.fields,
+        contextKeys: (directive.contextItems ?? []).map((i) => i.key),
+      });
+    } catch (err) {
+      console.warn(`[${this._provider}] engine directive seq ${directive.seq} application failed:`, err);
+    }
+  }
+
+  /**
+   * Turn-boundary hook — concrete adapters call this when a model response
+   * completes. Applies the queued directive (which flushes) or re-appends the
+   * floating block (P27: every turn, even unchanged, where the provider
+   * permits).
+   */
+  protected _onTurnBoundary(): void {
+    const pending = this._pendingDirective;
+    if (pending) {
+      this._pendingDirective = null;
+      void this._applyEngineDirective(pending);
+    } else {
+      void this._flushContextBlock('turn-end');
+    }
+  }
+
+  /** Record a UI-state delta as turn evidence for the next user-turn /log POST (task A4). */
+  protected _recordUiEvidence(event: Record<string, unknown>): void {
+    this._pendingUiEvidence.push({ ...event, at: new Date().toISOString() });
+    if (this._pendingUiEvidence.length > 20) this._pendingUiEvidence.shift();
   }
 
   // Abstract methods that must be implemented by concrete adapters

@@ -11,6 +11,12 @@
 
 OpenAI Realtime + ElevenLabs adapters behind `IConversationalAgentAdapter` with WebRTC and ephemeral tokens; server-side prompt/tool injection at token mint; `UnifiedToolRegistry` with client/server contexts and `/api/ai/tools/execute`; declarative `ui_intent`/`ui_describe` via `UIManager` + `SemanticIDRegistry` (imperative tools and internal "MCP" library deleted on branch); semantic server tools (`content_search`, `content_get`, `content_getHierarchy`, `content_searchSection`, `content_getRelated`); F-I-D passive context (`PassiveFIDManager`, `ContextFrameManager`, `/api/ai/context/fid`); conversation **read/replay** infrastructure via `conversation-history-manager` (admin history/replay/analytics routes, persisted-log browser) — **but no production path writes to it: `/api/ai/chat` does not persist and `/api/ai/conversation/log` POST has been a non-persisting stub since creation; the deleted Gen-1 pipeline was the last writer (found 2026-07-07, restoration = task 2b)**; pill UI with subtitle narration; admin voice config (`VoiceProviderConfig` CRUD); admin debug surfaces on the production provider (duplicate provider deleted, Phase 3 task 1); admin AI debug page drives `/api/ai/chat` and renders the per-turn `_debug` envelope (system prompt, context string, retrieval/tool traces, usage, timings).
 
+## Conversation-engine Block A — prerequisite seams landed in this domain (2026-07-09; full ledger + evidence in [conversation-engine/tasks.md](../conversation-engine/tasks.md))
+
+- [x] A2 `updateSession()` on `IConversationalAgentAdapter` + all three adapters (D47(d)); per-adapter design-philosophy header doc-comments (A2.4); Gemini second-`setup` probe drove close 1007 and fixed a stale `_setupComplete` reconnect bug.
+- [x] A3 D55 context buffer (`src/lib/ai/context-buffer.ts`) + floating-block injector in the base adapter; NAV_CONTEXT/F-I-D migrated to publish under key `fid` (UIManager); Gemini gains passive context via versioned supersession.
+- [x] A4 `/api/ai/conversation/log`: `uiEvidence` in, optional `engineDirective` out (native only; seq-gated latest-wins application in the base adapter); dev staging seam `/api/dev/engine-directive` (404s in production).
+
 ## Open tasks
 
 ### Phase 3 — consolidation

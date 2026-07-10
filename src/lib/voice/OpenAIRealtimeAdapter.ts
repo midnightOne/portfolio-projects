@@ -1,8 +1,21 @@
 /**
  * OpenAI Realtime Adapter - SDK 0.1.0 Implementation
- * 
+ *
  * Modern implementation using @openai/agents SDK 0.1.0 with direct client-side connections.
  * Based on the working openai-realtime-next demo.
+ *
+ * DESIGN PHILOSOPHY — a MUTABLE CONVERSATION (conversation-engine notes §4;
+ * doc-comment mandated by task A2.4, owner 2026-07-09):
+ * OpenAI Realtime treats the conversation as addressable state — items can be
+ * created, deleted, and (within limits) reordered; `session.update` mutates
+ * instructions and the tool schema live, mid-session, as FULL replacements
+ * (never patches — P8). The harness can therefore sculpt the context freely:
+ * the D55 floating block is a true remove+re-append at the conversation tail
+ * every turn (P27, exact), and future pruning (Req 20) is real item deletion
+ * plus an inserted summary item. When working on this adapter, reason from
+ * "we can edit the conversation" — the opposite of GoogleLiveAdapter's
+ * append-only stream. Verify provider behavior by DRIVING it (fake-mic,
+ * /admin/ai/voice-debug), never from docs alone (D22).
  */
 
 import {
@@ -16,7 +29,8 @@ import {
     AudioError,
     OpenAIRealtimeConfig
 } from '@/types/voice-agent';
-import { BaseConversationalAgentAdapter, ConnectOptions } from './IConversationalAgentAdapter';
+import { BaseConversationalAgentAdapter, ConnectOptions, SessionUpdateFieldResult } from './IConversationalAgentAdapter';
+import type { ContextBlock } from '@/lib/ai/context-buffer';
 import { getClientAIModelManager } from './ClientAIModelManager';
 import { OPENAI_REALTIME_MODEL } from '@/types/voice-config';
 import { UIManager } from '@/lib/navigation/UIManager';
@@ -74,8 +88,6 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     private _lastIceState: string | null = null;
     /** Serializes watcher ticks across the async diagnostics snapshot. */
     private _disruptionTickBusy = false;
-    /** Latest NAV_CONTEXT deferred during a blip window; re-pushed on recovery (newest wins). */
-    private _deferredNavContext: unknown | null = null;
     /** Size/time of the last NAV_CONTEXT send, surfaced in disruption diagnostics. */
     private _lastNavPushInfo: { at: number; chars: number } | null = null;
     private _resumeInProgress = false;
@@ -110,6 +122,9 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     private _responseStallTimer: ReturnType<typeof setTimeout> | null = null;
     /** True between input_audio_buffer.speech_started and .speech_stopped. */
     private _userSpeechActive = false;
+    /** True between response.created and response.done — directive/flush
+     *  application defers to the boundary while this holds (P19). */
+    private _responseActive = false;
     /** When the current user utterance began — becomes the user row's timestamp
      *  (transcription-completion time made user rows sort AFTER the tool calls
      *  they triggered). Consumed by the first user item that gets content. */
@@ -686,6 +701,9 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             if (event.type === 'response.created' || event.type === 'response.output_item.added') {
                 this._clearResponseStallWatchdog();
             }
+            if (event.type === 'response.created') {
+                this._responseActive = true;
+            }
 
             // User-speech state (drives the stall watchdog's nudge deferral —
             // never inject a response.create while the user is mid-utterance).
@@ -731,6 +749,10 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 }
                 // Next response gets a fresh turn-onset timestamp.
                 this._turnFirstAudioAt = null;
+                // Turn boundary (P19/P27): apply any queued engine directive
+                // and re-append the floating block at the conversation tail.
+                this._responseActive = false;
+                this._onTurnBoundary();
             }
 
             // Handle tool call events
@@ -1539,7 +1561,6 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         this._stopDisruptionWatcher();
         this._lastPcState = null;
         this._lastIceState = null;
-        this._deferredNavContext = null;
         this._disruptionWatcher = setInterval(() => { void this._disruptionTick(); }, 2000);
     }
 
@@ -1595,14 +1616,11 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         }
     }
 
-    /** Re-push the newest NAV_CONTEXT that was deferred while the channel was stalled. */
+    /** Re-flush the floating block after a transport blip — the D55 buffer
+     *  holds the latest state, so recovery is one flush (newest wins for free). */
     private _flushDeferredNavContext(): void {
-        const ctx = this._deferredNavContext;
-        if (ctx === null) return;
-        this._deferredNavContext = null;
-        console.log('OpenAIRealtimeAdapter: re-pushing NAV_CONTEXT deferred during transport blip');
-        void this.pushPassiveContext(ctx).catch((err) =>
-            console.warn('OpenAIRealtimeAdapter: deferred NAV_CONTEXT re-push failed:', err));
+        console.log('OpenAIRealtimeAdapter: re-flushing floating block deferred during transport blip');
+        void this._flushContextBlock('blip-recovery');
     }
 
     private _stopDisruptionWatcher(): void {
@@ -2101,6 +2119,10 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
             // Initialize UI state tracking with background updates
             this._initializeUIStateTracking();
+
+            // D55: a fresh provider session has no floating block yet — if the
+            // buffer already holds state (re-mint / resume), re-deliver it.
+            void this._flushContextBlock('session-start');
 
         } catch (error) {
             console.error('OpenAIRealtimeAdapter: Connection failed:', error);
@@ -2793,79 +2815,163 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     }
 
     /**
-     * Push passive context to OpenAI session using NAV_CONTEXT pattern
-     * This method provides seamless passive context injection for OpenAI Realtime conversations
+     * Legacy passive-context entry point (kept for the voice-debug panel and
+     * any older callers): now a thin shim over the D55 buffer — publish under
+     * source key 'fid' and let the floating-block injector deliver it. The
+     * pre-buffer behavior (immediate replace-don't-append) is preserved
+     * because publish flushes immediately when the model is idle.
      */
-    async pushPassiveContext(fidContext: any): Promise<{ id: string; token: string }> {
-        if (!this._session) {
-            throw new Error("No active session for context injection");
-        }
+    async pushPassiveContext(fidContext: any): Promise<void> {
+        this.publishPassiveContext('fid', fidContext);
+    }
 
+    /**
+     * WebRTC data-channel messages must stay well under the SCTP limits — an
+     * oversized send can silently drop or kill the channel. Compact oversized
+     * F-I-D payloads progressively BEFORE they enter the buffer (the buffer's
+     * budget drops whole ITEMS, it never edits inside one — notes §6).
+     */
+    publishPassiveContext(key: string, value: unknown, opts?: { ttlMs?: number; priority?: number }): void {
+        if (key === 'fid' && value && typeof value === 'object') {
+            value = this._compactFidForTransport(value);
+        }
+        super.publishPassiveContext(key, value, opts);
+    }
+
+    private _compactFidForTransport(fidContext: unknown): unknown {
+        // Budget for the raw JSON, leaving headroom for the NAV_CONTEXT prefix + token.
+        const MAX_FID_JSON_CHARS = 11800;
+        let text = JSON.stringify(fidContext);
+        if (text.length <= MAX_FID_JSON_CHARS) return fidContext;
+
+        const compact = JSON.parse(text);
+        if (compact.details) {
+            compact.details = {
+                briefSummary: typeof compact.details.briefSummary === 'string' ? compact.details.briefSummary.slice(0, 600) : compact.details.briefSummary,
+                truncated: true
+            };
+        }
+        text = JSON.stringify(compact);
+        if (text.length > MAX_FID_JSON_CHARS && compact.index?.projectSemanticItems) {
+            compact.index.projectSemanticItems = compact.index.projectSemanticItems.slice(0, 20);
+            text = JSON.stringify(compact);
+        }
+        if (text.length > MAX_FID_JSON_CHARS && Array.isArray(compact.index?.availableProjects)) {
+            compact.index.availableProjects = compact.index.availableProjects.map((p: any) => ({ slug: p.slug, title: p.title }));
+        }
+        console.warn(`F-I-D context compacted for transport (was over ${MAX_FID_JSON_CHARS} chars)`);
+        return compact;
+    }
+
+    // ---- D47(d) updateSession mechanics (conversation-engine task A2.1) ----
+
+    /** Floating block cadence: exact remove+re-append EVERY turn (P27) — items are addressable here. */
+    protected _contextFlushMode(): 'every-turn' | 'on-change' | 'none' {
+        return 'every-turn';
+    }
+
+    protected _isModelResponding(): boolean {
+        return this._responseActive;
+    }
+
+    /**
+     * Instructions via `session.update` — FULL replacement (P8): the string
+     * handed in must already be the complete assembled state (base + node);
+     * nothing is merged client-side (D47(e)). Confirmed by the session.updated
+     * echo before reporting `applied`.
+     */
+    protected async _applyInstructions(instructions: string): Promise<SessionUpdateFieldResult> {
+        if (!this._session) return 'failed';
+        await this.sendEvent({
+            type: 'session.update',
+            session: { type: 'realtime', instructions },
+        });
+        await this._waitForSessionUpdated();
+        return 'applied';
+    }
+
+    /**
+     * Tool schema via `session.update` — FULL array replacement (P8), in the
+     * same provider-ready shape the mint route sends (getOpenAIToolsArray()).
+     * Narrowing is policy from the server; execution-side enforcement stays in
+     * /api/ai/tools/execute regardless (Req 4.1).
+     */
+    protected async _applyToolSchema(tools: Array<Record<string, unknown>>): Promise<SessionUpdateFieldResult> {
+        if (!this._session) return 'failed';
+        await this.sendEvent({
+            type: 'session.update',
+            session: { type: 'realtime', tools },
+        });
+        await this._waitForSessionUpdated();
+        return 'applied';
+    }
+
+    /**
+     * Floating block, exact semantics (P27): delete ALL tracked block items,
+     * then create ONE fresh item at the conversation tail — riding the proven
+     * NAV_CONTEXT mechanics (token-acked creation, transcript suppression,
+     * minted-prompt references to "NAV_CONTEXT" stay valid).
+     */
+    protected async _applyContextBlock(block: ContextBlock): Promise<SessionUpdateFieldResult> {
+        if (!this._session) return 'failed';
         // A push into a stalled channel cannot be acked — it just burns a 10s
-        // "Ack timeout" (the noise in the owner's 2026-07-08 transcript). During
-        // a blip window keep only the LATEST context and re-push on recovery.
+        // "Ack timeout" (the noise in the owner's 2026-07-08 transcript).
+        // Report failed; the buffer stays dirty and blip recovery re-flushes.
         const dcState = this._getDataChannel()?.readyState;
         if (this._disconnectedSince !== null || (dcState && dcState !== 'open')) {
-            this._deferredNavContext = fidContext;
-            throw new Error(`Context push deferred: transport not ready (dataChannel=${dcState ?? 'unknown'}) — will re-push on recovery`);
+            return 'failed';
         }
+
+        if (this.trackedNavItemIds.size > 0) {
+            await this.deleteAllNavContexts();
+        }
+        if (!block.text) return 'applied'; // all sources gone — block stays removed
 
         const token = this.uuid();
-        let text = `NAV_CONTEXT ${token} ${JSON.stringify(fidContext)}`;
-
-        // WebRTC data-channel messages must stay well under the SCTP limits —
-        // an oversized send can silently drop or kill the channel. Compact the
-        // heavy parts progressively instead of risking the transport.
-        const MAX_NAV_CONTEXT_CHARS = 12000;
-        if (text.length > MAX_NAV_CONTEXT_CHARS) {
-            const compact = JSON.parse(JSON.stringify(fidContext));
-            if (compact.details) {
-                compact.details = {
-                    briefSummary: typeof compact.details.briefSummary === 'string' ? compact.details.briefSummary.slice(0, 600) : compact.details.briefSummary,
-                    truncated: true
-                };
-            }
-            text = `NAV_CONTEXT ${token} ${JSON.stringify(compact)}`;
-            if (text.length > MAX_NAV_CONTEXT_CHARS && compact.index?.projectSemanticItems) {
-                compact.index.projectSemanticItems = compact.index.projectSemanticItems.slice(0, 20);
-                text = `NAV_CONTEXT ${token} ${JSON.stringify(compact)}`;
-            }
-            if (text.length > MAX_NAV_CONTEXT_CHARS && Array.isArray(compact.index?.availableProjects)) {
-                compact.index.availableProjects = compact.index.availableProjects.map((p: any) => ({ slug: p.slug, title: p.title }));
-                text = `NAV_CONTEXT ${token} ${JSON.stringify(compact)}`;
-            }
-            console.warn(`NAV_CONTEXT compacted: ${text.length} chars (was over ${MAX_NAV_CONTEXT_CHARS})`);
+        const text = `NAV_CONTEXT ${token} ${block.text}`;
+        if (text.length > 12000) {
+            console.warn(`Floating block over transport budget after merge: ${text.length} chars`);
         }
-        
         this._lastNavPushInfo = { at: Date.now(), chars: text.length };
-        console.log('📤 Sending NAV_CONTEXT with token:', token);
-        console.log('📋 NAV_CONTEXT Content:', {
-            frame: fidContext.frame,
-            index: {
-                route: fidContext.index.route,
-                currentProject: fidContext.index.currentProject,
-                projectCount: fidContext.index.availableProjects?.length || 0,
-                visibleSections: fidContext.index.visibleSections
-            },
-            details: {
-                hasProjectSummary: !!fidContext.details.projectSummary,
-                projectSummary: fidContext.details.projectSummary?.substring(0, 100) + (fidContext.details.projectSummary?.length > 100 ? '...' : ''),
-                intentContentCount: fidContext.details.intentBasedContent?.length || 0,
-                hasSelectedText: !!fidContext.details.selectedText
-            }
-        });
-        
         await this.sendEvent({
-            type: "conversation.item.create",
+            type: 'conversation.item.create',
             item: {
-                type: "message",
-                role: "user",
-                content: [{ type: "input_text", text }]
+                type: 'message',
+                role: 'user',
+                content: [{ type: 'input_text', text }]
             }
         });
-        
-        const id = await this.waitForCreatedWithToken(token);
-        return { id, token };
+        await this.waitForCreatedWithToken(token);
+        return 'applied';
+    }
+
+    /** Resolve on the next session.updated echo (no correlation id exists in the protocol). */
+    private _waitForSessionUpdated(timeoutMs = 5000): Promise<void> {
+        return new Promise<void>((resolve, reject) => {
+            const session = this._session as any;
+            if (!session) {
+                reject(new Error('No active session'));
+                return;
+            }
+            const cleanup = () => {
+                clearTimeout(timer);
+                try { session.off?.('transport_event', onEvent); } catch { /* listener cleanup best-effort */ }
+            };
+            const timer = setTimeout(() => {
+                cleanup();
+                reject(new Error('session.updated ack timeout'));
+            }, timeoutMs);
+            const onEvent = (e: any) => {
+                if (e.type === 'session.updated') {
+                    cleanup();
+                    resolve();
+                } else if (e.type === 'error') {
+                    cleanup();
+                    reject(new Error(e.error?.message || 'server error during session.update'));
+                }
+            };
+            session.on('transport_event', onEvent);
+        });
     }
 
     /**
@@ -2920,26 +3026,12 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     }
 
     /**
-     * Replace NAV_CONTEXT messages (clean slate approach)
-     * Deletes all existing NAV_CONTEXT messages and creates a new one
+     * Replace NAV_CONTEXT messages (legacy entry point): with the D55 buffer,
+     * replace-don't-append IS the flush semantics — publish and let the
+     * injector delete-then-create.
      */
-    async replaceNavContext(oldItemId: string | null, newCtx: any): Promise<{ id: string; token: string }> {
-        if (!this._session) {
-            throw new Error("No active session for context replacement");
-        }
-
-        // Delete all existing NAV_CONTEXT messages to ensure clean state
-        if (this.trackedNavItemIds.size > 0) {
-            try {
-                await this.deleteAllNavContexts();
-                console.log('✅ All old NAV_CONTEXT items deleted');
-            } catch (error) {
-                console.log('⚠️ Bulk delete failed (continuing anyway):', error);
-            }
-        }
-
-        console.log('📤 Pushing new context...');
-        return await this.pushPassiveContext(newCtx);
+    async replaceNavContext(_oldItemId: string | null, newCtx: any): Promise<void> {
+        this.publishPassiveContext('fid', newCtx);
     }
 
     /**

@@ -953,12 +953,17 @@ export class UIManager {
       // Get F-I-D context from PassiveFIDManager (server-driven)
       const fidContext = await this._passiveFIDManager.getOrFetchContext(convertedState);
 
-      // Push context to voice adapter immediately
-      if (typeof (this._connectedVoiceAdapter as any).pushPassiveContext === 'function') {
-        const result = await (this._connectedVoiceAdapter as any).pushPassiveContext(fidContext);
-        
-        console.log('✅ Immediate passive context update successful:', result);
-        
+      // D55 (conversation-engine task A3): publish into the adapter's context
+      // buffer under source key 'fid' — the one injector delivers it via the
+      // floating block (immediately when the model is idle, at the next turn
+      // boundary otherwise). Replaces the direct pushPassiveContext call, and
+      // works on EVERY adapter now (Gemini gets passive context for the first
+      // time, via versioned supersession).
+      if (typeof (this._connectedVoiceAdapter as any).publishPassiveContext === 'function') {
+        (this._connectedVoiceAdapter as any).publishPassiveContext('fid', fidContext);
+
+        console.log('✅ Passive context published to D55 buffer (key: fid)');
+
         debugEventEmitter.emit(
           'navigation_event',
           {

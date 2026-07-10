@@ -18,6 +18,19 @@
  *   SERVER-side (D3/D4) — this client never names a model.
  * - Works with the D53 SyntheticMicDriver (options.syntheticInputStream), so
  *   the C0 fake-mic driver e2e-covers this family too.
+ *
+ * DESIGN PHILOSOPHY — WE ASSEMBLE EVERY TURN (conversation-engine notes §4;
+ * doc-comment mandated by task A2.4, owner 2026-07-09):
+ * There is no standing provider session — every turn's prompt is assembled
+ * from scratch SERVER-side inside /api/ai/chat from ground truth
+ * (latestState, conversation history, the D55 buffer's server-side sources).
+ * All context invariants therefore hold trivially and exactly: the floating
+ * block is literal message ordering at assembly, pruning is assembly-time
+ * windowing, instruction/tool/model changes are pure data for the next turn.
+ * `updateSession` here reports `applied` while sending nothing — the truth
+ * the result encodes is "the next turn's assembly WILL reflect this", because
+ * the server re-derives everything and never consults client state (engine
+ * directives are not even returned to cascade clients — notes §2.2.9).
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -72,6 +85,24 @@ export class CascadeVoiceAdapter extends BaseConversationalAgentAdapter {
       capabilities: ['toolCalling', 'voiceActivityDetection', 'customInstructions'],
       quality: 'high',
     });
+  }
+
+  // ---- D47(d) updateSession mechanics (conversation-engine task A2.3) ----
+  // Explicit next-turn-assembly application, not silent absence: every field
+  // reports `applied` because /api/ai/chat re-derives instructions, tools,
+  // and context server-side each turn — there is no live session to mutate
+  // and nothing client-held to update (header philosophy comment).
+
+  protected async _applyInstructions(_instructions: string): Promise<import('./IConversationalAgentAdapter').SessionUpdateFieldResult> {
+    return 'applied'; // next-turn server-side assembly
+  }
+
+  protected async _applyToolSchema(_tools: Array<Record<string, unknown>>): Promise<import('./IConversationalAgentAdapter').SessionUpdateFieldResult> {
+    return 'applied'; // next-turn server-side assembly
+  }
+
+  protected async _applyContextBlock(_block: import('@/lib/ai/context-buffer').ContextBlock): Promise<import('./IConversationalAgentAdapter').SessionUpdateFieldResult> {
+    return 'applied'; // the block is literal message ordering at next-turn assembly
   }
 
   // ---- lifecycle -----------------------------------------------------------

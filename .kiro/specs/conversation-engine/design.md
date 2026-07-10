@@ -2,7 +2,7 @@
 
 **Status:** current — **unimplemented** (design for post-roadmap Phase 6; promoted from backlog 2026-07-09)
 **Owner domain:** node-graph conversation templating engine (see requirements.md)
-**Last verified against code:** 2026-07-09 (seam audit: `updateSession` NOT yet on `IConversationalAgentAdapter`; D55 buffer NOT yet built — both are tasks A2/A3)
+**Last verified against code:** 2026-07-09 (Block A landed: `updateSession` on `IConversationalAgentAdapter` + adapters, D55 buffer at `src/lib/ai/context-buffer.ts`, `/log` uiEvidence/engineDirective envelope — the §5 seam table's "state today" column is superseded by conversation-engine/tasks.md Block A evidence notes)
 **Focused designs:** [design-implementation-notes.md](./design-implementation-notes.md) — module layout, normative runtime sequences, concurrency/idempotency contracts, provider fidelity matrix, potential-issues catalog (P1–P35). **Implementing sessions must read it before writing code.** · [design-ux-and-behavior.md](./design-ux-and-behavior.md) — owner-interview-sourced visitor UX (chips/staging/topic label), persona & behavior policy, slot filling, lead capture + notification, question analytics, cross-session continuity, seed node catalog (source of Reqs 13–18).
 
 ---

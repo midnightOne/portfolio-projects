@@ -14,6 +14,23 @@
  * mint route so a resumed leg gets the ground-truth briefing; connection
  * events are leg-tagged) but the disruption-watcher + auto-reconnect drill
  * built for OpenAI in 5b is NOT replicated here — see task 6.3 gap notes.
+ *
+ * DESIGN PHILOSOPHY — an APPEND-ONLY STREAM with provider-side memory
+ * management (conversation-engine notes §4; doc-comment mandated by task
+ * A2.4, owner 2026-07-09):
+ * Nothing sent into a Gemini Live session can ever be deleted — including our
+ * own passive-context blocks. `systemInstruction` and the tool set are locked
+ * into the ephemeral token at mint and have no mid-session reconfiguration
+ * message; the provider offers native sliding-window compression instead of
+ * item control. The harness can only ADD and SUPERSEDE, never retract:
+ * mid-session guidance folds into superseding context text (fidelity
+ * `degraded`), the D55 floating block degrades to VERSIONED SUPERSESSION —
+ * sent only on change, labeled as replacing all previous copies, with stale
+ * copies billing until compression evicts them (P27) — and tool-set changes
+ * are `unsupported` mid-session (the documented fallback is a D49 re-mint).
+ * When working on this adapter, reason from "we can never take anything
+ * back" — the opposite of OpenAIRealtimeAdapter's mutable conversation.
+ * Verify provider behavior by DRIVING it, never from docs alone (D22).
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -25,7 +42,8 @@ import {
   ConnectionError,
   AudioError
 } from '@/types/voice-agent';
-import { BaseConversationalAgentAdapter, ConnectOptions } from './IConversationalAgentAdapter';
+import { BaseConversationalAgentAdapter, ConnectOptions, SessionUpdateFieldResult } from './IConversationalAgentAdapter';
+import type { ContextBlock } from '@/lib/ai/context-buffer';
 import { GoogleLiveConfig } from '@/types/voice-config';
 
 // Global reference for debugging (temporary for testing, matches OpenAIRealtimeAdapter's pattern)
@@ -106,6 +124,9 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
   private _activeSources: AudioBufferSourceNode[] = [];
   /** 9b.5: when the current assistant turn's FIRST audio chunk became audible. */
   private _turnFirstAudioAt: Date | null = null;
+
+  /** Monotonic counter labeling superseding guidance texts (append-only stream — see header). */
+  private _guidanceVersion = 0;
 
   // Streaming input/output transcript accumulation (Gemini streams transcription in chunks)
   private _pendingInputText = '';
@@ -273,6 +294,11 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
   }
 
   private _openSocket(sessionData: GoogleSessionResponse): Promise<void> {
+    // Reset per-socket setup state HERE, not only in disconnect(): after a
+    // provider-side close (e.g. protocol violation) the stale true value made
+    // every subsequent connect time out waiting for setupComplete (found by
+    // the Block A second-setup probe drill, 2026-07-09).
+    this._setupComplete = false;
     return new Promise((resolve, reject) => {
       const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=${encodeURIComponent(sessionData.access_token)}`;
       const ws = new WebSocket(url);
@@ -421,6 +447,9 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
         this._pendingReasoningText = '';
         this._turnFirstAudioAt = null;
         this._setSessionStatus(this._audioInputMode === 'text-only' ? 'idle' : 'listening');
+        // Turn boundary (P19): apply any queued engine directive; the floating
+        // block flushes on change only here (versioned supersession — header).
+        this._onTurnBoundary();
       }
     }
 
@@ -709,6 +738,65 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
   /** D49: the logical-conversation session id this adapter writes history under. */
   public getConversationSessionId(): string | null {
     return this._conversationId;
+  }
+
+  // ---- D47(d) updateSession mechanics (conversation-engine task A2.2) ----
+  // Fidelity here is DEGRADED by design — see the header philosophy comment
+  // and the notes §4 matrix. Results are recorded honestly, never silently
+  // skipped (P7).
+
+  /** Floating block cadence: send only on change — re-sending unchanged blocks
+   *  on an append-only stream multiplies copies with zero benefit (P27). */
+  protected _contextFlushMode(): 'every-turn' | 'on-change' | 'none' {
+    return 'on-change';
+  }
+
+  protected _isModelResponding(): boolean {
+    return this._sessionStatus === 'speaking';
+  }
+
+  /**
+   * systemInstruction is locked into the ephemeral token at mint (P7) — there
+   * is no protocol message to change it. Fold the new guidance into a
+   * superseding realtimeInput.text and record `degraded`.
+   */
+  protected async _applyInstructions(instructions: string): Promise<SessionUpdateFieldResult> {
+    if (!this._ws || this._ws.readyState !== WebSocket.OPEN) return 'failed';
+    const version = ++this._guidanceVersion;
+    this._ws.send(JSON.stringify({
+      realtimeInput: {
+        text: `[UPDATED GUIDANCE v${version} — supersedes all previous guidance]\n${instructions}`
+      }
+    }));
+    return 'degraded';
+  }
+
+  /**
+   * Tool declarations are locked into the ephemeral token's
+   * bidiGenerateContentSetup at mint; the Live protocol has no post-setup
+   * tool-update message. Verified by DRIVING it (D22; Block A drill,
+   * 2026-07-09): sending a second `setup` frame mid-session closes the socket
+   * with code 1007 "setup must be the first message and only the first".
+   * Fallback for a tool-set change is a D49 re-mint, which the engine
+   * schedules like a model swap (Req 5.3 path).
+   */
+  protected async _applyToolSchema(_tools: Array<Record<string, unknown>>): Promise<SessionUpdateFieldResult> {
+    return 'unsupported';
+  }
+
+  /**
+   * Floating block by VERSIONED SUPERSESSION (P27): nothing we sent can be
+   * deleted — including our own previous blocks — so each changed block is
+   * sent labeled as replacing all prior copies, trusting the model to prefer
+   * the latest and native compression to evict stale ones eventually.
+   */
+  protected async _applyContextBlock(block: ContextBlock): Promise<SessionUpdateFieldResult> {
+    if (!this._ws || this._ws.readyState !== WebSocket.OPEN) return 'failed';
+    const body = block.text
+      ? `[CURRENT CONTEXT v${block.version} — supersedes all previous context blocks]\n${block.text}`
+      : `[CURRENT CONTEXT v${block.version} — supersedes all previous context blocks]\n(no active context)`;
+    this._ws.send(JSON.stringify({ realtimeInput: { text: body } }));
+    return 'superseded';
   }
 
   // ---- Standard tool registration (mirrors ElevenLabsAdapter/OpenAI pattern) ----

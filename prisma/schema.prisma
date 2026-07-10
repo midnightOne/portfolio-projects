@@ -655,6 +655,167 @@ model VoiceClip {
   @@map("voice_clips")
 }
 
+// ===== Conversation engine (D47 — conversation-engine spec, Block A1) =====
+// All engine tables land in ONE migration so later blocks never migrate again
+// (owner instruction, 2026-07-09). Graph structure lives as one immutable JSON
+// document per version (design §2 rows-vs-JSON decision); conversation-side
+// telemetry rides the existing AIConversation tables (latestState, marker rows)
+// — no changes there. Engine rows reference conversations by id only (no FK
+// relations), matching the design sketch and keeping visitor-content deletion
+// (Req 21.2) decoupled from owner/telemetry rows.
+
+model ConversationGraph {
+  id              String                     @id @default(cuid())
+  name            String
+  description     String?
+  status          String                     @default("draft") // draft | active | archived
+  /// Working copy the editor mutates: { nodes: GraphNode[], edges: GraphEdge[], layout }
+  draftDocument   Json                       @map("draft_document")
+  activeVersionId String?                    @map("active_version_id")
+  createdAt       DateTime                   @default(now()) @map("created_at")
+  updatedAt       DateTime                   @updatedAt @map("updated_at")
+  versions        ConversationGraphVersion[]
+  scenarios       GraphScenario[]
+
+  @@index([status])
+  @@map("conversation_graphs")
+}
+
+model ConversationGraphVersion {
+  id        String            @id @default(cuid())
+  graphId   String            @map("graph_id")
+  version   Int // monotonic per graph
+  /// Immutable snapshot: { nodes, edges, layout, embeddings: {edgeId: {model, vectors}} }
+  /// (intent-exemplar embeddings + their model id recorded at publish — P11)
+  document  Json
+  note      String?
+  createdAt DateTime          @default(now()) @map("created_at")
+  graph     ConversationGraph @relation(fields: [graphId], references: [id], onDelete: Cascade)
+
+  @@unique([graphId, version])
+  @@index([graphId])
+  @@map("conversation_graph_versions")
+}
+
+model GraphAnnotation {
+  id                  String   @id @default(cuid())
+  conversationId      String   @map("conversation_id")
+  messageId           String?  @map("message_id")
+  nodeId              String   @map("node_id")
+  graphVersionId      String   @map("graph_version_id")
+  kind                String // bad_answer | missed_transition | note
+  note                String?
+  status              String   @default("open") // open | resolved
+  resolvedByVersionId String?  @map("resolved_by_version_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@index([conversationId])
+  @@index([graphVersionId])
+  @@index([status])
+  @@map("graph_annotations")
+}
+
+model GraphScenario {
+  id           String            @id @default(cuid())
+  graphId      String            @map("graph_id")
+  name         String
+  /// Scripted user turns (+ optional simulated UI events / tool stubs)
+  turns        Json
+  /// Ordered node ids (+ optional expected edge ids)
+  expectedPath Json              @map("expected_path")
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+  graph        ConversationGraph @relation(fields: [graphId], references: [id], onDelete: Cascade)
+
+  @@index([graphId])
+  @@map("graph_scenarios")
+}
+
+/// Req 15 — DB row is committed BEFORE any notification attempt (P25);
+/// notifyError keeps a failed push visible in admin without losing the lead.
+model ConversationLead {
+  id             String    @id @default(cuid())
+  conversationId String    @map("conversation_id")
+  nodeId         String?   @map("node_id")
+  graphVersionId String?   @map("graph_version_id")
+  /// Captured slot snapshot {type, timeline, company, contact, ...}
+  slots          Json      @default("{}")
+  fitNote        String?   @map("fit_note")
+  status         String    @default("new") // new | seen | handled
+  notifiedAt     DateTime? @map("notified_at")
+  notifyChannel  String?   @map("notify_channel")
+  notifyError    String?   @map("notify_error")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@index([conversationId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("conversation_leads")
+}
+
+/// Req 16 — written ONLY by the analytics batch, never at runtime (P23).
+/// nodeId is stable across graph versions (Req 1.5) so analytics survive edits.
+/// Untyped vector: dimension follows the batch's default-embedding model,
+/// recorded on the batch run; clustering queries go through raw SQL.
+model NodeEntryQuestion {
+  id             String                 @id @default(cuid())
+  nodeId         String                 @map("node_id")
+  graphId        String                 @map("graph_id")
+  graphVersionId String                 @map("graph_version_id")
+  conversationId String                 @map("conversation_id")
+  messageId      String                 @unique @map("message_id")
+  text           String
+  embedding      Unsupported("vector")?
+  clusterId      String?                @map("cluster_id")
+  processedAt    DateTime?              @map("processed_at")
+  createdAt      DateTime               @default(now()) @map("created_at")
+
+  @@index([nodeId])
+  @@index([graphId])
+  @@index([clusterId])
+  @@map("node_entry_questions")
+}
+
+/// Req 22 — safety tripwire configuration. Single row, id always "safety"
+/// (same singleton pattern as AIGlobalLimits/AIPublicAccessSettings).
+/// Disabled = the scan short-circuits; nothing else changes (Req 22.4).
+model SafetyConfig {
+  id                  String   @id @default("safety")
+  enabled             Boolean  @default(false)
+  /// Word lists by category: { category: string[] } — owner-tuned data (P34)
+  wordLists           Json     @default("{}") @map("word_lists")
+  /// Policy text handed to the investigation agent
+  investigationPolicy String?  @map("investigation_policy")
+  /// severity → action map: log_only | notify_owner | publish_evidence | terminate_session | ban_reflink
+  severityActionMap   Json     @default("{}") @map("severity_action_map")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@map("safety_config")
+}
+
+/// Req 22.2 — one row per async investigation run (in-flight dedup lives in
+/// ConversationState, P33; status here is for admin visibility incl. failures).
+model SafetyInvestigation {
+  id                String    @id @default(cuid())
+  conversationId    String    @map("conversation_id")
+  /// What tripped the wire: { words: string[], messageId, category }
+  triggeredBy       Json      @map("triggered_by")
+  status            String    @default("running") // running | complete | failed
+  verdict           String? // benign | <severity>
+  recommendedAction String?   @map("recommended_action")
+  rationale         String?
+  /// Execution record when the severity→action map acted on the verdict
+  actedOn           Json?     @map("acted_on")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  completedAt       DateTime? @map("completed_at")
+
+  @@index([conversationId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("safety_investigations")
+}
+
 // Hierarchical Content Storage Models for T0-T3 Tier System
 // NOTE: pgvector fields (embeddingVector) use Unsupported("vector(1536)") type
 // Currently optimized for OpenAI embeddings (1536 dimensions).

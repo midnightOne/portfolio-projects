@@ -11,6 +11,8 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 import { conversationHistoryManager } from '@/lib/services/ai/conversation-history-manager';
+import type { EngineDirective } from '@/lib/ai/engine/types';
+import { peekSyntheticDirective } from '@/lib/ai/dev/synthetic-engine-directive';
 
 interface ConversationLogRequest {
   sessionId: string;
@@ -69,18 +71,35 @@ interface ConversationLogRequest {
   timestamp?: string;
   toolName?: string;
   toolArgs?: any;
-  /** Labeled navigation/error event (owner, 2026-07-07) — distinct from raw tool_call/tool_result rows. */
+  /** Labeled event rows (owner, 2026-07-07; context_flush/engine_directive added
+   *  by conversation-engine A3/A4 — D55 flush + directive-application telemetry). */
   event?: {
-    type: 'navigation' | 'error';
+    type: 'navigation' | 'error' | 'context_flush' | 'engine_directive';
     label: string;
     detail?: unknown;
   };
+  /**
+   * Task A4 turn evidence: UI-state deltas since the previous user turn
+   * (navigation, F-I-D refreshes), attached by the base adapter to user
+   * transcript posts. Persisted into the message's metadata so the engine
+   * evaluator (Block B) can score ui_state edge conditions from ground truth.
+   */
+  uiEvidence?: Array<Record<string, unknown>>;
 }
 
 interface ConversationLogResponse {
   success: boolean;
   message?: string;
   error?: string;
+  /**
+   * Task A4 directive return path (conversation-engine design §1): present
+   * only for NATIVE voice sessions (openai/google) when the engine has a
+   * control-plane update for this conversation — cascade/text never consume
+   * it (their next turn re-derives from latestState, notes §2.2.9). Inert
+   * while no graph is active (Req 2.7): with the Block B evaluator not yet
+   * landed, only the dev drill seam can populate it.
+   */
+  engineDirective?: EngineDirective;
   metadata: {
     timestamp: number;
     sessionId: string;
@@ -105,9 +124,27 @@ interface ConversationLogResponse {
  * never stored here. Idempotent per adapter item id (retries are safe).
  */
 type PersistableEntry =
-  | { kind: 'transcript'; id?: string; type?: string; content?: string; timestamp?: string | Date; duration?: number; reasoning?: string; firstAudioAt?: string }
+  | { kind: 'transcript'; id?: string; type?: string; content?: string; timestamp?: string | Date; duration?: number; reasoning?: string; firstAudioAt?: string; uiEvidence?: Array<Record<string, unknown>> }
   | { kind: 'tool'; id?: string; toolName?: string; args?: unknown; result?: unknown; success?: boolean; executionTime?: number; timestamp?: string | Date }
-  | { kind: 'event'; id?: string; eventType?: 'navigation' | 'error' | 'clip_played'; label?: string; detail?: unknown; timestamp?: string | Date };
+  | { kind: 'event'; id?: string; eventType?: 'navigation' | 'error' | 'clip_played' | 'context_flush' | 'engine_directive'; label?: string; detail?: unknown; timestamp?: string | Date };
+
+/**
+ * Cap turn evidence (task A4): whole events only, newest kept when over the
+ * ~4KB budget — a runaway client must not bloat message rows, and truncating
+ * inside an event would corrupt the JSON the evaluator reads.
+ */
+function capUiEvidence(events: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  const MAX_CHARS = 4000;
+  const kept: Array<Record<string, unknown>> = [];
+  let size = 2;
+  for (let i = events.length - 1; i >= 0 && kept.length < 20; i--) {
+    const eventSize = JSON.stringify(events[i]).length + 1;
+    if (size + eventSize > MAX_CHARS) break;
+    kept.unshift(events[i]);
+    size += eventSize;
+  }
+  return kept;
+}
 
 async function persistVoiceEntries(
   sessionId: string,
@@ -148,6 +185,9 @@ async function persistVoiceEntries(
             // 9b.5 turn onset (assistant rows): first-audio time; the row's own
             // timestamp is turn-END — the difference IS the visible latency story.
             firstAudioAt: entry.firstAudioAt,
+            // Task A4: UI-state deltas riding user turns — the engine's
+            // ui_state transition evidence (Block B reads it from here).
+            uiEvidence: entry.uiEvidence ? capUiEvidence(entry.uiEvidence) : undefined,
           },
         });
         persisted++;
@@ -263,6 +303,21 @@ async function handleLegEvent(
   }
 }
 
+/**
+ * Task A4 directive return path: what control-plane update (if any) rides
+ * this /log response back to the live session. NATIVE voice only — cascade/
+ * text re-derive server-side from latestState and never consume the field
+ * (notes §2.2.9). While no graph is active the engine is inert (Req 2.7):
+ * Block B's evaluator will plug in here; today only the dev drill seam
+ * (synthetic directives, non-production) can produce one. Duplicate delivery
+ * on retries is safe by contract — directives carry a monotonic seq and the
+ * base adapter applies latest-wins (P2/P4).
+ */
+function resolveEngineDirective(sessionId: string, provider: string): EngineDirective | undefined {
+  if (provider !== 'openai' && provider !== 'google') return undefined;
+  return peekSyntheticDirective(sessionId);
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse<ConversationLogResponse>> {
   const startTime = Date.now();
   let sessionId: string | undefined;
@@ -372,6 +427,8 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           duration: transcriptItem.metadata?.duration,
           reasoning: transcriptItem.metadata?.reasoning,
           firstAudioAt: transcriptItem.metadata?.firstAudioAt,
+          // Task A4: UI-state deltas ride user turns as engine evidence
+          uiEvidence: transcriptItem.type === 'user_speech' ? body.uiEvidence : undefined,
         }]);
         console.log(`Individual transcript item received for session ${sessionId}:`, {
           provider,
@@ -379,9 +436,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           persisted: stored.persisted
         });
 
+        const engineDirective = resolveEngineDirective(sessionId, provider);
         return NextResponse.json({
           success: true,
           message: `Transcript item processed successfully for session ${sessionId}`,
+          ...(engineDirective ? { engineDirective } : {}),
           metadata: {
             timestamp: Date.now(),
             sessionId,
@@ -621,9 +680,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
     const batchStored = await persistVoiceEntries(sessionId, reflinkId, persistable);
     console.log(`[conversation/log] persisted ${batchStored.persisted}/${persistable.length} entries for session ${sessionId}`);
 
+    const batchDirective = resolveEngineDirective(sessionId, provider);
     const response: ConversationLogResponse = {
       success: true,
       message: `Conversation log processed successfully for session ${sessionId}`,
+      ...(batchDirective ? { engineDirective: batchDirective } : {}),
       metadata: {
         timestamp: Date.now(),
         sessionId,
