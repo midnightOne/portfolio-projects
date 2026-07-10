@@ -333,10 +333,16 @@ LANGUAGE POLICY (strict):
     // D47 conversation engine (B3): start-node (or, on resume, persisted-node
     // — Req 2.6) guidance + prepared context appended AFTER the base policy
     // (notes §2.1.4). '' when no graph is active — static path unchanged (Req 2.7).
-    {
-      const { buildEngineStartSuffix } = await import('@/lib/services/ai/engine-runtime');
-      systemInstructions += await buildEngineStartSuffix({ isPublic: false, resumeSessionId });
-    }
+    // C1 (Req 5.4): the node's alias participates in mint-time model resolution
+    // — the only point a node alias ever touches a native session (Req 5.3).
+    const { buildEngineStartSuffix, resolveEngineMintModel } = await import('@/lib/services/ai/engine-runtime');
+    const enginePolicy = await buildEngineStartSuffix({ isPublic: false, resumeSessionId });
+    systemInstructions += enginePolicy.suffix;
+    const mintModel = await resolveEngineMintModel({
+      routeProvider: 'openai',
+      engineAlias: enginePolicy.modelAlias,
+      defaultModelId: defaultConfig.model,
+    });
 
     console.log('System instructions:', systemInstructions);
 
@@ -346,52 +352,60 @@ LANGUAGE POLICY (strict):
     //defaultConfig.sessionConfig.audio.output.voice = 'cedar';
     console.log('Voice:', defaultConfig.sessionConfig.audio.output.voice);
 
-    // Create OpenAI Realtime session using config system
-    const sessionResponse = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openaiApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        expires_after: { anchor: "created_at", seconds: 600 },
-        session: {
-          type: "realtime",
-          model: defaultConfig.model,
-          // Server-side context injection - instructions are injected here and not visible to client
-          instructions: systemInstructions,
-          // Server-side tool definitions injection
-          tools: allTools,
-          // Audio configuration from config system
-          audio: {
-            input: {
-              format: {
-                type: 'audio/pcm',
-                rate: defaultConfig.sessionConfig.audio.input.format.rate
+    // Create OpenAI Realtime session using config system. The model may carry
+    // the engine's mint-time override (Req 5.4) — pre-validated by
+    // resolveEngineMintModel's realtime gate, because this endpoint accepts
+    // ANY model string (driven 2026-07-10: 200 for a nonsense id; failures
+    // surface only at client connect, beyond server reach).
+    const mintSession = (model: string) =>
+      fetch('https://api.openai.com/v1/realtime/client_secrets', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${openaiApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          expires_after: { anchor: "created_at", seconds: 600 },
+          session: {
+            type: "realtime",
+            model,
+            // Server-side context injection - instructions are injected here and not visible to client
+            instructions: systemInstructions,
+            // Server-side tool definitions injection
+            tools: allTools,
+            // Audio configuration from config system
+            audio: {
+              input: {
+                format: {
+                  type: 'audio/pcm',
+                  rate: defaultConfig.sessionConfig.audio.input.format.rate
+                },
+                turn_detection: {
+                  type: defaultConfig.sessionConfig.audio.input.turnDetection.type,
+                  threshold: defaultConfig.sessionConfig.audio.input.turnDetection.threshold,
+                  prefix_padding_ms: defaultConfig.sessionConfig.audio.input.turnDetection.prefixPaddingMs,
+                  silence_duration_ms: defaultConfig.sessionConfig.audio.input.turnDetection.silenceDurationMs,
+                  create_response: defaultConfig.sessionConfig.audio.input.turnDetection.createResponse,
+                  interrupt_response: defaultConfig.sessionConfig.audio.input.turnDetection.interruptResponse
+                },
+                transcription: {
+                  model: defaultConfig.sessionConfig.audio.input.transcription?.model || 'whisper-1'
+                }
               },
-              turn_detection: {
-                type: defaultConfig.sessionConfig.audio.input.turnDetection.type,
-                threshold: defaultConfig.sessionConfig.audio.input.turnDetection.threshold,
-                prefix_padding_ms: defaultConfig.sessionConfig.audio.input.turnDetection.prefixPaddingMs,
-                silence_duration_ms: defaultConfig.sessionConfig.audio.input.turnDetection.silenceDurationMs,
-                create_response: defaultConfig.sessionConfig.audio.input.turnDetection.createResponse,
-                interrupt_response: defaultConfig.sessionConfig.audio.input.turnDetection.interruptResponse
-              },
-              transcription: {
-                model: defaultConfig.sessionConfig.audio.input.transcription?.model || 'whisper-1'
+              output: {
+                format: {
+                  type: 'audio/pcm',
+                  rate: defaultConfig.sessionConfig.audio.output.format.rate
+                },
+                voice: defaultConfig.sessionConfig.audio.output.voice
               }
-            },
-            output: {
-              format: {
-                type: 'audio/pcm',
-                rate: defaultConfig.sessionConfig.audio.output.format.rate
-              },
-              voice: defaultConfig.sessionConfig.audio.output.voice
             }
           }
-        }
-      }),
-    });
+        }),
+      });
+
+    const effectiveModel = mintModel.modelId;
+    const sessionResponse = await mintSession(effectiveModel);
 
     if (!sessionResponse.ok) {
       const errorText = await sessionResponse.text();
@@ -419,14 +433,14 @@ LANGUAGE POLICY (strict):
       usageType: 'voice_session_mint',
       provider: 'openai',
       costUsd: 0,
-      metadata: { sessionId, model: defaultConfig.model, maxSessionSeconds },
+      metadata: { sessionId, model: effectiveModel, maxSessionSeconds },
     });
 
     const response: OpenAISessionResponse = {
       client_secret: sessionData.value,
       session_id: sessionId,
       expires_at: expiresAt,
-      model: defaultConfig.model,
+      model: effectiveModel,
       voice: defaultConfig.sessionConfig.audio.output.voice,
       max_session_seconds: maxSessionSeconds
     };
@@ -707,15 +721,23 @@ LANGUAGE POLICY (strict):
 
     // D47 conversation engine (B3): start-node guidance + prepared context,
     // '' when no graph is active (Req 2.7). POST mint has no resume path.
-    {
-      const { buildEngineStartSuffix } = await import('@/lib/services/ai/engine-runtime');
-      instructions += await buildEngineStartSuffix({ isPublic: false });
-    }
+    // C1 (Req 5.4): node alias participates in mint-time model resolution.
+    const { buildEngineStartSuffix, resolveEngineMintModel } = await import('@/lib/services/ai/engine-runtime');
+    const enginePolicy = await buildEngineStartSuffix({ isPublic: false });
+    instructions += enginePolicy.suffix;
+    const mintModel = await resolveEngineMintModel({
+      routeProvider: 'openai',
+      engineAlias: enginePolicy.modelAlias,
+      defaultModelId: defaultConfig.model,
+    });
 
     // Use custom tools or default from unified registry
     const tools = body.tools || unifiedToolRegistry.getOpenAIToolsArray();
 
-    const sessionResponse = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
+    // Engine mint override pre-validated by the realtime gate — this endpoint
+    // does not validate models (driven 2026-07-10; same contract as GET).
+    const mintSession = (model: string) =>
+      fetch('https://api.openai.com/v1/realtime/client_secrets', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${openaiApiKey}`,
@@ -725,7 +747,7 @@ LANGUAGE POLICY (strict):
         expires_after: { anchor: "created_at", seconds: 600 },
         session: {
           type: "realtime",
-          model: defaultConfig.model,
+          model,
           // Server-side context injection - instructions are injected here and not visible to client
           instructions: instructions,
           // Server-side tool definitions injection
@@ -763,6 +785,9 @@ LANGUAGE POLICY (strict):
 
     console.log('2Voice:', defaultConfig.sessionConfig.audio.output.voice);
 
+    const effectiveModel = mintModel.modelId;
+    const sessionResponse = await mintSession(effectiveModel);
+
     if (!sessionResponse.ok) {
       const errorText = await sessionResponse.text();
       console.error('OpenAI session creation failed:', errorText);
@@ -782,14 +807,14 @@ LANGUAGE POLICY (strict):
       usageType: 'voice_session_mint',
       provider: 'openai',
       costUsd: 0,
-      metadata: { sessionId, model: defaultConfig.model, maxSessionSeconds },
+      metadata: { sessionId, model: effectiveModel, maxSessionSeconds },
     });
 
     const response: OpenAISessionResponse = {
       client_secret: sessionData.value,
       session_id: sessionId,
       expires_at: expiresAt,
-      model: defaultConfig.model,
+      model: effectiveModel,
       voice: defaultConfig.sessionConfig.audio.output.voice,
       max_session_seconds: maxSessionSeconds
     };

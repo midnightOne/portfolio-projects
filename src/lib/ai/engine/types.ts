@@ -196,7 +196,11 @@ export const EngineStateSchema = z.object({
   consecutiveLowEffort: z.number().int().nonnegative().default(0),
   /** Stated facts captured from user turns (Req 14; extraction shares the P26 call). */
   slots: z.record(z.string()).default({}),
-  pendingModelSwap: z.object({ alias: z.string(), requestedAt: z.string() }).optional(),
+  // NOTE: no pendingModelSwap and no swap scheduling of any kind — the owner
+  // removed native mid-session model switching (Req 5.3, 2026-07-09). Node
+  // modelAlias is per-turn resolution data on cascade/text and mint-time input
+  // on native; it never becomes deferred state. (Old persisted blobs may still
+  // carry the key — z.object strips unknown keys on parse, so reads stay tolerant.)
 });
 export type EngineState = z.infer<typeof EngineStateSchema>;
 
@@ -227,8 +231,14 @@ export interface StartDirective {
   contextText: string | null;
   /** Registry names; undefined = session default set. */
   toolAllowlist?: string[];
-  /** Overrides the session alias AT MINT only (no deferred-swap machinery at start). */
+  /**
+   * Overrides the session alias AT MINT only on native (no deferred-swap
+   * machinery at start, Req 5.4); on cascade/text this is the per-turn
+   * resolution alias (Req 5.2).
+   */
   modelAlias?: string;
+  /** Context items dropped during assembly (budget/visibility/failure — P12), for `_debug.engine`. */
+  contextDrops: string[];
 }
 
 /**
@@ -249,6 +259,12 @@ export interface StartDirective {
  * Native voice only: cascade/text runtimes never consume this field — their
  * next turn re-derives everything server-side from `latestState`
  * (notes §2.2.9).
+ *
+ * Deliberately carries NO model alias (Req 5.3, owner 2026-07-09): native
+ * sessions keep their mint-time model for their whole lifetime — adapters
+ * would ignore such a field, so it does not exist. On cascade/text a node's
+ * `modelAlias` rides `latestState` into next-turn `resolveModel` resolution
+ * (Req 5.2), never this directive.
  */
 export const EngineDirectiveSchema = z.object({
   seq: z.number().int().nonnegative(),

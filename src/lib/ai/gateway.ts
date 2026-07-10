@@ -64,6 +64,14 @@ export interface GatewayDebugState {
   systemPrompt?: string;
   /** Context string injected this turn (start frame today; D47 node context later). */
   contextString?: string;
+  /**
+   * D47 conversation-engine section (Req 7.5, task C3): active node, graph
+   * version, fired/evaluated edges, injected context + drops, effective tool
+   * set, model alias, directive-delivery state. Populated by the handler only
+   * when the engine is steering the conversation — absent otherwise, keeping
+   * the envelope byte-identical to pre-engine output (Req 2.7).
+   */
+  engine?: Record<string, unknown>;
 }
 
 export interface GatewayContext {
@@ -217,6 +225,7 @@ async function attachDebug(
     usage: ctx.debug.usage,
     systemPrompt: ctx.debug.systemPrompt,
     contextString: ctx.debug.contextString,
+    ...(ctx.debug.engine ? { engine: ctx.debug.engine } : {}),
     timings: { totalMs: Date.now() - startedAt, modelMs: ctx.debug.modelMs || undefined },
   };
   const headers = new Headers(res.headers);

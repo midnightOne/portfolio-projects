@@ -24,7 +24,8 @@ export interface ValidationIssue {
     | 'unknown_tool'
     | 'unknown_alias'
     | 'context_budget'
-    | 'undeclared_slot';
+    | 'undeclared_slot'
+    | 'model_edge_native';
   message: string;
   nodeId?: string;
   edgeId?: string;
@@ -188,6 +189,23 @@ export function validateGraph(documentRaw: unknown, ctx: ValidationContext = {})
   for (const edge of document.edges) {
     if (edge.condition.type === 'slot' && !declaredSlots.has(edge.condition.name)) {
       issues.push({ severity: 'error', code: 'undeclared_slot', message: `Edge "${edge.id}": slot condition references undeclared slot "${edge.condition.name}"`, edgeId: edge.id });
+    }
+  }
+
+  // Model-changing edges (Req 5.4): mark, never block — the alias is honest
+  // per-turn data on cascade/text and inert mid-session on native voice
+  // (owner removed native in-flight switching 2026-07-09; Req 5.3).
+  const nodeById = new Map(document.nodes.map((n) => [n.id, n]));
+  for (const edge of document.edges) {
+    const target = nodeById.get(edge.to);
+    const source = nodeById.get(edge.from);
+    if (target?.modelAlias && target.modelAlias !== source?.modelAlias) {
+      issues.push({
+        severity: 'warning',
+        code: 'model_edge_native',
+        message: `Edge "${edge.id}": target node "${target.name}" changes the model alias to "${target.modelAlias}" — model changes apply on cascade/text; ignored mid-session on native voice (Req 5.4)`,
+        edgeId: edge.id,
+      });
     }
   }
 

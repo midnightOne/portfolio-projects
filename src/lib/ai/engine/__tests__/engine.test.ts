@@ -509,7 +509,7 @@ describe('ConversationEngine.processTurn', () => {
       throw new Error('db exploded');
     };
     const engine = makeEngine(validDoc(), store);
-    await expect(engine.processTurn('c1', evidence('hi'), turnCtx)).resolves.toEqual({ directive: null, transition: null });
+    await expect(engine.processTurn('c1', evidence('hi'), turnCtx)).resolves.toEqual({ directive: null, transition: null, debug: null });
   });
 });
 
@@ -543,5 +543,102 @@ describe('startPolicy / resumePolicy', () => {
     const directive = await engine.resumePolicy(freshState('kiln'), { isPublic: false });
     expect(directive?.nodeId).toBe('kiln');
     expect(directive?.contextText).toContain('guidance for kiln');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block C — model switching (cascade/text only) + debug envelope
+// ---------------------------------------------------------------------------
+
+describe('Block C — model edges, swap-machinery removal, ProcessTurnDebug', () => {
+  it('warns on model-changing edges with the Req 5.4 label (C2)', () => {
+    const d = validDoc();
+    (d.nodes[1] as { modelAlias?: string }).modelAlias = 'default-reasoning';
+    const issues = validateGraph(d).filter((i) => i.code === 'model_edge_native');
+    // both edges into the alias-bearing node are marked: start→kiln, offgraph→kiln
+    expect(issues.map((i) => i.edgeId).sort()).toEqual(['e-off', 'e-pattern']);
+    expect(issues[0].severity).toBe('warning');
+    expect(issues[0].message).toContain('apply on cascade/text');
+    expect(issues[0].message).toContain('ignored mid-session on native voice');
+  });
+
+  it('does NOT warn when source and target share the alias (not model-changing)', () => {
+    const d = validDoc();
+    (d.nodes[0] as { modelAlias?: string }).modelAlias = 'default-reasoning';
+    (d.nodes[1] as { modelAlias?: string }).modelAlias = 'default-reasoning';
+    const issues = validateGraph(d).filter((i) => i.code === 'model_edge_native');
+    expect(issues.some((i) => i.edgeId === 'e-pattern')).toBe(false); // same alias both ends
+    expect(issues.some((i) => i.edgeId === 'e-back')).toBe(false); // same alias both ends
+    expect(issues.some((i) => i.edgeId === 'e-off')).toBe(true); // offgraph (no alias) → kiln (alias) IS model-changing
+  });
+
+  it('strips a legacy pendingModelSwap key on parse (C2 removal; P18 tolerant reads)', () => {
+    const legacy = { ...freshState(), pendingModelSwap: { alias: 'default-reasoning', requestedAt: '2026-07-09' } };
+    const parsed = ConversationEngine.parseEngineState(legacy);
+    expect(parsed).not.toBeNull();
+    expect((parsed as unknown as Record<string, unknown>).pendingModelSwap).toBeUndefined();
+  });
+
+  it('startPolicy surfaces the start node modelAlias (mint/per-turn input) and contextDrops (C1/C3)', async () => {
+    const d = validDoc();
+    (d.nodes[0] as { modelAlias?: string }).modelAlias = 'default-reasoning';
+    const store = makeStore(null);
+    const engine = new ConversationEngine({
+      graphSource: {
+        async getActiveGraph() {
+          return { graphId: 'g1', versionId: 'v1', document: d };
+        },
+        async getVersion() {
+          return d;
+        },
+      },
+      stateStore: store,
+      evaluator: fakeDeps(),
+      resolveContextSet: async () => ({ text: 'ctx', drops: ['chunk:gone (budget)'] }),
+    });
+    const directive = await engine.startPolicy({ isPublic: false });
+    expect(directive?.modelAlias).toBe('default-reasoning');
+    expect(directive?.contextDrops).toEqual(['chunk:gone (budget)']);
+  });
+
+  it('fired transitions return the full debug record (C3/Req 7.5)', async () => {
+    const d = validDoc();
+    (d.nodes[1] as { toolAllowlist?: string[] }).toolAllowlist = ['content_search'];
+    const store = makeStore(freshState());
+    const engine = makeEngine(d, store);
+    const result = await engine.processTurn('c1', evidence('the kiln please'), turnCtx);
+    expect(result.debug?.nodeId).toBe('start');
+    expect(result.debug?.graphVersionId).toBe('v1');
+    expect(result.debug?.fired).toMatchObject({ edgeId: 'e-pattern', from: 'start', to: 'kiln', conditionType: 'pattern' });
+    expect(result.debug?.evaluated.map((e) => e.edgeId)).toEqual(['e-pattern']);
+    expect(result.debug?.toolAllowlist).toEqual(['content_search']);
+    expect(result.debug?.directiveSeq).toBe(1);
+    expect(result.debug?.directiveDelivery).toBe('log-response');
+  });
+
+  it('no-fire turns report the evaluated walk with fired: null, delivery none (Req 7.5 "or none")', async () => {
+    const store = makeStore(freshState());
+    const engine = makeEngine(validDoc(), store);
+    const result = await engine.processTurn('c1', evidence('nothing matches this'), turnCtx);
+    expect(result.transition).toBeNull();
+    expect(result.debug?.fired).toBeNull();
+    expect(result.debug?.directiveDelivery).toBe('none');
+    expect(result.debug?.evaluated.length).toBeGreaterThan(0);
+  });
+
+  it('cascade/text transitions report server-assembly delivery — the Req 5.2 application layer', async () => {
+    const store = makeStore(freshState());
+    const engine = makeEngine(validDoc(), store);
+    const result = await engine.processTurn('c1', evidence('the kiln'), { provider: 'cascade', isNative: false, isPublic: true });
+    expect(result.directive).toBeNull(); // never on the response for cascade/text (§2.2.9)
+    expect(result.debug?.directiveDelivery).toBe('server-assembly');
+  });
+
+  it('CAS loss returns debug: null — the losing invocation is fully silent (P3)', async () => {
+    const store = makeStore(freshState());
+    store.claimResults.push(false);
+    const engine = makeEngine(validDoc(), store);
+    const result = await engine.processTurn('c1', evidence('the kiln'), turnCtx);
+    expect(result.debug).toBeNull();
   });
 });

@@ -71,9 +71,39 @@ export interface ProcessTurnContext {
   debug?: boolean;
 }
 
+/**
+ * Per-turn debug record for the `_debug.engine` envelope (Req 7.5, task C3).
+ * Null whenever the engine is not steering this conversation (no graph, CAS
+ * loss, replayed turn) — the envelope stays byte-identical to pre-engine
+ * output in those cases (Req 2.7).
+ */
+export interface ProcessTurnDebug {
+  /** Node active while this turn was evaluated. */
+  nodeId: string;
+  graphVersionId: string;
+  fired: {
+    edgeId: string;
+    from: string;
+    to: string;
+    conditionType: string;
+    reason: string;
+  } | null;
+  /** Edges evaluated this turn in walk order (evaluated-but-not-taken included). */
+  evaluated: EvaluatedEdge[];
+  /** Context items dropped assembling the (new) node's context set (P12/B4). */
+  contextDrops: string[];
+  /** Node tool allowlist in effect AFTER this turn (undefined = session default set). */
+  toolAllowlist?: string[];
+  /** Directive seq issued this turn (fired) or last issued (not fired) — B3 delivery state. */
+  directiveSeq: number;
+  /** How node state reaches the model: /log response snapshot (native) vs next-turn server assembly (cascade/text). */
+  directiveDelivery: 'log-response' | 'server-assembly' | 'none';
+}
+
 export interface ProcessTurnResult {
   directive: EngineDirective | null;
   transition: TransitionRecord | null;
+  debug: ProcessTurnDebug | null;
 }
 
 export class ConversationEngine {
@@ -143,6 +173,7 @@ export class ConversationEngine {
       contextText: context.text,
       toolAllowlist: landing.toolAllowlist,
       modelAlias: landing.modelAlias,
+      contextDrops: context.drops,
     };
   }
 
@@ -176,6 +207,7 @@ export class ConversationEngine {
       contextText: context.text,
       toolAllowlist: node.toolAllowlist,
       modelAlias: node.modelAlias,
+      contextDrops: context.drops,
     };
   }
 
@@ -194,7 +226,7 @@ export class ConversationEngine {
       return await this.processTurnInner(conversationId, evidence, ctx);
     } catch (err) {
       this.log('engine: processTurn failed — turn proceeds unsteered (P1)', err);
-      return { directive: null, transition: null };
+      return { directive: null, transition: null, debug: null };
     }
   }
 
@@ -203,7 +235,7 @@ export class ConversationEngine {
     evidence: TurnEvidence,
     ctx: ProcessTurnContext
   ): Promise<ProcessTurnResult> {
-    const none: ProcessTurnResult = { directive: null, transition: null };
+    const none: ProcessTurnResult = { directive: null, transition: null, debug: null };
     let state = await this.deps.stateStore.readEngineState(conversationId);
 
     // ---- First sight of this conversation: stamp graph entry (or engine-off) ----
@@ -295,11 +327,29 @@ export class ConversationEngine {
       }
     }
 
-    if (!outcome.fired) return none; // staying put is the default (§2.2.7)
+    if (!outcome.fired) {
+      // Staying put is the default (§2.2.7) — but the turn WAS evaluated, so
+      // the debug envelope reports it (Req 7.5: "fired edge (or none)").
+      return {
+        directive: null,
+        transition: null,
+        debug: {
+          nodeId: currentNode.id,
+          graphVersionId: state.graphVersionId,
+          fired: null,
+          evaluated: outcome.evaluated,
+          contextDrops: [],
+          toolAllowlist: currentNode.toolAllowlist,
+          directiveSeq: state.directiveSeq,
+          directiveDelivery: 'none',
+        },
+      };
+    }
 
-    const targetNode = document.nodes.find((n) => n.id === outcome.fired!.to);
+    const firedEdge = outcome.fired;
+    const targetNode = document.nodes.find((n) => n.id === firedEdge.to);
     if (!targetNode) {
-      this.log('engine: fired edge targets missing node — transition aborted', { edgeId: outcome.fired.id });
+      this.log('engine: fired edge targets missing node — transition aborted', { edgeId: firedEdge.id });
       return none;
     }
 
@@ -307,8 +357,8 @@ export class ConversationEngine {
     const transition: TransitionRecord = {
       fromNode: currentNode.id,
       toNode: targetNode.id,
-      edgeId: outcome.fired.id,
-      conditionType: outcome.fired.condition.type,
+      edgeId: firedEdge.id,
+      conditionType: firedEdge.condition.type,
       evidence: (outcome.firedReason ?? '').slice(0, 300),
       graphVersionId: state.graphVersionId,
       turnMessageId: evidence.turnMessageId,
@@ -319,7 +369,7 @@ export class ConversationEngine {
     // engine key; 'keep' = previous node's rendered context rides along.
     const targetContext = await this.buildNodeContext(targetNode, outcome.slots, { isPublic: ctx.isPublic });
     let engineText = targetContext.text;
-    if (outcome.fired.purge === 'keep') {
+    if (firedEdge.purge === 'keep') {
       const previous = await this.buildNodeContext(currentNode, outcome.slots, { isPublic: ctx.isPublic });
       engineText = `${targetContext.text}\n\n[carried over from previous state — purge:'keep']\n${previous.text}`;
     }
@@ -341,6 +391,25 @@ export class ConversationEngine {
       providerTools,
     });
 
-    return { directive: ctx.isNative ? directive : null, transition };
+    return {
+      directive: ctx.isNative ? directive : null,
+      transition,
+      debug: {
+        nodeId: currentNode.id,
+        graphVersionId: state.graphVersionId,
+        fired: {
+          edgeId: firedEdge.id,
+          from: currentNode.id,
+          to: targetNode.id,
+          conditionType: firedEdge.condition.type,
+          reason: (outcome.firedReason ?? '').slice(0, 300),
+        },
+        evaluated: outcome.evaluated,
+        contextDrops: targetContext.drops,
+        toolAllowlist: targetNode.toolAllowlist,
+        directiveSeq: seq,
+        directiveDelivery: ctx.isNative ? 'log-response' : 'server-assembly',
+      },
+    };
   }
 }

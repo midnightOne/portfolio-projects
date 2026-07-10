@@ -14,7 +14,8 @@ import { BackendToolService } from '@/lib/ai/tools/BackendToolService';
 import { getPublicAccessSettings } from '@/lib/ai/public-access';
 import { assembleStartFrame } from '@/lib/ai/start-frame';
 import { conversationHistoryManager } from '@/lib/services/ai/conversation-history-manager';
-import { buildEnginePromptSuffix, runEngineTurn } from '@/lib/services/ai/engine-runtime';
+import { buildEnginePromptSuffix, runEngineTurn, getNodeToolAllowlist } from '@/lib/services/ai/engine-runtime';
+import type { ModelAliasName } from '@/lib/ai/model-registry';
 
 const MAX_MESSAGE_CHARS = 2000;
 const MAX_TOOL_ROUNDS = 3;
@@ -86,9 +87,6 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
     return { name: def.name, description: def.description, parameters: def.parameters as Record<string, unknown> };
   });
 
-  const adapter = await getReasoningAdapter('default-cheap');
-  ctx.debug.model = { alias: 'default-cheap', resolved: `${adapter.provider}/${adapter.modelId}` };
-
   // Conversation key derived BEFORE the model call so the engine can shape
   // this turn's prompt from persisted node state (D47 B3; same derivation the
   // persistence block used — public tier is always keyed by the gateway sid).
@@ -102,10 +100,33 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
   const { prompt: basePrompt, frame: contextString } = await buildSystemPrompt();
   // D47 (Req 6.1 second application layer): cascade/text apply node state at
   // next-turn prompt assembly — re-derived server-side from latestState,
-  // never from the response field (notes §2.2.9). '' when no graph is active,
-  // so the static path stays byte-identical (Req 2.7).
-  const engineSuffix = await buildEnginePromptSuffix(persistSessionId, { isPublic: ctx.tier === 'public' });
-  const systemPrompt = basePrompt + engineSuffix;
+  // never from the response field (notes §2.2.9). suffix '' when no graph is
+  // active, so the static path stays byte-identical (Req 2.7).
+  const enginePlan = await buildEnginePromptSuffix(persistSessionId, { isPublic: ctx.tier === 'public' });
+  const systemPrompt = basePrompt + enginePlan.suffix;
+
+  // D47 C1 (Req 5.2): the current node's alias resolves THIS turn's model —
+  // pure data through resolveModel, no session surgery; the ledger row below
+  // records the resolved model, which is the switch's audit trail. A stale
+  // alias (registry changed since publish) degrades to the session default (P1).
+  let aliasUsed: string = enginePlan.modelAlias ?? 'default-cheap';
+  let adapter;
+  try {
+    adapter = await getReasoningAdapter(aliasUsed as ModelAliasName);
+  } catch (aliasError) {
+    if (aliasUsed === 'default-cheap') throw aliasError; // default alias missing = real config error, fail loud
+    console.warn(`[chat] node model alias '${aliasUsed}' failed to resolve — falling back to default-cheap (P1):`, aliasError);
+    aliasUsed = 'default-cheap';
+    adapter = await getReasoningAdapter('default-cheap');
+  }
+  ctx.debug.model = { alias: aliasUsed, resolved: `${adapter.provider}/${adapter.modelId}` };
+
+  // D47 B5 parity (Req 4.1/6.1): the node tool allowlist narrows dispatch on
+  // this runtime too — same tier ∩ session ∩ node chain the voice client hits
+  // in /api/ai/tools/execute; the model-visible tool array stays FULL (owner
+  // decision 2026-07-09: enforcement is server-side, guidance steers usage).
+  // Null = engine inactive / node doesn't narrow → tier enforcement alone.
+  const nodeAllowlist = await getNodeToolAllowlist(persistSessionId);
   // Debug parity with the deleted Gen-1 manager's per-turn snapshots (task 2.4b):
   // expose the assembled policy + context through the _debug envelope.
   ctx.debug.systemPrompt = systemPrompt;
@@ -145,6 +166,12 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
       if (!toolNames.includes(call.name)) {
         messages.push({ role: 'tool', toolCallId: call.id, name: call.name, content: JSON.stringify({ error: `Tool '${call.name}' is not available.` }) });
         ctx.debug.toolCalls.push({ name: call.name, ok: false, error: 'not_in_allowlist', ms: 0 });
+        continue;
+      }
+      // D47 node tool scoping (Req 4.1) — narrow-only, mirrors /api/ai/tools/execute.
+      if (nodeAllowlist && !nodeAllowlist.includes(call.name)) {
+        messages.push({ role: 'tool', toolCallId: call.id, name: call.name, content: JSON.stringify({ error: `Tool '${call.name}' is not available in the current conversation state.` }) });
+        ctx.debug.toolCalls.push({ name: call.name, ok: false, error: 'not_in_node_allowlist', ms: 0 });
         continue;
       }
       let parsedArgs: Record<string, unknown> = {};
@@ -221,12 +248,32 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
     // D47 B3: evaluate edges AFTER the user turn is durable (notes §2.2).
     // Swallow-all inside runEngineTurn (P1). Text/cascade ignore the returned
     // directive — the NEXT turn's prompt re-derives from latestState (§2.2.9).
-    await runEngineTurn({
+    const engineTurn = await runEngineTurn({
       conversationId,
       evidence: { turnMessageId: userRecord.id, utterance: message, toolEvents: engineToolEvents },
       provider: body.modality === 'voice' ? 'cascade' : 'text',
       isPublic: ctx.tier === 'public',
     });
+
+    // D47 C3 (Req 7.5): the `_debug.engine` section — present only when the
+    // engine is steering this conversation (absent = envelope byte-identical
+    // to pre-engine output, Req 2.7). Prompt phase = what shaped THIS turn's
+    // assembly; turn phase = the post-persist evaluation that shapes the next.
+    if (enginePlan.debug || engineTurn.debug) {
+      ctx.debug.engine = {
+        nodeId: enginePlan.debug?.nodeId ?? engineTurn.debug?.nodeId,
+        graphVersionId: enginePlan.debug?.graphVersionId ?? engineTurn.debug?.graphVersionId,
+        modelAlias: aliasUsed,
+        contextInjected: enginePlan.suffix.length > 0,
+        contextDrops: enginePlan.debug?.contextDrops ?? [],
+        toolAllowlist: nodeAllowlist,
+        firedEdge: engineTurn.debug?.fired ?? null,
+        evaluatedEdges: engineTurn.debug?.evaluated ?? [],
+        directive: engineTurn.debug
+          ? { seq: engineTurn.debug.directiveSeq, delivery: engineTurn.debug.directiveDelivery }
+          : null,
+      };
+    }
 
     await conversationHistoryManager.addMessage(
       conversationId,

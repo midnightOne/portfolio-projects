@@ -12,7 +12,7 @@
  */
 
 import { prisma } from '@/lib/prisma';
-import { ConversationEngine, EngineStateStore } from '@/lib/ai/engine/engine';
+import { ConversationEngine, EngineStateStore, type ProcessTurnDebug } from '@/lib/ai/engine/engine';
 import type { ContextItemSpec, EngineDirective, StartDirective, TurnEvidence } from '@/lib/ai/engine/types';
 import { buildCheapCallPrompt, parseCheapCallResponse, CheapCallInput, CheapCallResult } from '@/lib/ai/engine/cheap-call';
 import { prismaGraphSource } from './graph-store';
@@ -21,7 +21,7 @@ import { getReasoningAdapter } from '@/lib/ai/reasoning';
 import { generateEmbeddingsForModel } from '@/lib/ai/embeddings';
 import { recordUsage } from '@/lib/ai/ledger';
 import { estimateTokensFromChars } from '@/lib/ai/pricing';
-import { unifiedToolRegistry } from '@/lib/ai/tools/UnifiedToolRegistry';
+import { resolveModelAlias, type ModelAliasName } from '@/lib/ai/model-registry';
 import { ContentSearchService } from '@/lib/content/ContentSearchService';
 
 /** P10: hard classifier timeout — no transition beats a wrong one. */
@@ -185,20 +185,16 @@ async function resolveContextSet(
 }
 
 // ---------------------------------------------------------------------------
-// B5: provider tool arrays (full replacement schema, P8)
+// B5: model-side tool surface — OWNER DECISION (2026-07-09, confirmed twice):
+// ALL sessions mint with the FULL tool set ("we don't have that many tools");
+// node state reaches the model as appended guidance only, on every provider.
+// Transitions therefore carry NO tool arrays — the node allowlist's real
+// enforcement is server-side in /api/ai/tools/execute (getNodeToolAllowlist
+// below), which no provider or model behavior can bypass. The adapter-level
+// tool replacement (updateSession.tools, drilled in Block A) and the engine
+// core's buildProviderTools seam both REMAIN as capabilities for a future
+// decision; this composition simply doesn't wire them.
 // ---------------------------------------------------------------------------
-
-function buildProviderTools(provider: string, allowlist: string[]): Array<Record<string, unknown>> | undefined {
-  if (provider === 'openai') {
-    return unifiedToolRegistry
-      .getOpenAIToolsArray()
-      .filter((t: { name: string }) => allowlist.includes(t.name)) as unknown as Array<Record<string, unknown>>;
-  }
-  // Gemini: tool set is token-locked at mint (driven: close 1007) — node
-  // scoping is advisory guidance there; server-side enforcement is the teeth
-  // (GoogleLiveAdapter header doc; owner decision 2026-07-09).
-  return undefined;
-}
 
 // ---------------------------------------------------------------------------
 // State store over conversation-history-manager (P2/P3/P18 live there)
@@ -248,7 +244,8 @@ export function getConversationEngine(): ConversationEngine {
         log: (msg, data) => console.warn(`[engine] ${msg}`, data ?? ''),
       },
       resolveContextSet,
-      buildProviderTools,
+      // buildProviderTools deliberately NOT wired (owner decision above): the
+      // core seam remains, this composition delivers node state as guidance only.
       log: (msg, data) => console.warn(`[engine] ${msg}`, data ?? ''),
     });
   }
@@ -260,16 +257,28 @@ function debugTelemetryOn(): boolean {
   return process.env.NODE_ENV !== 'production' && process.env.DEV_VERIFICATION === 'true';
 }
 
+const ENGINE_SUFFIX_HEADER = '\n\n======== CONVERSATION-STATE GUIDANCE ========\n';
+
+/** Mint-time engine inputs for the native session routes (notes §2.1.4). */
+export interface EngineMintPolicy {
+  /** Appended AFTER base instructions; '' when no graph is active — the static path stays byte-identical (Req 2.7). */
+  suffix: string;
+  /** Start (or, on resume, persisted — Req 2.6) node's D4 alias: mint-time model input on native (Req 5.4); null = config default. */
+  modelAlias: string | null;
+}
+
 /**
- * Mint/first-turn instruction suffix (notes §2.1.4): the start node's (or, on
- * resume, the PERSISTED node's — Req 2.6) guidance + prepared context,
- * appended AFTER base instructions. '' when no graph is active — the static
- * path stays byte-identical (Req 2.7).
+ * Mint/first-turn engine policy (notes §2.1.4): the start node's (or, on
+ * resume, the PERSISTED node's — Req 2.6) guidance + prepared context, plus
+ * the node's model alias for mint-time resolution (Req 5.4 — the ONLY point
+ * where a node alias touches a native session; mid-session it is ignored,
+ * Req 5.3).
  */
 export async function buildEngineStartSuffix(opts: {
   isPublic: boolean;
   resumeSessionId?: string | null;
-}): Promise<string> {
+}): Promise<EngineMintPolicy> {
+  const inactive: EngineMintPolicy = { suffix: '', modelAlias: null };
   try {
     const engine = getConversationEngine();
     let directive: StartDirective | null;
@@ -282,11 +291,69 @@ export async function buildEngineStartSuffix(opts: {
     } else {
       directive = await engine.startPolicy({ isPublic: opts.isPublic });
     }
-    if (!directive?.contextText) return '';
-    return `\n\n======== CONVERSATION-STATE GUIDANCE ========\n${directive.contextText}`;
+    if (!directive) return inactive;
+    return {
+      suffix: directive.contextText ? `${ENGINE_SUFFIX_HEADER}${directive.contextText}` : '',
+      modelAlias: directive.modelAlias ?? null,
+    };
   } catch (err) {
     console.error('[engine] startPolicy failed — mint proceeds on the static path (P1):', err);
-    return '';
+    return inactive;
+  }
+}
+
+/**
+ * Realtime-capability gate for mint overrides. DRIVEN RESULT (D22, probed
+ * 2026-07-10 with nonsense model ids): BOTH providers mint session tokens
+ * without validating the model — OpenAI `client_secrets` and Google
+ * `auth_tokens` each returned 200 for "banana-nonexistent…". Rejection, if
+ * any, happens at session CONNECT, client-side, where the server cannot
+ * retry. Ahead-of-time filtering is therefore the ONLY server-side
+ * protection; a retry-on-mint-failure net is dead code and was removed.
+ * Conservative name-based check — registry aliases carry no capability
+ * metadata (revisit if the registry ever grows a "kind" column).
+ */
+const REALTIME_MODEL_PATTERNS: Record<'openai' | 'google', RegExp> = {
+  openai: /realtime/i,
+  google: /live|native-audio/i,
+};
+
+/**
+ * Req 5.4: the start node's alias participates in mint-time model resolution
+ * on native voice. Narrow contract: the alias must resolve in the D4 registry,
+ * to the SAME provider as the minting route, AND to a realtime-family model
+ * (gate above — a text-model alias on a voice mint would produce a session
+ * that dies at connect with no server-side recovery). Anything else → the
+ * voice-config default stands with a warning (P1: a graph bug degrades the
+ * steering, never breaks a mint).
+ */
+export async function resolveEngineMintModel(args: {
+  routeProvider: 'openai' | 'google';
+  engineAlias: string | null;
+  defaultModelId: string;
+}): Promise<{ modelId: string; overridden: boolean }> {
+  const fallback = { modelId: args.defaultModelId, overridden: false };
+  if (!args.engineAlias) return fallback;
+  try {
+    const resolved = await resolveModelAlias(args.engineAlias as ModelAliasName);
+    if (resolved.provider !== args.routeProvider) {
+      console.warn(
+        `[engine] start-node alias '${args.engineAlias}' resolves to provider '${resolved.provider}' — ignored for ${args.routeProvider} mint (config default stands)`
+      );
+      return fallback;
+    }
+    if (!REALTIME_MODEL_PATTERNS[args.routeProvider].test(resolved.modelId)) {
+      console.warn(
+        `[engine] start-node alias '${args.engineAlias}' resolves to non-realtime model '${resolved.modelId}' — ignored for ${args.routeProvider} mint (providers do not validate at mint; a bad model only fails at connect, so it never leaves the server)`
+      );
+      return fallback;
+    }
+    if (resolved.modelId === args.defaultModelId) return fallback;
+    console.log(`[engine] mint model override via start-node alias '${args.engineAlias}': ${resolved.modelId} (Req 5.4)`);
+    return { modelId: resolved.modelId, overridden: true };
+  } catch (err) {
+    console.warn(`[engine] start-node alias '${args.engineAlias}' failed to resolve — config default stands (P1):`, err);
+    return fallback;
   }
 }
 
@@ -301,7 +368,7 @@ export async function runEngineTurn(args: {
   evidence: TurnEvidence;
   provider: string;
   isPublic: boolean;
-}): Promise<EngineDirective | null> {
+}): Promise<{ directive: EngineDirective | null; debug: ProcessTurnDebug | null }> {
   try {
     const isNative = args.provider === 'openai' || args.provider === 'google';
     const result = await getConversationEngine().processTurn(args.conversationId, args.evidence, {
@@ -310,32 +377,59 @@ export async function runEngineTurn(args: {
       isPublic: args.isPublic,
       debug: debugTelemetryOn(),
     });
-    return result.directive;
+    return { directive: result.directive, debug: result.debug };
   } catch (err) {
     console.error('[engine] processTurn failed — conversation proceeds unsteered (P1):', err);
-    return null;
+    return { directive: null, debug: null };
   }
 }
 
+/** What the engine contributes to one cascade/text turn's assembly (+ `_debug.engine` inputs, C3). */
+export interface EngineTurnPrompt {
+  /** Appended AFTER the base system prompt; '' when the engine is not steering (Req 2.7). */
+  suffix: string;
+  /** Current node's D4 alias → THIS turn's `resolveModel` resolution (Req 5.2); null = session default. */
+  modelAlias: string | null;
+  /** Prompt-phase debug for `_debug.engine` (Req 7.5); null when the engine is not steering. */
+  debug: { nodeId: string; graphVersionId: string; contextDrops: string[] } | null;
+}
+
 /**
- * Per-turn prompt suffix for cascade/text (Req 6.1 second application layer):
- * re-derives the current node's guidance + context from latestState — the
- * response field is never used on these runtimes (notes §2.2.9).
+ * Per-turn prompt assembly for cascade/text (Req 6.1 second application
+ * layer): re-derives the current node's guidance + context from latestState —
+ * the response field is never used on these runtimes (notes §2.2.9). Also the
+ * cascade/text model-switch path (Req 5.2, task C1): the node's alias rides
+ * out as pure data for this turn's adapter resolution — no session surgery.
  */
-export async function buildEnginePromptSuffix(sessionId: string, opts: { isPublic: boolean }): Promise<string> {
+export async function buildEnginePromptSuffix(sessionId: string, opts: { isPublic: boolean }): Promise<EngineTurnPrompt> {
+  const inactive: EngineTurnPrompt = { suffix: '', modelAlias: null, debug: null };
   try {
     const ref = await conversationHistoryManager.getConversationRefBySessionId(sessionId);
-    if (!ref) return buildEngineStartSuffix({ isPublic: opts.isPublic }); // first turn — start node shapes the prompt
-    const engineState = ConversationEngine.parseEngineState(
-      (ref.latestState as Record<string, unknown> | null)?.engine ?? null
-    );
-    if (engineState && !engineState.nodeId) return ''; // engine off for this conversation (pinned)
-    const directive = await getConversationEngine().resumePolicy(engineState, { isPublic: opts.isPublic });
-    if (!directive?.contextText) return '';
-    return `\n\n======== CONVERSATION-STATE GUIDANCE ========\n${directive.contextText}`;
+    let directive: StartDirective | null;
+    if (!ref) {
+      // First turn — the start node shapes the prompt (notes §2.1; stamping
+      // happens at the first processTurn).
+      directive = await getConversationEngine().startPolicy({ isPublic: opts.isPublic });
+    } else {
+      const engineState = ConversationEngine.parseEngineState(
+        (ref.latestState as Record<string, unknown> | null)?.engine ?? null
+      );
+      if (engineState && !engineState.nodeId) return inactive; // engine off for this conversation (pinned)
+      directive = await getConversationEngine().resumePolicy(engineState, { isPublic: opts.isPublic });
+    }
+    if (!directive) return inactive;
+    return {
+      suffix: directive.contextText ? `${ENGINE_SUFFIX_HEADER}${directive.contextText}` : '',
+      modelAlias: directive.modelAlias ?? null,
+      debug: {
+        nodeId: directive.nodeId,
+        graphVersionId: directive.graphVersionId,
+        contextDrops: directive.contextDrops,
+      },
+    };
   } catch (err) {
     console.error('[engine] prompt suffix failed — turn proceeds unsteered (P1):', err);
-    return '';
+    return inactive;
   }
 }
 

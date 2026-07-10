@@ -21,7 +21,7 @@ import { unifiedToolRegistry } from '@/lib/ai/tools/UnifiedToolRegistry';
 import { reflinkManager } from '@/lib/services/ai/reflink-manager';
 import { buildResumeBriefing } from '@/lib/ai/resume-briefing';
 import { assembleStartFrame } from '@/lib/ai/start-frame';
-import { buildEngineStartSuffix } from '@/lib/services/ai/engine-runtime';
+import { buildEngineStartSuffix, resolveEngineMintModel } from '@/lib/services/ai/engine-runtime';
 import { buildToolLatencyGuidance } from '@/lib/ai/tool-latency';
 import { withAIGateway, type GatewayContext } from '@/lib/ai/gateway';
 
@@ -56,7 +56,7 @@ async function buildSystemInstructions(
   contextId: string | null,
   reflinkId: string | null,
   resumeSessionId: string | null
-): Promise<string> {
+): Promise<{ instructions: string; engineModelAlias: string | null }> {
   let instructions = baseInstructions + TOOL_GUIDANCE;
 
   // Latency-aware filler policy (owner, 2026-07-08): measured per-tool medians
@@ -119,10 +119,13 @@ async function buildSystemInstructions(
   // is active, keeping the static path byte-identical (Req 2.7). On this
   // provider the whole session strategy is "full tools + full guidance at
   // mint, strong appended guidance per state" (adapter header; owner
-  // 2026-07-09) — this is the mint half of that strategy.
-  instructions += await buildEngineStartSuffix({ isPublic: false, resumeSessionId });
+  // 2026-07-09) — this is the mint half of that strategy. The node's model
+  // alias rides out for mint-time resolution (Req 5.4, task C1) — the only
+  // point it can ever touch a native session (Req 5.3).
+  const enginePolicy = await buildEngineStartSuffix({ isPublic: false, resumeSessionId });
+  instructions += enginePolicy.suffix;
 
-  return instructions;
+  return { instructions, engineModelAlias: enginePolicy.modelAlias };
 }
 
 function toModelResource(modelId: string): string {
@@ -222,8 +225,29 @@ async function handleGET(request: NextRequest, ctx: GatewayContext) {
     }
 
     const config = await loadConfig();
-    const systemInstructions = await buildSystemInstructions(config.instructions, contextId, reflinkId, resumeSessionId);
-    const { token, expiresAt } = await mintEphemeralToken(config, systemInstructions, apiKey);
+    const { instructions: systemInstructions, engineModelAlias } = await buildSystemInstructions(
+      config.instructions,
+      contextId,
+      reflinkId,
+      resumeSessionId
+    );
+
+    // D47 C1 (Req 5.4): the start node's alias participates in mint-time model
+    // resolution — same-provider, realtime-family overrides only (the gate in
+    // resolveEngineMintModel; driven 2026-07-10: auth_tokens does NOT validate
+    // the model, so a bad override would only fail at client connect — it is
+    // filtered before it can leave the server, P1).
+    const mintModel = await resolveEngineMintModel({
+      routeProvider: 'google',
+      engineAlias: engineModelAlias,
+      defaultModelId: config.model,
+    });
+    const effectiveModel = mintModel.modelId;
+    const { token, expiresAt } = await mintEphemeralToken(
+      mintModel.overridden ? { ...config, model: effectiveModel } : config,
+      systemInstructions,
+      apiKey
+    );
 
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
@@ -231,14 +255,14 @@ async function handleGET(request: NextRequest, ctx: GatewayContext) {
       usageType: 'voice_session_mint',
       provider: 'google',
       costUsd: 0,
-      metadata: { sessionId, model: config.model },
+      metadata: { sessionId, model: effectiveModel },
     });
 
     const response: GoogleSessionResponse = {
       access_token: token,
       session_id: sessionId,
       expires_at: expiresAt,
-      model: config.model,
+      model: effectiveModel,
       voice: config.voice,
       responseModality: config.responseModality,
     };

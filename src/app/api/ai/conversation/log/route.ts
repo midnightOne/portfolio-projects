@@ -328,7 +328,10 @@ async function resolveEngineDirective(args: {
   if (args.provider !== 'openai' && args.provider !== 'google') return undefined;
   let directive: EngineDirective | null = null;
   if (args.userTurn) {
-    directive = await runEngineTurn({
+    // Turn debug rides only the gateway `_debug` envelope (Req 7.5) — /log
+    // responses are not debug-authorized surfaces; voice telemetry lives in
+    // the history rows (markers, edge_evaluated, context_flush).
+    const engineTurn = await runEngineTurn({
       conversationId: args.conversationId,
       evidence: {
         turnMessageId: args.userTurn.itemId,
@@ -341,6 +344,7 @@ async function resolveEngineDirective(args: {
       // stricter PUBLIC visibility filtering (P13 fail-safe direction).
       isPublic: !args.reflinkId,
     });
+    directive = engineTurn.directive;
   }
   return directive ?? peekSyntheticDirective(args.sessionId);
 }
