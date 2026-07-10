@@ -3,7 +3,8 @@
 **Status:** current — **unimplemented** (promoted from `_backlog/conversation-engine.md` on 2026-07-09, owner decision; post-roadmap Phase 6)
 **Owner domain:** node-graph conversation templating engine: graph model + versioned storage, runtime evaluator, per-node context/tool/model orchestration, traversal telemetry, admin graph editor, review/annotation loop, golden-scenario testing
 **Last verified against code:** 2026-07-09 (spec authored against staging head; nothing implemented yet)
-**Registry decisions applied:** D47 (defining), D4, D39, D41(d), D45, D46, D48, D49, D50, D55, D56, D58, D59
+**Registry decisions applied:** D47 (defining), D4, D18 (scoped form-tool exception), D39, D41(b)(d), D45, D46, D48, D49, D50, D55, D56, D58, D59
+**Focused designs:** [design-implementation-notes.md](./design-implementation-notes.md) (runtime contracts, pitfalls P1–P35) · [design-ux-and-behavior.md](./design-ux-and-behavior.md) (owner interview 2026-07-09: persona/style policy, scenario behavior specs, UX surfaces, slots, leads, analytics, continuity — source of Reqs 13–18)
 **Contracts:**
 
 | Consumes | From |
@@ -25,6 +26,10 @@
 | Admin graph editor UI (`/admin/ai/conversation-graphs`) | owner |
 | Traversal telemetry semantics (`node_transition` markers, `latestState.nodeId`) | admin replay/browser, `verification` |
 | Golden-scenario runner (`check:scenarios`) | `verification` |
+| `ConversationLead` + notification seam + `/admin/ai/leads` | owner, admin CMS |
+| Safety tripwire module (word flags → async investigation → configurable enforcement) + `/admin/ai/safety` | owner; hard enforcement executes via `access-and-cost` |
+| `NodeEntryQuestion` analytics + batch jobs (question clustering, conversation summarization) | graph editor, admin transcript view |
+| Visitor UX directive surface (chips, topic label, staging) + `job_description_form` client tool | `ai-assistant` pill UI |
 
 Overview: [`../00-overview/README.md`](../00-overview/README.md) · Origin outline: [`../_backlog/conversation-engine.md`](../_backlog/conversation-engine.md) (superseded by this spec; §1b purpose statement remains the rationale record)
 
@@ -97,7 +102,7 @@ Overview: [`../00-overview/README.md`](../00-overview/README.md) · Origin outli
 **User story:** As the owner, I want every conversation to record exactly which states it entered, on what evidence, under which graph version, so that reviewing a bad answer shows me the node that produced it.
 
 1. WHEN a transition fires THEN a `node_transition` marker row SHALL be written into the D49 conversation history (via `recordSessionMarker` mechanics): `{fromNode, toNode, edgeId, conditionType, evidence (utterance/intent/tool result ref), graphVersionId, timestamp}` — inline with the transcript, per-message modality rules untouched (markers are system rows, D58).
-2. WHEN any turn completes THEN `AIConversation.latestState` SHALL carry the current `nodeId` + `graphVersionId` (+ pending model swap if any), so resume (Req 2.6) and "where is this conversation" reads are one snapshot read.
+2. WHEN any turn completes THEN `AIConversation.latestState` SHALL carry the authoritative **`ConversationState` contract** — ONE versioned, Zod-typed snapshot (current node + graph version, pending model swap, slots, visitor profile/flags, agenda progress, summary version, context-set version, last activity) with a `stateVersion` for optimistic concurrency — so resume (Req 2.6), reconnect, provider switch, graph transition, and cross-session resume are all variations of one durable state transition, and the provider session is always a derived cache of this snapshot, never the other way around.
 3. WHEN a session runs in debug/test mode THEN the engine SHALL additionally record edges **evaluated but not taken** (with the reason) — the "why didn't it enter the pricing node?" diagnostic; this verbosity SHALL be sampled or off for ordinary production traffic.
 4. WHEN context is flushed or purged by the engine THEN the flush SHALL be visible in conversation history (D55 flush events), so replay shows what the model knew and when.
 5. WHEN the `_debug` envelope (D46) is present THEN it SHALL gain an `engine` section: active node, graph version, fired edge (or none), evaluated edges (debug sessions), context items injected this turn, node tool allowlist in effect.
@@ -146,3 +151,102 @@ Overview: [`../00-overview/README.md`](../00-overview/README.md) · Origin outli
 1. WHEN engine work lands THEN it SHALL ship with: `_debug.engine` envelope coverage (Req 7.5), traversal markers readable via existing conversation log APIs, `check:scenarios` in the deterministic suite, and fake-backed evaluator unit tests (condition types, priority, off-graph, purge).
 2. WHEN the phase completes THEN a live-fire drill SHALL run: a real graph on the fixture project, one conversation per runtime (native voice via fake-mic D53, cascade, text), asserting traversal path, context flushes, tool filtering, and — on native — a deferred model swap riding the D49 resume path.
 3. WHEN the engine is off THEN the pre-engine test suite SHALL still pass unchanged (Req 2.7 removal-safety is an asserted property, not an intention).
+
+## Requirement 13 — Visitor-facing node UX surfaces
+
+**User story:** As a visitor, I want the conversation state to show itself usefully — suggested questions, a screen that follows the topic, a subtle topic label — so that prepared paths are discoverable, not hidden.
+
+1. WHEN a node declares suggested-question chips THEN they SHALL render in/above the pill on node entry and be replaced on transition; a chip tap SHALL send its text as a normal user turn AND carry the `chipId` as evidence, and edges conditioned on that `chipId` SHALL fire deterministically without any classifier involvement (chips are the 100%-reliable rail).
+2. WHEN a node declares on-enter staging THEN entering it SHALL execute one staged navigation (open/scroll/highlight) through the existing `UIManager`/`ui_intent`/D59 path — once per entry, never per turn, never a route load during voice, silently skipped on UI-less runtimes.
+3. WHEN a node declares a topic label THEN the pill SHALL display it subtly ("Topic: Kiln project"); absent label = hidden indicator.
+4. WHEN a node requires structured input (v1: exactly one case — the job-description paste form) THEN it SHALL be a purpose-built client form tool in that node's allowlist, opened via the existing client-tool path, its submission feeding the existing job-analysis pipeline; the generic form-builder stays backlogged (D18).
+5. WHEN directives are stripped for the client (Req 11.4) THEN chips, topic label, and staging survive — they are visitor-visible by definition and carry no graph structure.
+6. WHEN navigation is driven by conversation THEN the interaction policy is **orient → stage → commit**: an explicit question about content IS commit-level intent (the chosen navigate-while-answering vision stands for topical questions); ambient/on-enter staging is **preview-level** (scroll, highlight — never a context-destroying jump away from what the visitor is reading); low-impact highlights need no consent, big moves outside a question's scope do. The answer leads; movement supports it.
+7. WHEN navigation-bearing tools return THEN results SHALL carry a human-readable summary, relevance signal, and source anchors — not a bare `navTarget`; and navigation UX metrics (staging completions vs. cancellations/overrides, repeated clarification turns) SHALL join the coverage view (Req 9.3).
+
+## Requirement 14 — Slot filling and templating
+
+**User story:** As the owner, I want nodes to capture structured facts from the conversation (name, company, work type, timeline) and reuse them downstream, so that later states and lead records are personalized and pre-qualified.
+
+1. WHEN a node declares capture specs THEN a per-turn extractor SHALL fill them from user turns — inside the SAME batched `default-cheap` call that scores edges (one model call per turn, total).
+2. WHEN a slot fills THEN its value SHALL be conversation-scoped (readable by all later nodes), persisted in the engine's `latestState` keys, and mirrored as a history event so replay shows when and from what it filled.
+3. WHEN guidance fragments or static context items contain `{{slots.name}}` placeholders THEN they SHALL resolve at directive assembly; unresolved placeholders resolve to empty and are noted in the flush event. Slot values are user-provided text entering prompts: they SHALL be delimited, length-capped, and never placed in system-critical instruction sections.
+4. WHEN edges condition on slots (`filled` / `missing` / `eq`) THEN slot state SHALL be first-class transition evidence ("job_description captured → offer analysis").
+
+## Requirement 15 — Lead capture and owner notification
+
+**User story:** As the owner, I want qualified conversations to end in a lead record that reaches me, so that a visitor with real business never dead-ends in a chat log I forgot to read.
+
+1. WHEN a capture node's flow completes THEN a `lead_capture` server tool (registry tool, allowlisted only on capture nodes) SHALL write a `ConversationLead` row — slots snapshot, agent fit-note, link to the conversation — with the DB write happening BEFORE any notification attempt; a notification failure never loses the lead.
+2. WHEN a lead is created THEN it SHALL be delivered through a pluggable notification seam: the admin surface (leads list + badge at `/admin/ai/leads`, status new/seen/handled, link into replay at the capture turn) always; plus **email as the v1 push channel, dispatched as a tool-shaped action through the seam** (owner decision 2026-07-09: "email IS MCP" — the agentic action language is tool calls, so notify is a tool the harness invokes; further channels later are just more tools behind the same seam).
+3. WHEN the agent promises delivery to the visitor THEN the promised timing SHALL be "a couple of days" (guidance content) regardless of actual notification speed — under-promise, over-deliver.
+4. WHEN the agent handles identity questions THEN it SHALL never impersonate the owner; the fast-contact path is LinkedIn, the in-conversation path is the message/lead capture above (behavior policy: design-ux-and-behavior §2.6).
+
+## Requirement 16 — Per-node question analytics (data-driven chips, batch-only)
+
+**User story:** As the owner, I want to see what visitors actually asked upon entering each node, so that chips and intent exemplars come from real data instead of intuition — with the storage built to support a dynamic version later.
+
+1. WHEN conversations run THEN the system SHALL do nothing extra in the request path — the first N (default 2) user turns after each `node_transition` are already persisted; sampling is a join, not a write.
+2. WHEN the analytics batch runs (admin-triggered AND/OR cron — never during conversations) THEN it SHALL extract those turns into `NodeEntryQuestion` rows keyed by stable node id, embed new rows via `default-embedding` (budget-gated, ledgered), and group near-duplicates (v1: greedy pgvector similarity grouping — the algorithm is deliberately simple and swappable, since iterating on it is the point).
+3. WHEN editing a node THEN the inspector SHALL show its question clusters ranked by size with representative phrasings, and one action SHALL promote a real question to a chip (and optionally to an intent-edge exemplar).
+4. WHEN suggestions are considered THEN runtime-dynamic suggestion generation SHALL NOT be built in this phase (owner decision) — but the storage schema SHALL not preclude it later.
+5. WHEN samples are collected THEN test-tagged conversations SHALL be excluded.
+
+## Requirement 17 — Cross-session continuity and summarization
+
+**User story:** As a returning visitor on my reflink, I want the conversation to pick up where it left off — and as the owner, I want long histories compressed so resumes stay cheap and admin review stays readable.
+
+1. WHEN a visitor returns on the same reflink **from the same device/browser** (client continuity marker present) THEN the pill SHALL resume their latest conversation as if after a brief disruption — the D49 resume path with a returning-visitor trigger. WHEN the same reflink arrives from a NEW device/browser THEN resume SHALL require explicit confirmation with a safe one-line summary ("Continue where you left off — we were discussing the firmware projects — or start fresh?") and never silently expose the prior transcript (forwarded/shared reflink URLs must not leak a previous holder's conversation — Req 21).
+2. WHEN the summarization batch runs (daily cron + admin trigger, never in the request path) THEN conversations with new activity SHALL be summarized via the reasoning adapter; the summary is appended to the conversation as a system row AND rendered in the admin transcript view.
+3. WHEN a resume happens ≥1 day after last activity THEN the D49 briefing SHALL use latest-summary + last-few-verbatim-turns instead of the full transcript; a same-day resume before the batch ran falls back to the full-transcript briefing.
+4. WHEN the agent references remembered context THEN it SHALL do so unceremoniously and honestly ("last time you were looking at the firmware projects") — no reintroduction fanfare, no privacy performance (style policy, design-ux-and-behavior §1/§2.4).
+
+## Requirement 18 — Behavior policy and seed graph
+
+**User story:** As the owner, I want the agent's character and boundaries — terse answering rhythm, register mirroring, the not-a-yes-man nudge, prober deflection, hard honesty about data gaps, no impersonation — expressed as authored graph content backed by engine mechanics, so that the behavior I described survives as testable policy rather than tribal knowledge.
+
+1. WHEN the seed graph is authored THEN it SHALL implement the scenario behavior specs of design-ux-and-behavior §2 (vague browser escalation, prober handling with 1–2-turn humor then redirect, flat refusal of political/religious topics, skeptic honesty + no-weaknesses-indulgence + interview CTA, JD intake form-first, identity/no-impersonation, AI-self showcase from `/about/ai` content, qualify-then-capture, show-while-telling start, navigate-while-answering deep-dives) — each as node guidance/edges, never as hardcoded strings in core libs (D48).
+2. WHEN low-effort turns repeat THEN a `turn_quality` condition (consecutive-counter in engine state, heuristic + the batched cheap call) SHALL enable the escalation edges; WHEN probe patterns occur THEN a `probe` condition (pattern + classifier v1; a D41(b)-style watchdog is the designated later upgrade, publishing into the same evidence stream) SHALL enable the prober-handling node.
+3. WHEN the seed graph ships THEN every §2 vignette SHALL exist as a golden scenario (Req 10) and pass before the graph serves real traffic.
+4. WHEN base instructions are assembled THEN the global style policy (terse rhythm, register mirroring, third-person-about-owner, refusal topics) SHALL live in admin-editable configuration/start-node guidance — content, not code.
+
+## Requirement 19 — Conversation memory and visitor profile (the floating context block)
+
+**User story:** As the owner, I want the harness to maintain a living memory of the conversation — who the visitor seems to be, how they behave, what's been covered, what the agent is working toward — floating at the top of the model's attention every turn, so the model makes multi-dimensional decisions the way I use my own memory files.
+
+1. WHEN passive context is delivered THEN ALL of it (F-I-D state, engine node context, visitor profile, agenda) SHALL form ONE floating block positioned at the conversation **tail**, removed and re-appended every turn even when its content is unchanged — so it never drifts back into history, and cache invalidation is confined to the tail instead of slicing the cached prefix (the cost is paying for the block twice per turn; the win is the long prefix stays cached). Per-provider fidelity is explicit and documented (notes §4/P27): full remove+re-append on OpenAI Realtime (item deletes) and cascade/text (prompt assembly); on Gemini Live — whose stream is append-only, so nothing we created can be deleted, our own block included — the invariant degrades to **versioned supersession**: send only on change, labeled as superseding all previous context blocks, with native sliding-window compression eventually evicting stale copies.
+2. WHEN the visitor converses THEN the engine SHALL maintain **profile flags** — register (technical/layman), intent (hiring / browsing / specific role / general inquiry), behavior (cooperative / probing / rude), topics discussed, conversation duration — as engine-owned state: fast flags filled by the existing per-turn batched cheap call; the richer behavioral assessment by the periodic summarizer (19.3). Flags unify with slots (Req 14): same storage, same templating, same edge-condition support — slots are *stated* facts, flags are *inferred* ones.
+3. WHEN the behavior summarizer runs THEN it SHALL be a separate cheap-LLM job over **user turns only**, producing a structured response (intent, register, mood, topics), at most once per interval (default 60s), triggered by staleness checks at turn boundaries (serverless has no resident process), fully async — it never blocks or delays a turn — and gateway-metered.
+4. WHEN the profile updates THEN it is a **current assessment, not an event log**: each summarization replaces the previous wholesale, so stale judgments decay naturally (rude five minutes ago, fine now → the profile says fine now).
+5. WHEN flags reach the model THEN they SHALL be transparent — plain readable text in the floating block, phrased as observations ("the visitor appears technical; interested in hiring for a firmware role"), never hidden steering the model would have to conceal or contradict.
+6. WHEN a node declares an **agenda** (e.g. tour-guide goals, Claude-Code-style) THEN it SHALL render into the floating block on entry and persist across turns within the node so the model works through it; nodes without an agenda add nothing. Composition principle (binding): **nodes decide WHAT the agent is doing (mode, task, tools, agenda); flags shade HOW (register, depth, suggestions)** — audience traits are never encoded as graph nodes.
+
+## Requirement 20 — Context lifecycle: rolling window without a hiccup
+
+**User story:** As the owner, I want long conversations pruned live — recent turns verbatim, older material collapsed into a summary — without re-minting the session (no silence, no fresh-model feel), so that a 15-minute conversation doesn't carry 15 minutes of tokens against TPM limits and cost.
+
+1. WHEN a conversation exceeds the rolling window (default: ~5 minutes or N turns of verbatim history, configurable) THEN older verbatim turns SHALL collapse into a running conversation summary; the model's working context is: stable prefix (instructions + running summary) + recent verbatim window + the floating block (Req 19.1).
+2. WHEN pruning applies to a **native voice** session THEN it SHALL use in-session provider mechanisms — OpenAI Realtime item deletion + an inserted summary item; Gemini Live's native context-window compression plus an injected summary text — and SHALL NEVER re-mint the session for pruning (the observed janky pattern: re-mint = seconds of silence). Re-mint stays reserved for model swaps (Req 5.3) and recovery (D49).
+3. WHEN pruning applies to **cascade/text** THEN the window is applied at prompt assembly with cache-stable ordering: stable prefix first, volatile material (recent turns + floating block) last — this path is where prompt-caching economics bite hardest and the ordering rule pays directly.
+4. WHEN a graph transition fires THEN perceived continuity SHALL be preserved: the model feels like the same person you've been talking to for the last five minutes — different motives, modes, and tasks per state; memory and rapport never reset.
+5. WHEN the running summary is produced THEN it SHALL be persisted and SHALL be the SAME summary artifact used by cross-session briefings (Req 17.3) and the daily batch (Req 17.2 becomes consolidation/backfill for conversations that ended without one) — one summary pipeline, two triggers, never two competing summaries.
+
+## Requirement 21 — Privacy, consent, and data lifecycle
+
+**User story:** As the owner, I want the assistant to feel trustworthy rather than surveillant — resume, memory, and lead capture must respect the visitor and give both of us control over stored data.
+
+1. WHEN resume is offered cross-device THEN Req 17.1's confirmation rule applies (safe summary, explicit choice); a "start fresh" option SHALL always exist alongside resume.
+2. WHEN a visitor asks to be forgotten (or uses a "forget this conversation" affordance) THEN visitor content (transcript, summaries, profile, slots) SHALL be deletable while anonymized operational telemetry (ledger rows, node hit counts) is retained; the admin UI SHALL distinguish operational telemetry from visitor content.
+3. WHEN a lead is captured THEN consent SHALL be conversational and explicit ("I'll pass this along to Kirill with your contact — that okay?") before the record is created; leads carry a retention period and a deletion path.
+4. WHEN retention is configured THEN defaults SHALL exist (owner-adjustable): raw transcripts retained N days, summaries longer, leads until handled + M days; expiry runs in the existing batch jobs (never the request path).
+5. WHEN a reflink is revoked THEN its resume capability dies with it.
+
+## Requirement 22 — Safety tripwire: static word flags → async investigation → configurable enforcement
+
+**User story:** As the owner, I want cheap always-on tripwires over conversation transcripts that escalate to an LLM investigation only when triggered, with enforcement I configure — so abuse is caught without per-turn LLM cost, without blocking conversations, and without hardcoding policy.
+
+1. WHEN transcripts flow through the conversation logging pipeline (voice `/log`, text `/chat` — the telemetry is already there) THEN a **static, non-LLM word-flag scan** (normalized string matching against admin-configured word lists) SHALL run at persist time; it SHALL be cheap enough to run synchronously and SHALL NEVER block or fail the log write — the log is marked successful and the conversation continues regardless.
+2. WHEN a word flags THEN an **investigation agent** SHALL launch asynchronously (reasoning adapter, gateway-metered, in-flight-deduplicated per conversation): it analyzes the full conversation and produces a structured verdict — benign / concern severity / recommended action + rationale — persisted and visible in admin (linked from the conversation).
+3. WHEN a verdict recommends action THEN the action SHALL come from an admin-configured rule set mapping severity → action: log-only · notify owner (the Req 15 notification seam) · publish evidence into the engine's evidence stream (so graph safety edges/nodes can fire — the owner's observation that this fits the node system) · terminate session · ban reflink. Hard enforcement (terminate/ban) executes through `access-and-cost` surfaces (session validation, reflink revocation) — one owner per concept; the engine only consumes the evidence.
+4. WHEN the module is disabled THEN the system SHALL function identically without it (modular, D48 optional composition); configuration (word lists, investigation policy, severity→action map, on/off) lives on an admin page, never in code.
+5. WHEN hard enforcement fires on a client-direct voice session THEN the mechanics SHALL be honest: the server revokes what it actually controls (tool execution, log acceptance, session/token validation, mint) and sends a disconnect directive; client compliance is not assumed — server-side denial is the real teeth.

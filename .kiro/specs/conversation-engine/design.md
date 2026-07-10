@@ -3,7 +3,7 @@
 **Status:** current — **unimplemented** (design for post-roadmap Phase 6; promoted from backlog 2026-07-09)
 **Owner domain:** node-graph conversation templating engine (see requirements.md)
 **Last verified against code:** 2026-07-09 (seam audit: `updateSession` NOT yet on `IConversationalAgentAdapter`; D55 buffer NOT yet built — both are tasks A2/A3)
-**Focused designs:** [design-implementation-notes.md](./design-implementation-notes.md) — module layout, normative runtime sequences, concurrency/idempotency contracts, provider fidelity matrix, potential-issues catalog (P1–P20). **Implementing sessions must read it before writing code.**
+**Focused designs:** [design-implementation-notes.md](./design-implementation-notes.md) — module layout, normative runtime sequences, concurrency/idempotency contracts, provider fidelity matrix, potential-issues catalog (P1–P35). **Implementing sessions must read it before writing code.** · [design-ux-and-behavior.md](./design-ux-and-behavior.md) — owner-interview-sourced visitor UX (chips/staging/topic label), persona & behavior policy, slot filling, lead capture + notification, question analytics, cross-session continuity, seed node catalog (source of Reqs 13–18).
 
 ---
 
@@ -86,9 +86,64 @@ model GraphScenario {
   expectedPath  Json   // ordered node ids (+ optional expected edge ids)
   // timestamps
 }
+
+model ConversationLead {           // Req 15 — DB row FIRST, notification after (P25)
+  id             String @id @default(cuid())
+  conversationId String
+  nodeId         String?
+  graphVersionId String?
+  slots          Json    // captured slot snapshot {type, timeline, company, contact, ...}
+  fitNote        String? // agent's summary/fit note
+  status         String  // 'new' | 'seen' | 'handled'
+  notifiedAt     DateTime?
+  notifyChannel  String?
+  createdAt      DateTime
+}
+
+model NodeEntryQuestion {          // Req 16 — written ONLY by the analytics batch, never at runtime (P23)
+  id             String @id @default(cuid())
+  nodeId         String  // stable across versions (Req 1.5)
+  graphId        String
+  graphVersionId String
+  conversationId String
+  messageId      String @unique   // idempotent re-runs
+  text           String
+  embedding      Unsupported("vector")?  // default-embedding; model id recorded on the batch run
+  clusterId      String?
+  processedAt    DateTime?
+}
 ```
 
-No new conversation-side tables: traversal telemetry rides `AIConversationMessage` marker rows and `AIConversation.latestState` (Req 7), exactly the D49 mechanics already shipped for legs/disruptions. `AIConversation` gains nothing; `latestState` (already `Json?`) adds keys `{ nodeId, graphVersionId, pendingModelSwap? }`. Test tagging reuses the existing session-metadata path (verification spec) — no schema change.
+Conversation-side: traversal telemetry rides `AIConversationMessage` marker rows and `AIConversation.latestState` (Req 7), exactly the D49 mechanics already shipped for legs/disruptions. `latestState` (already `Json?`) is formalized as the **`ConversationState` contract** (Req 7.2) — one Zod-typed, versioned snapshot; the engine's keys within it (merge-written, P18):
+
+```typescript
+interface ConversationState {          // authoritative; provider sessions are derived caches
+  stateVersion: number;                // optimistic concurrency (generalizes the CAS, P3)
+  engine?: {
+    nodeId: string; graphVersionId: string;
+    lastEvaluatedTurnId: string | null;
+    pendingModelSwap?: { alias: string; requestedAt: string };
+    slots?: Record<string, string>;    // stated facts (Req 14)
+    flags?: {                          // inferred profile (Req 19.2) — same templating/conditions as slots
+      register?: 'technical' | 'layman';
+      intent?: 'hiring' | 'browsing' | 'specific_role' | 'general';
+      behavior?: 'cooperative' | 'probing' | 'rude';
+      topics?: string[]; startedAt?: string;
+    };
+    agendaProgress?: string[];         // Req 19.6
+    consecutiveLowEffort?: number;
+    summaryVersion?: number;           // running-summary pointer (Req 20.5)
+    contextSetVersion?: number;        // last flushed engine context (buffer coherence)
+  };
+  // legs/mode keys owned by ai-assistant code remain siblings, untouched
+}
+```
+
+Conversation summaries (Req 17/20.5) are system rows (`markerType: 'conversation_summary'`), not a new table — the in-session running summary and the cross-session briefing summary are the SAME artifact, one pipeline with two triggers (in-session staleness; post-hoc batch backfill). Test tagging reuses the existing session-metadata path (verification spec) — no schema change.
+
+### 2b. Context lifecycle (Reqs 19/20 — mechanics summary; contracts in notes P27–P30)
+
+The D55 buffer gains a binding delivery rule: everything passive (F-I-D, engine context set, profile flags, agenda) merges into ONE **floating block** that is removed and re-appended at the conversation tail every turn — even unchanged — so the cached prefix never invalidates and passive state never drifts into history. Sources publish under their keys as designed; the *injector* owns the block position. Long conversations get a **rolling window**: old verbatim turns collapse into the running summary in-session (OpenAI: item deletes + summary item; Gemini: native context compression + summary text; cascade/text: assembly-time) — never a re-mint, so transitions and pruning are inaudible and the model keeps feeling like the same person (Req 20.4). The **behavior summarizer** (Req 19.3) is the D41(b) watchdog landing in its D55-predicted niche: a supervision source publishing into the same buffer — staleness-triggered at turn boundaries, async, metered, current-assessment-only.
 
 ## 3. Graph document schema (TypeScript, owned by `src/lib/ai/engine/types.ts`)
 
@@ -103,12 +158,21 @@ interface GraphNode {
     negative?: string[];         // "never claim X"
     navRefs?: { label: string; navTarget: string }[];  // D59 anchors (Req 6.3)
     onEnterSuggestion?: string;  // optional nav/topic suggestion, model-mediated (Req 6.4)
+    agenda?: string[];           // Req 19.6 — node's working goals, rendered into the floating block
   };
   contextSet: ContextItemSpec[]; // Req 3.2
   contextBudgetTokens?: number;
   toolAllowlist?: string[];      // registry names; absent = session default (Req 4.4)
   modelAlias?: string;           // D4 alias; absent = keep current (Req 5.1)
   voiceClipCategories?: string[];// D50 hook
+  ux?: {                         // Req 13 — visitor-visible surfaces (ride the directive)
+    chips?: { id: string; label: string; sendText?: string }[]; // tap = deterministic edge (P22)
+    topicLabel?: string;         // pill indicator
+    onEnterStaging?: { navTarget: string; highlightText?: string }; // once per entry, ui_intent path
+  };
+  slots?: {                      // Req 14 — capture specs; values are conversation-scoped
+    capture: { name: string; type: 'string'|'enum'|'email'|'company'|'freeform'; hint: string; required?: boolean }[];
+  };
 }
 
 type ContextItemSpec =
@@ -131,8 +195,12 @@ type EdgeCondition =
   | { type: 'pattern'; anyOf: string[] }                         // keyword/regex on user turn
   | { type: 'tool_result'; tool: string; predicate: { path: string; op: 'contains'|'eq'|'exists'; value?: unknown } }
   | { type: 'ui_state'; event: 'project_opened'|'section_viewed'|'route_changed'; match?: string }
+  | { type: 'chip'; chipId: string }                             // deterministic: chip tap evidence, no classifier (P22)
+  | { type: 'slot'; name: string; op: 'filled'|'missing'|'eq'; value?: string }  // Req 14.4
+  | { type: 'turn_quality'; consecutiveLowEffort: number }       // vague-browser escalation (Req 18.2)
+  | { type: 'probe' }            // injection/off-topic probing (pattern + classifier v1; D41(b) watchdog later)
   | { type: 'pivot' }            // explicit topic-change detection (classifier-backed)
-  | { type: 'always' };          // unconditional (e.g. start → first state)
+  | { type: 'always' };          // unconditional (start-chain only, resolved at startPolicy)
 ```
 
 Condition evaluation ladder (cheap-first): `pattern`/`ui_state`/`tool_result` are free and evaluated first; `intent` prefers exemplar-embedding similarity (embeddings are cached per graph version at publish — one-time cost) and falls back to / is confirmable by a `default-cheap` classifier call (gateway-wrapped, Req 11.3); `pivot` is classifier-only. Per-turn classifier calls are batched into **one** call that scores all candidate intent/pivot edges of the current node simultaneously.
@@ -175,9 +243,17 @@ GET                 /api/admin/ai/graphs/[id]/versions   // history (+ ?diff=v1,
 POST                /api/admin/ai/graphs/[id]/scenarios/run   // draft or version, against fakes
 GET/POST/PATCH      /api/admin/ai/graph-annotations      // review loop
 GET                 /api/admin/ai/graphs/[id]/coverage   // aggregates over traversal markers
+GET                 /api/admin/ai/graphs/[id]/questions  // NodeEntryQuestion clusters per node (Req 16.3)
+POST                /api/admin/ai/engine/batch/questions // trigger analytics batch (also cron)
+POST                /api/admin/ai/engine/batch/summaries // trigger summarization batch (also cron)
+GET/PATCH           /api/admin/ai/leads                  // leads list + status transitions (Req 15.2)
 ```
 
 Coverage aggregation queries marker rows (`metadata->>'markerType' = 'node_transition'`) grouped by node/edge ids over a time window, excluding `test`-tagged conversations. Traffic volume is portfolio-scale; if it ever hurts, add a rollup table then — not now.
+
+## 6b. Safety tripwire module (Req 22)
+
+`src/lib/ai/safety/` (core, optional per D48): `scan(text, wordLists) → flags[]` (normalized static matching — no LLM, no network) called inside the persist path of `/log` and `/chat`; on flag, fire-and-forget `investigate(conversationId)` (reasoning adapter, gateway-metered, per-conversation in-flight guard) → `SafetyInvestigation` row `{ conversationId, triggeredBy, verdict: 'benign'|severity, recommendedAction, rationale, actedOn? }` → severity→action executor reads the admin rule set: log-only / owner notification (Req 15 seam) / evidence publication (engine safety edges) / session termination + reflink ban (executed through `access-and-cost` surfaces — the module never revokes anything itself). Config: `SafetyConfig` singleton row (enabled, word lists by category, investigation policy text, severity→action map) edited at `/admin/ai/safety` (route: `GET/PUT /api/admin/ai/safety`, `GET /api/admin/ai/safety/investigations`). Disabled = scan short-circuits; nothing else changes. Enforcement honesty for client-direct voice: notes P35.
 
 ## 7. Modularity (D48 — binding)
 

@@ -86,7 +86,7 @@ flowchart TB
 | [access-and-cost](../access-and-cost/requirements.md) | current — **mostly unimplemented** | AI gateway, public text chat, rate limiting, reflinks, usage ledger, watchdog | nearly everything (Phase 2) |
 | [mcp-server](../mcp-server/requirements.md) | current — **unimplemented** | external MCP server | everything (Phase 4) |
 | [verification](../verification/requirements.md) | current — **mostly unimplemented** | agentic e2e verification: fakes, fixture, `check:*`, debug envelope, telemetry access, live-fire, CLAUDE.md | builds with each phase (D46) |
-| [conversation-engine](../conversation-engine/requirements.md) | current — **unimplemented** (promoted 2026-07-09, post-roadmap Phase 6) | D47 node-graph engine: graph model + versions, runtime evaluator, per-node context/tools/model, traversal telemetry, admin graph editor, scenarios | everything (blocks A–F) |
+| [conversation-engine](../conversation-engine/requirements.md) | current — **unimplemented** (promoted 2026-07-09, post-roadmap Phase 6) | D47 node-graph engine: graph model + versions, runtime evaluator, per-node context/tools/model, visitor UX surfaces (chips/staging/topic), slots + visitor-profile flags, floating context block + rolling window, leads, question analytics, cross-session continuity + privacy lifecycle, safety tripwire, traversal telemetry, admin graph editor, scenarios | everything (blocks A–L) |
 | [_backlog](../_backlog/) | backlog | future-direction outlines whose **seam constraints bind now** (D48 modular platform; D47 outline superseded by `conversation-engine/`) | promoted to real specs when scheduled |
 | [_archive](../_archive/) | archived | superseded specs & analysis docs | — |
 
