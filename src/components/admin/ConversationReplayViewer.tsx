@@ -371,6 +371,9 @@ function markerHeadline(step: ReplayStep, nodeNames?: Record<string, string>): s
     }
     case 'lead_captured':
       return `📬 Lead captured${meta.leadId ? ` (${meta.leadId})` : ''}`;
+    case 'safety_investigation':
+      // L2 (Req 22.2): the conversation links to its investigation inline.
+      return `🛡️ Safety investigation — ${meta.verdict ?? 'unknown'}${meta.actedAction ? ` → ${meta.actedAction}` : ''}`;
     case 'edge_evaluated':
       return '⚖️ Edges evaluated (debug)';
     default:

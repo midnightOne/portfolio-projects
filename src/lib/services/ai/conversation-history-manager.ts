@@ -134,7 +134,10 @@ export type SessionMarkerType =
     | 'slot_filled'
     /** ConversationLead written by the lead_capture tool (Req 15.1, task H2) —
      *  replay shows the capture moment; the admin leads list links back to it. */
-    | 'lead_captured';
+    | 'lead_captured'
+    /** Safety-tripwire investigation verdict (Req 22.2, task L2) — inline in
+     *  the admin transcript so the conversation links to its investigation. */
+    | 'safety_investigation';
 
 export interface SessionMarker {
     type: SessionMarkerType;
@@ -173,6 +176,11 @@ export interface SessionMarker {
     unresolvedSlots?: string[];
     // ---- lead_captured (Req 15.1, task H2) ----
     leadId?: string;
+    // ---- safety_investigation (Req 22.2, task L2) ----
+    investigationId?: string;
+    verdict?: string;
+    /** The CONFIGURED action the executor ran (may differ from the agent's recommendation). */
+    actedAction?: string;
 }
 
 export interface ConversationMessageRecord {
@@ -700,6 +708,10 @@ export class ConversationHistoryManager {
             // without opening metadata (Req 14.2).
             : marker.type === 'slot_filled' ? `[slot_filled] ${Object.entries(marker.slotFills ?? {}).map(([k, v]) => `${k}="${v.slice(0, 80)}"`).join(', ')}`
             : marker.type === 'lead_captured' ? `[lead_captured] ${marker.leadId ?? ''}${marker.evidence ? ` — ${marker.evidence}` : ''}`
+            // Verdict + configured action inline (Req 22.2 "linked from the
+            // conversation") — the transcript is admin-only, markers are
+            // system rows the model never sees (getTurnsSince filters them).
+            : marker.type === 'safety_investigation' ? `[safety_investigation] verdict: ${marker.verdict ?? 'unknown'}${marker.actedAction ? ` → ${marker.actedAction}` : ''}`
             : `[edge_evaluated] ${marker.evaluated?.length ?? 0} edge(s)${marker.evaluated?.some((r) => r.fired) ? ' — one fired' : ', none fired'}`;
         await prisma.$transaction([
             prisma.aIConversationMessage.create({
@@ -736,7 +748,11 @@ export class ConversationHistoryManager {
                         // slot_filled / lead_captured fields (H1/H2)
                         slotFills: marker.slotFills,
                         unresolvedSlots: marker.unresolvedSlots,
-                        leadId: marker.leadId
+                        leadId: marker.leadId,
+                        // safety_investigation fields (L2)
+                        investigationId: marker.investigationId,
+                        verdict: marker.verdict,
+                        actedAction: marker.actedAction
                     } as any
                 }
             }),
@@ -857,6 +873,90 @@ export class ConversationHistoryManager {
             WHERE id = ${conversationId}
               AND (latest_state->'engine'->>'lastEvaluatedTurnId') IS NOT DISTINCT FROM ${expected}`;
         return updated > 0;
+    }
+
+    /**
+     * Safety-tripwire state under latestState.safety — a NON-engine sibling
+     * key like prefs (the safety module is independent of graph presence and
+     * must survive graph archival — Req 22.4 modularity). Same atomic jsonb
+     * merge discipline as the other keys (P18).
+     */
+    async mergeConversationSafety(conversationId: string, patch: Record<string, unknown>): Promise<void> {
+        const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+        if (Object.keys(defined).length === 0) return;
+        await prisma.$executeRaw`
+            UPDATE ai_conversations
+            SET latest_state = jsonb_set(
+                    COALESCE(latest_state, '{}'::jsonb),
+                    '{safety}',
+                    COALESCE(latest_state->'safety', '{}'::jsonb) || ${JSON.stringify(defined)}::jsonb
+                ) || jsonb_build_object('updatedAt', ${new Date().toISOString()}::text)
+                  || jsonb_build_object('stateVersion', COALESCE((latest_state->>'stateVersion')::int, 0) + 1)
+            WHERE id = ${conversationId}`;
+    }
+
+    /**
+     * P33 in-flight guard + interval discipline for the safety investigation
+     * (task L2), as ONE atomic claim — the claimSummarizerRun pattern on the
+     * safety sibling key: succeeds only when no investigation is running (or
+     * the running stamp is stale — crashed invocation self-heals) AND the last
+     * investigation is older than the interval. A flood of flagged turns
+     * produces ONE running investigation, never a stampede of reasoning calls.
+     * No engine-key requirement: the tripwire runs graph-less (Req 22.4).
+     */
+    async claimSafetyInvestigation(
+        conversationId: string,
+        intervalMs: number,
+        inFlightStaleMs: number
+    ): Promise<boolean> {
+        const now = new Date();
+        const nowIso = now.toISOString();
+        const intervalFloor = new Date(now.getTime() - intervalMs).toISOString();
+        const staleFloor = new Date(now.getTime() - inFlightStaleMs).toISOString();
+        const updated = await prisma.$executeRaw`
+            UPDATE ai_conversations
+            SET latest_state = jsonb_set(
+                    COALESCE(latest_state, '{}'::jsonb),
+                    '{safety}',
+                    COALESCE(latest_state->'safety', '{}'::jsonb) || jsonb_build_object('investigationInFlightSince', ${nowIso}::text)
+                ) || jsonb_build_object('stateVersion', COALESCE((latest_state->>'stateVersion')::int, 0) + 1)
+            WHERE id = ${conversationId}
+              AND (
+                    (latest_state->'safety'->>'investigationInFlightSince') IS NULL
+                 OR (latest_state->'safety'->>'investigationInFlightSince')::timestamptz < ${staleFloor}::timestamptz
+              )
+              AND (
+                    (latest_state->'safety'->>'lastInvestigationAt') IS NULL
+                 OR (latest_state->'safety'->>'lastInvestigationAt')::timestamptz < ${intervalFloor}::timestamptz
+              )`;
+        return updated > 0;
+    }
+
+    /**
+     * Atomically consume staged safety evidence (Req 22.3 publish_evidence →
+     * the engine's evidence stream, task L3): removes
+     * latestState.safety.pendingEvidence and returns what was there —
+     * exactly-once under concurrent turns (the CTE locks the row; zero rows =
+     * nothing pending or another turn won).
+     */
+    async consumeSafetyEvidence(conversationId: string): Promise<Record<string, unknown> | null> {
+        const rows = await prisma.$queryRaw<Array<{ ev: unknown }>>`
+            WITH prev AS (
+                SELECT id, latest_state->'safety'->'pendingEvidence' AS ev
+                FROM ai_conversations
+                WHERE id = ${conversationId}
+                  AND latest_state->'safety'->'pendingEvidence' IS NOT NULL
+                FOR UPDATE
+            )
+            UPDATE ai_conversations c
+            SET latest_state = (c.latest_state #- '{safety,pendingEvidence}')
+                  || jsonb_build_object('updatedAt', ${new Date().toISOString()}::text)
+                  || jsonb_build_object('stateVersion', COALESCE((c.latest_state->>'stateVersion')::int, 0) + 1)
+            FROM prev
+            WHERE c.id = prev.id
+            RETURNING prev.ev`;
+        const ev = rows[0]?.ev;
+        return ev && typeof ev === 'object' && !Array.isArray(ev) ? (ev as Record<string, unknown>) : null;
     }
 
     /**

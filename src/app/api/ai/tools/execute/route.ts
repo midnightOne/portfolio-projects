@@ -130,6 +130,27 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext): Promise<Ne
       timestamp: new Date()
     }, 'unified-tools-api', toolCorrelationId, sessionId, toolCallId);
 
+    // Safety enforcement gate (Req 22.5, P35): a terminated session's tool
+    // dispatch fails closed — the server-side teeth of "terminate_session"
+    // on a client-direct voice connection the server cannot hang up.
+    // Consulted only while the safety module is enabled (Req 22.4).
+    {
+      const { isSessionRevokedBySafety } = await import('@/lib/services/ai/safety-runtime');
+      if (await isSessionRevokedBySafety(sessionId)) {
+        return NextResponse.json({
+          success: false,
+          error: 'This session has been terminated.',
+          metadata: {
+            timestamp: Date.now(),
+            source: 'unified-tools-api',
+            sessionId,
+            toolCallId,
+            executionTime: Date.now() - startTime
+          }
+        }, { status: 403 });
+      }
+    }
+
     // Public tool allowlist (access-and-cost Req 2.1) — re-checked here at dispatch
     if (ctx.allowedTools && !ctx.allowedTools.includes(toolName)) {
       return NextResponse.json({

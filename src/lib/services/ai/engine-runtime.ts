@@ -35,6 +35,7 @@ import { DEFAULT_WINDOW_CONFIG, renderSummaryText, type WindowConfig } from '@/l
 import { prismaGraphSource } from './graph-store';
 import { conversationHistoryManager } from './conversation-history-manager';
 import { getMemoryConfig } from './memory-config';
+import { collectSafetyToolEvents } from './safety-runtime';
 import { generateEmbeddingsForModel } from '@/lib/ai/embeddings';
 import { recordUsage } from '@/lib/ai/ledger';
 import { estimateTokensFromChars } from '@/lib/ai/pricing';
@@ -576,7 +577,16 @@ export async function runEngineTurn(args: {
     // M2 (Req 19.7): the memory layer's admin switch — read once per turn,
     // injected into the core (D48) and gating the summarizer + window below.
     const memory = await getMemoryConfig();
-    const result = await getConversationEngine().processTurn(args.conversationId, args.evidence, {
+    // L3 (Req 22.3 publish_evidence): staged safety verdicts join this turn's
+    // evidence as tool events — graph safety edges fire via the existing
+    // tool_result condition (tool 'safety_investigation'). [] when the safety
+    // module is disabled or nothing is staged; consumed exactly once.
+    const safetyEvents = await collectSafetyToolEvents(args.conversationId);
+    const evidence =
+      safetyEvents.length > 0
+        ? { ...args.evidence, toolEvents: [...(args.evidence.toolEvents ?? []), ...safetyEvents] }
+        : args.evidence;
+    const result = await getConversationEngine().processTurn(args.conversationId, evidence, {
       provider: args.provider,
       isNative,
       isPublic: args.isPublic,

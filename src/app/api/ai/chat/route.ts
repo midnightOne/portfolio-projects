@@ -15,6 +15,7 @@ import { getPublicAccessSettings } from '@/lib/ai/public-access';
 import { assembleStartFrame } from '@/lib/ai/start-frame';
 import { conversationHistoryManager } from '@/lib/services/ai/conversation-history-manager';
 import { buildEnginePromptSuffix, runEngineTurn, getNodeToolAllowlist } from '@/lib/services/ai/engine-runtime';
+import { runSafetyTripwire, isSessionRevokedBySafety } from '@/lib/services/ai/safety-runtime';
 import { renderAutoNavPolicy } from '@/lib/ai/autonav';
 import type { ModelAliasName } from '@/lib/ai/model-registry';
 
@@ -93,6 +94,13 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
       : typeof body.sessionId === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(body.sessionId)
         ? body.sessionId
         : `req_${ctx.requestId}`;
+
+  // Safety enforcement gate (Req 22.5, P35): a terminated session gets no
+  // model call, no tools, no persistence. Consulted only while the safety
+  // module is enabled (Req 22.4).
+  if (await isSessionRevokedBySafety(persistSessionId)) {
+    return NextResponse.json({ error: 'This session has been terminated.', code: 'SESSION_TERMINATED' }, { status: 403 });
+  }
 
   const { prompt: basePrompt, frame: contextString } = await buildSystemPrompt();
   // D47 (Req 6.1 second application layer): cascade/text apply node state at
@@ -300,6 +308,10 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
       metadata: { requestId: ctx.requestId },
     });
 
+    // Safety tripwire (Req 22.1, L1): scan the just-persisted visitor turn —
+    // fire-and-forget, never blocks or fails the reply (P33).
+    void runSafetyTripwire({ conversationId, role: 'user', text: message, messageId: userRecord.id });
+
     // G2 (P36): mirror the reported toggle into ConversationState.prefs —
     // fire-and-forget, never delays the reply.
     if (typeof body.autoNav === 'boolean') {
@@ -394,6 +406,13 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
         },
       }
     );
+
+    // Safety tripwire over the assistant side too (Req 22.1 covers the
+    // transcript, both roles — a model coaxed into flagged territory is
+    // exactly what the investigation should see).
+    if (reply) {
+      void runSafetyTripwire({ conversationId, role: 'assistant', text: reply, messageId: `assistant_${ctx.requestId}` });
+    }
   } catch (persistError) {
     console.error('[chat] conversation persistence failed (response unaffected):', persistError);
   }

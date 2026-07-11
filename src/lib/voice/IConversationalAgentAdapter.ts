@@ -328,6 +328,15 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
           if (data?.engineWindow) {
             this._handleEngineWindow(data.engineWindow);
           }
+          // Safety enforcement (Req 22.5, P35): the server revoked this
+          // session's resources — this is the disconnect directive, and a
+          // compliant client hangs up. The provider connection would otherwise
+          // idle uselessly until the ephemeral token's duration cap: tools,
+          // persistence, and re-mints are already failing closed server-side.
+          if (data?.sessionRevoked) {
+            console.warn('[conversation/log] session revoked by safety enforcement — disconnecting');
+            void this.disconnect().catch(() => undefined);
+          }
         })
         .catch((err) => console.warn('[conversation/log] post failed:', err));
     } catch (err) {

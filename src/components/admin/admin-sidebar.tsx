@@ -153,6 +153,7 @@ const ADMIN_NAVIGATION: AdminNavGroup[] = [
       { id: "reflinks", title: "Reflinks", href: "/admin/ai/reflinks", icon: Hash },
       { id: "security", title: "Security", href: "/admin/ai/security", icon: Shield },
       { id: "abuse-detection", title: "Abuse Detection", href: "/admin/ai/abuse-detection", icon: Bot },
+      { id: "safety-tripwire", title: "Safety Tripwire", href: "/admin/ai/safety", icon: Shield },
     ],
   },
   {

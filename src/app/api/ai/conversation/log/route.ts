@@ -14,6 +14,7 @@ import { conversationHistoryManager } from '@/lib/services/ai/conversation-histo
 import type { EngineDirective, EngineWindowUpdate } from '@/lib/ai/engine/types';
 import { peekSyntheticDirective } from '@/lib/ai/dev/synthetic-engine-directive';
 import { runEngineTurn } from '@/lib/services/ai/engine-runtime';
+import { runSafetyTripwire, isSessionRevokedBySafety } from '@/lib/services/ai/safety-runtime';
 
 interface ConversationLogRequest {
   sessionId: string;
@@ -110,6 +111,13 @@ interface ConversationLogResponse {
    * superseded block). Absent while the engine is off (Req 2.7).
    */
   engineWindow?: EngineWindowUpdate;
+  /**
+   * Safety enforcement (Req 22.5, P35): the session's resources were revoked
+   * (terminate_session / ban_reflink) — nothing was persisted, and a compliant
+   * client (the base adapter) disconnects on seeing this. Present only while
+   * the safety module is enabled.
+   */
+  sessionRevoked?: boolean;
   metadata: {
     timestamp: number;
     sessionId: string;
@@ -201,6 +209,10 @@ async function persistVoiceEntries(
           },
         });
         persisted++;
+        // Safety tripwire (Req 22.1, L1): static word scan at persist time —
+        // fire-and-forget, the log write is already durable and NEVER waits
+        // on or fails from anything downstream (P33).
+        void runSafetyTripwire({ conversationId, role, text: entry.content, messageId: itemId });
       } else if (entry.kind === 'tool') {
         if (!entry.toolName) continue;
         // Execution ms in the label (owner, 2026-07-08): turn timestamps are
@@ -425,6 +437,25 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           storedSuccessfully: false
         }
       }, { status: 400 });
+    }
+
+    // Safety enforcement gate (Req 22.5, P35): a terminated session's /log
+    // acceptance fails closed — nothing persists, no directives, and the
+    // response carries the disconnect directive a compliant client acts on.
+    // Consulted only while the safety module is enabled (Req 22.4: disabled =
+    // zero extra reads = identical system).
+    if (await isSessionRevokedBySafety(sessionId)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Session terminated.',
+        sessionRevoked: true,
+        metadata: {
+          timestamp: Date.now(),
+          sessionId,
+          entriesProcessed: 0,
+          storedSuccessfully: false
+        }
+      }, { status: 403 });
     }
 
     // Handle both full conversation format and individual transcript items
