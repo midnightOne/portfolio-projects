@@ -84,16 +84,6 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
     .slice(-settings.maxHistoryMessages)
     .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content.slice(0, MAX_MESSAGE_CHARS) }));
 
-  // Server-side tools this tier may use: allowlist ∩ server execution context.
-  const toolNames = (ctx.allowedTools ?? [...PUBLIC_TOOL_ALLOWLIST]).filter((name) => {
-    const def = unifiedToolRegistry.getToolDefinition(name);
-    return def?.executionContext === 'server';
-  });
-  const tools: ReasoningToolDefinition[] = toolNames.map((name) => {
-    const def = unifiedToolRegistry.getToolDefinition(name)!;
-    return { name: def.name, description: def.description, parameters: def.parameters as Record<string, unknown> };
-  });
-
   // Conversation key derived BEFORE the model call so the engine can shape
   // this turn's prompt from persisted node state (D47 B3; same derivation the
   // persistence block used — public tier is always keyed by the gateway sid).
@@ -154,6 +144,28 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
   // decision 2026-07-09: enforcement is server-side, guidance steers usage).
   // Null = engine inactive / node doesn't narrow → tier enforcement alone.
   const nodeAllowlist = await getNodeToolAllowlist(persistSessionId);
+
+  // Server-side tools this tier may use: tier allowlist ∩ server execution
+  // context. H2 (Req 4.4): a node allowlist is "opt-in narrowing/EXTENSION
+  // within tier bounds" — node-declared server tools (e.g. lead_capture on a
+  // capture node) join the model-visible list when the tier permits them
+  // (reflink/admin: unrestricted, so they join; public: the extension must
+  // already be public-allowlisted, so the node can never widen the tier —
+  // Req 4.1). Voice sessions already see the full registry at mint (owner
+  // decision, B5); this closes the same capability for text/cascade, whose
+  // base list is deliberately narrow.
+  const baseToolNames = ctx.allowedTools ?? [...PUBLIC_TOOL_ALLOWLIST];
+  const nodeExtensions = (nodeAllowlist ?? []).filter(
+    (name) => !baseToolNames.includes(name) && (ctx.allowedTools === null || ctx.allowedTools.includes(name))
+  );
+  const toolNames = [...baseToolNames, ...nodeExtensions].filter((name) => {
+    const def = unifiedToolRegistry.getToolDefinition(name);
+    return def?.executionContext === 'server';
+  });
+  const tools: ReasoningToolDefinition[] = toolNames.map((name) => {
+    const def = unifiedToolRegistry.getToolDefinition(name)!;
+    return { name: def.name, description: def.description, parameters: def.parameters as Record<string, unknown> };
+  });
   // Debug parity with the deleted Gen-1 manager's per-turn snapshots (task 2.4b):
   // expose the assembled policy + context through the _debug envelope.
   ctx.debug.systemPrompt = systemPrompt;
@@ -207,10 +219,16 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
       } catch {
         // leave empty args; tool will report its own validation error
       }
+      // H2 driven finding: tools that anchor to the CONVERSATION (lead_capture
+      // reads engine slots and writes the lead against it) must receive the
+      // same session key the conversation persists under. ctx.sessionId is the
+      // PUBLIC gateway sid only — on reflink tier it is undefined, and the old
+      // `req_<requestId>` fallback parked lead rows on a dangling one-request
+      // conversation with no engine state.
       const toolResult = await backend.executeTool(
         call.name,
         parsedArgs,
-        ctx.sessionId ?? `req_${ctx.requestId}`,
+        persistSessionId,
         accessLevel,
         ctx.reflink?.id
       );
@@ -320,6 +338,13 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
         modelAlias: aliasUsed,
         contextInjected: enginePlan.suffix.length > 0,
         contextDrops: enginePlan.debug?.contextDrops ?? [],
+        // H1 (Req 14.3): prompt-phase placeholders that resolved empty, plus
+        // this turn's extraction delta (Req 14.2 — also a slot_filled marker).
+        unresolvedSlots: [
+          ...(enginePlan.debug?.unresolvedSlots ?? []),
+          ...(engineTurn.debug?.unresolvedSlots ?? []),
+        ],
+        slotFills: engineTurn.debug?.slotFills ?? {},
         toolAllowlist: nodeAllowlist,
         firedEdge: engineTurn.debug?.fired ?? null,
         evaluatedEdges: engineTurn.debug?.evaluated ?? [],

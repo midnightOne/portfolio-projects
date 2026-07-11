@@ -52,6 +52,7 @@ import {
   Activity,
   BookOpen,
   Workflow,
+  Inbox,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -64,6 +65,8 @@ interface AdminNavItem {
   icon: React.ComponentType<{ className?: string }>;
   /** Match the pathname exactly instead of by prefix (for hub pages whose children live elsewhere in the nav). */
   exact?: boolean;
+  /** Named count badge (H3: 'newLeads' — unreviewed ConversationLead rows, Req 15.2). */
+  badge?: 'newLeads';
 }
 
 interface AdminNavGroup {
@@ -158,6 +161,7 @@ const ADMIN_NAVIGATION: AdminNavGroup[] = [
     icon: BarChart3,
     items: [
       { id: "conversations", title: "Conversations", href: "/admin/ai/conversations", icon: MessagesSquare },
+      { id: "leads", title: "Leads", href: "/admin/ai/leads", icon: Inbox, badge: "newLeads" },
       { id: "job-analysis", title: "Job Analyses", href: "/admin/ai/job-analysis", icon: BarChart3 },
       { id: "performance", title: "Performance", href: "/admin/performance", icon: Activity },
     ],
@@ -187,6 +191,28 @@ export function AdminSidebar() {
   const pathname = usePathname();
   const { projects, loading: projectsLoading } = useAdminProjects();
   const [projectsExpanded, setProjectsExpanded] = useState(false);
+  // H3 (Req 15.2): unreviewed-leads badge — one lightweight count per admin
+  // navigation (portfolio scale; stays current as triage happens on the page).
+  const [newLeadsCount, setNewLeadsCount] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        // Badge is optional chrome — any failure (offline, mocked fetch in
+        // tests) silently leaves it hidden.
+        const res = await fetch('/api/admin/ai/leads?countOnly=true');
+        if (!res?.ok) return;
+        const json = await res.json();
+        if (!cancelled && json?.success) setNewLeadsCount(json.data?.newCount ?? 0);
+      } catch {
+        /* hidden badge */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+  const badgeCounts: Record<string, number> = { newLeads: newLeadsCount };
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(
       ADMIN_NAVIGATION.map((group) => [
@@ -313,6 +339,11 @@ export function AdminSidebar() {
                           <Link href={item.href} className="flex items-center gap-2">
                             <item.icon className="size-4" />
                             <span>{item.title}</span>
+                            {item.badge && (badgeCounts[item.badge] ?? 0) > 0 && (
+                              <Badge variant="secondary" className="ml-auto text-xs" data-testid={`nav-badge-${item.id}`}>
+                                {badgeCounts[item.badge]}
+                              </Badge>
+                            )}
                           </Link>
                         </SidebarMenuButton>
                       </SidebarMenuItem>

@@ -363,6 +363,14 @@ function markerHeadline(step: ReplayStep, nodeNames?: Record<string, string>): s
       return `🧭 ${name(meta.fromNode)} → ${name(meta.toNode)}${meta.conditionType ? ` (${meta.conditionType})` : ''}`;
     case 'conversation_summary':
       return `📝 Running summary v${meta.summaryVersion ?? '?'}`;
+    case 'slot_filled': {
+      // H1 (Req 14.2): show WHAT filled without opening metadata.
+      const fills = (meta.slotFills ?? {}) as Record<string, string>;
+      const parts = Object.entries(fills).map(([k, v]) => `${k}="${String(v).slice(0, 40)}"`);
+      return `🎯 Slot${parts.length > 1 ? 's' : ''} filled: ${parts.join(', ') || '?'}`;
+    }
+    case 'lead_captured':
+      return `📬 Lead captured${meta.leadId ? ` (${meta.leadId})` : ''}`;
     case 'edge_evaluated':
       return '⚖️ Edges evaluated (debug)';
     default:

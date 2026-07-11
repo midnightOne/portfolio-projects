@@ -24,7 +24,13 @@ import type {
 } from './types';
 import { EngineStateSchema, type VisitorFlags } from './types';
 import { evaluateEdges, EvaluatorDeps, EvaluatedEdge } from './evaluator';
-import { buildEngineContextText, buildTransitionDirective, buildProfileDirective, nodeUx } from './directive';
+import {
+  buildEngineContextText,
+  buildTransitionDirective,
+  buildProfileDirective,
+  nodeUx,
+  resolveSlotTemplates,
+} from './directive';
 import { renderProfileText, flagsEqual, mergeFastFlags } from './profile';
 
 const DEFAULT_NODE_BUDGET_TOKENS = 1200; // notes §6
@@ -43,6 +49,15 @@ export interface EngineStateStore {
   recordTransition(conversationId: string, record: TransitionRecord): Promise<void>;
   /** Debug/test sessions only (Req 7.3) — evaluated-but-not-taken rows. */
   recordEvaluated(conversationId: string, turnMessageId: string, rows: EvaluatedEdge[]): Promise<void>;
+  /**
+   * Req 14.2 (H1): slot fills mirrored as ONE history event per turn, so
+   * replay shows when and from what turn each value filled. Called only by the
+   * CAS winner with the NEW/CHANGED values of this turn (never the full state).
+   */
+  recordSlotFills(
+    conversationId: string,
+    event: { fills: Record<string, string>; turnMessageId: string }
+  ): Promise<void>;
 }
 
 export interface ResolveContextOptions {
@@ -103,6 +118,10 @@ export interface ProcessTurnDebug {
   evaluated: EvaluatedEdge[];
   /** Context items dropped assembling the (new) node's context set (P12/B4). */
   contextDrops: string[];
+  /** Slots newly filled/changed by this turn's extraction (Req 14.2, H1). */
+  slotFills: Record<string, string>;
+  /** `{{slots.x}}`/`{{flags.x}}` placeholders that resolved empty this assembly (Req 14.3). */
+  unresolvedSlots: string[];
   /** Node tool allowlist in effect AFTER this turn (undefined = session default set). */
   toolAllowlist?: string[];
   /** Directive seq issued this turn (fired) or last issued (not fired) — B3 delivery state. */
@@ -157,14 +176,27 @@ export class ConversationEngine {
     node: GraphNode,
     slots: Record<string, string>,
     opts: { isPublic: boolean; flags?: VisitorFlags }
-  ): Promise<{ text: string; drops: string[] }> {
+  ): Promise<{ text: string; drops: string[]; unresolvedSlots: string[] }> {
     const budget = node.contextBudgetTokens ?? DEFAULT_NODE_BUDGET_TOKENS;
-    const resolved = await this.deps.resolveContextSet(node.contextSet, {
+    const unresolved: string[] = [];
+    // Req 14.3 / P21 placement rule: templates resolve in guidance fragments
+    // and STATIC context items only — retrieved content (entity/chunk/search)
+    // is never templated, so a literal "{{slots.x}}" inside indexed content
+    // stays inert. Static items resolve HERE (core owns templating); the host
+    // resolver receives the already-resolved text.
+    const contextSet = node.contextSet.map((item) => {
+      if (item.type !== 'static') return item;
+      const r = resolveSlotTemplates(item.text, slots, opts.flags ?? {});
+      unresolved.push(...r.unresolved);
+      return { ...item, text: r.text };
+    });
+    const resolved = await this.deps.resolveContextSet(contextSet, {
       isPublic: opts.isPublic,
       budgetTokens: budget,
     });
     const built = buildEngineContextText(node, resolved.text, slots, opts.flags ?? {});
-    return { text: built.text, drops: resolved.drops };
+    unresolved.push(...built.unresolvedSlots);
+    return { text: built.text, drops: resolved.drops, unresolvedSlots: [...new Set(unresolved)] };
   }
 
   /**
@@ -192,6 +224,7 @@ export class ConversationEngine {
       toolAllowlist: landing.toolAllowlist,
       modelAlias: landing.modelAlias,
       contextDrops: context.drops,
+      unresolvedSlots: context.unresolvedSlots,
       ux: nodeUx(landing),
     };
   }
@@ -252,6 +285,7 @@ export class ConversationEngine {
       toolAllowlist: node.toolAllowlist,
       modelAlias: node.modelAlias,
       contextDrops: context.drops,
+      unresolvedSlots: context.unresolvedSlots,
       ux: nodeUx(node),
     };
   }
@@ -412,6 +446,25 @@ export class ConversationEngine {
       slots: outcome.slots,
       ...(profileChanged ? { flags, profileVersion } : {}),
     });
+    // Req 14.2 (H1): every NEW or CHANGED slot value this turn is mirrored as
+    // one history event — replay shows when and from what turn it filled.
+    // State write first, marker after (row-first discipline); the CAS above
+    // guarantees exactly one invocation records. Telemetry-only failure
+    // posture: a marker write error never blocks the turn.
+    const slotFills: Record<string, string> = {};
+    for (const [name, value] of Object.entries(outcome.slots)) {
+      if (state.slots[name] !== value) slotFills[name] = value;
+    }
+    if (Object.keys(slotFills).length > 0) {
+      try {
+        await this.deps.stateStore.recordSlotFills(conversationId, {
+          fills: slotFills,
+          turnMessageId: evidence.turnMessageId,
+        });
+      } catch (err) {
+        this.log('engine: recordSlotFills failed (telemetry only)', err);
+      }
+    }
     const profileText = memoryOn ? renderProfileText(flags, this.deps.now) : null;
 
     if (ctx.debug && outcome.evaluated.length > 0) {
@@ -453,6 +506,8 @@ export class ConversationEngine {
           fired: null,
           evaluated: outcome.evaluated,
           contextDrops: [],
+          slotFills,
+          unresolvedSlots: [],
           toolAllowlist: currentNode.toolAllowlist,
           directiveSeq: seq,
           directiveDelivery: profileDirective ? 'log-response' : 'none',
@@ -467,7 +522,21 @@ export class ConversationEngine {
       return none;
     }
 
-    // ---- Transition: marker → context → directive (notes §2.2.8) ----
+    // Purge policy (Req 3.6): 'replace' = target's context set replaces the
+    // engine key; 'keep' = previous node's rendered context rides along.
+    const contextOpts = { isPublic: ctx.isPublic, flags };
+    const targetContext = await this.buildNodeContext(targetNode, outcome.slots, contextOpts);
+    let engineText = targetContext.text;
+    const unresolvedSlots = [...targetContext.unresolvedSlots];
+    if (firedEdge.purge === 'keep') {
+      const previous = await this.buildNodeContext(currentNode, outcome.slots, contextOpts);
+      engineText = `${targetContext.text}\n\n[carried over from previous state — purge:'keep']\n${previous.text}`;
+      unresolvedSlots.push(...previous.unresolvedSlots.filter((s) => !unresolvedSlots.includes(s)));
+    }
+
+    // ---- Transition: marker → context → directive (notes §2.2.8). The marker
+    // carries this assembly's unresolved-placeholder notes (Req 14.3) so
+    // replay explains a blank where a slot value was expected.
     const transition: TransitionRecord = {
       fromNode: currentNode.id,
       toNode: targetNode.id,
@@ -476,18 +545,9 @@ export class ConversationEngine {
       evidence: (outcome.firedReason ?? '').slice(0, 300),
       graphVersionId: state.graphVersionId,
       turnMessageId: evidence.turnMessageId,
+      ...(unresolvedSlots.length > 0 ? { unresolvedSlots } : {}),
     };
     await this.deps.stateStore.recordTransition(conversationId, transition);
-
-    // Purge policy (Req 3.6): 'replace' = target's context set replaces the
-    // engine key; 'keep' = previous node's rendered context rides along.
-    const contextOpts = { isPublic: ctx.isPublic, flags };
-    const targetContext = await this.buildNodeContext(targetNode, outcome.slots, contextOpts);
-    let engineText = targetContext.text;
-    if (firedEdge.purge === 'keep') {
-      const previous = await this.buildNodeContext(currentNode, outcome.slots, contextOpts);
-      engineText = `${targetContext.text}\n\n[carried over from previous state — purge:'keep']\n${previous.text}`;
-    }
 
     const seq = state.directiveSeq + 1;
     const providerTools =
@@ -531,6 +591,8 @@ export class ConversationEngine {
         },
         evaluated: outcome.evaluated,
         contextDrops: targetContext.drops,
+        slotFills,
+        unresolvedSlots,
         toolAllowlist: targetNode.toolAllowlist,
         directiveSeq: seq,
         directiveDelivery: ctx.isNative ? 'log-response' : 'server-assembly',

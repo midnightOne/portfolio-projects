@@ -200,6 +200,25 @@ export class BackendToolService {
         case 'content_getRelated':
           result = await this.handleRelatedContent(parameters, context);
           break;
+
+        // Conversation-engine H2 (Req 15.1/21.3): row-first lead capture +
+        // owner notification through the ONE seam (lib/ai/leads). The handler
+        // never throws — its `message` tells the model what to do next
+        // (including "ask for consent first" when the attestation is missing).
+        case 'lead_capture': {
+          const { captureLead } = await import('@/lib/ai/leads/lead-capture');
+          result = await captureLead({
+            sessionId: context.sessionId,
+            reflinkId: context.reflinkId,
+            consentConfirmed: parameters.consentConfirmed === true,
+            fitNote: typeof parameters.fitNote === 'string' ? parameters.fitNote : '',
+            slots:
+              parameters.slots && typeof parameters.slots === 'object'
+                ? (parameters.slots as Record<string, unknown>)
+                : undefined,
+          });
+          break;
+        }
         default:
           return {
             success: false,

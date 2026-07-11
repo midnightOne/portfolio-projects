@@ -244,12 +244,19 @@ const stateStore: EngineStateStore = {
       evidence: record.evidence,
       graphVersionId: record.graphVersionId,
       turnMessageId: record.turnMessageId,
+      unresolvedSlots: record.unresolvedSlots,
     }),
   recordEvaluated: (conversationId, turnMessageId, rows) =>
     conversationHistoryManager.recordSessionMarker(conversationId, {
       type: 'edge_evaluated',
       turnMessageId,
       evaluated: rows,
+    }),
+  recordSlotFills: (conversationId, event) =>
+    conversationHistoryManager.recordSessionMarker(conversationId, {
+      type: 'slot_filled',
+      slotFills: event.fills,
+      turnMessageId: event.turnMessageId,
     }),
 };
 
@@ -653,6 +660,8 @@ export interface EngineTurnPrompt {
     nodeId: string | null;
     graphVersionId: string | null;
     contextDrops: string[];
+    /** H1 (Req 14.3): placeholders that resolved empty at this assembly. */
+    unresolvedSlots: string[];
     /** J5: window + summarizer state exposure. */
     window: {
       summaryVersion: number;
@@ -737,6 +746,7 @@ export async function buildEnginePromptSuffix(sessionId: string, opts: { isPubli
           nodeId: null,
           graphVersionId: null,
           contextDrops: [],
+          unresolvedSlots: [],
           window: memoryWindow,
           profile: engineState.flags as Record<string, unknown>,
         },
@@ -757,6 +767,7 @@ export async function buildEnginePromptSuffix(sessionId: string, opts: { isPubli
         nodeId: directive.nodeId,
         graphVersionId: directive.graphVersionId,
         contextDrops: directive.contextDrops,
+        unresolvedSlots: directive.unresolvedSlots,
         window: memoryWindow,
         profile: memory.memoryEnabled && engineState ? (engineState.flags as Record<string, unknown>) : null,
       },

@@ -275,6 +275,13 @@ export interface TransitionRecord {
   evidence?: string;
   graphVersionId: string;
   turnMessageId: string | null;
+  /**
+   * Req 14.3 (H1): `{{slots.x}}`/`{{flags.x}}` placeholders that resolved
+   * empty while assembling the target node's context — noted here (the flush
+   * rows are client-posted; this marker is the server-side assembly truth) so
+   * replay explains a blank where a value was expected.
+   */
+  unresolvedSlots?: string[];
 }
 
 /**
@@ -300,6 +307,8 @@ export interface StartDirective {
   modelAlias?: string;
   /** Context items dropped during assembly (budget/visibility/failure — P12), for `_debug.engine`. */
   contextDrops: string[];
+  /** Placeholders that resolved empty at this assembly (Req 14.3), for `_debug.engine`. */
+  unresolvedSlots: string[];
   /** Node's visitor-visible surfaces (Req 13, Block G1) — chips + topic label. */
   ux: EngineUx;
 }

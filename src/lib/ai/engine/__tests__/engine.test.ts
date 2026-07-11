@@ -389,12 +389,14 @@ function makeStore(initial: EngineState | null): EngineStateStore & {
   transitions: unknown[];
   evaluatedRows: unknown[];
   claimResults: boolean[];
+  slotFillEvents: Array<{ fills: Record<string, string>; turnMessageId: string }>;
 } {
   const store = {
     state: initial,
     transitions: [] as unknown[],
     evaluatedRows: [] as unknown[],
     claimResults: [] as boolean[],
+    slotFillEvents: [] as Array<{ fills: Record<string, string>; turnMessageId: string }>,
     async readEngineState() {
       return store.state;
     },
@@ -413,6 +415,9 @@ function makeStore(initial: EngineState | null): EngineStateStore & {
     },
     async recordEvaluated(_cid: string, _turnId: string, rows: unknown[]) {
       store.evaluatedRows.push(...rows);
+    },
+    async recordSlotFills(_cid: string, event: { fills: Record<string, string>; turnMessageId: string }) {
+      store.slotFillEvents.push(event);
     },
   };
   return store;
@@ -896,5 +901,145 @@ describe('Block M2 — memory layer without the graph', () => {
     await makeEngine(null, store).processTurn('c1', evidence('hi'), turnCtx);
     expect(store.state?.nodeId).toBeNull();
     expect(typeof store.state?.flags.startedAt).toBe('string');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Block H1 — slot pipeline remainder (Req 14.2/14.3, P21): fill events,
+// static-item templating, unresolved-placeholder notes
+// ---------------------------------------------------------------------------
+
+describe('Block H1 — slot fill events and templating', () => {
+  /** Graph whose kiln node captures a slot and templates it in guidance + a static item. */
+  const slotDoc = (): GraphDocument =>
+    doc({
+      nodes: [
+        baseNode('start', 'start', {
+          slots: { capture: [{ name: 'company', type: 'company', hint: 'their company' }] },
+        }),
+        baseNode('kiln', 'state', {
+          guidance: { promptFragments: ['They work at {{slots.company}}.'] },
+          contextSet: [
+            { type: 'static', text: 'Visitor company on record: {{slots.company}}. Missing: {{slots.contact_info}}.' },
+            { type: 'entity', entityId: 'ent-1' },
+          ],
+          slots: {
+            capture: [
+              { name: 'company', type: 'company', hint: 'their company' },
+              { name: 'contact_info', type: 'email', hint: 'their contact' },
+            ],
+          },
+        }),
+        baseNode('offgraph', 'offgraph'),
+      ],
+      edges: [
+        { id: 'e-pattern', from: 'start', to: 'kiln', priority: 10, condition: { type: 'pattern', anyOf: ['kiln'] }, purge: 'replace' },
+      ],
+    });
+
+  const mkEngine = (
+    store: EngineStateStore,
+    d: GraphDocument,
+    deps: Partial<EvaluatorDeps> = {},
+    onResolve?: (items: unknown[]) => void
+  ) =>
+    new ConversationEngine({
+      graphSource: {
+        async getActiveGraph() {
+          return { graphId: 'g1', versionId: 'v1', document: d };
+        },
+        async getVersion(id: string) {
+          return id === 'v1' ? d : null;
+        },
+      },
+      stateStore: store,
+      evaluator: fakeDeps(deps),
+      resolveContextSet: async (items) => {
+        onResolve?.(items as unknown[]);
+        const statics = (items as Array<{ type: string; text?: string }>).filter((i) => i.type === 'static');
+        return { text: statics.map((s) => s.text).join('\n') || 'ctx', drops: [] };
+      },
+    });
+
+  it('records ONE slot_filled event per turn with only the new/changed values (Req 14.2)', async () => {
+    const store = makeStore(freshState('start'));
+    store.state!.slots = { company: 'Acme Robotics' };
+    const engine = mkEngine(store, slotDoc(), {
+      runCheapCall: async () => cheap({ slots: { company: 'Acme Robotics', contact_info: 'jane@acme.test' } }),
+    });
+    const turn = evidence('kiln talk from jane@acme.test');
+    await engine.processTurn('c1', turn, turnCtx);
+    // company unchanged → NOT in the event; contact_info new → in the event
+    expect(store.slotFillEvents).toEqual([
+      { fills: { contact_info: 'jane@acme.test' }, turnMessageId: turn.turnMessageId },
+    ]);
+  });
+
+  it('records no slot_filled event when extraction returns nothing new', async () => {
+    const store = makeStore(freshState('start'));
+    const engine = mkEngine(store, slotDoc(), { runCheapCall: async () => cheap() });
+    await engine.processTurn('c1', evidence('nothing matches'), turnCtx);
+    expect(store.slotFillEvents).toEqual([]);
+  });
+
+  it('a recordSlotFills failure never breaks the turn (P1 telemetry posture)', async () => {
+    const store = makeStore(freshState('start'));
+    store.recordSlotFills = async () => {
+      throw new Error('marker write down');
+    };
+    const engine = mkEngine(store, slotDoc(), {
+      runCheapCall: async () => cheap({ slots: { company: 'Acme' } }),
+    });
+    const result = await engine.processTurn('c1', evidence('tell me about the kiln'), turnCtx);
+    expect(result.transition?.toNode).toBe('kiln'); // transition unaffected
+  });
+
+  it('templates STATIC context items before host resolution; retrieved items untouched (Req 14.3/P21)', async () => {
+    const store = makeStore(freshState('start'));
+    let resolvedItems: Array<{ type: string; text?: string; entityId?: string }> = [];
+    const engine = mkEngine(
+      store,
+      slotDoc(),
+      { runCheapCall: async () => cheap({ slots: { company: 'Acme Robotics' } }) },
+      (items) => {
+        resolvedItems = items as typeof resolvedItems;
+      }
+    );
+    const result = await engine.processTurn('c1', evidence('the kiln please'), turnCtx);
+    const staticItem = resolvedItems.find((i) => i.type === 'static');
+    // P21 delimiting: value arrives wrapped as visitor-stated data, capped
+    expect(staticItem?.text).toContain('[visitor-stated company: "Acme Robotics"]');
+    // unresolved placeholder resolves to empty in the text…
+    expect(staticItem?.text).not.toContain('{{slots.contact_info}}');
+    // …and the entity item passes through untouched (never templated)
+    expect(resolvedItems.find((i) => i.type === 'entity')).toEqual({ type: 'entity', entityId: 'ent-1' });
+    // guidance templating (pre-existing) still applies in the engine text
+    const engineText = result.directive?.contextItems?.find((i) => i.key === 'engine')?.text ?? '';
+    expect(engineText).toContain('[visitor-stated company: "Acme Robotics"]');
+  });
+
+  it('notes unresolved placeholders on the transition marker and in debug (Req 14.3)', async () => {
+    const store = makeStore(freshState('start'));
+    const engine = mkEngine(store, slotDoc(), { runCheapCall: async () => cheap() });
+    const result = await engine.processTurn('c1', evidence('the kiln please'), turnCtx);
+    // company + contact_info both unfilled → noted once each (deduped)
+    expect(result.transition?.unresolvedSlots).toEqual(expect.arrayContaining(['company', 'contact_info']));
+    expect(result.debug?.unresolvedSlots).toEqual(result.transition?.unresolvedSlots);
+    const marker = store.transitions.find((t) => (t as { toNode?: string }).toNode === 'kiln') as {
+      unresolvedSlots?: string[];
+    };
+    expect(marker.unresolvedSlots).toEqual(result.transition?.unresolvedSlots);
+  });
+
+  it('startPolicy surfaces unresolvedSlots (empty slot state at mint)', async () => {
+    const store = makeStore(null);
+    const d = slotDoc();
+    // template in the START node's static item — mint-time assembly
+    (d.nodes[0] as { contextSet: unknown[] }).contextSet = [
+      { type: 'static', text: 'Known company: {{slots.company}}' },
+    ];
+    const engine = mkEngine(store, d);
+    const start = await engine.startPolicy({ isPublic: true });
+    expect(start?.unresolvedSlots).toEqual(['company']);
   });
 });

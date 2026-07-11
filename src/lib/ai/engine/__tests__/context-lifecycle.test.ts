@@ -116,6 +116,9 @@ function makeStore(initial: EngineState | null): EngineStateStore & { state: Eng
     async recordEvaluated() {
       /* not exercised here */
     },
+    async recordSlotFills() {
+      /* not exercised here */
+    },
   };
   return store;
 }

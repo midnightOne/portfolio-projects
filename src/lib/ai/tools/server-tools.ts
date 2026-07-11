@@ -714,6 +714,53 @@ export const relatedContentToolDefinition: UnifiedToolDefinition = {
     }
   }
 };
+// Lead capture (conversation-engine Req 15.1/21.3, task H2) — the qualify-then-
+// capture conversion moment. Registry tool so graph nodes can allowlist it
+// (D47(b)); the row-first + notify mechanics live in lib/ai/leads/lead-capture.
+export const leadCaptureToolDefinition: UnifiedToolDefinition = {
+  name: 'lead_capture',
+  description:
+    'Record a qualified visitor lead for the portfolio owner (contact/company/timeline details plus your fit note) and notify him. Call ONLY after the visitor has explicitly agreed in conversation to have their details passed along — ask first ("I\'ll pass this along with your contact — is that okay?"). Never promise availability, price, timeline, or faster contact than "a couple of days".',
+  parameters: {
+    type: 'object',
+    properties: {
+      consentConfirmed: {
+        type: 'boolean',
+        description:
+          'true ONLY if the visitor explicitly agreed, in this conversation, to have their details passed to the owner. Without that agreement, ask first instead of calling this tool.',
+      },
+      fitNote: {
+        type: 'string',
+        description:
+          'Your short summary for the owner: who the visitor is, what they are looking for, and why (or whether) it fits the portfolio. 1-4 sentences.',
+      },
+      slots: {
+        type: 'object',
+        description:
+          'Details the visitor stated, as short strings — e.g. {"name": …, "company": …, "contact": …, "type": "contract work", "timeline": "Q3"}. Only include what was actually said.',
+        additionalProperties: { type: 'string' },
+      },
+    },
+    required: ['consentConfirmed', 'fitNote'],
+  },
+  executionContext: 'server',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean' },
+      data: {
+        type: 'object',
+        properties: {
+          leadId: { type: 'string' },
+          notification: { type: 'string' },
+          message: { type: 'string' },
+        },
+      },
+      message: { type: 'string' },
+    },
+  },
+};
+
 // Export all server-side tool definitions
 export const serverToolDefinitions: UnifiedToolDefinition[] = [
   loadProjectContextToolDefinition,
@@ -729,6 +776,8 @@ export const serverToolDefinitions: UnifiedToolDefinition[] = [
   contentHierarchyToolDefinition,
   sectionSearchToolDefinition,
   relatedContentToolDefinition,
+  // Conversation-engine H2
+  leadCaptureToolDefinition,
 ];
 
 // Note: getServerToolDefinitions function has been removed

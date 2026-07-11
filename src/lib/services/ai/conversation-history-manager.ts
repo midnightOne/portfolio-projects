@@ -128,7 +128,13 @@ export type SessionMarkerType =
     | 'edge_evaluated'
     /** Running conversation summary (Req 17.2/20.5, task J3) — ONE artifact for
      *  in-session pruning, cross-session briefings, and the admin transcript. */
-    | 'conversation_summary';
+    | 'conversation_summary'
+    /** Slot value filled/changed this turn (Req 14.2, task H1) — one row per
+     *  turn with all of that turn's fills; replay shows when/from what. */
+    | 'slot_filled'
+    /** ConversationLead written by the lead_capture tool (Req 15.1, task H2) —
+     *  replay shows the capture moment; the admin leads list links back to it. */
+    | 'lead_captured';
 
 export interface SessionMarker {
     type: SessionMarkerType;
@@ -160,6 +166,13 @@ export interface SessionMarker {
     upToMessageId?: string | null;
     /** The profile assessment this run produced (replay: what changed and when). */
     profile?: Record<string, unknown>;
+    // ---- slot_filled (Req 14.2, task H1) ----
+    /** New/changed slot values this turn (the delta, not the full slot state). */
+    slotFills?: Record<string, string>;
+    /** node_transition: placeholders that resolved empty at assembly (Req 14.3). */
+    unresolvedSlots?: string[];
+    // ---- lead_captured (Req 15.1, task H2) ----
+    leadId?: string;
 }
 
 export interface ConversationMessageRecord {
@@ -682,6 +695,11 @@ export class ConversationHistoryManager {
             // transcript renders it directly (Req 17.2), replay shows the
             // memory the model resumes/prunes onto.
             : marker.type === 'conversation_summary' ? `[summary v${marker.summaryVersion ?? '?'}] ${marker.summaryText ?? ''}`
+            // Slot fills show name="value" inline (values capped) — the
+            // transcript is admin-only, and replay should show WHAT filled
+            // without opening metadata (Req 14.2).
+            : marker.type === 'slot_filled' ? `[slot_filled] ${Object.entries(marker.slotFills ?? {}).map(([k, v]) => `${k}="${v.slice(0, 80)}"`).join(', ')}`
+            : marker.type === 'lead_captured' ? `[lead_captured] ${marker.leadId ?? ''}${marker.evidence ? ` — ${marker.evidence}` : ''}`
             : `[edge_evaluated] ${marker.evaluated?.length ?? 0} edge(s)${marker.evaluated?.some((r) => r.fired) ? ' — one fired' : ', none fired'}`;
         await prisma.$transaction([
             prisma.aIConversationMessage.create({
@@ -714,7 +732,11 @@ export class ConversationHistoryManager {
                         // boundary + the profile this run produced
                         summaryVersion: marker.summaryVersion,
                         upToMessageId: marker.upToMessageId,
-                        profile: marker.profile
+                        profile: marker.profile,
+                        // slot_filled / lead_captured fields (H1/H2)
+                        slotFills: marker.slotFills,
+                        unresolvedSlots: marker.unresolvedSlots,
+                        leadId: marker.leadId
                     } as any
                 }
             }),
