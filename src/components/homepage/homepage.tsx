@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { SectionRenderer, type HomepageConfig, type SectionConfig, sortSectionsByOrder, getEnabledSections } from './section-renderer';
 import { ProjectModal } from '@/components/projects/project-modal';
@@ -130,6 +130,15 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
   const [selectedProject, setSelectedProject] = useState<ProjectWithRelations | null>(null);
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [projectLoading, setProjectLoading] = useState(false);
+  // The click path sets the hash itself, so its own hashchange echo must not
+  // re-enter the open path (double fetch + double UI-state publish). Holds the
+  // slug whose open is in flight; cleared once the fetch settles.
+  const modalOpenInFlightRef = useRef<string | null>(null);
+  // Deep-link hashes are handled once, on true mount. The hash effect below
+  // re-subscribes whenever its deps change; running the handler eagerly each
+  // time re-opens the modal mid-close, while handleCloseModal's history.back()
+  // has not yet cleared the stale #modal hash.
+  const initialHashHandledRef = useRef(false);
 
   // Get projects data for the projects section
   const { projects, tags, loading: projectsLoading } = useProjects();
@@ -196,6 +205,8 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
   };
 
   const handleProjectClickInternal = useCallback(async (projectSlug: string): Promise<boolean> => {
+    if (modalOpenInFlightRef.current === projectSlug) return true;
+    modalOpenInFlightRef.current = projectSlug;
     setProjectLoading(true);
     setProjectModalOpen(true);
     
@@ -242,7 +253,8 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
           timestamp: Date.now()
         }
       });
-      
+
+      modalOpenInFlightRef.current = null;
       return true;
     } else {
       // Project not found, close modal
@@ -261,7 +273,8 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
           timestamp: Date.now()
         }
       });
-      
+
+      modalOpenInFlightRef.current = null;
       return false;
     }
   }, [updateUIState]);
@@ -322,32 +335,33 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
       
       if (hash.startsWith('#modal=')) {
         const modalId = hash.replace('#modal=', '');
-        
+
         // Open modal if not already open or different project
         if (!projectModalOpen || selectedProject?.slug !== modalId) {
           console.log('📱 Opening modal from hash:', modalId);
-          setProjectModalOpen(true);
-          setProjectLoading(true);
-          fetchProjectDetails(modalId).then(projectDetails => {
-            if (projectDetails) {
-              setSelectedProject(projectDetails);
-            } else {
-              setProjectModalOpen(false);
-            }
-            setProjectLoading(false);
-          });
+          // Same open path as a card click, so deep links and back/forward
+          // gestures also publish currentProject into UI state (the F-I-D
+          // buffer → engine ui_state turn evidence). Re-assigning an identical
+          // hash inside is a no-op, and the in-flight ref swallows the click
+          // path's own hashchange echo.
+          void handleProjectClickInternal(modalId);
         }
       } else if (!hash && projectModalOpen) {
         // Close modal when hash is cleared (back gesture)
         console.log('📱 Closing modal from hash change');
-        setSelectedProject(null);
-        setProjectModalOpen(false);
-        setProjectLoading(false);
+        // Same close path as the X button: unregisters the modal and clears
+        // currentProject from UI state (a back-gesture close used to leave the
+        // F-I-D claiming the visitor was still inside the project). With the
+        // hash already gone, handleCloseModal skips its history.back().
+        void handleCloseModal();
       }
     };
 
-    // Handle initial hash on mount
-    handleHashChange();
+    // Handle initial hash on true mount only (see initialHashHandledRef)
+    if (!initialHashHandledRef.current) {
+      initialHashHandledRef.current = true;
+      handleHashChange();
+    }
 
     // Listen for hash changes (mobile back gestures)
     window.addEventListener('hashchange', handleHashChange);
@@ -355,7 +369,7 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
     return () => {
       window.removeEventListener('hashchange', handleHashChange);
     };
-  }, [projectModalOpen, selectedProject]);
+  }, [projectModalOpen, selectedProject, handleProjectClickInternal, handleCloseModal]);
 
   // Register modal handler with UIManager
   useEffect(() => {
