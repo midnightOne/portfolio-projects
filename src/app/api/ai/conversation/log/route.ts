@@ -228,6 +228,10 @@ async function persistVoiceEntries(
         persisted++;
       } else if (entry.kind === 'event') {
         if (!entry.eventType || !entry.label) continue;
+        // context_flush carries the FULL merged block text (owner 2026-07-11:
+        // replay must show exactly what the model remembered per flush) — it
+        // gets a larger cap than ordinary event details.
+        const detailCap = entry.eventType === 'context_flush' ? 20_000 : 4_000;
         await conversationHistoryManager.addMessage(conversationId, {
           id: itemId,
           role: 'system',
@@ -238,7 +242,7 @@ async function persistVoiceEntries(
           metadata: {
             transcriptItemId: itemId,
             eventType: entry.eventType,
-            detail: entry.detail ? JSON.stringify(entry.detail).slice(0, 4000) : undefined,
+            detail: entry.detail ? JSON.stringify(entry.detail).slice(0, detailCap) : undefined,
           },
         });
         persisted++;

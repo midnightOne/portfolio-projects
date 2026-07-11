@@ -6,6 +6,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import { Menu, X, Home, FolderOpen, User, Mail, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SimpleThemeToggle } from '@/components/ui/simple-theme-toggle';
+import { JobAnalysisHeaderButton } from '@/components/ai/job-analysis-header-button';
 import { cn } from '@/lib/utils';
 import { CONTAINERS, FLEX } from '@/lib/constants/layout';
 
@@ -397,7 +398,12 @@ export function MainNavigation({
               pathname={pathname}
               onItemClick={handleNavigationClick}
             />
-            
+
+            {/* Job-fit analysis (G3) — reflink-gated; renders nothing without the feature */}
+            <div className="hidden md:block">
+              <JobAnalysisHeaderButton />
+            </div>
+
             {/* Theme Toggle - Desktop */}
             <div className="hidden md:block">
               <SimpleThemeToggle size="md" />
@@ -406,6 +412,8 @@ export function MainNavigation({
 
           {/* Mobile Controls */}
           <div className="flex items-center gap-2 md:hidden">
+            <JobAnalysisHeaderButton />
+
             {/* Theme Toggle - Mobile */}
             <div>
               <SimpleThemeToggle size="sm" />

@@ -370,6 +370,52 @@ function markerHeadline(step: ReplayStep, nodeNames?: Record<string, string>): s
   }
 }
 
+/**
+ * Event-row detail renderer. context_flush details carry `blockText` — the
+ * complete merged passive-context block as the model received it (owner
+ * 2026-07-11: the per-turn "what does the model remember" debugging view);
+ * it renders as readable text with the flush metadata alongside. Everything
+ * else renders as the raw detail payload.
+ */
+function EventDetail({ detail }: { detail: string }) {
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    const candidate = JSON.parse(detail);
+    if (candidate && typeof candidate === 'object') parsed = candidate as Record<string, unknown>;
+  } catch {
+    /* plain-string detail — rendered raw below */
+  }
+  const blockText = parsed && typeof parsed.blockText === 'string' ? (parsed.blockText as string) : null;
+
+  if (blockText !== null && parsed) {
+    const { blockText: _omitted, ...meta } = parsed;
+    return (
+      <details className="mt-2" data-testid="context-flush-detail">
+        <summary className="text-xs text-muted-foreground cursor-pointer select-none">
+          Context block — full model-visible state
+        </summary>
+        <p className="text-xs text-muted-foreground mt-1">
+          {Object.entries(meta)
+            .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join('+') : String(v)}`)
+            .join(' · ')}
+        </p>
+        <pre className="text-xs whitespace-pre-wrap mt-1 bg-black/5 dark:bg-white/5 rounded p-2 max-h-96 overflow-auto">
+          {blockText}
+        </pre>
+      </details>
+    );
+  }
+
+  return (
+    <details className="mt-2">
+      <summary className="text-xs text-muted-foreground cursor-pointer select-none">Detail</summary>
+      <pre className="text-xs whitespace-pre-wrap mt-1 bg-black/5 dark:bg-white/5 rounded p-2 max-h-96 overflow-auto">
+        {parsed ? JSON.stringify(parsed, null, 2) : detail}
+      </pre>
+    </details>
+  );
+}
+
 export function ReplayStepCard({
   step,
   legIndex,
@@ -490,14 +536,12 @@ export function ReplayStepCard({
         </details>
       )}
 
-      {(step.type === 'navigation' || step.type === 'error' || step.type === 'clip') && step.message.metadata?.detail && (
-        <details className="mt-2">
-          <summary className="text-xs text-muted-foreground cursor-pointer select-none">Detail</summary>
-          <pre className="text-xs whitespace-pre-wrap mt-1 bg-black/5 dark:bg-white/5 rounded p-2">
-            {step.message.metadata.detail}
-          </pre>
-        </details>
-      )}
+      {/* Event detail — includes 'system' rows: context_flush/engine_directive/
+          window_prune events land there, and context_flush carries the FULL
+          model-visible block (owner 2026-07-11: replay must show exactly what
+          the model remembered at each flush). */}
+      {(step.type === 'navigation' || step.type === 'error' || step.type === 'clip' || step.type === 'system') &&
+        step.message.metadata?.detail && <EventDetail detail={step.message.metadata.detail} />}
 
       {step.debugInfo?.error && (
         <p className="text-xs text-red-600 mt-2">Error: {step.debugInfo.error}</p>

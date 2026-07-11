@@ -820,7 +820,18 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
         this._logEvent(
           'context_flush',
           `Context block v${block.version} → model (${block.keys.join('+') || 'empty'})`,
-          { version: block.version, keys: block.keys, dropped: block.dropped, tokens: block.tokens, fidelity: result, reason }
+          {
+            version: block.version,
+            keys: block.keys,
+            dropped: block.dropped,
+            tokens: block.tokens,
+            fidelity: result,
+            reason,
+            // Owner 2026-07-11: the FULL merged block text per flush — replay
+            // must show exactly what the model remembered at this turn
+            // (capped; blocks are token-budgeted well below this anyway).
+            blockText: block.text.slice(0, 16_000),
+          }
         );
       }
     } catch (err) {

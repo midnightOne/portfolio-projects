@@ -145,6 +145,9 @@ export function ReflinkSessionProvider({ children }: ReflinkSessionProviderProps
         
         // Store session in sessionStorage for persistence
         sessionStorage.setItem('ai_reflink_session', JSON.stringify(reflinkSession));
+        // Consumers OUTSIDE this provider (header JD button) re-read the cache
+        // on this signal — sessionStorage fires no same-tab storage events.
+        window.dispatchEvent(new CustomEvent('ai-session-updated'));
       } else {
         // Invalid reflink - show appropriate message and fall back to public access
         await handleInvalidReflink(validation.reason);
@@ -163,6 +166,7 @@ export function ReflinkSessionProvider({ children }: ReflinkSessionProviderProps
       // Clear any stored reflink data
       sessionStorage.removeItem('ai_reflink_code');
       sessionStorage.removeItem('ai_reflink_session');
+      window.dispatchEvent(new CustomEvent('ai-session-updated'));
       
       // Always revalidate the access level from the server (2026-07-07 fix:
       // the old cache short-circuit had no TTL, so admin-session detection and

@@ -72,6 +72,11 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     private _sessionInputKind: 'mic' | 'silent' | 'synthetic' = 'mic';
     /** D53 emulated-microphone stream when _sessionInputKind === 'synthetic'. */
     private _syntheticInputStream: MediaStream | null = null;
+    /** INPUT-track mute state (mic on/off). Deliberately separate from the base
+     *  class's `_isMuted`, which tracks OUTPUT (audio element) mute — sharing
+     *  one field let output mute/unmute desync the input flag and skip the real
+     *  track unmute (owner bug report 2026-07-11: re-enabled mic stayed deaf). */
+    private _inputMuted = false;
     /** call_id → tool name, captured at output_item.added (arguments.done events carry no name). */
     private _pendingToolNames: Map<string, string> = new Map();
     /** tool name → latest provider call_id, so the post-execution row can correlate. */
@@ -668,6 +673,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         }
 
         this._sessionInputKind = inputKind;
+        this._inputMuted = false; // fresh session = fresh (unmuted) input track
         this._sessionEpoch++;
         // J4: a fresh provider session has no summary item and none of the old
         // items — window mechanics start over (the server re-sends the current
@@ -2275,12 +2281,16 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         }
 
         try {
-            console.log('OpenAIRealtimeAdapter: Current mute state:', this._isMuted);
-            if (this._isMuted) {
-                console.log('OpenAIRealtimeAdapter: Unmuting session...');
-                this._session?.mute(false);
-                this._isMuted = false;
-            }
+            // Unmute the input track UNCONDITIONALLY (owner bug report
+            // 2026-07-11: disable → enable left the model deaf). The old
+            // `if (this._isMuted)` gate keyed off a flag the base class's
+            // OUTPUT mute/unmute also writes — one touch of those desynced it
+            // from the real WebRTC track state and the unmute was skipped.
+            // session.mute(false) is idempotent on the track; input mute now
+            // has its own field (_inputMuted) so output mute can never shadow it.
+            console.log('OpenAIRealtimeAdapter: Ensuring input track is unmuted (was inputMuted:', this._inputMuted, ')');
+            this._session?.mute(false);
+            this._inputMuted = false;
 
             this._isRecording = true;
             this._sessionStatus = 'listening';
@@ -2307,9 +2317,9 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
     async stopListening(): Promise<void> {
         try {
-            if (this._session && !this._isMuted) {
+            if (this._session && !this._inputMuted) {
                 this._session.mute(true);
-                this._isMuted = true;
+                this._inputMuted = true;
             }
             this._isRecording = false;
             this._sessionStatus = 'idle';
@@ -2381,14 +2391,14 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         }
 
         try {
-            if (this._isMuted) {
+            if (this._inputMuted) {
                 this._session.mute(false);
-                this._isMuted = false;
+                this._inputMuted = false;
             } else {
                 this._session.mute(true);
-                this._isMuted = true;
+                this._inputMuted = true;
             }
-            console.log('Mute toggled:', this._isMuted);
+            console.log('Input mute toggled:', this._inputMuted);
         } catch (error) {
             throw new AudioError(
                 `Failed to toggle mute: ${error instanceof Error ? error.message : 'Unknown error'}`,

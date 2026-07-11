@@ -536,7 +536,10 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
       silentGain.gain.value = 0;
 
       processor.onaudioprocess = (e) => {
-        if (!this._capturing || this._isMuted || this._ws?.readyState !== WebSocket.OPEN) return;
+        // Gate on _capturing only: `_isMuted` is the OUTPUT (playback) mute —
+        // silencing the speaker must not silence the visitor's microphone
+        // (same input/output conflation as the OpenAI 2026-07-11 deaf-mic bug).
+        if (!this._capturing || this._ws?.readyState !== WebSocket.OPEN) return;
         const input = e.inputBuffer.getChannelData(0);
         const downsampled = downsampleTo16k(input, ctx.sampleRate);
         const pcm16 = floatTo16BitPCM(downsampled);
