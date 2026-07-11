@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { Plus, Copy, Archive, Workflow, MessagesSquare, FileClock } from "lucide-react";
+import { Plus, Copy, Archive, Workflow, MessagesSquare, FileClock, Compass } from "lucide-react";
 
 interface GraphListItem {
   id: string;
@@ -111,8 +111,8 @@ export function ConversationGraphsManager() {
         const r = json.data;
         setBatchStatus(
           kind === "questions"
-            ? `Question analytics: ${r.transitionsScanned} transitions scanned → +${r.rowsInserted} rows, ${r.rowsEmbedded} embedded, ${r.rowsClustered} clustered${r.notes?.length ? ` — ${r.notes.join("; ")}` : ""}`
-            : `Summaries: ${r.candidates} candidate conversation(s), ${r.claimed} summarized${r.failed ? `, ${r.failed} failed` : ""}`
+            ? `Question analytics: ${r.transitionsScanned} transitions scanned → +${r.rowsInserted} rows (+${r.organicRowsInserted ?? 0} organic), ${r.rowsEmbedded} embedded, ${r.rowsClustered} clustered${r.notes?.length ? ` — ${r.notes.join("; ")}` : ""}`
+            : `Summaries: ${r.candidates} candidate conversation(s), ${r.claimed} summarized${r.failed ? `, ${r.failed} failed` : ""}${r.notes?.length ? ` — ${r.notes.join("; ")}` : ""}`
         );
       } else {
         setBatchStatus(json.error?.message ?? "Batch failed");
@@ -182,6 +182,8 @@ export function ConversationGraphsManager() {
         </p>
       )}
 
+      <OrganicQuestionsPanel />
+
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
         {graphs.map((g) => (
           <Card key={g.id} data-testid={`graph-card-${g.id}`}>
@@ -222,5 +224,127 @@ export function ConversationGraphsManager() {
         ))}
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// M3 (Req 16 extension, §9.7): organic entry questions, queryable by condition
+// — what visitors asked around UI events in GRAPH-LESS conversations. The
+// first real graph's shape is derived from this instead of intuition.
+// ---------------------------------------------------------------------------
+
+interface OrganicProtoNode {
+  key: string;
+  event: string;
+  match: string;
+  clusters: Array<{ clusterId: string; count: number; representative: string; samples: string[]; lastAskedAt: string }>;
+  pending: number;
+  total: number;
+}
+
+const ORGANIC_EVENTS = [
+  { id: "", label: "All events" },
+  { id: "project_opened", label: "Project opened" },
+  { id: "section_viewed", label: "Section viewed" },
+  { id: "route_changed", label: "Route changed" },
+];
+
+function OrganicQuestionsPanel() {
+  const [nodes, setNodes] = React.useState<OrganicProtoNode[] | null>(null);
+  const [event, setEvent] = React.useState("");
+  const [match, setMatch] = React.useState("");
+  const [open, setOpen] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    try {
+      const params = new URLSearchParams();
+      if (event) params.set("event", event);
+      if (match.trim()) params.set("match", match.trim());
+      const res = await fetch(`/api/admin/ai/engine/organic-questions?${params}`);
+      const json = await res.json();
+      if (json.success) setNodes(json.data.protoNodes);
+    } catch {
+      setNodes([]);
+    }
+  }, [event, match]);
+
+  React.useEffect(() => {
+    if (open) void load();
+  }, [open, load]);
+
+  return (
+    <Card data-testid="organic-questions-panel">
+      <CardContent className="p-4 space-y-3">
+        <button type="button" className="flex items-center gap-2 text-sm font-medium w-full text-left" onClick={() => setOpen((v) => !v)} data-testid="organic-questions-toggle">
+          <Compass className="h-4 w-4 text-muted-foreground" />
+          Organic questions (graph-less conversations)
+          <span className="text-xs text-muted-foreground font-normal">
+            — what visitors asked around UI events; design the first graph from this
+          </span>
+        </button>
+        {open && (
+          <>
+            <div className="flex gap-2 items-center">
+              <select
+                className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                value={event}
+                onChange={(e) => setEvent(e.target.value)}
+                data-testid="organic-event-filter"
+              >
+                {ORGANIC_EVENTS.map((e) => (
+                  <option key={e.id} value={e.id}>{e.label}</option>
+                ))}
+              </select>
+              <Input
+                className="w-56 h-8 text-xs"
+                placeholder="Filter by value (e.g. project slug)"
+                value={match}
+                onChange={(e) => setMatch(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && void load()}
+                data-testid="organic-match-filter"
+              />
+              <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => void load()}>
+                Query
+              </Button>
+            </div>
+            {nodes === null && <p className="text-xs text-muted-foreground">Loading…</p>}
+            {nodes !== null && nodes.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                No organic samples yet — they appear after voice conversations with UI activity, once the
+                question-analytics batch has run.
+              </p>
+            )}
+            {nodes !== null && nodes.length > 0 && (
+              <div className="space-y-2" data-testid="organic-proto-nodes">
+                {nodes.map((n) => (
+                  <div key={n.key} className="rounded-md border border-border p-2.5">
+                    <div className="flex items-center gap-2 text-xs">
+                      <Badge variant="outline" className="text-[10px]">{n.event.replace("_", " ")}</Badge>
+                      <span className="font-medium truncate">{n.match}</span>
+                      <span className="text-muted-foreground ml-auto shrink-0">
+                        {n.total} sample{n.total === 1 ? "" : "s"}
+                        {n.pending > 0 ? ` (${n.pending} unclustered)` : ""}
+                      </span>
+                    </div>
+                    {n.clusters.length > 0 && (
+                      <ul className="mt-1.5 space-y-1">
+                        {n.clusters.map((c) => (
+                          <li key={c.clusterId} className="text-xs text-muted-foreground">
+                            <span className="text-foreground">×{c.count}</span> “{c.representative}”
+                            {c.samples.length > 0 && (
+                              <span className="italic"> — also: {c.samples.join(" · ")}</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }

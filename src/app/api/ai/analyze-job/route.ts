@@ -10,8 +10,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
+import { z } from 'zod';
 import { withAIGateway, type GatewayContext } from '@/lib/ai/gateway';
-import { getReasoningAdapter, type ReasoningMessage } from '@/lib/ai/reasoning';
+import type { ReasoningMessage } from '@/lib/ai/reasoning';
+import { runSecondaryLLMJob } from '@/lib/services/ai/secondary-llm';
 import { assembleStartFrame } from '@/lib/ai/start-frame';
 import { BackendToolService } from '@/lib/ai/tools/BackendToolService';
 import { prisma } from '@/lib/prisma';
@@ -24,20 +26,31 @@ interface JobAnalysisRequest {
   reflinkId?: string;
 }
 
-interface AnalysisShape {
-  overallMatch: number;
-  companyName?: string | null;
-  positionTitle?: string | null;
-  strengths: string[];
-  gaps: string[];
-  recommendations: string[];
-  skillsMatch: Array<{ skill: string; match: number; evidence: string[] }>;
-  experienceMatch: Array<{ area: string; match: number; relevantProjects: string[] }>;
+/**
+ * M1: the JSON-forced shape for the shared secondary-LLM path. Tolerance
+ * matches the pre-M1 hand parser: `overallMatch` + `strengths` are the hard
+ * requirements (missing → analysis failed); everything else degrades to
+ * empty/null instead of failing the whole analysis.
+ */
+const AnalysisSchema = z.object({
+  overallMatch: z.number(),
+  companyName: z.string().nullable().catch(null),
+  positionTitle: z.string().nullable().catch(null),
+  strengths: z.array(z.string().catch('')),
+  gaps: z.array(z.string()).catch([]),
+  recommendations: z.array(z.string()).catch([]),
+  skillsMatch: z
+    .array(z.object({ skill: z.string(), match: z.number(), evidence: z.array(z.string()).catch([]) }))
+    .catch([]),
+  experienceMatch: z
+    .array(z.object({ area: z.string(), match: z.number(), relevantProjects: z.array(z.string()).catch([]) }))
+    .catch([]),
   /** G3 (Req 13.4 expanded): visitor-facing compatibility document — rendered
    *  in the job-description modal; covers experience fit AND preferred-work
    *  fit (against the owner's work-preferences record when present). */
-  document?: string;
-}
+  document: z.string().optional().catch(undefined),
+});
+type AnalysisShape = z.infer<typeof AnalysisSchema>;
 
 const SYSTEM_PROMPT = `You are an analyst comparing a job specification against a software engineer's ACTUAL portfolio evidence (provided as grounding). Be honest and specific:
 - Only claim strengths the grounding supports; cite project names as evidence.
@@ -57,18 +70,6 @@ Respond with ONLY a JSON object (no markdown fences) of this exact shape:
   "experienceMatch": [{ "area": string, "match": number 0..1, "relevantProjects": string[] }],
   "document": string
 }`;
-
-function parseAnalysis(raw: string | null): AnalysisShape | null {
-  if (!raw) return null;
-  const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
-  try {
-    const parsed = JSON.parse(cleaned);
-    if (typeof parsed.overallMatch !== 'number' || !Array.isArray(parsed.strengths)) return null;
-    return parsed as AnalysisShape;
-  } catch {
-    return null;
-  }
-}
 
 async function assembleGrounding(jobDescription: string, ctx: GatewayContext): Promise<string> {
   const frame = await assembleStartFrame();
@@ -143,10 +144,6 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext) {
 
     const startTime = Date.now();
 
-    // Deep tool → the admin-selectable reasoning model (D39)
-    const adapter = await getReasoningAdapter('default-reasoning');
-    ctx.debug.model = { alias: 'default-reasoning', resolved: `${adapter.provider}/${adapter.modelId}` };
-
     const grounding = await assembleGrounding(jobDescription, ctx);
     const focusNote = focusAreas.length ? `\nFocus areas requested: ${focusAreas.slice(0, 10).join(', ')}` : '';
 
@@ -155,35 +152,43 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext) {
       { role: 'user', content: `Job specification:\n\n${jobDescription}${focusNote}` },
     ];
 
+    // Deep tool → the admin-selectable reasoning model (D39), consumed through
+    // the M1 secondary-LLM path; metering stays with the gateway context so
+    // spend lands with request/tier/reflink attribution.
+    const metered: { current: Awaited<ReturnType<GatewayContext['meter']>> | null } = { current: null };
     const modelStart = Date.now();
-    const result = await adapter.chat(messages, { temperature: 0.3, maxOutputTokens: 2000 });
+    const outcome = await runSecondaryLLMJob({
+      alias: 'default-reasoning',
+      prompt: messages,
+      schema: AnalysisSchema,
+      usageType: 'job_analysis',
+      temperature: 0.3,
+      maxOutputTokens: 2000,
+      meter: async (u) => {
+        metered.current = await ctx.meter({
+          usageType: 'job_analysis',
+          provider: u.provider,
+          modelId: u.modelId,
+          inputTokens: u.inputTokens,
+          outputTokens: u.outputTokens,
+          metadata: u.ok ? { ok: true } : { ok: false, reason: 'unparseable' },
+        });
+      },
+    });
     ctx.debug.modelMs = Date.now() - modelStart;
+    ctx.debug.model = {
+      alias: 'default-reasoning',
+      resolved: outcome.provider ? `${outcome.provider}/${outcome.modelId}` : 'unresolved',
+    };
 
-    const analysis = parseAnalysis(result.content);
+    const analysis = outcome.result;
     if (!analysis) {
       console.error('[analyze-job] unparseable model output');
-      await ctx.meter({
-        usageType: 'job_analysis',
-        provider: result.provider,
-        modelId: result.modelId,
-        inputTokens: result.usage.inputTokens,
-        outputTokens: result.usage.outputTokens,
-        metadata: { ok: false, reason: 'unparseable' },
-      });
       return NextResponse.json(
         { error: 'Analysis could not be completed — please try again.', code: 'ANALYSIS_FAILED' },
         { status: 502 }
       );
     }
-
-    const metered = await ctx.meter({
-      usageType: 'job_analysis',
-      provider: result.provider,
-      modelId: result.modelId,
-      inputTokens: result.usage.inputTokens,
-      outputTokens: result.usage.outputTokens,
-      metadata: { ok: true },
-    });
 
     // Persist for the admin review view (Req 8.1); failures must not fail the response
     let analysisId = `analysis_${randomUUID()}`;
@@ -196,12 +201,12 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext) {
           companyName: analysis.companyName ?? null,
           positionTitle: analysis.positionTitle ?? null,
           analysisResult: analysis as never,
-          tokensUsed: result.usage.inputTokens + result.usage.outputTokens,
-          costUsd: metered.costUsd,
+          tokensUsed: (outcome.usage?.inputTokens ?? 0) + (outcome.usage?.outputTokens ?? 0),
+          costUsd: metered.current?.costUsd ?? 0,
           metadata: {
-            provider: result.provider,
-            modelId: result.modelId,
-            ledgerId: metered.ledgerId,
+            provider: outcome.provider,
+            modelId: outcome.modelId,
+            ledgerId: metered.current?.ledgerId,
             focusAreas,
             tier: ctx.tier,
           },

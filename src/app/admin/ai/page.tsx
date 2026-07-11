@@ -17,6 +17,7 @@ import { ModelAliasPanel } from '@/components/admin/ModelAliasPanel';
 import { ModelPricingPanel } from '@/components/admin/ModelPricingPanel';
 import { EmbeddingModelPanel } from '@/components/admin/EmbeddingModelPanel';
 import { DefaultVoiceProviderPanel } from '@/components/admin/DefaultVoiceProviderPanel';
+import { MemoryLayerPanel } from '@/components/admin/MemoryLayerPanel';
 import { useToast } from '@/components/ui/toast';
 import { ConnectionStatus, ConfigurationStatus } from '@/components/ui/status-badge';
 import { HelpText, HelpSection } from '@/components/ui/help-text';
@@ -280,6 +281,9 @@ function AISettingsContent() {
 
       {/* Site-default voice provider served to visitors */}
       <DefaultVoiceProviderPanel />
+
+      {/* Conversation-memory layer switch + graph-less tool set (M2, Req 19.7) */}
+      <MemoryLayerPanel />
 
       {/* Model pricing table (D38) */}
       <ModelPricingPanel />

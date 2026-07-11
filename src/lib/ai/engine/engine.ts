@@ -73,6 +73,13 @@ export interface ProcessTurnContext {
   isPublic: boolean;
   /** Debug/test session — record evaluated-but-not-taken edges (Req 7.3). */
   debug?: boolean;
+  /**
+   * M2 (Req 19.7): the conversation-memory layer's admin switch, injected by
+   * the host (D48 — core reads no config). Default true. Off = no profile
+   * flags maintained or delivered, no profile in directives — the memory
+   * layer stops while steering (if any) continues.
+   */
+  memoryEnabled?: boolean;
 }
 
 /**
@@ -280,7 +287,9 @@ export class ConversationEngine {
     if (state === null) {
       const active = await this.deps.graphSource.getActiveGraph();
       if (!active) {
-        // Pin "no graph" for the conversation's lifetime (P6 applies to absence too)
+        // Pin "no graph" for the conversation's lifetime (P6 applies to absence
+        // too). startedAt is stamped here as well (M2): it is an anchor, not
+        // memory content — the graph-less profile's duration renders from it.
         await this.deps.stateStore.mergeEngineState(conversationId, {
           engineStateVersion: 1,
           nodeId: null,
@@ -289,6 +298,7 @@ export class ConversationEngine {
           directiveSeq: 0,
           consecutiveLowEffort: 0,
           slots: {},
+          flags: { startedAt: new Date((this.deps.now ?? Date.now)()).toISOString() },
         });
         return none;
       }
@@ -326,7 +336,33 @@ export class ConversationEngine {
       });
     }
 
-    if (!state.nodeId || !state.graphVersionId) return none; // engine off for this conversation
+    const memoryOn = ctx.memoryEnabled !== false;
+
+    if (!state.nodeId || !state.graphVersionId) {
+      // Steering off for this conversation — but the MEMORY layer may still be
+      // on (M2/Req 19.7): a summarizer-produced profile update reaches the
+      // live NATIVE session through the same versioned directive path
+      // (cascade/text re-derive it at next-turn assembly instead). Retries are
+      // version-gated (deliveredProfileVersion), not CAS'd — two concurrent
+      // posts can mint the same seq once each; the adapter's latest-wins gate
+      // drops the duplicate (P4, same accepted race posture as D55).
+      if (memoryOn && ctx.isNative && state.profileVersion > state.deliveredProfileVersion) {
+        const profileText = renderProfileText(state.flags, this.deps.now);
+        if (profileText) {
+          const seq = state.directiveSeq + 1;
+          await this.deps.stateStore.mergeEngineState(conversationId, {
+            directiveSeq: seq,
+            deliveredProfileVersion: state.profileVersion,
+          });
+          return { directive: buildProfileDirective({ seq, profileText }), transition: null, debug: null, ux: null };
+        }
+        // Nothing renderable — mark delivered so the gap isn't re-checked forever.
+        await this.deps.stateStore.mergeEngineState(conversationId, {
+          deliveredProfileVersion: state.profileVersion,
+        });
+      }
+      return none;
+    }
 
     // ---- Idempotency gate (P2): replayed turn → no re-evaluation ----
     if (state.lastEvaluatedTurnId === evidence.turnMessageId) return none;
@@ -366,15 +402,17 @@ export class ConversationEngine {
     // wholesale replacement is the summarizer's move alone (P30). The flags
     // value itself writes atomically (one key of the engine merge), so a
     // concurrent summarizer completion is last-write-wins, not interleaved.
-    const flags = mergeFastFlags(state.flags, outcome.cheap?.flags ?? {});
-    const profileChanged = !flagsEqual(state.flags, flags);
+    // Memory off (M2): flags stop being maintained or rendered — slots keep
+    // flowing (stated facts are engine/steering data, Req 14, not memory).
+    const flags = memoryOn ? mergeFastFlags(state.flags, outcome.cheap?.flags ?? {}) : state.flags;
+    const profileChanged = memoryOn && !flagsEqual(state.flags, flags);
     const profileVersion = state.profileVersion + (profileChanged ? 1 : 0);
     await this.deps.stateStore.mergeEngineState(conversationId, {
       consecutiveLowEffort: outcome.lowEffortCount,
       slots: outcome.slots,
       ...(profileChanged ? { flags, profileVersion } : {}),
     });
-    const profileText = renderProfileText(flags, this.deps.now);
+    const profileText = memoryOn ? renderProfileText(flags, this.deps.now) : null;
 
     if (ctx.debug && outcome.evaluated.length > 0) {
       try {

@@ -865,6 +865,26 @@ model SafetyInvestigation {
   @@map("safety_investigations")
 }
 
+/// Block M2 (Req 19.7, P39) — the conversation-memory layer's own switch,
+/// independent of graph presence. Single row, id always "memory" (same
+/// singleton pattern as SafetyConfig/AIPublicAccessSettings). Enabled (the
+/// default) = profile flags, behavior summarizer, and rolling window run for
+/// EVERY conversation, graph or not; disabled = the memory layer stops.
+/// Removal safety re-scoped (Req 2.7): steering off (no active graph) + memory
+/// off = the app behaves exactly as pre-engine. A missing row reads as the
+/// defaults — fresh clones need no seed step.
+model ConversationMemoryConfig {
+  id            String   @id @default("memory")
+  memoryEnabled Boolean  @default(true) @map("memory_enabled")
+  /// Owner-curated default tool set for GRAPH-LESS sessions (registry names).
+  /// Narrow-only, same posture as node allowlists (never grants beyond tier);
+  /// null = no narrowing (session default set, today's behavior).
+  graphlessToolAllowlist Json? @map("graphless_tool_allowlist")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("conversation_memory_config")
+}
+
 // Hierarchical Content Storage Models for T0-T3 Tier System
 // NOTE: pgvector fields (embeddingVector) use Unsupported("vector(1536)") type
 // Currently optimized for OpenAI embeddings (1536 dimensions).

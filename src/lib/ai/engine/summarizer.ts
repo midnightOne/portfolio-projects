@@ -18,6 +18,7 @@
  */
 
 import { z } from 'zod';
+import { parseJsonWithSchema } from '@/lib/ai/llm-json';
 import { VisitorFlagsSchema, type VisitorFlags } from './types';
 
 export interface SummarizerTurn {
@@ -39,7 +40,8 @@ const MAX_TURNS_IN_PROMPT = 40;
 
 export const SummarizerResultSchema = z.object({
   profile: VisitorFlagsSchema.default({}),
-  summary: z.string().default(''),
+  /** Cap enforced at parse so every consumer (in-session, batch, M1 path) gets it. */
+  summary: z.string().default('').transform((s) => s.slice(0, SUMMARY_CHAR_CAP)),
 });
 export type SummarizerResult = z.infer<typeof SummarizerResultSchema>;
 
@@ -71,21 +73,9 @@ export function buildSummarizerPrompt(input: SummarizerInput): string {
   return lines.join('\n');
 }
 
-/** Defensive parse (same posture as the cheap call): fences stripped, Zod-validated, null on garbage. */
+/** Defensive parse — the shared M1 posture (llm-json.ts); the schema itself caps the summary. */
 export function parseSummarizerResponse(raw: string | null): SummarizerResult | null {
-  if (!raw) return null;
-  const stripped = raw.replace(/```(?:json)?/gi, '').trim();
-  const start = stripped.indexOf('{');
-  const end = stripped.lastIndexOf('}');
-  if (start === -1 || end <= start) return null;
-  try {
-    const parsed = JSON.parse(stripped.slice(start, end + 1));
-    const result = SummarizerResultSchema.safeParse(parsed);
-    if (!result.success) return null;
-    return { ...result.data, summary: result.data.summary.slice(0, SUMMARY_CHAR_CAP) };
-  } catch {
-    return null;
-  }
+  return parseJsonWithSchema(raw, SummarizerResultSchema);
 }
 
 /**

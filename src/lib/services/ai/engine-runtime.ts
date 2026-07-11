@@ -22,18 +22,19 @@ import type {
   StartDirective,
   TurnEvidence,
 } from '@/lib/ai/engine/types';
-import { buildCheapCallPrompt, parseCheapCallResponse, CheapCallInput, CheapCallResult } from '@/lib/ai/engine/cheap-call';
+import { buildCheapCallPrompt, CheapCallInput, CheapCallResult, CheapCallResultSchema } from '@/lib/ai/engine/cheap-call';
 import {
   buildSummarizerPrompt,
-  parseSummarizerResponse,
   summarizerNeeded,
   applySummarizerProfile,
+  SummarizerResultSchema,
 } from '@/lib/ai/engine/summarizer';
+import { runSecondaryLLMJob } from './secondary-llm';
 import { renderProfileText, flagsEqual } from '@/lib/ai/engine/profile';
 import { DEFAULT_WINDOW_CONFIG, renderSummaryText, type WindowConfig } from '@/lib/ai/engine/window';
 import { prismaGraphSource } from './graph-store';
 import { conversationHistoryManager } from './conversation-history-manager';
-import { getReasoningAdapter } from '@/lib/ai/reasoning';
+import { getMemoryConfig } from './memory-config';
 import { generateEmbeddingsForModel } from '@/lib/ai/embeddings';
 import { recordUsage } from '@/lib/ai/ledger';
 import { estimateTokensFromChars } from '@/lib/ai/pricing';
@@ -82,38 +83,23 @@ const DEFAULT_PROBE_PATTERNS: RegExp[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Classifier + embeddings deps (metered internal calls — same recordUsage
-// pattern as ContentSearchService/batch services; D33)
+// Classifier + embeddings deps. Model calls go through the M1 secondary-LLM
+// module (alias + meter + JSON schema + timeout — the REQUIRED consumption
+// path); the pinned-model utterance embed stays on generateEmbeddingsForModel
+// because P11 pins a RECORDED model id, not an alias (genuine divergence).
 // ---------------------------------------------------------------------------
 
 async function runCheapCallMetered(input: CheapCallInput): Promise<CheapCallResult | null> {
-  const prompt = buildCheapCallPrompt(input);
-  const adapter = await getReasoningAdapter('default-cheap');
-  const chatPromise = adapter.chat([{ role: 'user', content: prompt }], {
+  const outcome = await runSecondaryLLMJob({
+    alias: 'default-cheap',
+    prompt: buildCheapCallPrompt(input),
+    schema: CheapCallResultSchema,
+    usageType: 'engine_classifier',
     temperature: 0,
     maxOutputTokens: 400,
+    timeoutMs: CLASSIFIER_TIMEOUT_MS, // timeout → classifier conditions evaluate false this turn (P10)
   });
-  // Meter on completion even when the race below times out first — the spend
-  // happened regardless (D33 honesty).
-  void chatPromise
-    .then((res) =>
-      recordUsage({
-        feature: 'chat',
-        usageType: 'engine_classifier',
-        provider: res.provider,
-        modelId: res.modelId,
-        inputTokens: res.usage.inputTokens,
-        outputTokens: res.usage.outputTokens,
-      })
-    )
-    .catch(() => undefined);
-
-  const result = await Promise.race([
-    chatPromise,
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), CLASSIFIER_TIMEOUT_MS)),
-  ]);
-  if (!result) return null; // timeout → classifier conditions evaluate false this turn (P10)
-  return parseCheapCallResponse(result.content);
+  return outcome.result;
 }
 
 async function embedUtterancePinned(text: string, modelId: string): Promise<number[] | null> {
@@ -317,21 +303,17 @@ export async function runSummarizerJob(conversationId: string): Promise<void> {
       return;
     }
 
-    const adapter = await getReasoningAdapter('default-cheap');
-    const result = await adapter.chat([{ role: 'user', content: buildSummarizerPrompt(input) }], {
+    // M1: the summarizer consumes the shared secondary-LLM path (the caller —
+    // this job — owns the P29 claim; the module owns alias/meter/parse).
+    const outcome = await runSecondaryLLMJob({
+      alias: 'default-cheap',
+      prompt: buildSummarizerPrompt(input),
+      schema: SummarizerResultSchema,
+      usageType: 'engine_summarizer',
       temperature: 0.2,
       maxOutputTokens: 700,
     });
-    void recordUsage({
-      feature: 'chat',
-      usageType: 'engine_summarizer',
-      provider: result.provider,
-      modelId: result.modelId,
-      inputTokens: result.usage.inputTokens,
-      outputTokens: result.usage.outputTokens,
-    }).catch(() => undefined);
-
-    const parsed = parseSummarizerResponse(result.content);
+    const parsed = outcome.result;
     if (!parsed || !parsed.summary.trim()) {
       throw new Error('summarizer returned no parseable summary');
     }
@@ -398,8 +380,10 @@ async function maybeRunSummarizer(conversationId: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function resolveWindowUpdate(conversationId: string): Promise<EngineWindowUpdate | null> {
+  // M2 (Req 19.7): no nodeId gate — the rolling window is memory-layer
+  // machinery and runs graph-less; the memory switch gates at the caller.
   const state = await readEngineState(conversationId);
-  if (!state?.nodeId || state.summaryVersion <= state.deliveredSummaryVersion) return null;
+  if (!state || state.summaryVersion <= state.deliveredSummaryVersion) return null;
   const summary = await conversationHistoryManager.getLatestConversationSummary(conversationId);
   if (!summary) return null;
   await conversationHistoryManager.mergeEngineState(conversationId, {
@@ -445,6 +429,8 @@ function debugTelemetryOn(): boolean {
 }
 
 const ENGINE_SUFFIX_HEADER = '\n\n======== CONVERSATION-STATE GUIDANCE ========\n';
+/** M2: the memory layer's own header — used when memory renders WITHOUT steering (no node guidance to headline). */
+const MEMORY_SUFFIX_HEADER = '\n\n======== CONVERSATION MEMORY ========\n';
 
 /** Mint-time engine inputs for the native session routes (notes §2.1.4). */
 export interface EngineMintPolicy {
@@ -468,6 +454,7 @@ export async function buildEngineStartSuffix(opts: {
   const inactive: EngineMintPolicy = { suffix: '', modelAlias: null };
   try {
     const engine = getConversationEngine();
+    const memory = await getMemoryConfig();
     let directive: StartDirective | null;
     let engineState: EngineState | null = null;
     if (opts.resumeSessionId) {
@@ -479,10 +466,16 @@ export async function buildEngineStartSuffix(opts: {
     } else {
       directive = await engine.startPolicy({ isPublic: opts.isPublic });
     }
-    if (!directive) return inactive;
     // J2: on resume the new leg is briefed with the current profile assessment
     // too — the floating block takes over live updates once the session runs.
-    const profileText = engineState ? renderProfileText(engineState.flags) : null;
+    // M2: memory-gated, and available WITHOUT steering (a graph-less resume
+    // still knows who it is talking to, Req 19.7).
+    const profileText =
+      memory.memoryEnabled && engineState ? renderProfileText(engineState.flags) : null;
+    if (!directive) {
+      if (!profileText) return inactive;
+      return { suffix: `${MEMORY_SUFFIX_HEADER}${profileText}`, modelAlias: null };
+    }
     const parts = [
       ...(directive.contextText ? [directive.contextText] : []),
       ...(profileText ? [profileText] : []),
@@ -573,20 +566,25 @@ export async function runEngineTurn(args: {
 }> {
   try {
     const isNative = args.provider === 'openai' || args.provider === 'google';
+    // M2 (Req 19.7): the memory layer's admin switch — read once per turn,
+    // injected into the core (D48) and gating the summarizer + window below.
+    const memory = await getMemoryConfig();
     const result = await getConversationEngine().processTurn(args.conversationId, args.evidence, {
       provider: args.provider,
       isNative,
       isPublic: args.isPublic,
       debug: debugTelemetryOn(),
+      memoryEnabled: memory.memoryEnabled,
     });
     // J3 (P29): staleness-triggered summarizer — fire-and-forget, never blocks
-    // or delays this turn; the claim gates to ≥1 interval + engine steering.
-    void maybeRunSummarizer(args.conversationId);
+    // or delays this turn; the claim gates to ≥1 interval + an engine-state
+    // stamp (graph OR graph-less — M2); the memory switch gates it here.
+    if (memory.memoryEnabled) void maybeRunSummarizer(args.conversationId);
     // J4: deliver a fresh running summary to the live native session (the
     // adapter prunes against it — P28 mechanics are the adapter's). One-turn
     // lag behind the async summarizer, same accepted race contract as D55.
     let window: EngineWindowUpdate | null = null;
-    if (isNative) {
+    if (isNative && memory.memoryEnabled) {
       try {
         window = await resolveWindowUpdate(args.conversationId);
       } catch (err) {
@@ -645,10 +643,15 @@ export interface EngineTurnPrompt {
   summaryText: string | null;
   /** J4: verbatim-history cap for this turn's assembly; null = engine not steering (no window). */
   maxVerbatimTurns: number | null;
-  /** Prompt-phase debug for `_debug.engine` (Req 7.5); null when the engine is not steering. */
+  /**
+   * Prompt-phase debug for `_debug.engine` (Req 7.5); null when NEITHER layer
+   * contributed (both off = envelope byte-identical to pre-engine, Req 2.7 as
+   * re-scoped). Memory-only turns emit it with nodeId/graphVersionId null —
+   * honest telemetry that memory ran without steering (M2).
+   */
   debug: {
-    nodeId: string;
-    graphVersionId: string;
+    nodeId: string | null;
+    graphVersionId: string | null;
     contextDrops: string[];
     /** J5: window + summarizer state exposure. */
     window: {
@@ -679,6 +682,7 @@ export interface EngineTurnPrompt {
 export async function buildEnginePromptSuffix(sessionId: string, opts: { isPublic: boolean }): Promise<EngineTurnPrompt> {
   const inactive: EngineTurnPrompt = { suffix: '', modelAlias: null, ux: null, summaryText: null, maxVerbatimTurns: null, debug: null };
   try {
+    const memory = await getMemoryConfig();
     const ref = await conversationHistoryManager.getConversationRefBySessionId(sessionId);
     let directive: StartDirective | null;
     let engineState: EngineState | null = null;
@@ -690,45 +694,71 @@ export async function buildEnginePromptSuffix(sessionId: string, opts: { isPubli
       engineState = ConversationEngine.parseEngineState(
         (ref.latestState as Record<string, unknown> | null)?.engine ?? null
       );
-      if (engineState && !engineState.nodeId) return inactive; // engine off for this conversation (pinned)
-      directive = await getConversationEngine().resumePolicy(engineState, { isPublic: opts.isPublic });
+      directive = engineState && !engineState.nodeId
+        ? null // steering off for this conversation (pinned) — memory may still apply below
+        : await getConversationEngine().resumePolicy(engineState, { isPublic: opts.isPublic });
     }
-    if (!directive) return inactive;
 
     // J2: the profile joins the volatile tail — transparent observations, re-
     // derived server-side every turn (the cascade/text application layer).
-    const profileText = engineState ? renderProfileText(engineState.flags) : null;
-    const suffixParts = [
-      ...(directive.contextText ? [directive.contextText] : []),
-      ...(profileText ? [profileText] : []),
-    ];
+    // M2: memory-gated, and independent of steering (Req 19.7).
+    const profileText =
+      memory.memoryEnabled && engineState ? renderProfileText(engineState.flags) : null;
 
-    // J4: running summary as stable-prefix material + the verbatim cap.
+    // J4: running summary as stable-prefix material + the verbatim cap —
+    // memory-layer machinery (Req 20), gated by the memory switch alone (M2).
     const config = windowConfig();
     let summaryText: string | null = null;
-    if (ref && engineState && engineState.summaryVersion > 0) {
+    if (memory.memoryEnabled && ref && engineState && engineState.summaryVersion > 0) {
       const summary = await conversationHistoryManager.getLatestConversationSummary(ref.id);
       if (summary) summaryText = renderSummaryText(summary.summaryText, summary.summaryVersion);
     }
-
-    return {
-      suffix: suffixParts.length ? `${ENGINE_SUFFIX_HEADER}${suffixParts.join('\n\n')}` : '',
-      modelAlias: directive.modelAlias ?? null,
-      ux: directive.ux,
-      summaryText,
-      maxVerbatimTurns: config.maxVerbatimTurns,
-      debug: {
-        nodeId: directive.nodeId,
-        graphVersionId: directive.graphVersionId,
-        contextDrops: directive.contextDrops,
-        window: {
+    const memoryWindow = memory.memoryEnabled
+      ? {
           summaryVersion: engineState?.summaryVersion ?? 0,
           summaryIncluded: summaryText !== null,
           maxVerbatimTurns: config.maxVerbatimTurns,
           lastSummarizerRunAt: engineState?.lastSummarizerRunAt ?? null,
           summarizerInFlight: (engineState?.summarizerInFlightSince ?? null) !== null,
+        }
+      : null;
+
+    if (!directive) {
+      // Steering off. Memory off too (or nothing to say yet) → byte-identical
+      // pre-engine assembly (Req 2.7 as re-scoped: BOTH layers off = today).
+      if (!memory.memoryEnabled || !engineState || (!profileText && !summaryText)) return inactive;
+      return {
+        suffix: profileText ? `${MEMORY_SUFFIX_HEADER}${profileText}` : '',
+        modelAlias: null,
+        ux: null,
+        summaryText,
+        maxVerbatimTurns: config.maxVerbatimTurns,
+        debug: {
+          nodeId: null,
+          graphVersionId: null,
+          contextDrops: [],
+          window: memoryWindow,
+          profile: engineState.flags as Record<string, unknown>,
         },
-        profile: engineState ? (engineState.flags as Record<string, unknown>) : null,
+      };
+    }
+
+    const suffixParts = [
+      ...(directive.contextText ? [directive.contextText] : []),
+      ...(profileText ? [profileText] : []),
+    ];
+    return {
+      suffix: suffixParts.length ? `${ENGINE_SUFFIX_HEADER}${suffixParts.join('\n\n')}` : '',
+      modelAlias: directive.modelAlias ?? null,
+      ux: directive.ux,
+      summaryText,
+      maxVerbatimTurns: memory.memoryEnabled ? config.maxVerbatimTurns : null,
+      debug: {
+        nodeId: directive.nodeId,
+        graphVersionId: directive.graphVersionId,
+        contextDrops: directive.contextDrops,
+        window: memoryWindow,
+        profile: memory.memoryEnabled && engineState ? (engineState.flags as Record<string, unknown>) : null,
       },
     };
   } catch (err) {
@@ -742,6 +772,13 @@ export async function buildEnginePromptSuffix(sessionId: string, opts: { isPubli
  * doesn't narrow (Req 4.4) / engine inactive / anything fails (fail-open to
  * the EXISTING tier enforcement — the node layer only ever narrows, never
  * grants, so failing open here cannot widen access beyond the tier).
+ *
+ * M2: conversations PINNED graph-less (engine state stamped, nodeId null) get
+ * the admin-configured default tool set instead — same narrow-only layer,
+ * same Req 3.5 baseline-retrieval floor (a graph-less session is off-graph in
+ * spirit: prepared narrowing must never wall off RAG). A conversation with no
+ * engine stamp yet (pre-first-turn) stays un-narrowed: it may still be
+ * captured by an active graph at its first turn, so it is not "graph-less".
  */
 export async function getNodeToolAllowlist(sessionId: string): Promise<string[] | null> {
   try {
@@ -750,6 +787,11 @@ export async function getNodeToolAllowlist(sessionId: string): Promise<string[] 
     const engineState = ConversationEngine.parseEngineState(
       (ref.latestState as Record<string, unknown> | null)?.engine ?? null
     );
+    if (engineState && !engineState.nodeId) {
+      const memory = await getMemoryConfig();
+      if (!memory.graphlessToolAllowlist) return null;
+      return Array.from(new Set([...memory.graphlessToolAllowlist, 'content_search', 'content_get']));
+    }
     if (!engineState?.nodeId || !engineState.graphVersionId) return null;
     const document = await prismaGraphSource.getVersion(engineState.graphVersionId);
     const node = document?.nodes.find((n) => n.id === engineState.nodeId);

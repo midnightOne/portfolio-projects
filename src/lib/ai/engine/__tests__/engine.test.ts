@@ -787,3 +787,114 @@ describe('Block G1 — chips + topic label on the directive/result', () => {
     expect(contextResolved).toBe(0); // the surface read never assembles context
   });
 });
+
+// ---------------------------------------------------------------------------
+// Block M2 — graph-independent memory layer (Req 19.7, P39): profile delivery
+// without steering, memory-switch gating, graph-less startedAt anchor
+// ---------------------------------------------------------------------------
+
+describe('Block M2 — memory layer without the graph', () => {
+  const graphlessState = (over: Partial<EngineState> = {}): EngineState => ({
+    ...freshState(),
+    nodeId: null,
+    graphVersionId: null,
+    flags: { register: 'technical' },
+    profileVersion: 2,
+    deliveredProfileVersion: 1,
+    directiveSeq: 4,
+    ...over,
+  });
+
+  it('delivers a summarizer-produced profile to a graph-less NATIVE session via the directive path', async () => {
+    const store = makeStore(graphlessState());
+    const engine = makeEngine(null, store);
+    const result = await engine.processTurn('c1', evidence('hello there'), turnCtx);
+    expect(result.transition).toBeNull();
+    expect(result.directive?.seq).toBe(5);
+    expect(result.directive?.contextItems).toEqual([
+      { key: 'profile', text: expect.stringContaining('technical') },
+    ]);
+    expect(store.state?.deliveredProfileVersion).toBe(2);
+    // retry: version gap closed → no re-mint (idempotent without a CAS)
+    const replay = await engine.processTurn('c1', evidence('hello there'), turnCtx);
+    expect(replay.directive).toBeNull();
+  });
+
+  it('graph-less profile delivery is memory-gated and native-only', async () => {
+    const offStore = makeStore(graphlessState());
+    const off = await makeEngine(null, offStore).processTurn('c1', evidence('hi'), {
+      ...turnCtx,
+      memoryEnabled: false,
+    });
+    expect(off.directive).toBeNull();
+    expect(offStore.state?.deliveredProfileVersion).toBe(1); // untouched — memory off changes nothing
+
+    const textStore = makeStore(graphlessState());
+    const text = await makeEngine(null, textStore).processTurn('c1', evidence('hi'), {
+      provider: 'text',
+      isNative: false,
+      isPublic: true,
+    });
+    expect(text.directive).toBeNull(); // cascade/text re-derive at next-turn assembly
+  });
+
+  it('an unrenderable profile gap is marked delivered so it is not re-checked forever', async () => {
+    const store = makeStore(graphlessState({ flags: {} }));
+    const result = await makeEngine(null, store).processTurn('c1', evidence('hi'), turnCtx);
+    expect(result.directive).toBeNull();
+    expect(store.state?.deliveredProfileVersion).toBe(2);
+  });
+
+  it('memory off stops flag maintenance and profile rendering while steering continues', async () => {
+    const d = doc({
+      nodes: [
+        baseNode('start', 'start', { slots: { capture: [{ name: 'company', type: 'company', hint: 'their company' }] } }),
+        baseNode('kiln'),
+        baseNode('offgraph', 'offgraph'),
+      ],
+      edges: [
+        { id: 'e-pattern', from: 'start', to: 'kiln', priority: 10, condition: { type: 'pattern', anyOf: ['kiln'] }, purge: 'replace' },
+      ],
+    });
+    const mkEngine = (store: EngineStateStore) =>
+      new ConversationEngine({
+        graphSource: {
+          async getActiveGraph() {
+            return { graphId: 'g1', versionId: 'v1', document: d };
+          },
+          async getVersion(id: string) {
+            return id === 'v1' ? d : null;
+          },
+        },
+        stateStore: store,
+        evaluator: fakeDeps({ runCheapCall: async () => cheap({ flags: { register: 'technical' } }) }),
+        resolveContextSet: async () => ({ text: 'ctx', drops: [] }),
+      });
+
+    // Memory ON: fast flags merge, profile change delivered on the no-fire path.
+    const onStore = makeStore(freshState());
+    const on = await mkEngine(onStore).processTurn('c1', evidence('no match here'), turnCtx);
+    expect(onStore.state?.flags.register).toBe('technical');
+    expect(on.directive?.contextItems?.[0].key).toBe('profile');
+
+    // Memory OFF: same turn — no flag write, no profile directive; steering intact.
+    const offStore = makeStore(freshState());
+    const off = await mkEngine(offStore).processTurn('c1', evidence('no match here'), { ...turnCtx, memoryEnabled: false });
+    expect(offStore.state?.flags.register).toBeUndefined();
+    expect(offStore.state?.profileVersion).toBe(0);
+    expect(off.directive).toBeNull();
+
+    // Memory OFF on a FIRING turn: transition directive carries engine context only, no profile item.
+    const fireStore = makeStore(freshState());
+    const fired = await mkEngine(fireStore).processTurn('c1', evidence('the kiln please'), { ...turnCtx, memoryEnabled: false });
+    expect(fired.transition?.toNode).toBe('kiln');
+    expect(fired.directive?.contextItems?.map((i) => i.key)).toEqual(['engine']);
+  });
+
+  it('graph-less pinning stamps the startedAt anchor (duration renders from it)', async () => {
+    const store = makeStore(null);
+    await makeEngine(null, store).processTurn('c1', evidence('hi'), turnCtx);
+    expect(store.state?.nodeId).toBeNull();
+    expect(typeof store.state?.flags.startedAt).toBe('string');
+  });
+});

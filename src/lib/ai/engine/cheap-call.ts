@@ -10,6 +10,7 @@
  */
 
 import { z } from 'zod';
+import { parseJsonWithSchema } from '@/lib/ai/llm-json';
 import { VisitorFlagsSchema } from './types';
 
 export interface CheapCallEdgeDescriptor {
@@ -97,18 +98,7 @@ export function buildCheapCallPrompt(input: CheapCallInput): string {
   return lines.join('\n');
 }
 
-/** Defensive parse: strips code fences, tolerates surrounding prose, validates with Zod. */
+/** Defensive parse — the shared M1 posture (llm-json.ts): fences stripped, Zod-validated, null on garbage. */
 export function parseCheapCallResponse(raw: string | null): CheapCallResult | null {
-  if (!raw) return null;
-  const stripped = raw.replace(/```(?:json)?/gi, '').trim();
-  const start = stripped.indexOf('{');
-  const end = stripped.lastIndexOf('}');
-  if (start === -1 || end <= start) return null;
-  try {
-    const parsed = JSON.parse(stripped.slice(start, end + 1));
-    const result = CheapCallResultSchema.safeParse(parsed);
-    return result.success ? result.data : null;
-  } catch {
-    return null;
-  }
+  return parseJsonWithSchema(raw, CheapCallResultSchema);
 }

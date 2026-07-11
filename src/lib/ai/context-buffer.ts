@@ -28,6 +28,36 @@ export interface PublishOptions {
   ttlMs?: number;
   /** Merge order (ascending) AND budget-drop order (highest dropped first). Default 50; `fid` publishes at 10. */
   priority?: number;
+  /** Provider's own content version for this entry (advisory — diagnostics/telemetry). */
+  version?: number;
+}
+
+/**
+ * THE memory-provider contract (Block M2 — Req 19.7, P39). The floating block
+ * is a sum of source-attributed parts: each provider — F-I-D (`fid`), engine
+ * node context (`engine`), visitor profile (`profile`), auto-nav policy
+ * (`autonav`), running summary, future providers — publishes ONE entry under
+ * its own source key and owns its own update cadence. Binding rules:
+ *
+ *  - last-write-wins per source key; the injector merges current entries with
+ *    source attribution (the `[key]` section labels in getBlock);
+ *  - NO provider may read another's cache — cross-provider derivation belongs
+ *    in the publishing system, never in the buffer;
+ *  - absence of any provider is NORMAL operation: the block is always
+ *    buildable from whatever parts currently exist — never block or error on
+ *    a missing part.
+ */
+export interface MemoryProviderEntry {
+  /** The provider's identity — one provider, one key. */
+  sourceKey: string;
+  /** Rendered, model-visible text (already compacted by the provider). */
+  content: string;
+  /** Merge order (ascending); also the budget-drop order. Default 50. */
+  priority?: number;
+  /** Provider's own content version (advisory). */
+  version?: number;
+  /** Entry expires this many ms after publish; absent = until replaced. */
+  ttlMs?: number;
 }
 
 interface BufferEntry {
@@ -89,6 +119,15 @@ export class ContextBuffer {
       ttlMs: opts?.ttlMs,
       publishedAt: this.now(),
       seq: this.seqCounter++,
+    });
+  }
+
+  /** The typed P39 contract entry point — same mechanics as publish(). */
+  publishEntry(entry: MemoryProviderEntry): void {
+    this.publish(entry.sourceKey, entry.content, {
+      priority: entry.priority,
+      ttlMs: entry.ttlMs,
+      version: entry.version,
     });
   }
 

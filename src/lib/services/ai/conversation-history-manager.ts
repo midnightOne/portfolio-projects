@@ -839,12 +839,15 @@ export class ConversationHistoryManager {
 
     /**
      * P29 staleness trigger + in-flight guard for the behavior summarizer
-     * (task J3), as ONE atomic claim: succeeds only when the engine steers
-     * this conversation (nodeId non-null — removal safety, Req 2.7), no run is
-     * in flight (or the in-flight stamp is stale — a crashed serverless
-     * invocation must not wedge the summarizer forever), and the last
-     * completed run is older than the interval. Winning the claim stamps
-     * summarizerInFlightSince; the job clears it on completion or failure.
+     * (task J3), as ONE atomic claim: succeeds only when the conversation has
+     * an engine-state stamp (M2/Req 19.7 un-gated this from nodeId — the
+     * memory layer runs graph-less; the memory SWITCH gate lives in callers
+     * via getMemoryConfig, and the engine-key requirement keeps the claim from
+     * inventing junk keys on pre-engine conversations), no run is in flight
+     * (or the in-flight stamp is stale — a crashed serverless invocation must
+     * not wedge the summarizer forever), and the last completed run is older
+     * than the interval. Winning the claim stamps summarizerInFlightSince;
+     * the job clears it on completion or failure.
      */
     async claimSummarizerRun(
         conversationId: string,
@@ -863,7 +866,7 @@ export class ConversationHistoryManager {
                     COALESCE(latest_state->'engine', '{}'::jsonb) || jsonb_build_object('summarizerInFlightSince', ${nowIso}::text)
                 ) || jsonb_build_object('stateVersion', COALESCE((latest_state->>'stateVersion')::int, 0) + 1)
             WHERE id = ${conversationId}
-              AND (latest_state->'engine'->>'nodeId') IS NOT NULL
+              AND (latest_state->'engine') IS NOT NULL
               AND (
                     (latest_state->'engine'->>'summarizerInFlightSince') IS NULL
                  OR (latest_state->'engine'->>'summarizerInFlightSince')::timestamptz < ${staleFloor}::timestamptz

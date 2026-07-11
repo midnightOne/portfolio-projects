@@ -14,13 +14,19 @@
  */
 
 import { prisma } from '@/lib/prisma';
-import { generateEmbeddings, currentEmbeddingModelId } from '@/lib/ai/embeddings';
-import { recordUsage } from '@/lib/ai/ledger';
-import { estimateCost } from '@/lib/ai/pricing';
-import { semanticBudgetManager } from '@/lib/content/SemanticBudgetManager';
+import { currentEmbeddingModelId } from '@/lib/ai/embeddings';
 import { conversationHistoryManager } from './conversation-history-manager';
 import { runSummarizerJob } from './engine-runtime';
-import { attributeEntryTurns, type TransitionMarkerRow, type UserTurnRow } from './question-analytics';
+import { getMemoryConfig } from './memory-config';
+import { runMeteredEmbeddingBatch } from './secondary-llm';
+import {
+  attributeEntryTurns,
+  attributeOrganicEntryTurns,
+  ORGANIC_GRAPH_ID,
+  type OrganicTurnRow,
+  type TransitionMarkerRow,
+  type UserTurnRow,
+} from './question-analytics';
 
 /**
  * v1 clustering threshold (cosine similarity): near-duplicate questions group
@@ -42,6 +48,8 @@ const SUMMARIZER_IN_FLIGHT_STALE_MS = 120_000;
 export interface QuestionBatchResult {
   transitionsScanned: number;
   rowsInserted: number;
+  /** M3: proto-node rows from organic (graph-less) conversations (§9.7). */
+  organicRowsInserted: number;
   rowsEmbedded: number;
   rowsClustered: number;
   /** Non-fatal skips, reported honestly (no silent caps). */
@@ -141,8 +149,63 @@ export async function runQuestionAnalyticsBatch(opts?: {
       })
     : { count: 0 };
 
-  // 4. Embed new rows via default-embedding — budget-gated + ledgered like any
-  //    semantic operation (P23), embedding model id recorded on the ledger row.
+  // 3b. M3 — the organic (graph-less) arm: UI events act as proto-node keys
+  //     (Req 16 extension, §9.7). Carrier turns = user messages whose metadata
+  //     carries A4 uiEvidence, in conversations PINNED graph-less (engine
+  //     stamped, nodeId null). Raw SQL on purpose: jsonb key-exists (`?`) has
+  //     no Prisma filter, and the step-1 NOT-filter trap says stay explicit —
+  //     the test-tag exclusion here is COALESCE'd so key-missing rows survive.
+  let organicInserted = 0;
+  const organicCarriers = await prisma.$queryRaw<Array<{ conversation_id: string }>>`
+    SELECT DISTINCT m.conversation_id
+    FROM ai_conversation_messages m
+    JOIN ai_conversations c ON c.id = m.conversation_id
+    WHERE m.role = 'user'
+      AND m.timestamp >= ${since}
+      AND m.metadata ? 'uiEvidence'
+      AND (c.latest_state->'engine') IS NOT NULL
+      AND (c.latest_state->'engine'->>'nodeId') IS NULL
+      AND COALESCE((c.metadata->>'test')::boolean, false) = false`;
+  if (organicCarriers.length > 0) {
+    const organicRows = await prisma.aIConversationMessage.findMany({
+      where: {
+        conversationId: { in: organicCarriers.map((r) => r.conversation_id) },
+        role: 'user',
+        timestamp: { gte: since },
+      },
+      select: { id: true, conversationId: true, timestamp: true, content: true, metadata: true },
+    });
+    const organicTurns: OrganicTurnRow[] = organicRows.map((r) => {
+      const uiEvidence = (r.metadata as Record<string, unknown> | null)?.uiEvidence;
+      return {
+        id: r.id,
+        conversationId: r.conversationId,
+        timestamp: r.timestamp,
+        content: r.content,
+        uiEvents: Array.isArray(uiEvidence) ? (uiEvidence as Array<Record<string, unknown>>) : [],
+      };
+    });
+    const organicAttributions = attributeOrganicEntryTurns(organicTurns);
+    if (organicAttributions.length > 0) {
+      const res = await prisma.nodeEntryQuestion.createMany({
+        data: organicAttributions.map((a) => ({
+          nodeId: a.protoKey,
+          graphId: ORGANIC_GRAPH_ID, // sentinel — no real graph to reference
+          graphVersionId: ORGANIC_GRAPH_ID,
+          conversationId: a.conversationId,
+          messageId: a.messageId,
+          text: a.text,
+        })),
+        skipDuplicates: true, // same idempotency contract as the steered arm
+      });
+      organicInserted = res.count;
+    }
+  }
+
+  // 4. Embed new rows via default-embedding — through the M1 shared embedding
+  //    job (budget gate + ledger row + recorded model id, Req 16.2/P23).
+  //    Organic proto-node rows (3b) ride the SAME embed + cluster steps —
+  //    clustering groups per node_id, so proto keys cluster among themselves.
   const pending = await prisma.$queryRaw<Array<{ id: string; text: string }>>`
     SELECT id, text FROM node_entry_questions
     WHERE embedding IS NULL
@@ -150,28 +213,18 @@ export async function runQuestionAnalyticsBatch(opts?: {
     LIMIT ${EMBED_ROWS_PER_RUN}`;
   let embedded = 0;
   if (pending.length > 0) {
-    const modelId = await currentEmbeddingModelId();
-    const estimatedTokens = pending.reduce((s, r) => s + Math.ceil(r.text.length / 4), 0);
-    const estimatedCost = await estimateCost(modelId, { inputTokens: estimatedTokens }).catch(() => 0);
-    const afford = await semanticBudgetManager.canAffordOperation(estimatedCost);
-    if (!afford.canAfford) {
-      notes.push(
-        `embedding skipped: budget gate (needs $${estimatedCost.toFixed(4)}, remaining $${afford.remainingFunds.toFixed(2)}) — ${pending.length} row(s) stay pending`
-      );
+    const outcome = await runMeteredEmbeddingBatch({
+      texts: pending.map((r) => r.text),
+      taskType: 'document',
+      usageType: 'engine_question_embedding',
+      estimateModelId: await currentEmbeddingModelId(),
+      metadata: { operation: 'question_analytics_batch' },
+    });
+    if (!outcome.ok) {
+      notes.push(`embedding skipped: ${outcome.reason} — ${pending.length} row(s) stay pending`);
     } else {
-      const result = await generateEmbeddings(pending.map((r) => r.text), { taskType: 'document' });
-      const costUsd = await estimateCost(result.modelId, { inputTokens: result.tokensUsed }).catch(() => 0);
-      await recordUsage({
-        feature: 'semantic',
-        usageType: 'engine_question_embedding',
-        provider: result.provider,
-        modelId: result.modelId, // the recorded embedding model id (Req 16.2)
-        inputTokens: result.tokensUsed,
-        costUsd,
-        metadata: { operation: 'question_analytics_batch', rows: pending.length },
-      });
       for (let i = 0; i < pending.length; i++) {
-        const vec = `[${result.vectors[i].join(',')}]`;
+        const vec = `[${outcome.vectors[i].join(',')}]`;
         await prisma.$executeRaw`
           UPDATE node_entry_questions SET embedding = ${vec}::vector WHERE id = ${pending[i].id}`;
         embedded++;
@@ -204,7 +257,14 @@ export async function runQuestionAnalyticsBatch(opts?: {
     clustered++;
   }
 
-  return { transitionsScanned: markers.length, rowsInserted: inserted.count, rowsEmbedded: embedded, rowsClustered: clustered, notes };
+  return {
+    transitionsScanned: markers.length,
+    rowsInserted: inserted.count,
+    organicRowsInserted: organicInserted,
+    rowsEmbedded: embedded,
+    rowsClustered: clustered,
+    notes,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -274,21 +334,29 @@ export async function getNodeQuestionClusters(graphId: string): Promise<NodeQues
 // ---------------------------------------------------------------------------
 // I2 — summarization batch (Req 17.2): backfill/consolidation trigger of the
 // ONE summary pipeline (runSummarizerJob — Req 20.5: never two competing
-// summaries). Scope: engine-steered conversations only (nodeId non-null), the
-// same gate the in-session trigger uses — with the engine off the app must
-// behave exactly as today (Req 2.7), summaries included.
+// summaries). Scope (re-scoped by M2/Req 19.7): every conversation with an
+// engine-state stamp — graph-steered OR graph-less — gated by the memory
+// layer's admin switch, the same gate the in-session trigger uses. Memory off
+// = no summaries, matching the re-scoped removal-safety contract (Req 2.7).
 // ---------------------------------------------------------------------------
 
 export interface SummaryBatchResult {
   candidates: number;
   claimed: number;
   failed: number;
+  /** Honest skip reporting (no silent caps). */
+  notes?: string[];
 }
 
 export async function runSummaryBackfillBatch(opts?: {
   /** Only conversations active after this (default: 30 days back). */
   since?: Date;
 }): Promise<SummaryBatchResult> {
+  // M2: the memory switch gates the batch exactly like the in-session trigger.
+  const memory = await getMemoryConfig();
+  if (!memory.memoryEnabled) {
+    return { candidates: 0, claimed: 0, failed: 0, notes: ['memory layer disabled — batch skipped'] };
+  }
   const since = opts?.since ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   // New activity since the summarizer last completed for the conversation —
   // exactly the conversations whose running summary is missing or stale
@@ -300,7 +368,7 @@ export async function runSummaryBackfillBatch(opts?: {
   // harmless (the claim + summarizerNeeded still gate) but wrong is wrong.
   const candidates = await prisma.$queryRaw<Array<{ id: string }>>`
     SELECT id FROM ai_conversations
-    WHERE (latest_state->'engine'->>'nodeId') IS NOT NULL
+    WHERE (latest_state->'engine') IS NOT NULL
       AND last_message_at IS NOT NULL
       AND last_message_at >= ${since}
       AND last_message_at > COALESCE(
