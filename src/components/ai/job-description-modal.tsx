@@ -51,6 +51,7 @@ export function JobDescriptionModal({ reflinkId, onVisitorTurn, onAssistantConte
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [email, setEmail] = useState('');
   const [emailState, setEmailState] = useState<'idle' | 'sending' | 'done' | 'error'>('idle');
+  const [emailMessage, setEmailMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const submittedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -65,6 +66,7 @@ export function JobDescriptionModal({ reflinkId, onVisitorTurn, onAssistantConte
         setError(null);
         setResult(null);
         setEmailState('idle');
+        setEmailMessage(null);
         submittedRef.current = false;
       }
     });
@@ -158,6 +160,10 @@ export function JobDescriptionModal({ reflinkId, onVisitorTurn, onAssistantConte
         body: JSON.stringify({ analysisId: result.analysisId, email: email.trim(), reflinkId }),
       });
       if (!res.ok) throw new Error('bad response');
+      // G6: the server says what actually happened — sent now vs. recorded
+      // for later dispatch. Show its copy verbatim (honest, under-promising).
+      const data = await res.json().catch(() => ({}));
+      if (typeof data.message === 'string') setEmailMessage(data.message);
       setEmailState('done');
     } catch {
       setEmailState('error');
@@ -333,7 +339,8 @@ export function JobDescriptionModal({ reflinkId, onVisitorTurn, onAssistantConte
                 <div className="border-t border-border/50 pt-3">
                   {emailState === 'done' ? (
                     <p className="text-sm text-muted-foreground inline-flex items-center gap-2">
-                      <Check size={14} className="text-green-500" /> Noted — the analysis will be emailed to you.
+                      <Check size={14} className="text-green-500" />{' '}
+                      {emailMessage ?? 'Noted — the analysis will be emailed to you.'}
                     </p>
                   ) : (
                     <div className="flex gap-2 items-center">
@@ -352,7 +359,7 @@ export function JobDescriptionModal({ reflinkId, onVisitorTurn, onAssistantConte
                         className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-colors disabled:opacity-50"
                         data-testid="jd-form-email-send"
                       >
-                        {emailState === 'sending' ? 'Saving…' : 'Send'}
+                        {emailState === 'sending' ? 'Sending…' : 'Send'}
                       </button>
                     </div>
                   )}

@@ -1,10 +1,10 @@
 /**
  * AI_FAKE_MODE (verification spec Req 3 / D46): selects deterministic test doubles
- * behind the real seams. Comma-separated subsystems: `reasoning`, `voice`, `embeddings`.
- * Refuses production — fakes must be impossible to ship.
+ * behind the real seams. Comma-separated subsystems: `reasoning`, `voice`,
+ * `embeddings`, `email`. Refuses production — fakes must be impossible to ship.
  */
 
-export type FakeSubsystem = 'reasoning' | 'voice' | 'embeddings';
+export type FakeSubsystem = 'reasoning' | 'voice' | 'embeddings' | 'email';
 
 export function isFakeMode(subsystem: FakeSubsystem): boolean {
   const raw = process.env.AI_FAKE_MODE;

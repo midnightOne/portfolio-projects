@@ -33,9 +33,27 @@ interface AnalysisRow {
   metadata: { provider?: string; modelId?: string };
   reflink: { code: string; name: string | null; recipientName: string | null } | null;
   sessionId: string | null;
-  /** G3 email capture — the send ships with H2; until then this is the queue. */
+  /** G3 email capture; G6 latest send state through the notification seam. */
   visitorEmail: string | null;
   emailRequestedAt: string | null;
+  emailSend: { status: string; error: string | null; recipient: string; at: string } | null;
+}
+
+/** Honest one-word email state for the badge/description (G6). */
+function emailStateLabel(send: AnalysisRow['emailSend']): string {
+  if (!send) return 'not sent yet';
+  switch (send.status) {
+    case 'sent':
+      return `sent ${new Date(send.at).toLocaleString()}`;
+    case 'failed':
+      return `send failed — ${send.error ?? 'unknown error'}`;
+    case 'skipped_unconfigured':
+      return 'not sent — email provider unconfigured (set RESEND_API_KEY)';
+    case 'skipped_rate_limited':
+      return 'not sent — conversation email limit reached';
+    default:
+      return send.status;
+  }
 }
 
 /**
@@ -117,6 +135,9 @@ export function JobAnalysisReview() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  // G6: per-row owner-initiated send state (send-now / retry via the seam)
+  const [sending, setSending] = useState<string | null>(null);
+  const [sendNote, setSendNote] = useState<{ id: string; text: string; ok: boolean } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -136,6 +157,25 @@ export function JobAnalysisReview() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const sendNow = async (id: string) => {
+    setSending(id);
+    setSendNote(null);
+    try {
+      const res = await fetch(`/api/admin/ai/job-analyses/${id}/send-email`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      setSendNote({
+        id,
+        ok: data.status === 'sent',
+        text: data.status === 'sent' ? 'Sent.' : (data.error ?? data.status ?? 'send failed'),
+      });
+      await load();
+    } catch {
+      setSendNote({ id, ok: false, text: 'Request failed — try again.' });
+    } finally {
+      setSending(null);
+    }
+  };
 
   return (
     <div className="space-y-6" data-testid="job-analysis-review">
@@ -169,12 +209,34 @@ export function JobAnalysisReview() {
                 </CardTitle>
                 <div className="flex items-center gap-2">
                   <MatchBadge value={a.overallMatch} />
-                  {/* G3: visitor asked for the result by email — H2 sends it;
-                      until then this badge IS the outbox queue. */}
+                  {/* G3: visitor asked for the result by email; G6 sends it
+                      through the notification seam — badge shows honest state,
+                      button is the owner send-now/retry path (P25). */}
                   {row.visitorEmail && (
-                    <Badge variant="outline" className="gap-1" data-testid="email-requested-badge">
-                      <Mail size={11} /> {row.visitorEmail}
-                    </Badge>
+                    <>
+                      <Badge
+                        variant={row.emailSend?.status === 'sent' ? 'default' : 'outline'}
+                        className="gap-1"
+                        data-testid="email-requested-badge"
+                      >
+                        <Mail size={11} /> {row.visitorEmail}
+                        {row.emailSend?.status === 'sent' ? ' ✓' : ''}
+                      </Badge>
+                      {row.emailSend?.status !== 'sent' && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={sending === row.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            sendNow(row.id);
+                          }}
+                          data-testid="email-send-now"
+                        >
+                          {sending === row.id ? 'Sending…' : 'Send email'}
+                        </Button>
+                      )}
+                    </>
                   )}
                   {row.reflink && (
                     <Badge variant="outline">
@@ -187,8 +249,14 @@ export function JobAnalysisReview() {
                 {new Date(row.createdAt).toLocaleString()} · {row.metadata?.modelId ?? '—'} ·{' '}
                 {row.tokensUsed ?? '—'} tokens · ${row.costUsd?.toFixed(4) ?? '—'}
                 {row.emailRequestedAt
-                  ? ` · email requested ${new Date(row.emailRequestedAt).toLocaleString()} (send pending — ships with the H2 email channel)`
+                  ? ` · email requested ${new Date(row.emailRequestedAt).toLocaleString()} — ${emailStateLabel(row.emailSend)}`
                   : ''}
+                {sendNote?.id === row.id && (
+                  <span className={sendNote.ok ? 'text-green-600' : 'text-red-600'}>
+                    {' '}
+                    · {sendNote.text}
+                  </span>
+                )}
               </CardDescription>
             </CardHeader>
             {isOpen && (

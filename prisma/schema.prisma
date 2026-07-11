@@ -771,6 +771,38 @@ model ConversationLead {
   @@map("conversation_leads")
 }
 
+/// Req 15.2 email channel (Block G6, owner decision 2026-07-11: provider = Resend).
+/// One row per send ATTEMPT through the notification seam — audit trail, the
+/// per-conversation visitor rate limit (count of sent rows), and P25's
+/// visible-failure state in one place. Never blocks the action that triggered
+/// the send; capture/lead rows are always committed first.
+model AIEmailSend {
+  id         String   @id @default(cuid())
+  /// 'owner' (push notifications to the owner) | 'visitor' (artifacts to a
+  /// visitor-captured address — JD analyses now, summaries later)
+  channel    String
+  /// 'jd_analysis' | 'lead_notification' | ... — one string per artifact kind
+  purpose    String
+  recipient  String
+  /// Conversation scope for the visitor rate limit (AIConversation.sessionId;
+  /// analyze-job's request-scoped fallback ids land here unchanged)
+  sessionId  String?  @map("session_id")
+  analysisId String?  @map("analysis_id")
+  subject    String
+  /// 'sent' | 'failed' | 'skipped_unconfigured' | 'skipped_rate_limited'
+  status     String
+  /// Resend email id (or 'fake-…' under AI_FAKE_MODE=email)
+  providerId String?  @map("provider_id")
+  error      String?
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([sessionId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("ai_email_sends")
+}
+
 /// Req 16 — written ONLY by the analytics batch, never at runtime (P23).
 /// nodeId is stable across graph versions (Req 1.5) so analytics survive edits.
 /// Untyped vector: dimension follows the batch's default-embedding model,

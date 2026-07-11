@@ -56,6 +56,15 @@ A missing key disables that provider's features gracefully; nothing else breaks.
 | `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` / `CLOUDINARY_FOLDER` | Cloudinary credentials + asset folder. |
 | `UPLOAD_DIR`, `MAX_FILE_SIZE`, `MEDIA_BASE_URL` | Local-upload fallback settings (dev without Cloudinary). |
 
+### Email (Resend — Req 15.2 notification seam)
+
+| Variable | Notes |
+|---|---|
+| `RESEND_API_KEY` | Resend secret. Unset = well-defined "unconfigured": address captures stay durable, every send attempt is logged `skipped_unconfigured`, and admin dispatches retroactively from `/admin/ai/job-analysis`. |
+| `EMAIL_FROM` | Sender identity, e.g. `Portfolio AI <ai@yourdomain.dev>` — must be a Resend-verified domain in production. Default (unset) is Resend's dev-only `onboarding@resend.dev`, which delivers only to the Resend account owner. |
+| `OWNER_NOTIFY_EMAIL` | Owner-bound pushes (lead notifications) and the Reply-To on visitor-bound mail — replies reach the human, never the bot. |
+| `VISITOR_EMAIL_MAX_PER_CONVERSATION` | Optional; visitor-channel cap per conversation (default 2). Admin send-now bypasses it. |
+
 ### Misc
 
 | Variable | Notes |
@@ -106,17 +115,23 @@ Everything that must change relative to the local/dev setup, in order:
    `NEXT_PUBLIC_TURNSTILE_SITE_KEY`/`TURNSTILE_SECRET_KEY`, **and render the widget in the AI
    pill** — dev sends a placeholder token because the test secret accepts anything; the real
    secret will not. The admin Access & Spend panel toggles the challenge per-tier.
-4. **Kill the dev flags.** `DEV_VERIFICATION` and `AI_FAKE_MODE` must be absent/false. Both
+4. **Email → real (Resend, Req 15.2 seam).** Create a Resend account, verify the sending
+   domain, set `RESEND_API_KEY` + `EMAIL_FROM` (a verified-domain sender — the unset default
+   `onboarding@resend.dev` delivers only to the Resend account owner and is useless for
+   visitor-bound mail) + `OWNER_NOTIFY_EMAIL`. Until then the channel is a well-defined
+   "unconfigured": captures stay durable and admin can dispatch retroactively from
+   `/admin/ai/job-analysis`.
+5. **Kill the dev flags.** `DEV_VERIFICATION` and `AI_FAKE_MODE` must be absent/false. Both
    refuse production, but don't rely on the guard.
-5. **Vercel re-registration.** Import the repo, set the env matrix above, deploy the staging
+6. **Vercel re-registration.** Import the repo, set the env matrix above, deploy the staging
    branch to a preview domain first (D1: `main` stays the deployable fallback; promotion is an
    explicit owner decision).
-6. **Regenerate voice clips.** Clip assets live in Cloudinary under the configured folder; a
+7. **Regenerate voice clips.** Clip assets live in Cloudinary under the configured folder; a
    fresh Cloudinary account/folder means `/admin/ai/voice-clips` → regenerate all voices (one
    ledger row per TTS model). Re-run this any time a session provider's VOICE changes — clips
    are strictly voice-matched (a provider whose voice has no rendered clips plays silence, never
    a wrong voice).
-7. **Verify the spend rails before announcing.** On the deployed site: admin → Access & Spend —
+8. **Verify the spend rails before announcing.** On the deployed site: admin → Access & Spend —
    confirm the global watchdog caps, per-tier rate limits, and MCP knobs; run one public chat,
    one voice session, and one MCP `search_portfolio` call and check all three landed in the
    usage ledger.

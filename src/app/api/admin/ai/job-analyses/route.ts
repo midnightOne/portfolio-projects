@@ -22,6 +22,18 @@ export async function GET(request: NextRequest) {
     },
   });
 
+  // G6: latest send attempt per analysis (the honest email state — the badge
+  // reads this, never guesses from emailRequestedAt alone).
+  const sends = await prisma.aIEmailSend.findMany({
+    where: { analysisId: { in: analyses.map((a) => a.id) }, purpose: 'jd_analysis' },
+    orderBy: { createdAt: 'desc' },
+    select: { analysisId: true, status: true, error: true, createdAt: true, recipient: true },
+  });
+  const latestSend = new Map<string, (typeof sends)[number]>();
+  for (const s of sends) {
+    if (s.analysisId && !latestSend.has(s.analysisId)) latestSend.set(s.analysisId, s);
+  }
+
   return NextResponse.json({
     analyses: analyses.map((a) => ({
       id: a.id,
@@ -35,9 +47,17 @@ export async function GET(request: NextRequest) {
       metadata: a.metadata,
       reflink: a.reflink,
       sessionId: a.sessionId,
-      // G3: visitor "email me the result" capture (send ships with H2)
+      // G3: visitor "email me the result" capture; G6: latest send state
       visitorEmail: a.visitorEmail,
       emailRequestedAt: a.emailRequestedAt,
+      emailSend: latestSend.has(a.id)
+        ? {
+            status: latestSend.get(a.id)!.status,
+            error: latestSend.get(a.id)!.error,
+            recipient: latestSend.get(a.id)!.recipient,
+            at: latestSend.get(a.id)!.createdAt,
+          }
+        : null,
     })),
   });
 }
