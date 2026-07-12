@@ -209,6 +209,10 @@ export interface ConversationMetadata {
      *  these as its provider/model fallback. */
     provider?: string;
     modelAlias?: string;
+    /** F1 (Req 10.1, P17): sandboxed test session — set ONCE at creation by an
+     *  admin-gated request flag; coverage, question analytics, spend alarms,
+     *  and debug traversal telemetry all read THIS flag (`=== true`). */
+    test?: boolean;
     averageResponseTime?: number;
     errorCount?: number;
     navigationCommandsUsed?: number;
@@ -595,6 +599,24 @@ export class ConversationHistoryManager {
             });
             if (winner) return winner.id;
             throw error;
+        }
+    }
+
+    /**
+     * F1 (Req 10.1, P17): is this conversation test-tagged? Tolerant read of
+     * the ONE tagging flag (`metadata.test === true`) — missing row, missing
+     * key, or a read failure all mean "not a test" (the fail-safe direction:
+     * telemetry stays production-shaped rather than accidentally debug-level).
+     */
+    async isTestTagged(conversationId: string): Promise<boolean> {
+        try {
+            const row = await prisma.aIConversation.findUnique({
+                where: { id: conversationId },
+                select: { metadata: true }
+            });
+            return (row?.metadata as Record<string, unknown> | null)?.test === true;
+        } catch {
+            return false;
         }
     }
 

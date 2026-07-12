@@ -37,6 +37,7 @@ import { getClientAIModelManager } from './ClientAIModelManager';
 import { OPENAI_REALTIME_MODEL } from '@/types/voice-config';
 import { UIManager } from '@/lib/navigation/UIManager';
 import { meterMediaStream } from './output-level-meter';
+import { isTestSessionEnabled } from '@/lib/ai/test-session';
 
 // OpenAI Realtime SDK 0.1.0 imports
 import {
@@ -942,13 +943,15 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 }
             };
 
-            // Send to conversation log API
+            // Send to conversation log API (F1/P17: direct posters carry the
+            // test-session flag too — the F4 drill caught this one bypassing
+            // _postConversationLog's injection)
             fetch('/api/ai/conversation/log', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(toolCallData)
+                body: JSON.stringify({ ...toolCallData, ...(isTestSessionEnabled() ? { test: true } : {}) })
             }).catch(error => {
                 console.error('Failed to log tool call to conversation:', error);
             });
@@ -1507,6 +1510,9 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                     sessionId: this._generateSessionId(),
                     provider: 'openai',
                     reflinkId: this._options?.reflinkId,
+                    // F1/P17: session_start is the post that CREATES the
+                    // conversation row — the tag must ride it (F4 finding).
+                    ...(isTestSessionEnabled() ? { test: true } : {}),
                     conversationData: {
                         startTime: new Date().toISOString(),
                         entries: [{
@@ -2588,7 +2594,8 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(conversationData)
+                // F1/P17: direct poster — carries the test-session flag too.
+                body: JSON.stringify({ ...conversationData, ...(isTestSessionEnabled() ? { test: true } : {}) })
             });
 
             if (!response.ok) {

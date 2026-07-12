@@ -88,6 +88,14 @@ interface ConversationLogRequest {
    * evaluator (Block B) can score ui_state edge conditions from ground truth.
    */
   uiEvidence?: Array<Record<string, unknown>>;
+  /**
+   * F1 (Req 10.1, P17): sandboxed test-session request flag. Honored ONLY when
+   * the caller holds an admin session (checked once per POST) — an anonymous
+   * client sending it changes nothing. When honored, conversation creation
+   * stamps `metadata.test: true` — the single tagging seam that coverage,
+   * question analytics, spend alarms, and debug traversal all read.
+   */
+  test?: boolean;
 }
 
 interface ConversationLogResponse {
@@ -167,13 +175,14 @@ function capUiEvidence(events: Array<Record<string, unknown>>): Array<Record<str
 async function persistVoiceEntries(
   sessionId: string,
   reflinkId: string | undefined,
-  entries: PersistableEntry[]
+  entries: PersistableEntry[],
+  testTag?: boolean
 ): Promise<{ persisted: number; conversationId: string }> {
   let persisted = 0;
   const conversationId = await conversationHistoryManager.getOrCreateConversationId(
     sessionId,
     reflinkId,
-    { conversationMode: 'voice' }
+    { conversationMode: 'voice', ...(testTag ? { test: true } : {}) }
   );
   // D49 5b: tag rows with the conversation's open provider leg (null pre-legs)
   const legId = await conversationHistoryManager.getOpenLegId(conversationId);
@@ -287,12 +296,13 @@ async function handleLegEvent(
     issueType?: string;
     diagnostics?: Record<string, unknown>;
     briefingSummary?: string;
-  }
+  },
+  testTag?: boolean
 ): Promise<void> {
   const conversationId = await conversationHistoryManager.getOrCreateConversationId(
     sessionId,
     reflinkId,
-    { conversationMode: 'voice' }
+    { conversationMode: 'voice', ...(testTag ? { test: true } : {}) }
   );
 
   if (data.eventType === 'session_start') {
@@ -412,6 +422,16 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
     sessionId = requestSessionId;
     entriesCount = conversationData?.entries?.length || 0;
 
+    // F1 (Req 10.1, P17): the test-session flag is admin-gated — resolved ONCE
+    // per POST, and only when the client actually asks (no session read on the
+    // public hot path). The flag matters only at conversation creation
+    // (metadata is stamped once); later POSTs carrying it are harmless.
+    let testTag = false;
+    if (body.test === true) {
+      const authSession = await getServerSession(authOptions);
+      testTag = (authSession?.user as { role?: string } | undefined)?.role === 'admin';
+    }
+
     // Validate required fields
     if (!sessionId || typeof sessionId !== 'string') {
       return NextResponse.json({
@@ -468,7 +488,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
         const conversationId = await conversationHistoryManager.getOrCreateConversationId(
           sessionId,
           reflinkId,
-          { conversationMode: 'voice' }
+          { conversationMode: 'voice', ...(testTag ? { test: true } : {}) }
         );
         await conversationHistoryManager.addUsageDelta(conversationId, delta.totalTokens ?? 0);
         return NextResponse.json({
@@ -524,7 +544,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           firstAudioAt: transcriptItem.metadata?.firstAudioAt,
           // Task A4: UI-state deltas ride user turns as engine evidence
           uiEvidence: transcriptItem.type === 'user_speech' ? body.uiEvidence : undefined,
-        }]);
+        }], testTag);
         console.log(`Individual transcript item received for session ${sessionId}:`, {
           provider,
           itemType: transcriptItem.type,
@@ -577,7 +597,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           success: (body.metadata as any)?.success,
           executionTime: (body.metadata as any)?.executionTime,
           timestamp: body.timestamp,
-        }]);
+        }], testTag);
         console.log(`Individual tool call received for session ${sessionId}:`, {
           provider,
           toolName: body.toolName,
@@ -605,7 +625,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           label: body.event.label,
           detail: body.event.detail,
           timestamp: body.timestamp,
-        }]);
+        }], testTag);
         console.log(`Individual ${body.event.type} event received for session ${sessionId}:`, {
           provider,
           label: body.event.label
@@ -740,7 +760,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
     for (const entry of conversationData.entries) {
       if (entry.type === 'connection_event' && entry.data?.eventType) {
         try {
-          await handleLegEvent(sessionId, reflinkId, { ...entry.data, provider: entry.data.provider ?? entry.provider ?? provider });
+          await handleLegEvent(sessionId, reflinkId, { ...entry.data, provider: entry.data.provider ?? entry.provider ?? provider }, testTag);
         } catch (legError) {
           console.error('[conversation/log] leg event failed (continuing):', legError);
         }
@@ -783,7 +803,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
         });
       }
     }
-    const batchStored = await persistVoiceEntries(sessionId, reflinkId, persistable);
+    const batchStored = await persistVoiceEntries(sessionId, reflinkId, persistable, testTag);
     console.log(`[conversation/log] persisted ${batchStored.persisted}/${persistable.length} entries for session ${sessionId}`);
 
     // Engine evidence from the batch: the LAST user transcript entry (if any)

@@ -17,6 +17,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Mic, Radio, Square } from 'lucide-react';
 import { useConversationalAgent } from '@/components/providers/conversational-agent-provider';
 import { SyntheticMicDriver } from '@/lib/voice/dev/SyntheticMicDriver';
+import { isTestSessionEnabled, setTestSessionEnabled } from '@/lib/ai/test-session';
 
 const DEFAULT_SCRIPT = 'How does the kiln project regulate its temperature?';
 
@@ -26,7 +27,14 @@ export function FakeMicPanel() {
   const [script, setScript] = useState(DEFAULT_SCRIPT);
   const [status, setStatus] = useState<string>('idle');
   const [busy, setBusy] = useState(false);
+  const [testSession, setTestSession] = useState(false);
   const driverRef = useRef<SyntheticMicDriver | null>(null);
+
+  // F1 (Req 10.1): hydrate the test-session toggle from its client store —
+  // localStorage read must happen client-side only.
+  useEffect(() => {
+    setTestSession(isTestSessionEnabled());
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,6 +107,26 @@ export function FakeMicPanel() {
           OpenAI Realtime session — mic → provider STT → model → TTS out, no human speaker.
           Turns persist to conversation history like any voice session.
         </p>
+        {/* F1 (Req 10.1, P17): sandboxed test session — sets the client-side
+            flag EVERY runtime reads (voice /log posts, cascade + text /chat
+            bodies). Server honors it for admin callers only and stamps
+            metadata.test once at conversation creation; coverage, analytics,
+            spend alarms, and debug traversal all key off that one flag. */}
+        <label className="flex items-center gap-2 text-xs cursor-pointer select-none" data-testid="fake-mic-test-session">
+          <input
+            type="checkbox"
+            checked={testSession}
+            onChange={(e) => {
+              setTestSession(e.target.checked);
+              setTestSessionEnabled(e.target.checked);
+            }}
+            className="h-3.5 w-3.5"
+          />
+          <span className="font-medium">Test session</span>
+          <span className="text-muted-foreground">
+            — tag new conversations `test`: excluded from coverage/analytics/spend alarms, full traversal telemetry
+          </span>
+        </label>
         <div className="flex gap-2">
           {!connectedSynthetic ? (
             <Button

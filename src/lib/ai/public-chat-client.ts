@@ -10,6 +10,8 @@
  * TURNSTILE keys AND render the Turnstile widget to produce real tokens here.
  */
 
+import { isTestSessionEnabled } from '@/lib/ai/test-session';
+
 export interface PublicChatTurn {
   role: 'user' | 'assistant';
   content: string;
@@ -61,6 +63,9 @@ export async function sendPublicChatMessage(
         history,
         ...(opts?.chipId ? { chipId: opts.chipId } : {}),
         ...(typeof opts?.autoNav === 'boolean' ? { autoNav: opts.autoNav } : {}),
+        // F1 (Req 10.1, P17): test-session request flag — server honors it for
+        // admin callers only (an anonymous visitor sending it changes nothing).
+        ...(isTestSessionEnabled() ? { test: true } : {}),
       }),
     });
 

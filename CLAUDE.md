@@ -41,10 +41,13 @@ npm run drill:semantic-reliability # combined reliability gate drill (real AI, n
 npm run livefire:semantic          # real fixture ingestion, $0.50 spend cap, per-stage + ledger report (refuses AI_FAKE_MODE)
 npm run check:gateway  # static: no cost-incurring route ships without withAIGateway (D33)
 npm run check:specs    # spec hygiene: status headers, duplicate Requirement N, prescriptive T4
-npm run verify         # umbrella: type-check + check:gateway + check:specs + check:semantic --no-live
+npm run check:scenarios # golden scenarios through the REAL engine against fakes (P16, zero spend); --rebaseline repins diverged expectations, --graph <id> scopes
+npm run verify         # umbrella: type-check + check:gateway + check:specs + check:semantic --no-live + check:scenarios
 ```
 
 **Fixture needs ingestion to get embeddings.** `npm run seed:fixture` creates the fixture *project* but not its chunk embeddings — those come from the ingestion pipeline. After a fresh `db:reset`/`seed:fixture`, ingest the fixture (POST `/api/admin/semantic/processing/start` with `scope:'project'`, `projectId`, all four stages `immediate`) before `check:semantic`'s live query will pass. `scope:'all'` is supported since 2026-07-12 (reliability gate passed): it runs one durable child operation per PUBLIC project with content; parent + children live in `semantic_processing_operations` (queue/SSE are projections of that table — status is durable with no SSE subscriber). Stage objects need `enabled: true` alongside `stage`/`mode`. Reliability drills: `npm run drill:scope-all` (service-level, fake AI) and `npm run drill:semantic-reliability` (HTTP, real AI, needs the dev server + admin creds; use a FRESHLY started server after editing pipeline code — global singletons survive HMR).
+
+Conversation-engine extras: `npx tsx scripts/seed-conversation-graph.ts [--publish]` seeds the §8 catalog graph + its golden-scenario behavior suite (F3; idempotent, stable node ids; publish embeds exemplars — pennies). Engine batch jobs (question analytics, summary backfill + retention sweep) are admin/cron POSTs: `/api/admin/ai/engine/batch/{questions,summaries}` — also buttons on the conversation-graphs admin page; cron wiring is a deploy-time step.
 
 Planned (verification spec, land with their phases): `check:models`, `livefire:chat`.
 

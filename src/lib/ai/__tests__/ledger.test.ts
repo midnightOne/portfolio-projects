@@ -13,6 +13,8 @@ jest.mock('@/lib/prisma', () => ({
   prisma: {
     $transaction: jest.fn(),
     aIGlobalLimits: { findUnique: jest.fn(), update: jest.fn() },
+    // F1: recordUsage resolves metadata.test through the sessionId join
+    aIConversation: { findUnique: jest.fn() },
   },
 }));
 
@@ -31,6 +33,7 @@ import { recordUsage, getKillSwitchState, __clearKillSwitchCache } from '../ledg
 const mockPrisma = prisma as unknown as {
   $transaction: jest.Mock;
   aIGlobalLimits: { findUnique: jest.Mock; update: jest.Mock };
+  aIConversation: { findUnique: jest.Mock };
 };
 
 const today = new Date().toISOString().slice(0, 10);
@@ -153,6 +156,92 @@ describe('recordUsage', () => {
     const updateData = tx.aIGlobalLimits.update.mock.calls[0][0].data;
     expect(updateData.daySpendUsd).toBeCloseTo(0.5);
     expect(updateData.dayKey).toBe(today);
+  });
+
+  // ---- F1 (Req 10.1, P17): test-session spend excluded from the watchdog ----
+
+  it('test-tagged session spend: full ledger row (stamped test), watchdog untouched, never trips', async () => {
+    const tx = makeTx({ day_spend_usd: 9.8 }); // would cross the 10 cap if counted
+    mockPrisma.aIConversation.findUnique.mockResolvedValue({ metadata: { test: true } });
+
+    const result = await recordUsage({
+      feature: 'chat',
+      usageType: 'chat_completion',
+      modelId: 'some/model',
+      inputTokens: 100,
+      outputTokens: 50,
+      sessionId: 'sess_test_drill',
+    });
+
+    // Fully logged: one honest row, stamped test for legibility
+    expect(tx.aIUsageLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          sessionId: 'sess_test_drill',
+          costUsd: 0.5,
+          metadata: expect.objectContaining({ test: true }),
+        }),
+      })
+    );
+    // Excluded from spend alarms: counters never touched, no trip despite the near-cap state
+    expect(tx.aIGlobalLimits.update).not.toHaveBeenCalled();
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ledgerId: 'ledger-row-1', costUsd: 0.5, tripped: false });
+    expect(notifyWarning).not.toHaveBeenCalled();
+  });
+
+  it('engine-internal rows join by metadata.conversationId when sessionId is absent (F4 finding)', async () => {
+    const tx = makeTx({ day_spend_usd: 9.8 });
+    mockPrisma.aIConversation.findUnique.mockResolvedValue({ metadata: { test: true } });
+
+    const result = await recordUsage({
+      feature: 'chat',
+      usageType: 'engine_classifier',
+      modelId: 'some/model',
+      inputTokens: 40,
+      outputTokens: 20,
+      metadata: { conversationId: 'conv_test_drill' },
+    });
+
+    // Joined by conversation ID (the second key onto the ONE flag)
+    expect(mockPrisma.aIConversation.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'conv_test_drill' } })
+    );
+    expect(tx.aIGlobalLimits.update).not.toHaveBeenCalled();
+    expect(result.tripped).toBe(false);
+    const rowMetadata = tx.aIUsageLog.create.mock.calls[0][0].data.metadata;
+    expect(rowMetadata).toEqual(expect.objectContaining({ test: true, conversationId: 'conv_test_drill' }));
+  });
+
+  it('untagged session spend counts normally through the same join', async () => {
+    const tx = makeTx();
+    mockPrisma.aIConversation.findUnique.mockResolvedValue({ metadata: {} });
+
+    await recordUsage({
+      feature: 'chat',
+      usageType: 'chat_completion',
+      modelId: 'some/model',
+      sessionId: 'sess_real_visitor',
+    });
+
+    expect(tx.aIGlobalLimits.update).toHaveBeenCalled();
+    const rowMetadata = tx.aIUsageLog.create.mock.calls[0][0].data.metadata;
+    expect(rowMetadata).toEqual({}); // no test stamp on real traffic
+  });
+
+  it('fails safe: a conversation-lookup error counts the spend normally (alarms err toward firing)', async () => {
+    const tx = makeTx();
+    mockPrisma.aIConversation.findUnique.mockRejectedValue(new Error('db down'));
+
+    const result = await recordUsage({
+      feature: 'chat',
+      usageType: 'chat_completion',
+      modelId: 'some/model',
+      sessionId: 'sess_whatever',
+    });
+
+    expect(result.tripped).toBe(false);
+    expect(tx.aIGlobalLimits.update).toHaveBeenCalled(); // counted
   });
 
   it('increments reflink spend from the same ledger write (no parallel cost system)', async () => {

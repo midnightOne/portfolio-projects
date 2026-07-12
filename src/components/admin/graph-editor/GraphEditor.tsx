@@ -37,8 +37,9 @@ import { PublishDialog } from './PublishDialog';
 import { VersionHistoryPanel, type VersionRow } from './VersionHistoryPanel';
 import { AnnotationsDrawer } from './AnnotationsDrawer';
 import { CoveragePanel } from './CoveragePanel';
+import { ScenariosPanel } from './ScenariosPanel';
 import { makeEdge, makeNode, summarizeCondition, type EditorMeta } from './graph-editor-utils';
-import { ArrowLeft, Plus, Upload, History, AlertTriangle, Flag, BarChart3 } from 'lucide-react';
+import { ArrowLeft, Plus, Upload, History, AlertTriangle, Flag, BarChart3, FlaskConical } from 'lucide-react';
 import type { AnnotationRow } from '@/lib/services/ai/graph-store';
 import type { CoverageReport } from '@/lib/services/ai/graph-coverage';
 
@@ -84,6 +85,8 @@ export function GraphEditor({ graphId }: { graphId: string }) {
   const [annotations, setAnnotations] = React.useState<AnnotationRow[]>([]);
   const [showResolved, setShowResolved] = React.useState(false);
   const [annotationBusyId, setAnnotationBusyId] = React.useState<string | null>(null);
+  // Block F2 — golden-scenarios panel
+  const [scenariosOpen, setScenariosOpen] = React.useState(false);
   // Block E3 — coverage overlay
   const [coverageOn, setCoverageOn] = React.useState(false);
   const [coverage, setCoverage] = React.useState<CoverageReport | null>(null);
@@ -337,17 +340,22 @@ export function GraphEditor({ graphId }: { graphId: string }) {
     setSelection(null);
   };
 
+  // Flush any pending draft autosave so publish / scenario runs see the latest
+  // document (the scenarios run server-side against the SAVED draft).
+  const flushDraft = React.useCallback(async () => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    await fetch(`/api/admin/ai/graphs/${graphId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ document: { ...document, layout: layoutRef.current }, name }),
+    });
+  }, [graphId, document, name]);
+
   const publish = async (note: string) => {
     setPublishing(true);
     setPublishResult(null);
     try {
-      // Flush any pending draft changes first so publish sees the latest document.
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      await fetch(`/api/admin/ai/graphs/${graphId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ document: { ...document, layout: layoutRef.current }, name }),
-      });
+      await flushDraft();
       const res = await fetch(`/api/admin/ai/graphs/${graphId}/publish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -452,12 +460,27 @@ export function GraphEditor({ graphId }: { graphId: string }) {
           <BarChart3 className="h-3.5 w-3.5 mr-1" /> Coverage
         </Button>
         <Button
+          variant={scenariosOpen ? 'default' : 'outline'}
+          size="sm"
+          className="h-7 px-2 text-xs"
+          onClick={() => {
+            setScenariosOpen((v) => !v);
+            setHistoryOpen(false);
+            setAnnotationsOpen(false);
+          }}
+          title="Golden scenarios: scripted traversal regression tests against fakes — run on the draft before publishing"
+          data-testid="toggle-scenarios"
+        >
+          <FlaskConical className="h-3.5 w-3.5 mr-1" /> Scenarios
+        </Button>
+        <Button
           variant="outline"
           size="sm"
           className="h-7 px-2 text-xs"
           onClick={() => {
             setAnnotationsOpen((v) => !v);
             setHistoryOpen(false);
+            setScenariosOpen(false);
             void loadAnnotations();
           }}
           data-testid="toggle-annotations"
@@ -476,6 +499,7 @@ export function GraphEditor({ graphId }: { graphId: string }) {
           onClick={() => {
             setHistoryOpen((v) => !v);
             setAnnotationsOpen(false);
+            setScenariosOpen(false);
             void loadVersions();
           }}
           data-testid="toggle-history"
@@ -520,6 +544,8 @@ export function GraphEditor({ graphId }: { graphId: string }) {
         <div className="w-96 shrink-0 border-l border-border overflow-y-auto p-3">
           {historyOpen ? (
             <VersionHistoryPanel graphId={graphId} versions={versions} onActivate={activateVersion} activating={activating} />
+          ) : scenariosOpen ? (
+            <ScenariosPanel graphId={graphId} onDraftDirty={flushDraft} />
           ) : annotationsOpen ? (
             <AnnotationsDrawer
               annotations={annotations}

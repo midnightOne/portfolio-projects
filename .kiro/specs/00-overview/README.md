@@ -86,7 +86,7 @@ flowchart TB
 | [access-and-cost](../access-and-cost/requirements.md) | current — implemented | AI gateway, public text chat, rate limiting, reflinks, usage ledger, watchdog | browser-level panel/pill verification and deploy-time Turnstile activation |
 | [mcp-server](../mcp-server/requirements.md) | current — implemented and hardening-verified | external MCP server | backlog only (keys/deep tools/resources) |
 | [verification](../verification/requirements.md) | current — partially implemented | agentic e2e verification: fakes, fixture, `check:*`, debug envelope, telemetry access, live-fire, CLAUDE.md | fake voice, correlation reads, Playwright, formal live-fire, `check:models`, remote CI activation |
-| [conversation-engine](../conversation-engine/requirements.md) | current — core and visitor/admin surfaces implemented | D47 graph engine, memory, leads, analytics, privacy lifecycle, safety, editor | golden scenarios, seed graph, multi-runtime live-fire, docs closure; dynamic suggestions deferred |
+| [conversation-engine](../conversation-engine/requirements.md) | current — implemented through Block F (D47 ✅ 2026-07-12) | D47 graph engine, memory, leads, analytics, privacy lifecycle, safety, editor, golden scenarios + seed graph | G5 (PDF/DOCX extraction), dynamic suggestions (M4/M5) deferred |
 | [_backlog](../_backlog/) | backlog | future-direction outlines whose **seam constraints bind now** (D48 modular platform; D47 outline superseded by `conversation-engine/`) | promoted to real specs when scheduled |
 | [_archive](../_archive/) | archived | superseded specs & analysis docs | — |
 
@@ -98,7 +98,7 @@ The remaining work is intentionally narrow and should close in this order:
 
 1. `semantic-content` tasks 6.2–6.3, 9, and 10: make bulk operations durable and safe before enabling `scope:'all'`.
 2. `verification` tasks 4–8: deterministic fake voice, correlated telemetry reads, browser coverage, formal live-fire, model-policy check, and—after owner approval—the first remote CI pass.
-3. `conversation-engine` Block F: seed graph, golden scenarios, and multi-runtime drill. Dynamic suggestions remain explicitly deferred.
+3. ~~`conversation-engine` Block F: seed graph, golden scenarios, and multi-runtime drill.~~ *Done 2026-07-12.* Dynamic suggestions remain explicitly deferred.
 4. `ai-assistant` runtime-hygiene tasks and `ui-system` liquid-pill acceptance tests.
 
 No new broad AI subsystem is in scope. New work belongs to one of these owners or requires a decision-registry entry first.

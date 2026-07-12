@@ -33,6 +33,7 @@ import { runSecondaryLLMJob } from './secondary-llm';
 import { renderProfileText, flagsEqual } from '@/lib/ai/engine/profile';
 import { DEFAULT_WINDOW_CONFIG, renderSummaryText, type WindowConfig } from '@/lib/ai/engine/window';
 import { prismaGraphSource } from './graph-store';
+import { DEFAULT_PROBE_PATTERNS } from './probe-patterns';
 import { conversationHistoryManager } from './conversation-history-manager';
 import { getMemoryConfig } from './memory-config';
 import { collectSafetyToolEvents } from './safety-runtime';
@@ -70,18 +71,9 @@ function windowConfig(): WindowConfig {
   };
 }
 
-/**
- * v1 probe patterns (Req 18.2 "pattern + classifier"). Conservative, injected
- * into the core as config (D48 — never hardcoded there); owner-tunable lists
- * arrive with the safety module (Block L) / graph authoring (Block D).
- */
-const DEFAULT_PROBE_PATTERNS: RegExp[] = [
-  /ignore\s+(all\s+|your\s+|previous\s+|the\s+)?(instructions|rules|prompts?)/i,
-  /system\s+prompt/i,
-  /\bjailbreak\b/i,
-  /pretend\s+(to\s+be|you\s+are)/i,
-  /you\s+are\s+now\s+(a|an|in)\b/i,
-];
+// v1 probe patterns moved to ./probe-patterns (F2): ONE list shared by this
+// runtime, the scenario route/editor, and the check:scenarios CLI (which must
+// not drag this module's app-wide import graph into a tsx process).
 
 // ---------------------------------------------------------------------------
 // Classifier + embeddings deps. Model calls go through the M1 secondary-LLM
@@ -90,7 +82,11 @@ const DEFAULT_PROBE_PATTERNS: RegExp[] = [
 // because P11 pins a RECORDED model id, not an alias (genuine divergence).
 // ---------------------------------------------------------------------------
 
-async function runCheapCallMetered(input: CheapCallInput): Promise<CheapCallResult | null> {
+// F1 (P17): engine-internal rows stamp metadata.conversationId — the ledger's
+// second join key onto the ONE test flag, so a test session's classifier /
+// embedding / summarizer pennies stay out of the spend watchdog too (F4
+// live-fire finding: sessionId alone missed these rows).
+async function runCheapCallMetered(input: CheapCallInput, conversationId?: string): Promise<CheapCallResult | null> {
   const outcome = await runSecondaryLLMJob({
     alias: 'default-cheap',
     prompt: buildCheapCallPrompt(input),
@@ -99,11 +95,12 @@ async function runCheapCallMetered(input: CheapCallInput): Promise<CheapCallResu
     temperature: 0,
     maxOutputTokens: 400,
     timeoutMs: CLASSIFIER_TIMEOUT_MS, // timeout → classifier conditions evaluate false this turn (P10)
+    ...(conversationId ? { metadata: { conversationId } } : {}),
   });
   return outcome.result;
 }
 
-async function embedUtterancePinned(text: string, modelId: string): Promise<number[] | null> {
+async function embedUtterancePinned(text: string, modelId: string, conversationId?: string): Promise<number[] | null> {
   try {
     const result = await generateEmbeddingsForModel([text], modelId, { taskType: 'query' });
     void recordUsage({
@@ -113,6 +110,7 @@ async function embedUtterancePinned(text: string, modelId: string): Promise<numb
       modelId: result.modelId,
       inputTokens: result.tokensUsed,
       outputTokens: 0,
+      ...(conversationId ? { metadata: { conversationId } } : {}),
     }).catch(() => undefined);
     return result.vectors[0] ?? null;
   } catch (err) {
@@ -320,6 +318,9 @@ export async function runSummarizerJob(conversationId: string): Promise<void> {
       usageType: 'engine_summarizer',
       temperature: 0.2,
       maxOutputTokens: 700,
+      // F1 (P17): the ledger's conversationId join key — test-session
+      // summarizer spend is excluded from the watchdog like all other rows.
+      metadata: { conversationId },
     });
     const parsed = outcome.result;
     if (!parsed || !parsed.summary.trim()) {
@@ -431,9 +432,21 @@ export function getConversationEngine(): ConversationEngine {
   return engineSingleton;
 }
 
-/** Debug-telemetry gate for evaluated-but-not-taken rows (Req 7.3) — dev only until F1's test tagging. */
+/**
+ * Debug-telemetry gate for evaluated-but-not-taken rows (Req 7.3 / Req 10.1,
+ * F1): test-tagged conversations get FULL traversal telemetry on any runtime
+ * and in any environment (that is the point of a sandboxed test session);
+ * untagged traffic gets it only in dev verification — production stays
+ * sampled off (the env gate) exactly as before.
+ */
 function debugTelemetryOn(): boolean {
   return process.env.NODE_ENV !== 'production' && process.env.DEV_VERIFICATION === 'true';
+}
+
+async function traversalTelemetryOn(conversationId: string): Promise<boolean> {
+  if (debugTelemetryOn()) return true;
+  // P17: the ONE test flag — conversation.metadata.test, stamped at creation.
+  return conversationHistoryManager.isTestTagged(conversationId);
 }
 
 const ENGINE_SUFFIX_HEADER = '\n\n======== CONVERSATION-STATE GUIDANCE ========\n';
@@ -586,11 +599,27 @@ export async function runEngineTurn(args: {
       safetyEvents.length > 0
         ? { ...args.evidence, toolEvents: [...(args.evidence.toolEvents ?? []), ...safetyEvents] }
         : args.evidence;
-    const result = await getConversationEngine().processTurn(args.conversationId, evidence, {
+    // Per-turn engine: same deps as the singleton, but the evaluator closes
+    // over THIS conversation id so its metered calls carry the ledger's test
+    // join key (F1/P17). Construction is trivial (the constructor stores deps);
+    // the singleton remains for identity-free reads (startPolicy, ux).
+    const engine = new ConversationEngine({
+      graphSource: prismaGraphSource,
+      stateStore,
+      evaluator: {
+        embedUtterance: (text, modelId) => embedUtterancePinned(text, modelId, args.conversationId),
+        runCheapCall: (input) => runCheapCallMetered(input, args.conversationId),
+        probePatterns: DEFAULT_PROBE_PATTERNS,
+        log: (msg, data) => console.warn(`[engine] ${msg}`, data ?? ''),
+      },
+      resolveContextSet,
+      log: (msg, data) => console.warn(`[engine] ${msg}`, data ?? ''),
+    });
+    const result = await engine.processTurn(args.conversationId, evidence, {
       provider: args.provider,
       isNative,
       isPublic: args.isPublic,
-      debug: debugTelemetryOn(),
+      debug: await traversalTelemetryOn(args.conversationId),
       memoryEnabled: memory.memoryEnabled,
     });
     // J3 (P29): staleness-triggered summarizer — fire-and-forget, never blocks

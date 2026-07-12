@@ -114,8 +114,51 @@ export function __clearKillSwitchCache(): void {
 }
 
 /**
+ * F1 (Req 10.1, P17): does this spend belong to a test-tagged conversation?
+ * Reads the ONE tagging flag (`AIConversation.metadata.test === true`) —
+ * joined by `sessionId` (route-level rows) or by a `conversationId` the
+ * caller stamped into row metadata (engine-internal rows: classifier,
+ * summarizer, utterance embedding — live-fire F4 finding: without this key
+ * those rows leaked into the watchdog during test sessions). Two join keys,
+ * one flag — never a parallel exclusion mechanism. Fail-safe direction:
+ * missing keys, missing conversation, or a read failure all count the spend
+ * normally (alarms err toward firing, never toward silence).
+ *
+ * Known one-row gap, accepted: a conversation's very FIRST /chat turn meters
+ * before the conversation row is created (creation happens post-reply), so
+ * that single row counts toward the watchdog. Every later row is excluded.
+ */
+async function isTestSessionSpend(entry: UsageEntry): Promise<boolean> {
+  try {
+    if (entry.sessionId) {
+      const row = await prisma.aIConversation.findUnique({
+        where: { sessionId: entry.sessionId },
+        select: { metadata: true },
+      });
+      return (row?.metadata as Record<string, unknown> | null)?.test === true;
+    }
+    const conversationId = (entry.metadata as Record<string, unknown> | undefined)?.conversationId;
+    if (typeof conversationId === 'string' && conversationId.length > 0) {
+      const row = await prisma.aIConversation.findUnique({
+        where: { id: conversationId },
+        select: { metadata: true },
+      });
+      return (row?.metadata as Record<string, unknown> | null)?.test === true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Write a ledger row + update watchdog counters atomically; re-check caps post-write
  * and trip inside the same transaction when crossed. Never throws on notifier failure.
+ *
+ * Test sessions (Req 10.1, F1): spend is still FULLY LOGGED (one honest row,
+ * stamped `metadata.test: true`) and still counts against the reflink budget,
+ * but is excluded from the global watchdog counters and can never trip the
+ * spend alarm — the owner walking the flows must not page themselves.
  */
 export async function recordUsage(entry: UsageEntry): Promise<LedgerWriteResult> {
   const costUsd =
@@ -129,6 +172,7 @@ export async function recordUsage(entry: UsageEntry): Promise<LedgerWriteResult>
   const tokensUsed = (entry.inputTokens ?? 0) + (entry.outputTokens ?? 0);
   const today = dayKey();
   const month = monthKey();
+  const testSpend = await isTestSessionSpend(entry);
 
   const result = await prisma.$transaction(async (tx) => {
     const log = await tx.aIUsageLog.create({
@@ -146,7 +190,9 @@ export async function recordUsage(entry: UsageEntry): Promise<LedgerWriteResult>
         sessionId: entry.sessionId,
         reflinkId: entry.reflinkId,
         hashedIp: entry.hashedIp,
-        metadata: entry.metadata ?? {},
+        metadata: testSpend
+          ? ({ ...(entry.metadata as Record<string, unknown> | undefined ?? {}), test: true } as Prisma.InputJsonValue)
+          : entry.metadata ?? {},
       },
     });
 
@@ -159,6 +205,12 @@ export async function recordUsage(entry: UsageEntry): Promise<LedgerWriteResult>
           lastUsedAt: new Date(),
         },
       });
+    }
+
+    // F1 (Req 10.1): test-session spend never reaches the watchdog — counters
+    // untouched, no trip possible. The row above is the full honest record.
+    if (testSpend) {
+      return { ledgerId: log.id, costUsd, tripped: false as boolean, tripReason: undefined as string | undefined };
     }
 
     // Lock the watchdog row, roll counters over lazily, add spend, re-check caps.

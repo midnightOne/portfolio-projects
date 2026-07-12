@@ -19,6 +19,7 @@ import {
 } from '@/types/voice-agent';
 import { ContextBuffer, ContextBlock } from '@/lib/ai/context-buffer';
 import { getAutoNav, subscribeAutoNav, renderAutoNavPolicy } from '@/lib/ai/autonav';
+import { isTestSessionEnabled } from '@/lib/ai/test-session';
 import {
   EngineDirective,
   EngineDirectiveSchema,
@@ -235,7 +236,10 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
   private _lastAppliedWindowVersion = 0;
   /** A window update arrived (possibly mid-response) and awaits the next boundary (P19). */
   private _windowDirty = false;
-  /** G1 (P22): chip id awaiting attachment to the next user-turn /log post. */
+  /** G1 (P22): chip id awaiting attachment to the next user turn's evidence
+   *  (/log transcript metadata on native voice; the /chat body on cascade —
+   *  F4 live-fire finding: cascade turns never pass through /log user_speech,
+   *  so the id must ride its /chat request instead). */
   private _pendingChipId: string | null = null;
   /** G2 (Req 13.8, P36): auto-nav store unsubscribe — released in cleanup(). */
   private _autonavUnsubscribe: (() => void) | null = null;
@@ -279,6 +283,13 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
    */
   protected _postConversationLog(body: Record<string, unknown>): void {
     try {
+      // F1 (Req 10.1, P17): sandboxed test sessions — when the owner enabled
+      // the test toggle, every /log POST carries the request flag. The server
+      // honors it only for admin-authenticated callers and stamps
+      // conversation.metadata.test ONCE at creation (the single seam).
+      if (isTestSessionEnabled()) {
+        body = { ...body, test: true };
+      }
       // Task A4 turn evidence: user turns carry the UI-state deltas collected
       // since the last user turn (navigation, F-I-D refreshes) so the engine
       // can evaluate ui_state edge conditions server-side. Small and additive;
@@ -1015,6 +1026,17 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
       this._pendingChipId = null; // don't let a failed send poison the next real turn
       throw err;
     }
+  }
+
+  /**
+   * G1 (P22): one-shot read of the pending chip id for adapters whose user
+   * turns do NOT flow through /log user_speech (cascade → /chat body). Same
+   * consume-once semantics as the /log path above.
+   */
+  protected _consumePendingChipId(): string | null {
+    const id = this._pendingChipId;
+    this._pendingChipId = null;
+    return id;
   }
 
   /** Record a UI-state delta as turn evidence for the next user-turn /log POST (task A4). */

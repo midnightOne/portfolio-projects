@@ -16,6 +16,7 @@ import { OpenAIRealtimeAdapter } from '@/lib/voice/OpenAIRealtimeAdapter';
 import { GoogleLiveAdapter } from '@/lib/voice/GoogleLiveAdapter';
 import { CascadeVoiceAdapter } from '@/lib/voice/CascadeVoiceAdapter';
 import { ClipPlayer } from '@/lib/voice/ClipPlayer';
+import { isTestSessionEnabled } from '@/lib/ai/test-session';
 import { useReflinkSession } from './reflink-session-provider';
 import { debugEventEmitter } from '@/lib/debug/debugEventEmitter';
 
@@ -196,6 +197,8 @@ export function ConversationalAgentProvider({
         body: JSON.stringify({
           sessionId,
           provider: adapterRef.current?.provider,
+          // F1/P17: direct poster — carries the test-session flag too.
+          ...(isTestSessionEnabled() ? { test: true } : {}),
           event: {
             type: 'clip_played',
             label: `Clip: "${info.text}" — ${timing}`,

@@ -45,6 +45,7 @@ import {
 } from './IConversationalAgentAdapter';
 import type { CascadeConfig } from '@/types/voice-config';
 import { meterAudioNode } from './output-level-meter';
+import { isTestSessionEnabled } from '@/lib/ai/test-session';
 
 const MAX_HISTORY_TURNS = 12;
 /** A recorder segment with no speech at all is dropped and restarted this often. */
@@ -405,6 +406,9 @@ export class CascadeVoiceAdapter extends BaseConversationalAgentAdapter {
       .slice(-MAX_HISTORY_TURNS, -1) // everything before the turn we just added
       .map((t) => ({ role: t.type === 'user_speech' ? 'user' : 'assistant', content: t.content }));
 
+    // G1 (P22, F4 finding): cascade turns never pass through /log user_speech,
+    // so the chip id must ride THIS /chat body — consume-once, like the /log rail.
+    const chipId = this._consumePendingChipId();
     const doSend = () =>
       fetch('/api/ai/chat', {
         method: 'POST',
@@ -414,6 +418,10 @@ export class CascadeVoiceAdapter extends BaseConversationalAgentAdapter {
           history,
           sessionId: this._conversationId,
           modality: 'voice',
+          ...(chipId ? { chipId } : {}),
+          // F1 (Req 10.1, P17): test-session request flag — honored server-side
+          // for admin callers only; stamps metadata.test once at creation.
+          ...(isTestSessionEnabled() ? { test: true } : {}),
         }),
       });
 
