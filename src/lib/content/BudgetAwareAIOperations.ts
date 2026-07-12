@@ -1,16 +1,23 @@
 /**
  * Budget-Aware AI Operations
- * 
+ *
  * Wrapper functions that integrate budget tracking with AI operations.
  * All AI operations (embeddings, summarization) should go through these
  * functions to ensure proper cost tracking and budget enforcement.
+ *
+ * No direct provider SDKs here: summaries run through the secondary-LLM job
+ * module (conversation-engine M1 — the required path for every secondary-LLM
+ * feature: alias resolution D4, AI_FAKE_MODE support, unified metering D33);
+ * embeddings run through the shared `default-embedding` provider. This module
+ * adds the SemanticBudget pre-flight gate + deduction around both.
  */
 
-import OpenAI from 'openai';
+import { z } from 'zod';
 import { semanticBudgetManager } from './SemanticBudgetManager';
 import { estimateCost } from '@/lib/ai/pricing';
 import { recordUsage } from '@/lib/ai/ledger';
 import { generateEmbeddings } from '@/lib/ai/embeddings';
+import { runSecondaryLLMJob } from '@/lib/services/ai/secondary-llm';
 
 export interface BudgetAwareEmbeddingOptions {
   input: string | string[];
@@ -31,14 +38,33 @@ export interface BudgetAwareSummarizationOptions {
   metadata?: Record<string, any>;
 }
 
-export class BudgetAwareAIOperations {
-  private openai: OpenAI;
+// JSON shape the summary job is asked to return; raw-text salvage below
+// covers non-compliant output (a summary IS plain text, so any text is usable)
+const SUMMARY_JOB_SCHEMA = z.object({ summary: z.string().min(1) });
 
-  // Pricing lives in AIModelPricing via estimateCost() — no local cost tables (D38).
-
-  constructor(apiKey: string) {
-    this.openai = new OpenAI({ apiKey });
+/**
+ * Salvage a usable summary from non-JSON model output: tolerate plain prose
+ * (FakeReasoningAdapter, non-compliant models) and JSON truncated mid-string
+ * by the output-token cap (`{"summary": "text…` with no closing brace).
+ */
+function salvageSummaryText(raw: string): string {
+  const stripped = raw.replace(/```(?:json)?/gi, '').trim();
+  const truncated = stripped.match(/"summary"\s*:\s*"([\s\S]*)$/);
+  if (truncated) {
+    return truncated[1]
+      .replace(/["}\s]*$/, '')
+      .replace(/\\"/g, '"')
+      .replace(/\\n/g, '\n')
+      .trim();
   }
+  return stripped;
+}
+
+export class BudgetAwareAIOperations {
+  // Pricing lives in AIModelPricing via estimateCost() — no local cost tables (D38).
+  // No provider client: summaries ride the secondary-LLM job module (M1),
+  // embeddings the shared provider — both AI_FAKE_MODE-aware and keyless in
+  // fake mode.
 
   /**
    * Generate embeddings with budget tracking
@@ -184,54 +210,80 @@ export class BudgetAwareAIOperations {
     }
 
     try {
-      // Perform summarization
-      const response = await this.openai.chat.completions.create({
-        model,
-        messages: [
-          { role: 'system', content: options.systemPrompt },
-          { role: 'user', content: options.content }
+      // Perform summarization through the secondary-LLM job module (M1 —
+      // alias resolution, AI_FAKE_MODE=reasoning, unified metering). The
+      // custom meter keeps budget deduction + the D32 ledger mirror on the
+      // completion path exactly as before.
+      let actualCost = 0;
+      let meteredTokens = estimatedTotalTokens;
+      const outcome = await runSecondaryLLMJob({
+        alias: 'default-cheap',
+        // Admin-supplied override may be an alias or a pinned model id
+        modelOverride: options.model,
+        prompt: [
+          {
+            role: 'system',
+            content: `${options.systemPrompt}\n\nRespond with a single JSON object: {"summary": "<the summary text>"}.`,
+          },
+          { role: 'user', content: options.content },
         ],
-        max_tokens: maxTokens,
-        temperature
-      });
-
-      const summary = response.choices[0]?.message?.content || '';
-      const inputTokens = response.usage?.prompt_tokens || estimatedInputTokens;
-      const outputTokens = response.usage?.completion_tokens || maxTokens;
-      const totalTokens = response.usage?.total_tokens || estimatedTotalTokens;
-      const actualCost = await estimateCost(model, { inputTokens, outputTokens });
-
-      // Deduct actual cost from budget
-      await semanticBudgetManager.deductCost({
-        operationType: 'summarization',
-        tokensUsed: totalTokens,
-        cost: actualCost,
-        model,
-        projectId: options.projectId,
-        chunksProcessed: 1,
-        tiersAffected: [1, 2], // Summaries for T1 and T2
-        metadata: {
-          ...options.metadata,
-          inputTokens,
-          outputTokens
-        }
-      });
-
-      // Mirror actuals to the unified ledger (D32; semantic-content task 2.1)
-      await recordUsage({
-        feature: 'semantic',
+        schema: SUMMARY_JOB_SCHEMA,
         usageType: 'summary',
-        provider: 'openai',
-        modelId: model,
-        inputTokens,
-        outputTokens,
-        costUsd: actualCost,
-        metadata: { projectId: options.projectId },
+        feature: 'semantic',
+        temperature,
+        // Headroom for the JSON wrapper so the summary itself keeps the
+        // caller's token budget
+        maxOutputTokens: maxTokens + 32,
+        meter: async (usage) => {
+          actualCost = await estimateCost(usage.modelId, {
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+          });
+          meteredTokens = usage.inputTokens + usage.outputTokens;
+
+          // Deduct actual cost from budget (pre-flight gate ran above)
+          await semanticBudgetManager.deductCost({
+            operationType: 'summarization',
+            tokensUsed: meteredTokens,
+            cost: actualCost,
+            model: usage.modelId,
+            projectId: options.projectId,
+            chunksProcessed: 1,
+            tiersAffected: [1, 2], // Summaries for T1 and T2
+            metadata: {
+              ...options.metadata,
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens
+            }
+          });
+
+          // Mirror actuals to the unified ledger (D32; semantic-content task 2.1)
+          await recordUsage({
+            feature: 'semantic',
+            usageType: 'summary',
+            provider: usage.provider,
+            modelId: usage.modelId,
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            costUsd: actualCost,
+            metadata: { projectId: options.projectId },
+          });
+        },
       });
+
+      // Schema-validated JSON first; salvage plain/truncated text otherwise —
+      // summaries are load-bearing pipeline output, so no text at all is an
+      // error (the stage fails visibly and stays resumable)
+      const summary = outcome.result?.summary ?? (outcome.raw ? salvageSummaryText(outcome.raw) : '');
+      if (!summary) {
+        throw new Error(
+          `Summary generation produced no usable output (model: ${outcome.modelId ?? model}, timedOut: ${outcome.timedOut})`
+        );
+      }
 
       return {
         summary,
-        tokensUsed: totalTokens,
+        tokensUsed: meteredTokens,
         cost: actualCost
       };
     } catch (error) {
@@ -309,16 +361,14 @@ export class BudgetAwareAIOperations {
   }
 }
 
-// Export singleton instance (requires OPENAI_API_KEY)
+// Export singleton instance. No API key requirement here — provider keys are
+// the concern of the adapters the shared modules resolve (and fake mode needs
+// none at all); a missing key surfaces from the provider call itself.
 let budgetAwareAI: BudgetAwareAIOperations | null = null;
 
 export function getBudgetAwareAI(): BudgetAwareAIOperations {
   if (!budgetAwareAI) {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error('OPENAI_API_KEY environment variable is required');
-    }
-    budgetAwareAI = new BudgetAwareAIOperations(apiKey);
+    budgetAwareAI = new BudgetAwareAIOperations();
   }
   return budgetAwareAI;
 }

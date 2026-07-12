@@ -12,9 +12,11 @@
  *     durable row by a fresh service instance — the "reconnect" path).
  *  3. Re-running after the failure completes cleanly (idempotent upserts).
  *
- * Determinism/cost: AI_FAKE_MODE=embeddings (stable fake vectors) and an
- * in-script stub for AI summaries — this drill verifies persistence
- * topology, not summary quality (check:semantic covers real summaries).
+ * Determinism/cost: AI_FAKE_MODE=embeddings,reasoning — stable fake vectors
+ * AND deterministic fake summaries through the REAL summary path (summaries
+ * ride the secondary-LLM job module since the M1 migration; no in-script
+ * stubbing). This drill verifies persistence topology, not summary quality
+ * (check:semantic covers real summaries).
  * Blast radius: all other PUBLIC projects are temporarily set PRIVATE so the
  * REAL scope-all enumeration sees exactly the 4 drill projects; visibility
  * is restored in a finally block. Dev-only. Run: npx tsx scripts/drill-scope-all.ts
@@ -23,7 +25,7 @@
 import { loadEnvConfig } from '@next/env';
 loadEnvConfig(process.cwd());
 
-process.env.AI_FAKE_MODE = [process.env.AI_FAKE_MODE, 'embeddings'].filter(Boolean).join(',');
+process.env.AI_FAKE_MODE = [process.env.AI_FAKE_MODE, 'embeddings', 'reasoning'].filter(Boolean).join(',');
 
 import { PrismaClient } from '@prisma/client';
 import {
@@ -100,17 +102,9 @@ async function assertIsolation(label: string, expectChunks: Record<string, boole
 async function main() {
   console.log('🧪 drill:scope-all — per-project persistence + durable status (no SSE subscriber)');
 
-  // Stub AI summaries: deterministic, free. Persistence topology is under
-  // test here, not summary quality.
-  const { SummaryGenerationService } = await import('../src/lib/content/SummaryGenerationService');
-  (SummaryGenerationService.prototype as any).generateSummary = async function (req: any) {
-    return {
-      summary: `Deterministic drill summary of ${String(req.sectionTitle ?? 'project')}: ${String(req.content).slice(0, 120)}`,
-      tokensUsed: 10,
-      cost: 0,
-      confidenceScore: 1,
-    };
-  };
+  // No summary stubbing: AI_FAKE_MODE=reasoning drives the REAL summary path
+  // (SummaryGenerationService → BudgetAwareAIOperations → runSecondaryLLMJob
+  // → FakeReasoningAdapter) — deterministic, free, keyless.
 
   await seedDrillProjects(prisma);
 

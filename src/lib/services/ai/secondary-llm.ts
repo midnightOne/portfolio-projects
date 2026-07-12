@@ -39,7 +39,11 @@
  */
 
 import type { z } from 'zod';
-import { getReasoningAdapter, type ReasoningMessage } from '@/lib/ai/reasoning';
+import {
+  getReasoningAdapter,
+  getReasoningAdapterForAliasOrModel,
+  type ReasoningMessage,
+} from '@/lib/ai/reasoning';
 import type { ModelAliasName } from '@/lib/ai/model-registry';
 import { parseJsonWithSchema } from '@/lib/ai/llm-json';
 import { recordUsage, type LedgerFeature } from '@/lib/ai/ledger';
@@ -60,6 +64,15 @@ export interface SecondaryLLMMeterInput {
 export interface SecondaryLLMJobSpec<Schema extends z.ZodTypeAny> {
   /** D4 registry role alias — never a model id (D38). */
   alias: ModelAliasName;
+  /**
+   * Admin-supplied override that may be a role alias or a pinned model id
+   * (resolved via resolveAliasOrModelId, same as the admin editing endpoints).
+   * When set it wins over `alias`; `alias` remains the feature's default role.
+   * Only for surfaces where the owner explicitly picks a model (e.g. the
+   * semantic dashboard's custom-model summary regeneration) — features
+   * themselves keep naming aliases (D4).
+   */
+  modelOverride?: string;
   /** Single user prompt or a full message array (system + user). */
   prompt: string | ReasoningMessage[];
   /** JSON-forced response shape; parse failure → result null, never a throw. */
@@ -108,7 +121,9 @@ export interface SecondaryLLMJobOutcome<Schema extends z.ZodTypeAny> {
 export async function runSecondaryLLMJob<Schema extends z.ZodTypeAny>(
   spec: SecondaryLLMJobSpec<Schema>
 ): Promise<SecondaryLLMJobOutcome<Schema>> {
-  const adapter = await getReasoningAdapter(spec.alias);
+  const adapter = spec.modelOverride
+    ? await getReasoningAdapterForAliasOrModel(spec.modelOverride)
+    : await getReasoningAdapter(spec.alias);
   const messages: ReasoningMessage[] =
     typeof spec.prompt === 'string' ? [{ role: 'user', content: spec.prompt }] : spec.prompt;
 
