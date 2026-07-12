@@ -515,9 +515,13 @@ export class ReflinkManager {
         ? Math.max(0, reflink.tokenLimit - reflink.tokensUsed)
         : undefined;
 
-      const spendRemaining = reflink.spendLimit 
+      // Uncapped = null, NOT Infinity: this object crosses the wire and
+      // JSON.stringify(Infinity) silently becomes null anyway — the type now
+      // tells the truth so clients guard instead of crashing on .toFixed
+      // (owner hit this with an uncapped reflink, 2026-07-12).
+      const spendRemaining = reflink.spendLimit
         ? Math.max(0, Number(reflink.spendLimit) - Number(reflink.spendUsed))
-        : Infinity;
+        : null;
 
       const isExhausted = Boolean(
         (reflink.tokenLimit && reflink.tokensUsed >= reflink.tokenLimit) ||
@@ -525,8 +529,8 @@ export class ReflinkManager {
       );
 
       // Estimate remaining requests based on average cost
-      const estimatedRequestsRemaining = spendRemaining === Infinity 
-        ? 999999 
+      const estimatedRequestsRemaining = spendRemaining === null
+        ? 999999
         : Math.floor(spendRemaining / 0.01); // Assume $0.01 per request average
 
       return {

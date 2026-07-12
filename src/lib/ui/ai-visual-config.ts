@@ -51,13 +51,21 @@ export type ZLayerName = keyof typeof Z_LAYERS;
 
 export interface PillShapeConfig {
   /**
-   * External fillet radius at full dock, px: the outer bottom quarters of the
-   * pill flip from internal (convex) to this external (concave) radius whose
-   * curve flows into the bottom screen edge — the browser-tab foot.
+   * Dock progress (0..1) at which the corner flip begins (owner 2026-07-12:
+   * "the pill flows as a pill most of the time and when it's almost at the
+   * bottom — the shape transforms"). Below this the silhouette is a pure
+   * capsule; the flip plays out over the remaining [start, 1] tail. The foot
+   * radius itself is derived, not configured: it MATCHES the top radius and
+   * the two arcs meet at mid-height (pill-path.ts `dockedCornerRadius`).
    */
-  tabRadius: number;
-  /** Top-corner radius multiplier while docked (1 = unchanged capsule top). */
-  dockedTopRadiusScale: number;
+  dockMorphStart: number;
+  /**
+   * Corner radius of the sidebar-integrated PANEL form, px (owner
+   * 2026-07-12: inside the mostly-rectangular sidebar the pill becomes a
+   * rounded-corner rectangle "so we only lose a bit of space on the
+   * corners" — capsule ends and tab feet waste width there).
+   */
+  panelRadius: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,7 +107,14 @@ export interface BreathingConfig {
   amplitude: number;
   /** How far the glow reaches into the viewport, px. */
   spread: number;
-  /** Breaths per minute while speaking. */
+  /**
+   * Maps the measured output-audio RMS (speech is typically 0.05–0.3) to full
+   * modulation: displayed level = clamp01(rms × gain). The glow oscillates
+   * with the actual audio (output-level-meter.ts); `rateBpm` is only the
+   * fallback breath when no audio tap exists (e.g. reduced test rigs).
+   */
+  audioLevelGain: number;
+  /** Fallback breaths per minute while speaking, when no audio tap exists. */
   rateBpm: number;
   /** Seconds for the glow to swell in when speech starts. */
   attackSeconds: number;
@@ -108,7 +123,7 @@ export interface BreathingConfig {
   /** GSAP ease names for attack/release. */
   attackEase: string;
   releaseEase: string;
-  /** Floor opacity between breaths (keeps presence without pulsing to zero). */
+  /** Floor of the audio-level modulation (keeps presence in speech pauses). */
   floorRatio: number;
   /** Under prefers-reduced-motion: fixed opacity while speaking (0 = disabled). */
   reducedMotionOpacity: number;
@@ -161,7 +176,12 @@ export interface MorphConfig {
 }
 
 export interface SidebarConfig {
-  /** Sidebar width on desktop, px. */
+  /**
+   * Sidebar width on desktop, px. The sidebar CO-EXISTS with the page (owner
+   * 2026-07-12): the page content is pushed narrower by this amount — as if
+   * the window were resized — never covered. Below `overlayBreakpoint` it
+   * temporarily covers the screen instead (no room to co-exist).
+   */
   width: number;
   /** Viewport width below which the sidebar becomes a full-screen overlay, px. */
   overlayBreakpoint: number;
@@ -185,8 +205,8 @@ export interface AIVisualConfig {
 
 export const DEFAULT_AI_VISUAL_CONFIG: AIVisualConfig = {
   shape: {
-    tabRadius: 22,
-    dockedTopRadiusScale: 1,
+    dockMorphStart: 0.8,
+    panelRadius: 16,
   },
   gradient: {
     // Theme tokens (globals.css defines both palettes — Req 1.2/1.3); raw
@@ -203,7 +223,8 @@ export const DEFAULT_AI_VISUAL_CONFIG: AIVisualConfig = {
   },
   breathing: {
     amplitude: 0.5,
-    spread: 120,
+    spread: 44,
+    audioLevelGain: 3,
     rateBpm: 11,
     attackSeconds: 1.1,
     releaseSeconds: 1.6,
@@ -213,18 +234,21 @@ export const DEFAULT_AI_VISUAL_CONFIG: AIVisualConfig = {
     reducedMotionOpacity: 0.18,
   },
   dimensions: {
+    // bleedX must cover the docked corner radius + 1 (pill-path clamps the
+    // foot to bleedX - 1): desktop nominal radius = (76 + 14) / 2 = 45.
     desktop: {
       maxWidth: 672,
       height: 76,
-      bleedX: 40,
+      bleedX: 48,
       bleedTop: 14,
       floatingBottom: 24,
       heroBottomVh: 30,
     },
+    // phone nominal radius = (64 + 10) / 2 = 37.
     phone: {
       maxWidth: 420,
       height: 64,
-      bleedX: 28,
+      bleedX: 40,
       bleedTop: 10,
       floatingBottom: 12,
       heroBottomVh: 24,
@@ -294,4 +318,4 @@ export const AI_VISUAL_OVERRIDE_STORAGE_KEY = 'ai-visual-config-override';
  * (bitten 2026-07-12: a liquid-era override survived the tab-dock schema
  * swap and hid the new defaults).
  */
-export const AI_VISUAL_CONFIG_VERSION = 2;
+export const AI_VISUAL_CONFIG_VERSION = 4;

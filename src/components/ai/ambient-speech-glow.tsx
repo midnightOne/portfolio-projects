@@ -2,24 +2,33 @@
 
 /**
  * AmbientSpeechGlow (ui-system task 3.6) — "as if the page itself is
- * speaking" (owner 2026-07-11).
+ * speaking" (owner 2026-07-11; revision 2026-07-12: the glow is much smaller
+ * and oscillates with the ACTUAL audio intensity, not a fixed breath).
  *
- * A fixed, pointer-events-none viewport-edge layer that swells while the
- * agent's audio output is active and recedes when it ends. Two stacked
+ * A fixed, pointer-events-none viewport-edge layer gated by a GSAP
+ * attack/release envelope on the speaking signal. Inside the envelope its
+ * opacity follows the live agent output level (output-level-meter.ts — the
+ * voice adapters tap their playback paths into it), so the edges pulse with
+ * the voice. When no audio tap exists (e.g. a preview rig with no session)
+ * it falls back to the old slow sine breath at `rateBpm`. Two stacked
  * gradient layers cross-fade on the shared ambient clock to make the colors
- * flow (compositor-only work: every animated property is opacity), and a
- * slow sine breath modulates the whole layer at `rateBpm`.
+ * flow (compositor-only work: every animated property is opacity).
  *
- * Reduced motion: the breath and color flow collapse to a fixed gentle tint
- * at `breathing.reducedMotionOpacity` while speaking (0 disables entirely).
+ * Reduced motion: the oscillation and color flow collapse to a fixed gentle
+ * tint at `breathing.reducedMotionOpacity` while speaking (0 disables).
  */
 
 import React, { useEffect, useMemo, useRef } from 'react';
 import { gsap } from 'gsap';
 import { useAIVisualConfig, useIsDarkTheme } from '@/lib/ui/ai-visual-config-context';
 import { subscribeAmbientClock, isAmbientClockReduced } from '@/lib/ui/ambient-clock';
+import { getAgentOutputLevel } from '@/lib/voice/output-level-meter';
 
 const TAU = Math.PI * 2;
+
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
 
 export function AmbientSpeechGlow({ speaking }: { speaking: boolean }) {
   const config = useAIVisualConfig();
@@ -60,10 +69,14 @@ export function AmbientSpeechGlow({ speaking }: { speaking: boolean }) {
         return;
       }
 
-      const breath =
-        breathing.floorRatio +
-        (1 - breathing.floorRatio) * (0.5 + 0.5 * Math.sin(TAU * (breathing.rateBpm / 60) * t));
-      root.style.opacity = (envelope * breathing.amplitude * breath).toFixed(3);
+      // Live audio level when a playback tap exists; sine breath otherwise.
+      const level = getAgentOutputLevel();
+      const modulation =
+        level === null
+          ? 0.5 + 0.5 * Math.sin(TAU * (breathing.rateBpm / 60) * t)
+          : clamp01(level * breathing.audioLevelGain);
+      const presence = breathing.floorRatio + (1 - breathing.floorRatio) * modulation;
+      root.style.opacity = (envelope * breathing.amplitude * presence).toFixed(3);
 
       // Color flow: cross-fade the second layer against the first.
       if (layerBRef.current) {

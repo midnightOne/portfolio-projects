@@ -35,6 +35,13 @@ export interface PillShellProps {
   getDockProgress?: () => number;
   /** True while the phone breakpoint applies (tighter bleed). */
   compact?: boolean;
+  /**
+   * Sidebar-integrated PANEL form (owner 2026-07-12): the silhouette morphs
+   * from the capsule to a rounded-corner rectangle (`shape.panelRadius`)
+   * whose glass reaches the shell bottom — a space-saving composer for the
+   * mostly-rectangular sidebar, instead of capsule ends wasting its width.
+   */
+  panel?: boolean;
   className?: string;
   children: React.ReactNode;
 }
@@ -43,6 +50,7 @@ export function PillShell({
   agentState,
   getDockProgress,
   compact = false,
+  panel = false,
   className,
   children,
 }: PillShellProps) {
@@ -75,6 +83,8 @@ export function PillShell({
   liveDims.current = dims;
   const dockRef = useRef(getDockProgress);
   dockRef.current = getDockProgress;
+  /** 0 = capsule, 1 = panel; tweened so the form change rides the relocate. */
+  const panelProgress = useRef({ value: panel ? 1 : 0 });
 
   // Smoothly tween the gradient style toward the active state's targets.
   useEffect(() => {
@@ -94,6 +104,19 @@ export function PillShell({
     };
   }, [agentState, config]);
 
+  // Capsule ↔ panel form morph (task 3.4 revision — sidebar composer).
+  useEffect(() => {
+    const tween = gsap.to(panelProgress.current, {
+      value: panel ? 1 : 0,
+      duration: config.morph.pillRelocateDuration,
+      ease: config.morph.pillRelocateEase,
+      overwrite: true,
+    });
+    return () => {
+      tween.kill();
+    };
+  }, [panel, config.morph]);
+
   // One frame of the visual pipeline (also called synchronously on measure so
   // the silhouette exists before the first ticker frame — e.g. hidden tabs,
   // where rAF is paused, must still show a correct static pill). The shape
@@ -106,17 +129,21 @@ export function PillShell({
     const dim = liveDims.current;
     const reduced = isAmbientClockReduced();
     const dock = dockRef.current ? dockRef.current() : 0;
+    const pp = panelProgress.current.value;
 
-    const shapeKey = `${dock.toFixed(4)}|${fs.width}x${fs.height}`;
+    const shapeKey = `${dock.toFixed(4)}|${pp.toFixed(4)}|${fs.width}x${fs.height}`;
     if (shapeKey !== fs.lastShapeKey) {
       fs.lastShapeKey = shapeKey;
+      // Panel form: corners tighten toward panelRadius and the glass reaches
+      // the shell bottom (no floating gap to give back to the sidebar).
+      const capsuleR = dim.height / 2;
       const geom: PillGeometry = {
         width: fs.width,
         height: fs.height,
         bleedX: dim.bleedX,
         bleedTop: dim.bleedTop,
-        bottomPad: dim.bleedTop,
-        cornerRadius: dim.height / 2,
+        bottomPad: dim.bleedTop * (1 - pp),
+        cornerRadius: capsuleR + (cfg.shape.panelRadius - capsuleR) * pp,
       };
       const d = pillTabPath(geom, cfg.shape, dock);
       if (glassRef.current) glassRef.current.style.clipPath = `path("${d}")`;

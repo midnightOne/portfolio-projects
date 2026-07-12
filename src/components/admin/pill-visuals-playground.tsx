@@ -46,8 +46,8 @@ interface SliderSpec {
 }
 
 const SHAPE_SLIDERS: SliderSpec[] = [
-  { path: 'shape.tabRadius', label: 'Tab foot radius (px)', min: 0, max: 60, step: 1 },
-  { path: 'shape.dockedTopRadiusScale', label: 'Docked top-radius scale', min: 0.3, max: 1, step: 0.05 },
+  { path: 'shape.dockMorphStart', label: 'Dock morph start (0..0.95)', min: 0, max: 0.95, step: 0.01 },
+  { path: 'shape.panelRadius', label: 'Sidebar panel radius (px)', min: 4, max: 32, step: 1 },
 ];
 
 const GRADIENT_STATE_SLIDERS = (state: AgentVisualState): SliderSpec[] => [
@@ -60,8 +60,9 @@ const GRADIENT_STATE_SLIDERS = (state: AgentVisualState): SliderSpec[] => [
 
 const BREATHING_SLIDERS: SliderSpec[] = [
   { path: 'breathing.amplitude', label: 'Peak opacity', min: 0, max: 1, step: 0.02 },
-  { path: 'breathing.spread', label: 'Spread (px)', min: 20, max: 400, step: 5 },
-  { path: 'breathing.rateBpm', label: 'Breaths per minute', min: 4, max: 30, step: 0.5 },
+  { path: 'breathing.spread', label: 'Spread (px)', min: 10, max: 400, step: 2 },
+  { path: 'breathing.audioLevelGain', label: 'Audio-level gain', min: 0.5, max: 8, step: 0.1 },
+  { path: 'breathing.rateBpm', label: 'Fallback breaths/min', min: 4, max: 30, step: 0.5 },
   { path: 'breathing.attackSeconds', label: 'Attack (s)', min: 0.1, max: 4, step: 0.1 },
   { path: 'breathing.releaseSeconds', label: 'Release (s)', min: 0.1, max: 5, step: 0.1 },
   { path: 'breathing.floorRatio', label: 'Floor between breaths', min: 0, max: 1, step: 0.05 },
@@ -255,9 +256,10 @@ function PlaygroundInner() {
             ))}
           </div>
           <p className="text-[11px] text-muted-foreground mt-1">
-            The floating pill is the plain capsule; docking flips the outer bottom corners from an
-            internal radius to this external one, curving into the screen edge. Scrub the dock slider
-            above to preview the flip.
+            The floating pill is the plain capsule; docking flips the outer bottom corners outward
+            into feet that match the top radius and meet it at mid-height. The flip only plays over
+            the tail of the dock travel (after “morph start”) — scrub the dock slider above to
+            preview it.
           </p>
         </Section>
 
@@ -289,12 +291,16 @@ function PlaygroundInner() {
           </p>
         </Section>
 
-        <Section title="Page breathing while speaking (3.6)">
+        <Section title="Page glow while speaking (3.6)">
           <div className="grid gap-3 sm:grid-cols-2">
             {BREATHING_SLIDERS.map((s) => (
               <SliderRow key={s.path} spec={s} config={config} onChange={handleChange} />
             ))}
           </div>
+          <p className="text-[11px] text-muted-foreground mt-1">
+            In a live session the glow oscillates with the agent&apos;s actual audio level (× gain).
+            This preview has no audio playing, so it shows the fallback breath instead.
+          </p>
         </Section>
 
         <Section title="Morph timing & dimensions (3.1/3.3/3.4)">

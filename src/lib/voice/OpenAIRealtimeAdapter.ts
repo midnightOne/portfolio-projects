@@ -36,6 +36,7 @@ import { selectPrunableTurns, type WindowTurnRef } from '@/lib/ai/engine/window'
 import { getClientAIModelManager } from './ClientAIModelManager';
 import { OPENAI_REALTIME_MODEL } from '@/types/voice-config';
 import { UIManager } from '@/lib/navigation/UIManager';
+import { meterMediaStream } from './output-level-meter';
 
 // OpenAI Realtime SDK 0.1.0 imports
 import {
@@ -82,6 +83,9 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     /** tool name → latest provider call_id, so the post-execution row can correlate. */
     private _lastCallIdForTool: Map<string, string> = new Map();
     private _silentAudioContext: AudioContext | null = null;
+    /** Output-level meter tap on the WebRTC audio element's stream (task 3.6 audio-reactive glow). */
+    private _outputMeterDetach: (() => void) | null = null;
+    private _meteredOutputStream: MediaStream | null = null;
     // ---- D49 session continuity (task 5b) ----
     /** Options of the live connect, reused verbatim by auto-resume. */
     private _lastConnectOptions: ConnectOptions | undefined;
@@ -686,6 +690,22 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     }
 
     /**
+     * Tap the SDK's output audio element (WebRTC remote stream on srcObject)
+     * into the shared output-level meter so the ambient glow can follow the
+     * live speech intensity (task 3.6). Idempotent per stream; a resumed leg
+     * gets a fresh srcObject and re-taps on its first speech_start. Safari
+     * may read remote-stream analysers as silence — the glow then rests at
+     * its floor, which is an acceptable degradation.
+     */
+    private _ensureOutputMeter(): void {
+        const stream = this._options?.audioElement?.srcObject;
+        if (!(stream instanceof MediaStream) || this._meteredOutputStream === stream) return;
+        this._outputMeterDetach?.();
+        this._outputMeterDetach = meterMediaStream(stream);
+        this._meteredOutputStream = stream;
+    }
+
+    /**
      * A permissionless, always-silent audio input track (AudioContext destination
      * with no connected source). Keeps the WebRTC audio m-line valid without a mic.
      */
@@ -719,6 +739,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 if (!this._turnFirstAudioAt) this._turnFirstAudioAt = new Date();
                 this._clearResponseStallWatchdog();
                 this._stallNudgeCount = 0; // real audio = episode over
+                this._ensureOutputMeter();
                 this._emitAudioEvent('speech_start');
             } else if (event.type === 'output_audio_buffer.stopped' || event.type === 'output_audio_buffer.cleared') {
                 this._emitAudioEvent('speech_end');
@@ -2247,6 +2268,10 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                     this._silentAudioContext.close().catch(() => {});
                     this._silentAudioContext = null;
                 }
+
+                this._outputMeterDetach?.();
+                this._outputMeterDetach = null;
+                this._meteredOutputStream = null;
 
                 // Clean up UI state tracking
                 if (typeof window !== 'undefined') {

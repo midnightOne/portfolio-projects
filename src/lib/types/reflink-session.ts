@@ -49,7 +49,8 @@ export interface PersonalizedContext {
 
 export interface BudgetStatus {
   tokensRemaining?: number;
-  spendRemaining: number;
+  /** Dollars left, or null when the reflink has no spend limit (uncapped). */
+  spendRemaining: number | null;
   isExhausted: boolean;
   estimatedRequestsRemaining: number;
 }

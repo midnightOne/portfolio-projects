@@ -14,16 +14,21 @@
  *  - hero:    floating pill above the hero section (position 'hero')
  *  - docked:  "tab" merged with the bottom screen edge — the outer bottom
  *             corners flip to external fillets (position 'pinned')
- *  - sidebar: pill relocated to the transcript sidebar's foot (mode 'expanded'
- *             on desktop; on phones the history is a full-screen overlay and
- *             the pill keeps the bottom edge)
+ *  - sidebar: the pill becomes an integrated PANEL at the sidebar's foot
+ *             (mode 'expanded') — a rounded-corner rectangle close to the
+ *             panel's own shape (owner 2026-07-12: capsule ends waste the
+ *             rectangle's width). Stack inside the sidebar, top to bottom:
+ *             chips above the shell, topic line, input + paper-plane send,
+ *             then the remaining buttons/switches in pill-form order. On
+ *             desktop the sidebar pushes the page narrower (body padding);
+ *             on phones it covers the screen and the panel keeps the bottom.
  */
 
 'use client';
 
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, MicOff, Sparkles, Volume2, VolumeX, Settings, AlertCircle, Navigation, MessagesSquare, PhoneOff } from 'lucide-react';
+import { Mic, MicOff, Send, Sparkles, Volume2, VolumeX, Settings, AlertCircle, Navigation, MessagesSquare, PhoneOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { gsap } from 'gsap';
 import { useConversationalAgent } from '@/components/providers/conversational-agent-provider';
@@ -250,20 +255,33 @@ export function FloatingAIInterface({
     const { morph, sidebar } = visualConfig;
     const pillWidth = Math.min(dims.maxWidth + 2 * dims.bleedX, viewport.w - (compact ? 4 : 16));
 
+    // The sidebar CO-EXISTS with the page on desktop (owner 2026-07-12): the
+    // page content is pushed narrower by the sidebar width — as if the window
+    // were resized — never covered. Body padding reflows all in-flow content
+    // (sticky nav included); fixed/viewport-anchored elements (the pill, the
+    // sidebar itself) are unaffected. The modal scroll-lock compensates the
+    // scrollbar on documentElement, so body padding is exclusively ours.
+    const bodyPush = sidebarOpen && !sidebarOverlay ? sidebar.width : 0;
+
     // Target geometry per layout state.
     let target: { left: number; bottom: number; width: number; dock: number };
     if (sidebarOpen && !sidebarOverlay) {
-      const width = Math.min(pillWidth, sidebar.width - 8);
+      // Integrated panel at the sidebar's foot: a rounded-corner rectangle
+      // spanning the sidebar width minus a small inset — only the corners
+      // give up space (PillShell `panel` form; no capsule ends, no tab feet).
+      const width = Math.min(sidebar.width - 16, dims.maxWidth) + 2 * dims.bleedX;
       target = {
-        left: viewport.w - sidebar.width + (sidebar.width - width) / 2,
-        bottom: 12,
+        left: viewport.w - sidebar.width / 2 - width / 2,
+        bottom: 8,
         width,
         dock: 0,
       };
     } else if (position === 'pinned' && !sidebarOpen) {
       target = { left: (viewport.w - pillWidth) / 2, bottom: 0, width: pillWidth, dock: 1 };
     } else if (sidebarOpen && sidebarOverlay) {
-      target = { left: (viewport.w - pillWidth) / 2, bottom: dims.floatingBottom, width: pillWidth, dock: 0 };
+      // Phone overlay: the same panel form spanning the viewport bottom.
+      const width = Math.min(viewport.w - 16, dims.maxWidth) + 2 * dims.bleedX;
+      target = { left: (viewport.w - width) / 2, bottom: 8, width, dock: 0 };
     } else {
       target = {
         left: (viewport.w - pillWidth) / 2,
@@ -282,6 +300,7 @@ export function FloatingAIInterface({
     if (firstLayout || resizeOnly) {
       // Initial mount or viewport resize: settle instantly, no morph.
       gsap.set(container, { left: target.left, bottom: target.bottom, width: target.width });
+      gsap.set(document.body, { paddingRight: bodyPush });
       dockProgressRef.current.p = target.dock;
       return;
     }
@@ -297,12 +316,21 @@ export function FloatingAIInterface({
     const tl = gsap.timeline();
     layoutTimelineRef.current = tl;
     tl.to(container, { left: target.left, bottom: target.bottom, width: target.width, duration, ease }, 0)
-      .to(dockProgressRef.current, { p: target.dock, duration, ease }, 0);
+      .to(dockProgressRef.current, { p: target.dock, duration, ease }, 0)
+      .to(document.body, { paddingRight: bodyPush, duration: morph.sidebarDuration, ease: morph.sidebarEase }, 0);
 
     return () => {
       tl.kill();
     };
   }, [position, sidebarOpen, compact, sidebarOverlay, viewport, dims, visualConfig]);
+
+  // Release the body push if the pill unmounts entirely.
+  useEffect(
+    () => () => {
+      gsap.set(document.body, { clearProps: 'paddingRight' });
+    },
+    []
+  );
 
   // Handle scroll hiding
   useEffect(() => {
@@ -467,8 +495,8 @@ export function FloatingAIInterface({
     }
   };
 
-  // Handle form submission with real voice system
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Handle submission (Enter in the input, or the panel form's send button)
+  const handleSubmit = async (e: React.FormEvent | React.MouseEvent) => {
     e.preventDefault();
     if (inputValue.trim() && !isProcessing && !publicBusy) {
       try {
@@ -645,10 +673,256 @@ export function FloatingAIInterface({
     setHasInteracted(true);
   };
 
-  // Sidebar reserves room for the relocated pill at its foot.
+  // Sidebar reserves room for the integrated panel at its foot (topic line +
+  // input row + controls row + insets).
   const pillDockHeight = useMemo(
-    () => dims.height + 2 * dims.bleedTop + 24,
+    () => dims.height + 48 + dims.bleedTop + 24,
     [dims.height, dims.bleedTop]
+  );
+
+  // ---- Input row pieces (task 3.4 revision 2026-07-12) ----
+  // One definition each; the pill form lays them out in a single row, the
+  // sidebar-fused form gives the input the full first row and moves the
+  // controls to a second row IN THE SAME ORDER (owner: "they should resemble
+  // the same order they are in in the pill form").
+
+  const textInputEl = (
+    <div className="flex-1 min-w-0">
+      <input
+        ref={inputRef}
+        value={inputValue}
+        onChange={(e) => {
+          setInputValue(e.target.value);
+          onValueChange?.(e.target.value);
+        }}
+        onFocus={handleInputFocus}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSubmit(e);
+          }
+        }}
+        placeholder={isListening ? "Listening..." : placeholder}
+        className={cn(
+          'w-full bg-transparent border-none text-foreground placeholder-muted-foreground focus:outline-none resize-none',
+          compact ? 'text-base' : 'text-lg'
+        )}
+        disabled={isProcessing}
+      />
+    </div>
+  );
+
+  const statusIndicators = (
+    <>
+      {(publicBusy || chipsBusy) && (
+        <div className="flex items-center gap-1.5 text-primary" data-testid="thinking-indicator">
+          <div className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce"></div>
+          <div className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+          <div className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+        </div>
+      )}
+
+      {isSpeaking && (
+        <div className="flex items-center gap-1.5 text-primary" data-testid="speaking-indicator">
+          <Volume2 size={13} className="animate-pulse" />
+          {!compact && <span className="text-xs">Speaking</span>}
+        </div>
+      )}
+
+      {/* Subtle listening indicator - no modal needed for WebRTC */}
+      {isListening && voiceSupported && (
+        <div className="flex items-center gap-1.5 text-green-500">
+          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+          {!compact && <span className="text-xs">Listening</span>}
+        </div>
+      )}
+    </>
+  );
+
+  const controlCluster = (
+    <>
+      {/* Audio Control */}
+      <button
+        onClick={toggleAudio}
+        className={cn(
+          'p-2 rounded-full transition-all duration-200',
+          audioEnabled ? 'text-primary hover:bg-primary/10' : 'text-muted-foreground hover:bg-muted/10'
+        )}
+        title={audioEnabled ? 'Sound on' : 'Sound off'}
+      >
+        {audioEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+      </button>
+
+      {/* Auto-navigation consent toggle (Req 13.8, G2; owner 2026-07-11:
+          a proper iOS-style switch): OFF (default) = the agent asks
+          before taking you anywhere; ON = it may navigate freely. The
+          agent can flip it too, but only via the set_auto_navigation
+          tool after you agree — the state shown is always the real one. */}
+      <div
+        className="flex items-center gap-1.5"
+        title={
+          autoNavOn
+            ? 'Auto-navigation ON — the assistant may move around the site for you. Click to make it ask first.'
+            : 'Auto-navigation OFF — the assistant asks before taking you anywhere. Click to let it navigate freely.'
+        }
+      >
+        <Navigation
+          size={13}
+          className={cn('transition-colors', autoNavOn ? 'text-primary' : 'text-muted-foreground')}
+        />
+        <Switch
+          checked={autoNavOn}
+          onCheckedChange={(v) => setAutoNav(v, 'tap')}
+          aria-label="Auto-navigation"
+          data-testid="autonav-toggle"
+        />
+      </div>
+
+      {/* Settings Button */}
+      {onSettingsClick && !compact && (
+        <button
+          onClick={onSettingsClick}
+          className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted/10 transition-all duration-200"
+          title="Settings"
+        >
+          <Settings size={16} />
+        </button>
+      )}
+
+      {/* History affordance (task 3.4): the recognizable speech-boxes icon */}
+      <button
+        onClick={toggleSidebar}
+        className={cn(
+          'relative p-2 rounded-full transition-all duration-200',
+          sidebarOpen
+            ? 'text-primary bg-primary/10'
+            : 'text-muted-foreground hover:text-foreground hover:bg-muted/10'
+        )}
+        title={sidebarOpen ? 'Close conversation history' : 'Show conversation history'}
+        aria-label={sidebarOpen ? 'Close conversation history' : 'Show conversation history'}
+        aria-expanded={sidebarOpen}
+        data-testid="history-toggle"
+      >
+        <MessagesSquare size={16} />
+        {chatMessages.length > 0 && !sidebarOpen && (
+          <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-primary rounded-full" />
+        )}
+      </button>
+
+      {/* Hang-up (task 3.4): visible while a live session is open */}
+      {isConnected && (
+        <button
+          onClick={handleHangUp}
+          className="p-2 rounded-full text-red-500 hover:bg-red-500/10 transition-all duration-200"
+          title="End conversation session"
+          aria-label="End conversation session"
+          data-testid="hang-up"
+        >
+          <PhoneOff size={16} />
+        </button>
+      )}
+    </>
+  );
+
+  // Text-only session indicator
+  const textOnlyChip = isConnected && audioInputMode === 'text-only' && !compact && (
+    <div
+      className="text-xs text-muted-foreground bg-muted/20 px-2 py-1 rounded-full"
+      title="Connected without microphone — type to chat, or use the mic button to enable voice"
+      data-testid="text-only-indicator"
+    >
+      Text-only
+    </div>
+  );
+
+  // Send button (panel form only): the classic paper-plane at the input's end.
+  const sendButton = (
+    <button
+      onClick={handleSubmit}
+      disabled={!inputValue.trim() || isProcessing || publicBusy}
+      className="p-2.5 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
+      title="Send message"
+      aria-label="Send message"
+      data-testid="send-button"
+    >
+      <Send size={16} />
+    </button>
+  );
+
+  // Voice Input Button — `small` renders the control-row variant used by the
+  // panel form, where the send button owns the input row's end.
+  const renderMicButton = (small: boolean) => (
+    <motion.button
+      onClick={handleVoiceToggle}
+      whileHover={{ scale: voiceSupported ? 1.05 : 1 }}
+      whileTap={{ scale: voiceSupported ? 0.95 : 1 }}
+      className={cn(
+        'relative rounded-full flex items-center justify-center transition-colors duration-300 shadow-lg flex-shrink-0',
+        small ? 'w-9 h-9' : compact ? 'w-10 h-10' : 'w-12 h-12',
+        !voiceSupported
+          ? 'bg-muted text-muted-foreground cursor-not-allowed'
+          : isListening
+            ? 'bg-red-500 hover:bg-red-600'
+            : 'bg-primary hover:bg-primary/90'
+      )}
+      disabled={isProcessing || !voiceSupported}
+      title={
+        !voiceSupported
+          ? 'Voice AI not available for your access level'
+          : isListening
+            ? 'Mute microphone'
+            : isConnected
+              ? audioInputMode === 'text-only'
+                ? 'Enable voice (requires microphone)'
+                : 'Unmute microphone'
+              : 'Connect and enable voice'
+      }
+    >
+      {/* Connection status indicator */}
+      {voiceSupported && !isConnected && (
+        <div className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 rounded-full animate-pulse" />
+      )}
+
+      {/* Connected and listening indicator */}
+      {voiceSupported && isConnected && isListening && (
+        <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full animate-pulse" />
+      )}
+
+      {/* Error indicator */}
+      {lastError && (
+        <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full" />
+      )}
+
+      {/* Pulse rings when listening */}
+      <AnimatePresence>
+        {isListening && voiceSupported && (
+          <>
+            <motion.div
+              key="pulse-ring-1"
+              initial={{ scale: 1, opacity: 0.6 }}
+              animate={{ scale: 2.5, opacity: 0 }}
+              exit={{ scale: 1, opacity: 0 }}
+              transition={{ duration: 1, repeat: Infinity }}
+              className="absolute inset-0 bg-red-400 rounded-full"
+            />
+            <motion.div
+              key="pulse-ring-2"
+              initial={{ scale: 1, opacity: 0.4 }}
+              animate={{ scale: 2, opacity: 0 }}
+              exit={{ scale: 1, opacity: 0 }}
+              transition={{ duration: 0.8, repeat: Infinity, delay: 0.2 }}
+              className="absolute inset-0 bg-red-500 rounded-full"
+            />
+          </>
+        )}
+      </AnimatePresence>
+
+      {isListening ? (
+        <MicOff size={small ? 18 : 24} className={cn("animate-pulse relative z-10", voiceSupported ? "text-white" : "text-muted-foreground")} />
+      ) : (
+        <Mic size={small ? 18 : 24} className={cn("relative z-10", voiceSupported ? "text-white" : "text-muted-foreground")} />
+      )}
+    </motion.button>
   );
 
   // Don't render if access level is 'no_access'
@@ -792,11 +1066,13 @@ export function FloatingAIInterface({
               </div>
             )}
 
-            {/* The pill (tasks 3.1/3.6): capsule afloat, tab foot when docked */}
+            {/* The pill (tasks 3.1/3.6): capsule afloat, tab foot when docked,
+                rounded-rect panel inside the sidebar */}
             <PillShell
               agentState={agentVisualState}
               getDockProgress={getDockProgress}
               compact={compact}
+              panel={sidebarOpen}
             >
               {/* Returning-visitor resume (Block I3): confirm on a new device
                   (explicit choice + safe summary, Req 21.1), subtle notice on a
@@ -907,231 +1183,44 @@ export function FloatingAIInterface({
 
               {/* Topic indicator (Req 13.3): small grayish line above the input
                   field; hidden when the active node declares none. */}
-              <div className={cn('pt-1 -mb-1 min-h-0', compact ? 'px-4' : 'px-5')}>
+              <div className={cn('pt-1 -mb-1 min-h-0', sidebarOpen || compact ? 'px-4' : 'px-5')}>
                 <EngineTopicLabel label={effectiveUx?.topicLabel ?? null} />
               </div>
 
-              {/* Main Input Row */}
-              <div className={cn('flex items-center', compact ? 'gap-2 px-3 py-2.5' : 'gap-3 px-5 py-3.5')}>
-                {/* Text Input */}
-                <div className="flex-1 min-w-0">
-                  <input
-                    ref={inputRef}
-                    value={inputValue}
-                    onChange={(e) => {
-                      setInputValue(e.target.value);
-                      onValueChange?.(e.target.value);
-                    }}
-                    onFocus={handleInputFocus}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSubmit(e);
-                      }
-                    }}
-                    placeholder={isListening ? "Listening..." : placeholder}
-                    className={cn(
-                      'w-full bg-transparent border-none text-foreground placeholder-muted-foreground focus:outline-none resize-none',
-                      compact ? 'text-base' : 'text-lg'
-                    )}
-                    disabled={isProcessing}
-                  />
-                </div>
-
-                {/* Status Indicators */}
-                <div className={cn('flex items-center', compact ? 'gap-1.5' : 'gap-2.5')}>
-                  {(publicBusy || chipsBusy) && (
-                    <div className="flex items-center gap-1.5 text-primary" data-testid="thinking-indicator">
-                      <div className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce"></div>
-                      <div className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                      <div className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                    </div>
-                  )}
-
-                  {isSpeaking && (
-                    <div className="flex items-center gap-1.5 text-primary" data-testid="speaking-indicator">
-                      <Volume2 size={13} className="animate-pulse" />
-                      {!compact && <span className="text-xs">Speaking</span>}
-                    </div>
-                  )}
-
-                  {/* Subtle listening indicator - no modal needed for WebRTC */}
-                  {isListening && voiceSupported && (
-                    <div className="flex items-center gap-1.5 text-green-500">
-                      <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                      {!compact && <span className="text-xs">Listening</span>}
-                    </div>
-                  )}
-
-                  {/* Audio Control */}
-                  <button
-                    onClick={toggleAudio}
-                    className={cn(
-                      'p-2 rounded-full transition-all duration-200',
-                      audioEnabled ? 'text-primary hover:bg-primary/10' : 'text-muted-foreground hover:bg-muted/10'
-                    )}
-                    title={audioEnabled ? 'Sound on' : 'Sound off'}
-                  >
-                    {audioEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
-                  </button>
-
-                  {/* Auto-navigation consent toggle (Req 13.8, G2; owner 2026-07-11:
-                      a proper iOS-style switch): OFF (default) = the agent asks
-                      before taking you anywhere; ON = it may navigate freely. The
-                      agent can flip it too, but only via the set_auto_navigation
-                      tool after you agree — the state shown is always the real one. */}
-                  <div
-                    className="flex items-center gap-1.5"
-                    title={
-                      autoNavOn
-                        ? 'Auto-navigation ON — the assistant may move around the site for you. Click to make it ask first.'
-                        : 'Auto-navigation OFF — the assistant asks before taking you anywhere. Click to let it navigate freely.'
-                    }
-                  >
-                    <Navigation
-                      size={13}
-                      className={cn('transition-colors', autoNavOn ? 'text-primary' : 'text-muted-foreground')}
-                    />
-                    <Switch
-                      checked={autoNavOn}
-                      onCheckedChange={(v) => setAutoNav(v, 'tap')}
-                      aria-label="Auto-navigation"
-                      data-testid="autonav-toggle"
-                    />
+              {/* Input + controls. Pill form: one row, mic at the end. Panel
+                  form (sidebar): the classic input line with the paper-plane
+                  send on the right, and the rest of the buttons and switches
+                  on the line below in pill-form order (owner 2026-07-12). */}
+              {sidebarOpen ? (
+                <>
+                  <div className={cn('flex items-center', compact ? 'gap-2 px-3 pt-2 pb-1' : 'gap-2.5 px-4 pt-2.5 pb-1')}>
+                    {textInputEl}
+                    {sendButton}
                   </div>
-
-                  {/* Settings Button */}
-                  {onSettingsClick && !compact && (
-                    <button
-                      onClick={onSettingsClick}
-                      className="p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted/10 transition-all duration-200"
-                      title="Settings"
-                    >
-                      <Settings size={16} />
-                    </button>
-                  )}
-
-                  {/* History affordance (task 3.4): the recognizable speech-boxes icon */}
-                  <button
-                    onClick={toggleSidebar}
-                    className={cn(
-                      'relative p-2 rounded-full transition-all duration-200',
-                      sidebarOpen
-                        ? 'text-primary bg-primary/10'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-muted/10'
-                    )}
-                    title={sidebarOpen ? 'Close conversation history' : 'Show conversation history'}
-                    aria-label={sidebarOpen ? 'Close conversation history' : 'Show conversation history'}
-                    aria-expanded={sidebarOpen}
-                    data-testid="history-toggle"
-                  >
-                    <MessagesSquare size={16} />
-                    {chatMessages.length > 0 && !sidebarOpen && (
-                      <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 bg-primary rounded-full" />
-                    )}
-                  </button>
-
-                  {/* Hang-up (task 3.4): visible while a live session is open */}
-                  {isConnected && (
-                    <button
-                      onClick={handleHangUp}
-                      className="p-2 rounded-full text-red-500 hover:bg-red-500/10 transition-all duration-200"
-                      title="End conversation session"
-                      aria-label="End conversation session"
-                      data-testid="hang-up"
-                    >
-                      <PhoneOff size={16} />
-                    </button>
-                  )}
-                </div>
-
-                {/* Text-only session indicator */}
-                {isConnected && audioInputMode === 'text-only' && !compact && (
-                  <div
-                    className="text-xs text-muted-foreground bg-muted/20 px-2 py-1 rounded-full"
-                    title="Connected without microphone — type to chat, or use the mic button to enable voice"
-                    data-testid="text-only-indicator"
-                  >
-                    Text-only
+                  <div className={cn('flex items-center', compact ? 'gap-1.5 px-3 pb-2' : 'gap-2 px-4 pb-2.5')}>
+                    {statusIndicators}
+                    {textOnlyChip}
+                    <div className="flex-1" />
+                    {controlCluster}
+                    {renderMicButton(true)}
                   </div>
-                )}
+                </>
+              ) : (
+                <div className={cn('flex items-center', compact ? 'gap-2 px-3 py-2.5' : 'gap-3 px-5 py-3.5')}>
+                  {textInputEl}
+                  <div className={cn('flex items-center', compact ? 'gap-1.5' : 'gap-2.5')}>
+                    {statusIndicators}
+                    {controlCluster}
+                  </div>
+                  {textOnlyChip}
+                  {renderMicButton(false)}
+                </div>
+              )}
 
-                {/* Voice Input Button */}
-                <motion.button
-                  onClick={handleVoiceToggle}
-                  whileHover={{ scale: voiceSupported ? 1.05 : 1 }}
-                  whileTap={{ scale: voiceSupported ? 0.95 : 1 }}
-                  className={cn(
-                    'relative rounded-full flex items-center justify-center transition-colors duration-300 shadow-lg flex-shrink-0',
-                    compact ? 'w-10 h-10' : 'w-12 h-12',
-                    !voiceSupported
-                      ? 'bg-muted text-muted-foreground cursor-not-allowed'
-                      : isListening
-                        ? 'bg-red-500 hover:bg-red-600'
-                        : 'bg-primary hover:bg-primary/90'
-                  )}
-                  disabled={isProcessing || !voiceSupported}
-                  title={
-                    !voiceSupported
-                      ? 'Voice AI not available for your access level'
-                      : isListening
-                        ? 'Mute microphone'
-                        : isConnected
-                          ? audioInputMode === 'text-only'
-                            ? 'Enable voice (requires microphone)'
-                            : 'Unmute microphone'
-                          : 'Connect and enable voice'
-                  }
-                >
-                  {/* Connection status indicator */}
-                  {voiceSupported && !isConnected && (
-                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 rounded-full animate-pulse" />
-                  )}
-
-                  {/* Connected and listening indicator */}
-                  {voiceSupported && isConnected && isListening && (
-                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full animate-pulse" />
-                  )}
-
-                  {/* Error indicator */}
-                  {lastError && (
-                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full" />
-                  )}
-
-                  {/* Pulse rings when listening */}
-                  <AnimatePresence>
-                    {isListening && voiceSupported && (
-                      <>
-                        <motion.div
-                          key="pulse-ring-1"
-                          initial={{ scale: 1, opacity: 0.6 }}
-                          animate={{ scale: 2.5, opacity: 0 }}
-                          exit={{ scale: 1, opacity: 0 }}
-                          transition={{ duration: 1, repeat: Infinity }}
-                          className="absolute inset-0 bg-red-400 rounded-full"
-                        />
-                        <motion.div
-                          key="pulse-ring-2"
-                          initial={{ scale: 1, opacity: 0.4 }}
-                          animate={{ scale: 2, opacity: 0 }}
-                          exit={{ scale: 1, opacity: 0 }}
-                          transition={{ duration: 0.8, repeat: Infinity, delay: 0.2 }}
-                          className="absolute inset-0 bg-red-500 rounded-full"
-                        />
-                      </>
-                    )}
-                  </AnimatePresence>
-
-                  {isListening ? (
-                    <MicOff className={cn("animate-pulse relative z-10", voiceSupported ? "text-white" : "text-muted-foreground")} />
-                  ) : (
-                    <Mic className={cn("relative z-10", voiceSupported ? "text-white" : "text-muted-foreground")} />
-                  )}
-                </motion.button>
-              </div>
-
-              {/* Budget status for premium users */}
-              {budgetStatus && !budgetStatus.isExhausted && !compact && (
+              {/* Budget status for premium users. A reflink WITHOUT a spend
+                  limit reports spendRemaining: null (uncapped) — there is no
+                  "$ left" figure to show. */}
+              {budgetStatus && !budgetStatus.isExhausted && !compact && budgetStatus.spendRemaining !== null && (
                 <div className="px-5 pb-1.5 -mt-1 text-right text-[10px] text-muted-foreground/70">
                   ${budgetStatus.spendRemaining.toFixed(2)} left
                 </div>

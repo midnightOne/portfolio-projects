@@ -44,6 +44,7 @@ import {
   ConnectOptions,
 } from './IConversationalAgentAdapter';
 import type { CascadeConfig } from '@/types/voice-config';
+import { meterAudioNode } from './output-level-meter';
 
 const MAX_HISTORY_TURNS = 12;
 /** A recorder segment with no speech at all is dropped and restarted this often. */
@@ -71,6 +72,8 @@ export class CascadeVoiceAdapter extends BaseConversationalAgentAdapter {
   private _playbackContext: AudioContext | null = null;
   private _gainNode: GainNode | null = null;
   private _currentSource: AudioBufferSourceNode | null = null;
+  /** Output-level meter tap on the playback gain (task 3.6 audio-reactive glow). */
+  private _outputMeterDetach: (() => void) | null = null;
 
   /** Half-duplex guard: while true, VAD detection is suspended. */
   private _busy = false;
@@ -226,6 +229,8 @@ export class CascadeVoiceAdapter extends BaseConversationalAgentAdapter {
   async cleanup(): Promise<void> {
     await this.disconnect().catch(() => {});
     this._releaseBaseSubscriptions();
+    this._outputMeterDetach?.();
+    this._outputMeterDetach = null;
     if (this._playbackContext && this._playbackContext.state !== 'closed') {
       await this._playbackContext.close().catch(() => {});
     }
@@ -483,6 +488,9 @@ export class CascadeVoiceAdapter extends BaseConversationalAgentAdapter {
       this._gainNode = this._playbackContext.createGain();
       this._gainNode.connect(this._playbackContext.destination);
       this._applyGain();
+      // Feed the ambient glow's level meter from the real playback signal.
+      this._outputMeterDetach?.();
+      this._outputMeterDetach = meterAudioNode(this._playbackContext, this._gainNode);
     }
     if (this._playbackContext.state === 'suspended') {
       void this._playbackContext.resume().catch(() => {});

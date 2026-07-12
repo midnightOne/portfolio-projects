@@ -45,6 +45,7 @@ import {
 import { BaseConversationalAgentAdapter, ConnectOptions, SessionUpdateFieldResult } from './IConversationalAgentAdapter';
 import type { ContextBlock } from '@/lib/ai/context-buffer';
 import { GoogleLiveConfig } from '@/types/voice-config';
+import { meterAudioNode } from './output-level-meter';
 
 // Global reference for debugging (temporary for testing, matches OpenAIRealtimeAdapter's pattern)
 let globalGoogleLiveAdapter: GoogleLiveAdapter | null = null;
@@ -120,6 +121,8 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
   // Playback pipeline
   private _playbackContext: AudioContext | null = null;
   private _playbackGain: GainNode | null = null;
+  /** Output-level meter tap on the playback gain (task 3.6 audio-reactive glow). */
+  private _outputMeterDetach: (() => void) | null = null;
   private _nextPlayTime = 0;
   private _activeSources: AudioBufferSourceNode[] = [];
   /** 9b.5: when the current assistant turn's FIRST audio chunk became audible. */
@@ -584,6 +587,8 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
     gain.gain.value = this._isMuted ? 0 : this._volume;
     gain.connect(ctx.destination);
     this._playbackGain = gain;
+    // Feed the ambient glow's level meter from the real playback signal.
+    this._outputMeterDetach = meterAudioNode(ctx, gain);
     if (ctx.state === 'suspended') {
       ctx.resume().catch(err => console.warn('Google Live playback AudioContext resume failed:', err));
     }
@@ -643,6 +648,8 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
       this._stopCapture();
       this._stopPlayback();
 
+      this._outputMeterDetach?.();
+      this._outputMeterDetach = null;
       if (this._playbackContext && this._playbackContext.state !== 'closed') {
         await this._playbackContext.close().catch(() => {});
       }

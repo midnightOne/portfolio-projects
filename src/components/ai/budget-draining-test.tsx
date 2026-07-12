@@ -11,7 +11,8 @@ import { Loader2, Zap, DollarSign, Cpu, AlertTriangle } from 'lucide-react';
 
 interface BudgetStatus {
   tokensRemaining?: number;
-  spendRemaining: number;
+  /** Dollars left, or null when the reflink has no spend limit (uncapped). */
+  spendRemaining: number | null;
   isExhausted: boolean;
   estimatedRequestsRemaining: number;
 }
@@ -175,8 +176,9 @@ export function BudgetDrainingTest() {
     setError(null);
 
     try {
-      // Calculate how much budget remains and drain it
-      const remainingSpend = budgetStatus.spendRemaining;
+      // Calculate how much budget remains and drain it (an uncapped reflink
+      // reports spendRemaining: null — there is no spend budget to drain)
+      const remainingSpend = budgetStatus.spendRemaining ?? 0;
       const remainingTokens = budgetStatus.tokensRemaining || 0;
 
       if (remainingSpend > 0) {
@@ -299,7 +301,7 @@ export function BudgetDrainingTest() {
                 <Progress value={spendProgress} className="h-2" />
               )}
               <div className="text-xs">
-                Remaining: ${budgetStatus.spendRemaining.toFixed(4)}
+                Remaining: {budgetStatus.spendRemaining === null ? '∞' : `$${budgetStatus.spendRemaining.toFixed(4)}`}
               </div>
             </div>
 

@@ -4,12 +4,19 @@
  * TranscriptSidebar (ui-system task 3.4) — the chat history graduates from
  * an in-pill scroll area to a proper right sidebar (owner 2026-07-10: "the
  * pill parts moving into a proper position inside of the sidebar"). The pill
- * itself relocates to the sidebar's foot via the GSAP layout timeline in
+ * itself becomes an integrated rounded-rect PANEL at the sidebar's foot
+ * (owner 2026-07-12: a shape close to the rectangular sidebar's own, so only
+ * the corners give up space) via the GSAP layout timeline in
  * floating-ai-interface.tsx; this component owns the panel, the slide
  * choreography, and the message list.
  *
- * Mobile (below `sidebar.overlayBreakpoint`): the history covers the screen
- * for at-a-glance reading and closes to resume navigating (§9.3).
+ * Desktop: the sidebar CO-EXISTS with the page (owner 2026-07-12) — the page
+ * content is pushed narrower by the sidebar width (body padding, same
+ * timeline), as if the window were resized; nothing is covered.
+ *
+ * Mobile (below `sidebar.overlayBreakpoint`): no room to co-exist — the
+ * history temporarily covers the screen and the pill (fused into the bottom
+ * edge) toggles it closed again in one tap (§9.3).
  *
  * An AI surface (task 3.7): sits on the AI z-layer above any modal and is
  * marked data-ai-surface so interacting with it never dismisses one.
