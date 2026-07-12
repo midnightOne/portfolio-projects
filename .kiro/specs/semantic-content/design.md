@@ -25,7 +25,7 @@ ContextChunk / ContentEntity  ──▶  ContentSearchService (similarity × imp
                                         ▲ consumed by ai-assistant tools + mcp-server
 ```
 
-~27 services under `src/lib/content/` (generation, ingestion, staging, vectors, search, summaries, budget/cost, diagnostics). Key ones: `SmartContentGenerator`, `ContentIngestionService`, `StageBasedProcessingService`, `VectorOperations`, `ContentSearchService`, `SummaryGenerationService`, `SelectiveSectionRegenerator`, `ContentChangeDetector`, `SemanticDiagnosticService`.
+~25 services under `src/lib/content/` (generation, staging, vectors, search, summaries, budget/cost, diagnostics). Key ones: `SmartContentGenerator` (scaffold only — no AI, no provider client), `StageBasedProcessingService`, `VectorOperations`, `ContentSearchService`, `SummaryGenerationService` (rides the M1 secondary-LLM job path), `SelectiveSectionRegenerator`, `ContentChangeDetector`, `SemanticDiagnosticService`. `ContentIngestionService` + the `/api/admin/semantic/ingest` route (the pre-stage-pipeline one-shot path) were deleted 2026-07-12 — `processing/start` is the only ingestion entry point.
 
 ## 2. Data model
 

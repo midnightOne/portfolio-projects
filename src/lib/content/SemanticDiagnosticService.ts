@@ -332,9 +332,13 @@ export class SemanticDiagnosticService extends EventEmitter {
         recommendations.push('Verify that content sections have sufficient text (>50 characters)');
       }
 
-      // Test T3 generation
+      // Test T3 generation via the scaffold path (the stage pipeline's real
+      // entry point). T3 chunks are verbatim heading-bounded content — no AI
+      // is involved in producing them, so the diagnostic is free and doesn't
+      // depend on provider keys. (The legacy one-shot
+      // generateHierarchicalContent was removed 2026-07-12.)
       console.log(`[T3Test] Generating T3 chunks for project ${project.id}`);
-      const generationResult = await this.smartGenerator.generateHierarchicalContent(project);
+      const generationResult = await this.smartGenerator.generateScaffoldOnly(project);
       
       const t3Chunks = generationResult.tiers.filter(tier => tier.tier === 3);
       details.t3ChunksGenerated = t3Chunks.length;

@@ -35,7 +35,8 @@ const REQUIRED_WRAPPED = [
   'src/app/api/admin/semantic/regenerate/route.ts',
   'src/app/api/admin/semantic/bulk/regenerate/route.ts',
   'src/app/api/admin/semantic/force-reindex/route.ts',
-  'src/app/api/admin/semantic/ingest/route.ts',
+  // semantic/ingest route deleted 2026-07-12 (legacy pre-stage-pipeline path,
+  // no UI consumers; superseded by processing/start)
   'src/app/api/admin/semantic/batch/submit/route.ts',
   'src/app/api/admin/semantic/batch/[batchId]/process/route.ts',
   'src/app/api/admin/semantic/chunks/[id]/generate-summary/route.ts',

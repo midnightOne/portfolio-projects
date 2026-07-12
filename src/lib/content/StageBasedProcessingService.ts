@@ -24,7 +24,6 @@ import { buildT2SummarySource, orderSummaryChunksBottomUp, normalizeParentChunkI
 import { IndexMaintenanceService } from '../database/IndexMaintenanceService';
 import { getProcessingOperationStore, ChildOutcome } from './ProcessingOperationStore';
 import { EventEmitter } from 'events';
-import OpenAI from 'openai';
 
 // Processing stages
 export type ProcessingStage = 'chunking' | 'summaries' | 'embeddings' | 'validation';
@@ -150,7 +149,6 @@ export class StageBasedProcessingService extends EventEmitter {
   private budgetManager: SemanticBudgetManager;
   private contentParser: HierarchicalContentParser;
   private indexMaintenance: IndexMaintenanceService;
-  private openai: OpenAI | null;
 
   // In-memory progress projection (checkpoints live here; durable state is
   // the semantic_processing_operations row — see ProcessingOperationStore)
@@ -162,29 +160,21 @@ export class StageBasedProcessingService extends EventEmitter {
     super();
     this.smartGenerator = new SmartContentGenerator();
     this.summaryService = getSummaryGenerationService();
-    
-    // Initialize services with proper parameters
-    const apiKey = process.env.OPENAI_API_KEY || '';
-    this.batchEmbeddingService = new BatchEmbeddingService(apiKey);
+
+    // No provider client here: immediate embeddings ride the shared
+    // chunk-embedding module (default-embedding alias, fake-mode aware);
+    // only the OpenAI Batch API path needs a key, owned by BatchEmbeddingService
+    this.batchEmbeddingService = new BatchEmbeddingService(process.env.OPENAI_API_KEY || '');
     this.vectorOps = new VectorOperations(prisma);
     this.budgetManager = new SemanticBudgetManager();
     this.contentParser = HierarchicalContentParser.getInstance();
-    
+
     // Initialize index maintenance with optimized settings for embedding operations
     this.indexMaintenance = IndexMaintenanceService.getInstance(prisma, {
       autoAnalyzeThreshold: 50,    // Analyze after 50 embedding changes
       reindexThreshold: 1000,       // Reindex after 1k changes (more frequent for HNSW)
       enableAutoMaintenance: true
     });
-    
-    // Initialize OpenAI client for embedding generation
-    if (apiKey) {
-      this.openai = new OpenAI({ apiKey });
-      console.log('[StageBasedProcessingService] OpenAI client initialized for embeddings');
-    } else {
-      console.warn('[StageBasedProcessingService] OPENAI_API_KEY not found - embedding generation will fail');
-      this.openai = null;
-    }
   }
 
   /**
