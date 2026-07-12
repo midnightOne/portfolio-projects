@@ -4,7 +4,8 @@
  *
  * The combined HTTP-level acceptance drill that gates scope:'all' enablement:
  *   1. Multi-project scope:'all' ingest (kiln fixture with nested H2→H3 +
- *      three drill projects) through the REAL pipeline (real AI, pennies).
+ *      the synthetic drill projects) through the REAL pipeline (real AI,
+ *      pennies) — this leaves the kiln fixture REAL-ingested.
  *   2. Deliberate SSE disconnect mid-run; completion with NO subscriber;
  *      durable terminal status; queue API and reconnected-SSE snapshot agree.
  *   3. Child-content edit → scope:'section' regeneration: ancestor chain
@@ -27,6 +28,7 @@ loadEnvConfig(process.cwd());
 import { PrismaClient } from '@prisma/client';
 import {
   DRILL_PROJECTS,
+  DRILL_SLUGS,
   FIXTURE_SLUG,
   seedDrillProjects,
   cleanupDrillProjects,
@@ -188,7 +190,9 @@ async function main() {
   if (!kiln?.articleContent) throw new Error('Kiln fixture missing — run npm run seed:fixture first');
   const originalArticle = kiln.articleContent.content;
 
-  const restoreVisibility = await privatizeNonDrillProjects(prisma);
+  // This drill deliberately includes the REAL kiln fixture: the scope-all
+  // ingest re-indexes it with real AI (and step 3 edits/regenerates it)
+  const restoreVisibility = await privatizeNonDrillProjects(prisma, [...DRILL_SLUGS, FIXTURE_SLUG]);
 
   try {
     // ---- 1. scope:'all' multi-project ingest, real pipeline ----
@@ -214,12 +218,13 @@ async function main() {
     // ---- completion observed via durable queue projection only ----
     const { job, all } = await pollQueueUntilTerminal(operationId);
     assert('queue: parent completed without any SSE subscriber', job.status === 'completed', `status ${job.status}: ${job.error ?? ''}`);
+    const expectedProjects = DRILL_PROJECTS.length + 1; // synthetic drill projects + kiln fixture
     const children = all.filter((j: any) => j.parentId === operationId);
-    assert('queue: 4 durable child operations, all completed', children.length === 4
+    assert(`queue: ${expectedProjects} durable child operations, all completed`, children.length === expectedProjects
       && children.every((c: any) => c.status === 'completed'),
       children.map((c: any) => `${c.operationId}:${c.status}`).join(', '));
     assert('queue: parent aggregates per-project outcomes', Array.isArray(job.childOutcomes)
-      && job.childOutcomes.length === 4
+      && job.childOutcomes.length === expectedProjects
       && job.childOutcomes.every((o: any) => o.status === 'completed' && o.chunksCreated > 0),
       JSON.stringify(job.childOutcomes?.map((o: any) => ({ p: o.projectSlug, s: o.status, n: o.chunksCreated }))));
 

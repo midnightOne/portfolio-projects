@@ -38,10 +38,19 @@ export const DRILL_PROJECTS: DrillProject[] = [
     marker: 'drillmarker-gamma',
     article: `# Drill Gamma Loom Controller\n\nA jacquard loom controller with solenoid heddle selection, drillmarker-gamma vocabulary anchor.\n\n## Gamma Pattern Memory\n\nThe drillmarker-gamma pattern memory streams weave drafts from an SD card as run-length encoded lift plans, drillmarker-gamma keeps sixteen sheds ahead.`,
   },
+  {
+    // Fourth project so drill:scope-all never has to ingest the REAL kiln
+    // fixture (clobbering its real summaries/embeddings with drill output);
+    // carries a nested H2→H3 subtree so the drill covers cumulative parents
+    slug: 'drill-delta',
+    title: 'Drill Delta Weather Station',
+    marker: 'drillmarker-delta',
+    article: `# Drill Delta Weather Station\n\nA solar-powered alpine weather station with LoRa telemetry, drillmarker-delta vocabulary anchor.\n\n## Delta Sensor Suite\n\nThe drillmarker-delta sensor suite samples wind, irradiance, and snow depth on a ten-second cadence with sensor-fault voting.\n\n### Delta Anemometer Calibration\n\nThe drillmarker-delta anemometer calibration maps ultrasonic transit times against a reference cup rotor across icing conditions.`,
+  },
 ];
 
 export const ALL_MARKERS = DRILL_PROJECTS.map(p => p.marker);
-export const DRILL_SLUGS = [...DRILL_PROJECTS.map(p => p.slug), FIXTURE_SLUG];
+export const DRILL_SLUGS = DRILL_PROJECTS.map(p => p.slug);
 
 export function toTiptap(text: string) {
   return {
@@ -88,11 +97,17 @@ export async function cleanupDrillProjects(prisma: PrismaClient): Promise<void> 
 /**
  * Blast-radius containment: privatize every PUBLIC project outside the drill
  * set so scope:'all' sees exactly the drill projects. Returns a restore
- * function — call it in a finally block.
+ * function — call it in a finally block. By default even the REAL kiln
+ * fixture is excluded (a fake-mode drill must never overwrite its real
+ * summaries/embeddings); pass extra `keepPublicSlugs` when a drill
+ * deliberately re-ingests it with real AI (drill-semantic-reliability).
  */
-export async function privatizeNonDrillProjects(prisma: PrismaClient): Promise<() => Promise<void>> {
+export async function privatizeNonDrillProjects(
+  prisma: PrismaClient,
+  keepPublicSlugs: string[] = DRILL_SLUGS
+): Promise<() => Promise<void>> {
   const others = await prisma.project.findMany({
-    where: { visibility: 'PUBLIC', slug: { notIn: DRILL_SLUGS } },
+    where: { visibility: 'PUBLIC', slug: { notIn: keepPublicSlugs } },
     select: { id: true },
   });
   console.log(`ℹ️  Temporarily privatizing ${others.length} non-drill PUBLIC project(s)`);

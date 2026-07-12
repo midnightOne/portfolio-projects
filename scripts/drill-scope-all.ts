@@ -99,6 +99,15 @@ async function assertIsolation(label: string, expectChunks: Record<string, boole
     kilnForeign.map(c => c.chunkId).join(', '));
 }
 
+/** Latest write timestamp across the kiln fixture's chunks (null = no chunks). */
+async function kilnLastWrite(): Promise<number | null> {
+  const rows = await prisma.$queryRaw<Array<{ latest: Date | null }>>`
+    SELECT max(c.updated_at) AS latest FROM context_chunks c
+    JOIN content_entities e ON e.id = c.entity_id
+    WHERE e.slug = ${FIXTURE_SLUG}`;
+  return rows[0]?.latest ? rows[0].latest.getTime() : null;
+}
+
 async function main() {
   console.log('🧪 drill:scope-all — per-project persistence + durable status (no SSE subscriber)');
 
@@ -108,8 +117,12 @@ async function main() {
 
   await seedDrillProjects(prisma);
 
-  // Blast-radius containment: scope-all must see EXACTLY our 4 projects
+  // Blast-radius containment: scope-all must see EXACTLY the 4 synthetic
+  // drill projects. The REAL kiln fixture is privatized too — this fake-mode
+  // drill must never overwrite its real summaries/embeddings (it did once:
+  // the kiln left fake-ingested silently passed `verify`'s --no-live checks)
   const restoreVisibility = await privatizeNonDrillProjects(prisma);
+  const kilnBefore = await kilnLastWrite();
 
   try {
     const { SmartContentGenerator } = await import('../src/lib/content/SmartContentGenerator');
@@ -139,7 +152,7 @@ async function main() {
     assert('run1: parent aggregates 4 immutable per-project outcomes', outcomes1.length === 4
       && outcomes1.filter(o => o.status === 'failed').length === 1);
 
-    await assertIsolation('run1', { 'drill-alpha': true, 'drill-beta': false, 'drill-gamma': true });
+    await assertIsolation('run1', { 'drill-alpha': true, 'drill-beta': false, 'drill-gamma': true, 'drill-delta': true });
 
     // "Reconnect" path: a FRESH service instance (empty in-memory maps) must
     // read the persisted terminal state — this is what SSE/queue serve after
@@ -165,7 +178,24 @@ async function main() {
     assert('run2: all 4 children completed', children2.length === 4 && children2.every(c => c.status === 'completed'),
       children2.map(c => `${c.id}:${c.status}`).join(', '));
 
-    await assertIsolation('run2', { 'drill-alpha': true, 'drill-beta': true, 'drill-gamma': true });
+    await assertIsolation('run2', { 'drill-alpha': true, 'drill-beta': true, 'drill-gamma': true, 'drill-delta': true });
+
+    // Cumulative-parent coverage inside the drill set: delta's H1 parent has
+    // a nested H2→H3 subtree beneath it
+    const deltaParent = await prisma.contextChunk.findFirst({
+      where: { entity: { entityType: 'PROJECT', slug: 'drill-delta' }, tier: 2, chunkId: 'drill-delta-weather-station' },
+      select: { content: true, metadata: true },
+    });
+    const deltaMeta = (deltaParent?.metadata ?? {}) as any;
+    assert('run2: delta nested parent T2 is cumulative (auto-populated subtree or AI provenance)',
+      !!deltaParent && !/^Covers:/.test(deltaParent.content)
+      && (deltaMeta.autoPopulated === true || (deltaMeta.summarySource?.childChunkIds ?? []).includes('delta-sensor-suite')),
+      JSON.stringify({ auto: deltaMeta.autoPopulated, prov: deltaMeta.summarySource }));
+
+    // The REAL kiln fixture was never touched by either run
+    const kilnAfter = await kilnLastWrite();
+    assert('kiln fixture untouched by fake-mode drill runs', kilnAfter === kilnBefore,
+      `before=${kilnBefore}, after=${kilnAfter}`);
 
     // Embeddings persisted per entity
     for (const dp of DRILL_PROJECTS) {
