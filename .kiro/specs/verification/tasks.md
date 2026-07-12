@@ -42,6 +42,7 @@
 
 - [ ] 5. Telemetry read formalization — *with Phase 3 (D26 consolidation)*
   - [ ] 5.1 Query-by-`requestId`/session: conversation log + tool trace, ledger rows, semantic operation state (thin admin endpoints over existing services where missing)
+  - [ ] 5.2 Publish and test the correlation contract: one debug-authorized request returns the stable `requestId`/conversation or operation id; the authorized read surface joins every produced transcript/tool row, ledger row, and semantic-operation event without exposing another visitor's data. Include the `scope:'all'` semantic-operation drill from `semantic-content` task 10.
   - _Requirements: 5_
 
 - [ ] 6. Playwright suite — *starts Phase 3 (after test-page deletions), grows per phase*
@@ -49,6 +50,7 @@
   - [ ] 6.2 Visitor paths: SSR pages, project modal deep-link, pill text chat (fakes), `ui_intent` navigation
   - [ ] 6.3 Admin round-trip: login → edit fixture project → save → change detection triggered
   - [ ] 6.4 Tag tests by spec requirement (`@ai-assistant-R5.1` style)
+  - [ ] 6.5 When the liquid-pill work lands, cover its release-critical behavior in a browser: keyboard/focus access to AI controls while a project/admin/JD modal is open, modal-backdrop behavior, text transcript/sidebar at desktop and phone widths, and reduced-motion fallback. This is a presentation test; it SHALL not require live provider keys.
   - _Requirements: 6.3_
 
 - [ ] 7. Live-fire scripts — *7.2 exercised manually 2026-07-05; formal scripts pending*
@@ -62,6 +64,7 @@
 - [~] 8. `npm run check:models` + CI adoption — CI HALF DONE 2026-07-08 (Phase 5); `check:models` still open (needs Phase 3.4-style registry check design)
   - [x] 8.1 **CI workflow prepared** (`.github/workflows/ci.yml`, roadmap 5.1): typecheck (strict, tests included) + lint + check:gateway + check:specs + jest + build on PR and staging-branch pushes; `pgvector/pgvector:pg16` service container + `prisma migrate deploy` + base/fixture seed; `AI_FAKE_MODE=reasoning,voice,embeddings` keeps provider spend out of CI. **Not yet activated** — it only runs once pushed, and pushing is an explicit owner decision. Local proxy verified 2026-07-08: `npm test` 63/63 suites 806/806 tests with clean exit, `type-check` 0 errors under `strict:true`, `next build` green with `eslint.ignoreDuringBuilds` removed.
   - [x] 8.2 **Jest baseline debt retired** (roadmap 5.3, 2026-07-08): 34 failing suites → 0. Every repair/deletion catalogued in `00-overview/phase3-cleanup-manifest.md` (mangled machine-imports across 5 files; jsdom Request polyfill; 5 Gen-1 suites hard-deleted per D42; two REAL component bugs found and fixed — ProjectTimeline UTC month labels, ProgressiveLoadingBar unclamped percentage; jest exit hang root-caused to worker_threads MessagePorts + singleton interval timers, fixed with unref + polyfill removal). NEW suites cover Phase 4 load-bearing logic: gateway step-4 reflink containment, ledger watchdog trip-in-transaction, tool-latency bucketing, ClipPlayer fit/cutoff selection, voice-clips strict voice matching.
+  - [ ] 8.3 After the owner authorizes a push, confirm the first remote CI run passes on the staging branch and protects the same required commands used locally. Record the run URL/commit in this ledger; CI is not “activated” merely because the workflow file exists.
   - _Requirements: 6; roadmap 5.1–5.3_
 
 ## Backlog

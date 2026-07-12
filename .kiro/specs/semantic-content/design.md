@@ -29,7 +29,7 @@ ContextChunk / ContentEntity  ──▶  ContentSearchService (similarity × imp
 
 ## 2. Data model
 
-See `prisma/schema.prisma` (truth for shapes): `ContentEntity` (indexed entity), `ContextChunk` (tier, content, embedding `vector(1536)`, importance, sectionHash, metadata; HNSW-indexed), `SemanticOperation`/`SemanticBudget` (processing + pre-flight gate), `ChunkingConfig`, `SummaryGenerationConfig`/`Log`, `BatchEmbeddingJob`. `ContextChunk.projectIndexId` is a legacy bridge to `ProjectAIIndex` — dropped with D37.
+See `prisma/schema.prisma` (truth for shapes): `ContentEntity` (indexed entity), `ContextChunk` (tier, content, embedding `vector(1536)`, importance, sectionHash, metadata; HNSW-indexed), `SemanticOperation`/`SemanticBudget` (processing + pre-flight gate), `ChunkingConfig`, `SummaryGenerationConfig`/`Log`, `BatchEmbeddingJob`. `ProjectAIIndex` and the `ContextChunk.projectIndexId` bridge were dropped with D37.
 
 ## 3. Retrieval
 
@@ -37,7 +37,7 @@ See `prisma/schema.prisma` (truth for shapes): `ContentEntity` (indexed entity),
 1. Embed query (`default-embedding` alias).
 2. pgvector cosine top-K (HNSW) with importance weighting.
 3. MMR diversification.
-4. **Planned (D29):** fuse with tsvector keyword results (reciprocal-rank fusion) before MMR.
+4. Fuse with tsvector keyword results (weighted union: semantic spread is retained, full-text-only results receive a rank-derived band, agreement receives a small bonus) before MMR.
 5. Map to results carrying content, tier, project/section linkage, `navTarget`.
 
 Visibility filtering happens in SQL, not post-hoc — public sessions can never retrieve PRIVATE content.
@@ -50,8 +50,16 @@ Visibility filtering happens in SQL, not post-hoc — public sessions can never 
 
 `/admin/semantic`: health dashboard, per-project tree (T0→T3), chunk editor with AI-assisted edit + summary regeneration, chunking/summary/change-detection config editors, processing start/queue/operation views (SSE), budget panel, bulk ops (regenerate/importance/cleanup/export/import), model comparison, force reindex. Diagnostics via `SemanticDiagnosticService` + `npm run diagnostics`.
 
-One-off diagnostic routes to delete (D42, Phase 3): `test-search-newchunks`, `trace-search-flow`, `which-entities-have-embeddings`, `inspect-vector`, `compare-embeddings`, `compare-chunk-structure`, `search-diagnostic`, `fix-missing-timestamps`, `check-new-embeddings`.
+One-off diagnostic routes were deleted in Phase 3 (D42): `test-search-newchunks`, `trace-search-flow`, `which-entities-have-embeddings`, `inspect-vector`, `compare-embeddings`, `compare-chunk-structure`, `search-diagnostic`, `fix-missing-timestamps`, `check-new-embeddings`. `SemanticDiagnosticService` and the dashboard remain the sanctioned diagnostics surfaces.
 
 ## 6. Serverless constraints (D43)
 
 Long operations are chunked into resumable stages precisely because serverless functions are time-boxed; `SemanticOperation` state lives in Postgres so any instance can resume/report. SSE endpoints re-read operation state — no instance-local operation registry may be correctness-bearing.
+
+## 7. Bulk-operation integrity (scope-finalization work)
+
+`scope: 'all'` is a coordinator, never a single cross-project content buffer. It enumerates projects and runs a persistence/validation unit per project (as child operations or durable checkpoints on the parent). Each unit carries its own entity id, chunk-id map, stage checkpoints, errors, and final counts. The parent aggregates only immutable per-project outcomes; it never owns a flat array of chunks that can be written against the final project's entity.
+
+The operation row is the state machine. Worker completion/failure writes the durable transition first; queue/history projections and SSE notifications observe that write afterwards. An SSE disconnect can lose an event but cannot leave a job queued, and reconnect uses the persisted stage/progress/status rather than process-local state.
+
+Summary generation is bottom-up for nested headings: leaf T2 summaries derive from their T3 prose, then each parent receives its own prose plus its completed child summaries (or an equivalent transitive T3 closure). A child content change invalidates the ancestor chain before embedding, so a parent summary and embedding can never describe stale descendants.

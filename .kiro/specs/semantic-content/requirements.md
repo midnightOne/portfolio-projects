@@ -1,6 +1,6 @@
 # semantic-content — Requirements
 
-**Status:** current — implemented; end-to-end verification pending (absorbed the open semantic-system-fixes items)
+**Status:** current — implemented; bulk-operation reliability closure pending (absorbed the open semantic-system-fixes items)
 **Owner domain:** T0–T3 semantic index: chunking, summaries, embeddings, stage-based processing, semantic search, budgets, semantic admin dashboard
 **Last verified against code:** 2026-07-02 (`e2d75b4`)
 **Registry decisions applied:** D27 (T0–T3), D28 (chunking defaults), D29 (embedding + hybrid retrieval), D32 (ledger integration), D37 (ProjectAIIndex retirement), D38 (pricing module)
@@ -61,7 +61,7 @@ Overview: [`../00-overview/README.md`](../00-overview/README.md)
 **User story:** As the AI assistant (and MCP clients), I want relevance-ranked retrieval, so that answers are grounded.
 
 1. WHEN search executes THEN `ContentSearchService` SHALL rank by cosine similarity × importance weighting with MMR diversification, filtered to PUBLIC visibility for public sessions, returning chunks with `navTarget`s.
-2. **Hybrid retrieval (D29, open):** vector similarity SHALL be fused with the existing tsvector full-text index (reciprocal-rank fusion or weighted union) so keyword-exact queries (project names, tech terms) rank correctly.
+2. **Hybrid retrieval (D29):** vector similarity SHALL be fused with the existing tsvector full-text index (weighted union before MMR) so keyword-exact queries (project names, tech terms) rank correctly.
 
 ## Requirement 6 — Budgets and cost (D32/D38, simplified)
 
@@ -85,3 +85,13 @@ Overview: [`../00-overview/README.md`](../00-overview/README.md)
 
 1. `ContentEntity`/`ContextChunk` IS the semantic index. `ProjectAIIndex` is retired (Phase 3): summary → T1 chunk, keywords/topics → metadata; consumers re-pointed to `ContentSearchService`; `ContextChunk.projectIndexId` FK then the model dropped by migration.
 2. The legacy T0–T4 ingestion pipeline (`src/lib/services/content-ingestion.ts`) and `project-indexer.ts` are deleted; `src/lib/content/index.ts` stops re-exporting them.
+
+## Requirement 9 — Durable bulk operations and cumulative hierarchy
+
+**User story:** As the owner, I want an all-project ingestion run to remain correct and observable when the browser disconnects, so that bulk maintenance is safe rather than a risky shortcut.
+
+1. WHEN a `scope: 'all'` operation runs THEN every project's chunks, checkpoints, and validation results SHALL be isolated from every other project's data. The implementation MAY use child operations or a per-project persistence loop, but a shared in-memory accumulator SHALL NOT write one project's chunks to another project's `ContentEntity`.
+2. WHEN a semantic operation changes stage or terminal status THEN its durable `SemanticOperation`/queue state SHALL update independently of SSE subscribers. SSE is a read/projection channel only: reconnecting clients re-read persisted state and never cause a status transition.
+3. WHEN a T2 section has descendants THEN its summary SHALL represent its own prose plus descendant material. A heading-only fallback is permitted only for a truly empty subtree. Regeneration of a descendant SHALL invalidate and re-embed every affected ancestor summary.
+4. WHEN the dashboard offers an operation whose correctness is not verified for a scope THEN that scope SHALL be unavailable with an explicit explanation; it SHALL NOT silently run with known-corrupt persistence.
+5. Completion requires a deterministic multi-project fixture (including a nested heading) proving entity isolation, cumulative parent summaries, persisted terminal state without an SSE subscriber, and correct state after reconnect.

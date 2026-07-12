@@ -1,6 +1,6 @@
 # verification — Requirements
 
-**Status:** current — **mostly unimplemented**; CLAUDE.md + launch config exist as of 2026-07-02, the rest builds incrementally with each phase (D46: verification ships *with* the feature it verifies, never after)
+**Status:** current — foundation implemented; deterministic voice, correlated telemetry reads, browser e2e, formal live-fire, and remote CI activation remain open (D46: verification ships *with* the feature it verifies, never after)
 **Owner domain:** agentic end-to-end verification infrastructure: dev harness, test doubles, seed fixtures, executable acceptance checks, authorized runtime introspection (debug envelope + telemetry access), live-fire runs, CLAUDE.md
 **Last verified against code:** 2026-07-02 (`e2d75b4`)
 **Registry decisions applied:** D46 (owner), D43 (serverless-honest), D39/D45 (adapter seams make fakes possible)

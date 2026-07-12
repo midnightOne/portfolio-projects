@@ -13,7 +13,7 @@ This folder is the entry point for any agent or human working on the project. Re
 A portfolio website that *is itself* the flagship portfolio piece — a production Next.js 15 application whose embedded AI assistant demonstrates, live, the owner's command of current AI engineering.
 
 - **Public visitors:** SSR portfolio (project grid/list/timeline, Tiptap-rendered case studies, Three.js wave hero) + a floating AI pill: **text chat for everyone** (rate-limited, bot-challenged), **voice for invited guests** via reflinks. The agent answers from portfolio content via RAG and drives the UI through declarative navigation tools.
-- **External AI agents:** a public, heavily safeguarded **MCP server** (planned — see `mcp-server/`) exposing read-only portfolio search/retrieval.
+- **External AI agents:** a public, heavily safeguarded **MCP server** (implemented — see `mcp-server/`) exposing read-only portfolio search/retrieval.
 - **Admin:** full CMS under `/admin` — project editor with AI assist, semantic content dashboard, voice + reasoning model config, reflinks, rate limits, spend watchdog, conversation replay/debug.
 
 **Deployment target:** Vercel serverless. Durable state lives in Postgres (Prisma + pgvector); in-memory caches are per-instance memoization only, never correctness-bearing.
@@ -29,7 +29,7 @@ flowchart TB
     end
 
     subgraph aiLayer [AI Assistant Layer - client]
-        Adapters[Voice adapters: OpenAI Realtime, Google Live planned, ElevenLabs]
+        Adapters[Voice adapters: OpenAI Realtime, Google Live, Cascade]
         Registry[UnifiedToolRegistry - client/server tools]
         UIMgr[UIManager - ui_intent navigation]
         FID[F-I-D context]
@@ -47,7 +47,7 @@ flowchart TB
         Tools[BackendToolService - content_search, content_get, job analysis]
         Semantic[Semantic pipeline T0-T3]
         Vector[(Postgres + pgvector + tsvector)]
-        MCPSrv[MCP server - planned]
+        MCPSrv[MCP server - implemented]
     end
 
     subgraph adminCMS [Admin CMS]
@@ -68,29 +68,40 @@ flowchart TB
     SemanticUI --> Semantic
 ```
 
-**The load-bearing seam:** `BackendToolService` + the server side of `UnifiedToolRegistry` form the single data-access chain. Voice adapters reach it via `/api/ai/tools/execute`; the MCP server will expose a curated read-only subset of the same implementations; deep tools may internally consult the reasoning model. Nothing else talks to the semantic index directly.
+**The load-bearing seam:** `BackendToolService` + the server side of `UnifiedToolRegistry` form the single data-access chain. Voice adapters reach it via `/api/ai/tools/execute`; the MCP server exposes a curated read-only subset of the same implementations; deep tools may internally consult the reasoning model. Nothing else talks to the semantic index directly.
 
 ## 3. Spec index
 
 | Spec | Status | Owns | Key open work |
 |---|---|---|---|
 | [00-overview](./README.md) | current | system map, decision registry, conventions | keep index honest |
-| [portfolio-core](../portfolio-core/requirements.md) | current — largely implemented | public pages, project APIs, homepage, SSR/SEO, analytics, auth | hygiene deletions, `status` column drop |
-| [admin-cms](../admin-cms/requirements.md) | current — largely implemented | admin shell, project editor, homepage composer | delete legacy editors |
-| [media](../media/requirements.md) | current — implemented | media library, upload, storage providers | trimmed to reality; usage tracking backlogged |
-| [rich-content](../rich-content/requirements.md) | current — implemented | Tiptap editor, extensions, renderers | parallel API cancelled; versioning backlogged |
-| [ui-system](../ui-system/requirements.md) | current — implemented | theme, GSAP animation, wave hero, layout | test-page removal |
-| [ai-assistant](../ai-assistant/requirements.md) | current — core implemented | visitor AI: voice adapters, pill UI, tool registry, F-I-D, navigation | provider merge, Google adapter, D41 exploration |
-| [ai-admin](../ai-admin/requirements.md) | current — partially implemented | model registry + aliases, pricing-as-data, reasoning-model adapters, editing AI | registry/aliases, adapter layer, Anthropic fix |
-| [semantic-content](../semantic-content/requirements.md) | current — implemented, verification pending | T0–T3 pipeline, chunking, embeddings, search, budgets | verification tasks, hybrid retrieval, ProjectAIIndex retirement |
-| [access-and-cost](../access-and-cost/requirements.md) | current — **mostly unimplemented** | AI gateway, public text chat, rate limiting, reflinks, usage ledger, watchdog | nearly everything (Phase 2) |
-| [mcp-server](../mcp-server/requirements.md) | current — **unimplemented** | external MCP server | everything (Phase 4) |
-| [verification](../verification/requirements.md) | current — **mostly unimplemented** | agentic e2e verification: fakes, fixture, `check:*`, debug envelope, telemetry access, live-fire, CLAUDE.md | builds with each phase (D46) |
-| [conversation-engine](../conversation-engine/requirements.md) | current — **unimplemented** (promoted 2026-07-09, post-roadmap Phase 6) | D47 node-graph engine: graph model + versions, runtime evaluator, per-node context/tools/model, visitor UX surfaces (chips/staging/topic), slots + visitor-profile flags, floating context block + rolling window, leads, question analytics, cross-session continuity + privacy lifecycle, safety tripwire, traversal telemetry, admin graph editor, scenarios | everything (blocks A–L) |
+| [portfolio-core](../portfolio-core/requirements.md) | current — implemented | public pages, project APIs, homepage, SSR/SEO, analytics, auth | no scheduled feature work |
+| [admin-cms](../admin-cms/requirements.md) | current — implemented | admin shell, project editor, homepage composer | only explicit backlog decisions |
+| [media](../media/requirements.md) | current — implemented | media library, upload, storage providers | provider-side deletion verification at deployment re-provisioning |
+| [rich-content](../rich-content/requirements.md) | current — implemented | Tiptap editor, extensions, renderers | legacy-remnant and embed-security verification; versioning remains backlogged |
+| [ui-system](../ui-system/requirements.md) | current — implemented | theme, GSAP animation, wave hero, layout | liquid pill/sidebar and its browser acceptance work |
+| [ai-assistant](../ai-assistant/requirements.md) | current — core implemented | visitor AI: adapters, pill UI, tool registry, F-I-D, navigation | runtime hygiene: UI-state pull, prompt diet, provider accounting, browser/live-fire confirmation |
+| [ai-admin](../ai-admin/requirements.md) | current — implemented | model registry + aliases, pricing-as-data, reasoning-model adapters, editing AI | no scheduled feature work |
+| [semantic-content](../semantic-content/requirements.md) | current — implemented, reliability closure pending | T0–T3 pipeline, chunking, embeddings, search, budgets | durable all-project operations, SSE-independent queue state, cumulative parent summaries |
+| [access-and-cost](../access-and-cost/requirements.md) | current — implemented | AI gateway, public text chat, rate limiting, reflinks, usage ledger, watchdog | browser-level panel/pill verification and deploy-time Turnstile activation |
+| [mcp-server](../mcp-server/requirements.md) | current — implemented and hardening-verified | external MCP server | backlog only (keys/deep tools/resources) |
+| [verification](../verification/requirements.md) | current — partially implemented | agentic e2e verification: fakes, fixture, `check:*`, debug envelope, telemetry access, live-fire, CLAUDE.md | fake voice, correlation reads, Playwright, formal live-fire, `check:models`, remote CI activation |
+| [conversation-engine](../conversation-engine/requirements.md) | current — core and visitor/admin surfaces implemented | D47 graph engine, memory, leads, analytics, privacy lifecycle, safety, editor | golden scenarios, seed graph, multi-runtime live-fire, docs closure; dynamic suggestions deferred |
 | [_backlog](../_backlog/) | backlog | future-direction outlines whose **seam constraints bind now** (D48 modular platform; D47 outline superseded by `conversation-engine/`) | promoted to real specs when scheduled |
 | [_archive](../_archive/) | archived | superseded specs & analysis docs | — |
 
 Master direction document: [`ARCHITECTURE_ALIGNMENT_PROPOSAL.md`](../ARCHITECTURE_ALIGNMENT_PROPOSAL.md) (frozen rationale; the registry below is the living copy of its decisions). Roadmap phases live in its Section 7.
+
+### Scope-finalization order (2026-07-11)
+
+The remaining work is intentionally narrow and should close in this order:
+
+1. `semantic-content` tasks 6.2–6.3, 9, and 10: make bulk operations durable and safe before enabling `scope:'all'`.
+2. `verification` tasks 4–8: deterministic fake voice, correlated telemetry reads, browser coverage, formal live-fire, model-policy check, and—after owner approval—the first remote CI pass.
+3. `conversation-engine` Block F: seed graph, golden scenarios, and multi-runtime drill. Dynamic suggestions remain explicitly deferred.
+4. `ai-assistant` runtime-hygiene tasks and `ui-system` liquid-pill acceptance tests.
+
+No new broad AI subsystem is in scope. New work belongs to one of these owners or requires a decision-registry entry first.
 
 ## 4. Decision registry
 

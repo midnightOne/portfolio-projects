@@ -25,9 +25,13 @@ T0–T3 heading-bounded generation with contextual prefixes and section hashes; 
 ### Phase 0 follow-ups — defects found by task 1 (2026-07-03)
 
 - [x] 6.1 ~~Parent-resolution heuristic corrupts hierarchy~~ **FIXED**: `StageBasedProcessingService` treated any `parentChunkId` starting with 'c' and ≥20 chars as a DB cuid, so slug-like logical IDs (e.g. `chrono-kiln-controller`) failed FK resolution and aborted chunking. Both `batchStoreChunks` and `storeValidatedChunk` now resolve map/DB-first with a strict cuid-pattern fallback.
-- [ ] 6.2 **`scope: 'all'` processing is structurally broken** (crash half resolved by D37, 2026-07-06): the `projectAIIndex.upsert` throw is gone with the table, and scope-all chunking now runs to completion — but the flat-checkpoint accumulation persists all projects' chunks against ONE entity (verified live 2026-07-06: 79 chunks from 4 projects landed under the last project's entity). Fix = per-project persistence loop (or per-project sub-operations). Until then use per-project scope.
+- [ ] 6.2 **`scope: 'all'` processing is structurally broken** (crash half resolved by D37, 2026-07-06): the `projectAIIndex.upsert` throw is gone with the table, and scope-all chunking now runs to completion — but the flat-checkpoint accumulation persists all projects' chunks against ONE entity (verified live 2026-07-06: 79 chunks from 4 projects landed under the last project's entity). Until fixed, the dashboard/API SHALL reject `scope:'all'` with an explicit per-project-only message.
+  - [ ] 6.2.1 Replace the shared cross-project accumulator with a per-project persistence unit (durable child operation or equivalent checkpoint), retaining entity id, chunk-id map, stages, error, and final counts per project; the parent aggregates outcomes only.
+  - [ ] 6.2.2 Add a deterministic four-project fixture drill that proves every resulting `ContextChunk` belongs to its source entity, re-running safely after an injected mid-run failure.
 - [ ] 6.3 **Queue entry status never updates without an SSE subscriber**: a completed operation stays `queued` in `JobQueueManager` unless a `?sse=true` subscription was attached (status transitions appear to ride the progress-subscription callback). Decouple queue status from SSE subscription.
-- [ ] 6.4 **Unauthenticated cost-incurring route**: `POST /api/admin/semantic/processing/start` (and the start of stage operations generally) has no session check while sibling routes (`processing/queue`) do — anyone who can reach the dev/staging server can trigger OpenAI spend. Gateway (Phase 2, D33) is the systemic fix; an interim `getServerSession` guard is cheap and worth it.
+  - [ ] 6.3.1 Move every stage and terminal transition to the durable operation/queue write path; notification subscription only observes it.
+  - [ ] 6.3.2 Test start → disconnect/no subscriber → complete → reconnect, asserting the persisted terminal status, progress, and error are identical through the queue API and SSE snapshot.
+- [x] 6.4 **Cost-incurring semantic starts are gateway-protected** — verified against current routes 2026-07-11: `POST /api/admin/semantic/processing/start` and the other semantic mutation routes use `withAIGateway({ feature: 'semantic', publicAllowed: false })`; `access-and-cost` task 2.2 and `check:gateway` own the systemic invariant. The former unauthenticated-route finding is resolved.
 - [x] 6.5 **done 2026-07-06 (Wave 1)**: auto-ingestion dropped from `prisma/seed.ts` (both the project-indexer and ContentIngestionPipeline blocks); ingestion is per-project via `POST /api/admin/semantic/processing/start` as documented in CLAUDE.md. 3 leftover tier-4 chunks deleted from the dev DB (D27).
 
 ### Phase 2 — cost unification
@@ -80,6 +84,11 @@ T0–T3 heading-bounded generation with contextual prefixes and section hashes; 
   - [ ] 9.2 Ensure regenerated parent summaries flow into re-embedding (the embeddings stage keys off the summaries checkpoint — verify modified parents are included) and that selective section regeneration (`SelectiveSectionRegenerator`) invalidates a parent when a child changes.
   - [ ] 9.3 Verify via fixture: give the fixture project a nested section (H2 with H3 children), re-ingest, assert the parent T2 content references child material and `check:semantic` stays green.
   - Related: the voice-UX suggestion doc (`docs/voice-conversation-ux-improvements-2026-07-09.md` S3) wants T2 search results to carry a real gist — cumulative parent summaries are the ingestion-side half of that fix.
+
+### Scope-finalization verification
+
+- [ ] 10. Semantic operation reliability gate — before enabling bulk/all-project actions, run one deterministic acceptance drill that combines tasks 6.2, 6.3, and 9: multi-project ingest with nested headings, deliberate SSE disconnect/reconnect, and a child-content edit. Assert entity isolation, cumulative/re-embedded ancestor summaries, durable terminal status, correct queue/dashboard projection, unified-ledger correlation, and `check:semantic` green. Record the recipe under `verification`; no `scope:'all'` UI/API enablement before this passes.
+  - _Requirements: 3, 9; verification Requirements 5–7_
 
 ## Backlog
 
