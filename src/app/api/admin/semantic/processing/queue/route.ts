@@ -1,14 +1,18 @@
 /**
  * API Route: Processing Job Queue
  * GET /api/admin/semantic/processing/queue
- * 
- * Returns the current processing job queue with optional project filtering.
+ *
+ * Read-only projection of the durable operation table
+ * (`semantic_processing_operations`). Status comes from persisted rows —
+ * never from SSE subscriptions or process-local state (semantic-content
+ * Req 9.2, task 6.3): a job completed with no subscriber attached still
+ * reads `completed` here.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth-utils';
 import { getProcessingService } from '@/lib/content/StageBasedProcessingServiceSingleton';
-import { getJobQueueManager, QueuedJob } from '@/lib/content/JobQueueManager';
+import { getProcessingOperationStore } from '@/lib/content/ProcessingOperationStore';
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,36 +27,45 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const projectId = searchParams.get('projectId');
+    const includeChildren = searchParams.get('includeChildren') === 'true';
 
-    // Get job queue manager and processing service
-    const queueManager = getJobQueueManager();
+    const store = getProcessingOperationStore();
     const processingService = getProcessingService();
-    
-    // Filter jobs by project if specified
-    let jobs = projectId 
-      ? queueManager.getJobsByProject(projectId)
-      : queueManager.getAllJobs();
 
-    // Enrich jobs with current progress from processing service
-    const enrichedJobs = jobs.map(job => {
-      const progress = processingService.getProgress(job.operationId);
-      const updatedJob = {
-        ...job,
+    const rows = await store.listOperations({
+      projectId: projectId ?? undefined,
+      // scope:'all' children are surfaced per project or on request; the
+      // default queue view shows top-level operations
+      includeChildren: includeChildren || !!projectId,
+    });
+
+    const jobs = rows.map(row => {
+      // Live in-memory progress (with per-item detail) when this instance is
+      // running the operation; otherwise the persisted projection
+      const liveProgress = processingService.getProgress(row.id);
+      const progress = liveProgress ?? store.toProcessingProgress(row);
+      const stages = Array.isArray(row.stages)
+        ? (row.stages as any[]).filter(s => s?.enabled !== false).map(s => s?.stage ?? s)
+        : [];
+      return {
+        operationId: row.id,
+        parentId: row.parentId,
+        projectId: row.projectId,
+        scope: row.scope,
+        type: row.type,
+        status: row.status,
+        startedAt: row.startedAt,
+        completedAt: row.completedAt,
+        stages,
+        estimatedDuration: stages.length >= 4 ? '~2-3 minutes' : stages.length >= 2 ? '~1 minute' : '~30 seconds',
+        childOutcomes: row.childOutcomes ?? undefined,
+        error: row.error ?? undefined,
         progress,
-        // Update status from progress if available
-        status: progress?.status || job.status
       };
-      
-      // Update job status in queue if we have progress
-      if (progress && progress.status !== job.status) {
-        queueManager.updateJobStatus(job.operationId, progress.status as QueuedJob['status']);
-      }
-      
-      return updatedJob;
     });
 
     return NextResponse.json({
-      jobs: enrichedJobs,
+      jobs,
       totalJobs: jobs.length,
       activeJobs: jobs.filter(j => j.status === 'in_progress').length,
       queuedJobs: jobs.filter(j => j.status === 'queued').length
@@ -61,7 +74,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error('Error fetching job queue:', error);
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to fetch job queue',
         details: error instanceof Error ? error.message : String(error)
       },
@@ -71,72 +84,9 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST /api/admin/semantic/processing/queue
- * 
- * Add a job to the queue (called internally by processing service)
- */
-export async function POST(request: NextRequest) {
-  try {
-    // Check authentication
-    const session = await getSession();
-    if (!session?.user || (session.user as any)?.role !== 'admin') {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    const body = await request.json();
-    const { 
-      operationId, 
-      projectId, 
-      type, 
-      stages, 
-      estimatedDuration 
-    } = body;
-
-    if (!operationId || !type || !stages) {
-      return NextResponse.json(
-        { error: 'Missing required fields: operationId, type, stages' },
-        { status: 400 }
-      );
-    }
-
-    // Add job to queue
-    const job: QueuedJob = {
-      operationId,
-      projectId,
-      type,
-      status: 'queued' as const,
-      startedAt: new Date(),
-      estimatedDuration: estimatedDuration || '~1 minute',
-      stages
-    };
-
-    const queueManager = getJobQueueManager();
-    queueManager.addJob(job);
-
-    return NextResponse.json({
-      message: 'Job added to queue',
-      job
-    });
-
-  } catch (error) {
-    console.error('Error adding job to queue:', error);
-    return NextResponse.json(
-      { 
-        error: 'Failed to add job to queue',
-        details: error instanceof Error ? error.message : String(error)
-      },
-      { status: 500 }
-    );
-  }
-}
-
-/**
  * DELETE /api/admin/semantic/processing/queue
- * 
- * Remove a job from the queue
+ *
+ * Remove an operation (and its scope:'all' children) from the durable history
  */
 export async function DELETE(request: NextRequest) {
   try {
@@ -159,26 +109,25 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    // Remove job from queue
-    const queueManager = getJobQueueManager();
-    const removed = queueManager.removeJob(operationId);
+    const store = getProcessingOperationStore();
+    const removed = await store.deleteOperation(operationId);
 
     if (!removed) {
       return NextResponse.json(
-        { error: 'Job not found in queue' },
+        { error: 'Operation not found' },
         { status: 404 }
       );
     }
 
     return NextResponse.json({
-      message: 'Job removed from queue'
+      message: 'Operation removed from history'
     });
 
   } catch (error) {
-    console.error('Error removing job from queue:', error);
+    console.error('Error removing operation:', error);
     return NextResponse.json(
-      { 
-        error: 'Failed to remove job from queue',
+      {
+        error: 'Failed to remove operation',
         details: error instanceof Error ? error.message : String(error)
       },
       { status: 500 }

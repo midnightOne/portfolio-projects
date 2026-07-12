@@ -67,6 +67,12 @@
   - [ ] 8.3 After the owner authorizes a push, confirm the first remote CI run passes on the staging branch and protects the same required commands used locally. Record the run URL/commit in this ledger; CI is not “activated” merely because the workflow file exists.
   - _Requirements: 6; roadmap 5.1–5.3_
 
+- [x] 9. Semantic reliability drills (semantic-content tasks 6.2.2 / 6.3.2 / 10) — **landed + PASSED 2026-07-12.** Two reusable scripted recipes:
+  - [x] 9.1 `npm run drill:scope-all` (scripts/drill-scope-all.ts, shared fixtures in scripts/drill-fixtures.ts): deterministic four-project scope:'all' drill, service-level, NO SSE subscriber. Fake embeddings + stubbed summaries (persistence topology under test). Injected mid-run scaffold failure on project #2 → parent failed, 1 child failed, 3 completed, marker-vocabulary isolation proven; re-run completes clean. Fresh service instance reads the persisted terminal snapshot (restart/reconnect path). Blast radius: non-drill PUBLIC projects privatized and restored in finally.
+  - [x] 9.2 `npm run drill:semantic-reliability` (scripts/drill-semantic-reliability.ts): HTTP-level against the dev server, REAL AI (pennies, 4 small projects). Admin login via NextAuth csrf→credentials flow; scope-all ingest; deliberate SSE mid-run disconnect; completion with no subscriber; queue-API/SSE-reconnect snapshot equality; `AIUsageLog.metadata.operationId` ledger correlation; child H3 edit → `scope:'section'` regeneration proving ancestor-chain re-summarize/re-embed with siblings untouched; edit reverted; finish with `npm run check:semantic` (fixture left canonical + fully re-ingested).
+  - Gotcha encoded by the first run: dev-server global singletons survive HMR — a drill exercising freshly edited service code needs a freshly started server (`dev-alt` on :3005 + `DRILL_BASE_URL`).
+  - _Requirements: 5, 6, 7; semantic-content Requirement 9_
+
 ## Backlog
 
 **Dev DB → Docker Compose (owner, 2026-07-03 — postponed, do when WSL drops become annoying):** replace the WSL Postgres with `pgvector/pgvector:pg16` via `docker-compose.yml` (requires installing Docker Desktop — not present on the dev machine). Kills the WSL idle-shutdown failure class (VM reaps Postgres when the keepalive dies → app 500s "Failed to fetch projects"; recovery in CLAUDE.md); industry-standard, matches future CI. `DATABASE_URL` stays `127.0.0.1:5432`, migrations/seed unchanged.

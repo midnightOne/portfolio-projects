@@ -1,8 +1,8 @@
 # semantic-content — Design
 
-**Status:** current — describes implemented system (verification pending, see tasks)
+**Status:** current — describes implemented system (bulk-operation integrity §7 implemented + drilled 2026-07-12)
 **Owner domain:** T0–T3 semantic pipeline, search, budgets, dashboard
-**Last verified against code:** 2026-07-02 (`e2d75b4`)
+**Last verified against code:** 2026-07-12
 **Deep-dive:** [HEADING_BOUNDED_CHUNKING.md](./HEADING_BOUNDED_CHUNKING.md) · Batch API: [strategy](./BATCH_API_STRATEGY.md), [integration](./BATCH_API_INTEGRATION.md), [UI](./BATCH_MODE_UI_INTEGRATION.md)
 
 ---
@@ -29,7 +29,7 @@ ContextChunk / ContentEntity  ──▶  ContentSearchService (similarity × imp
 
 ## 2. Data model
 
-See `prisma/schema.prisma` (truth for shapes): `ContentEntity` (indexed entity), `ContextChunk` (tier, content, embedding `vector(1536)`, importance, sectionHash, metadata; HNSW-indexed), `SemanticOperation`/`SemanticBudget` (processing + pre-flight gate), `ChunkingConfig`, `SummaryGenerationConfig`/`Log`, `BatchEmbeddingJob`. `ProjectAIIndex` and the `ContextChunk.projectIndexId` bridge were dropped with D37.
+See `prisma/schema.prisma` (truth for shapes): `ContentEntity` (indexed entity), `ContextChunk` (tier, content, embedding `vector(1536)`, importance, sectionHash, metadata; HNSW-indexed), `SemanticOperation`/`SemanticBudget` (budget accounting + pre-flight gate), `SemanticProcessingOperation` (the durable stage-processing state machine of §7 — one row per operation, `parentId` links scope:'all' children, `childOutcomes` aggregates per-project results; `ProcessingOperationStore` is the single writer), `ChunkingConfig`, `SummaryGenerationConfig`/`Log`, `BatchEmbeddingJob`. `ProjectAIIndex` and the `ContextChunk.projectIndexId` bridge were dropped with D37.
 
 ## 3. Retrieval
 

@@ -1,11 +1,11 @@
 {
-  "description": "Expected semantic output for the verification fixture project (scripts/seed-fixture.ts). Asserted by `npm run check:semantic` after ingestion through the stage-based pipeline. Counts pinned from a verified-good run on 2026-07-03 (local dev DB, all four stages immediate).",
+  "description": "Expected semantic output for the verification fixture project (scripts/seed-fixture.ts). Asserted by `npm run check:semantic` after ingestion through the stage-based pipeline. Counts pinned from a verified-good run on 2026-07-03; nested H3 subtree + cumulative-parent assertions added 2026-07-12 (semantic-content task 9.3).",
   "fixtureSlug": "verification-fixture-kiln",
   "tiers": {
     "t0Count": 1,
     "t1Count": 1,
-    "t2Count": 5,
-    "t3Count": 5,
+    "t2Count": 7,
+    "t3Count": 7,
     "t3Tolerance": 2
   },
   "t2SectionGroups": [
@@ -13,9 +13,29 @@
     "thermal-control-system",
     "firmware-architecture",
     "glaze-chemistry-database",
+    "crystalline-zinc-silicate-recipes",
+    "celadon-iron-chemistry",
     "results-and-lessons"
   ],
   "t1MinContentLength": 100,
+  "cumulativeParents": [
+    {
+      "chunkId": "chrono-kiln-controller",
+      "expectedChildren": [
+        "thermal-control-system",
+        "firmware-architecture",
+        "glaze-chemistry-database",
+        "results-and-lessons"
+      ]
+    },
+    {
+      "chunkId": "glaze-chemistry-database",
+      "expectedChildren": [
+        "crystalline-zinc-silicate-recipes",
+        "celadon-iron-chemistry"
+      ]
+    }
+  ],
   "canonicalQuery": {
     "query": "How does the kiln regulate temperature?",
     "expectedTopSlug": "verification-fixture-kiln",

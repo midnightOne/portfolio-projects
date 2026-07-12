@@ -22,7 +22,9 @@ export const FIXTURE_SLUG = 'verification-fixture-kiln';
 export const FIXTURE_REFLINK_CODE = 'fixture-verify';
 
 // Deterministic content with distinctive vocabulary so retrieval assertions are unambiguous.
-// Structure: H1 title, intro paragraph, then exactly 4 H2 sections.
+// Structure: H1 title, intro paragraph, 4 H2 sections, and one nested H2→H3×2
+// subtree (Glaze Chemistry Database) for cumulative-parent-summary assertions
+// (semantic-content task 9.3).
 const FIXTURE_ARTICLE = `# Chrono Kiln Controller
 
 The Chrono Kiln Controller is a purpose-built ceramics kiln automation system combining a custom firing-schedule engine, real-time thermal regulation, and a glaze chemistry database. It was built to make reproducible crystalline glaze firings possible in a small studio without commercial lab equipment.
@@ -39,6 +41,14 @@ The firmware runs on an ESP32 with FreeRTOS tasks separated into sensing, contro
 
 The glaze module stores unity molecular formulas for every recipe, including the celadon and crystalline zinc-silicate families. Each recipe records flux ratios, silica-to-alumina ratio, and observed cone behavior across firings. A lookup interface suggests firing schedules based on past results for glazes with similar chemistry, which turned trial-and-error glaze development into a queryable dataset.
 
+### Crystalline Zinc-Silicate Recipes
+
+The crystalline family centers on zinc-silicate macrocrystal growth: high-zinc frit bases seeded during the crash-cool hold, with titanium dioxide as a nucleation promoter. Recipe records track seed density per square centimeter against hold temperature, which exposed a narrow 1040 to 1060 degree window where willemite crystals bloom reliably.
+
+### Celadon Iron Chemistry
+
+The celadon family documents iron oxide reduction behavior: one to three percent red iron oxide in a high-silica base, fired in reduction to convert ferric to ferrous iron for the classic blue-green depth. The database correlates iron percentage and cooling rate with measured color coordinates, replacing folklore with reproducible chemistry.
+
 ## Results and Lessons
 
 Across forty-two logged firings the controller achieved segment tracking within specification on all but two runs, both traced to a failing thermocouple junction. Crystalline glaze yield improved from roughly one in five pots to four in five once crash-cooling became reproducible. The main lesson: deterministic logging of every input beats cleverness — the glaze database only became useful once every firing wrote a complete record.`;
@@ -53,6 +63,12 @@ function convertToTiptapJSON(text: string) {
           type: 'heading',
           attrs: { level: 1 },
           content: [{ type: 'text', text: paragraph.replace('# ', '') }]
+        };
+      } else if (paragraph.startsWith('### ')) {
+        return {
+          type: 'heading',
+          attrs: { level: 3 },
+          content: [{ type: 'text', text: paragraph.replace('### ', '') }]
         };
       } else if (paragraph.startsWith('## ')) {
         return {

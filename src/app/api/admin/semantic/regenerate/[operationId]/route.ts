@@ -1,13 +1,15 @@
 /**
  * API Route: Get Regeneration Progress
  * GET /api/admin/semantic/regenerate/[operationId]
- * 
+ *
  * Returns real-time progress updates for a regeneration operation.
  * Supports both regular JSON responses and Server-Sent Events (SSE).
+ * Reconnecting clients re-read persisted state (durable operation row) —
+ * SSE is a projection channel only (semantic-content Req 9.2).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { SelectiveSectionRegenerator } from '@/lib/content/SelectiveSectionRegenerator';
+import { getSelectiveSectionRegenerator } from '@/lib/content/SelectiveSectionRegenerator';
 import { getProcessingService } from '@/lib/content/StageBasedProcessingServiceSingleton';
 import type { ProcessingProgress } from '@/lib/content/StageBasedProcessingService';
 
@@ -18,17 +20,17 @@ function transformStageProgressToRegeneratorFormat(stageProgress: ProcessingProg
   // Get current stage details for more accurate progress
   const currentStageKey = stageProgress.currentStage;
   const currentStageDetails = currentStageKey ? stageProgress.stageProgress[currentStageKey] : null;
-  
+
   // Count completed stages
   const stageOrder: Array<keyof typeof stageProgress.stageProgress> = ['chunking', 'summaries', 'embeddings', 'validation'];
   const completedStages = stageOrder.filter(stage => stageProgress.stageProgress[stage].status === 'completed').length;
   const totalStages = stageOrder.filter(stage => stageProgress.stageProgress[stage].status !== 'skipped').length;
-  
+
   return {
     operationId: stageProgress.operationId,
     status: stageProgress.status,
-    currentSection: currentStageKey 
-      ? `Stage: ${currentStageKey} (${currentStageDetails?.itemsProcessed || 0}/${currentStageDetails?.totalItems || 0})` 
+    currentSection: currentStageKey
+      ? `Stage: ${currentStageKey} (${currentStageDetails?.itemsProcessed || 0}/${currentStageDetails?.totalItems || 0})`
       : 'Initializing',
     progress: {
       percentComplete: stageProgress.overallProgress,
@@ -68,20 +70,18 @@ export async function GET(
   const useSSE = searchParams.get('sse') === 'true';
 
   try {
-    // Check if this is a stage-based processing operation
+    // Check if this is a stage-based processing operation (durable fallback
+    // included — reconnect after completion still resolves)
     const processingService = getProcessingService();
-    let stageProgress = processingService.getProgress(operationId);
-    let isStageBasedOperation = !!stageProgress;
-    let progress: any;
+    const regenerator = getSelectiveSectionRegenerator();
 
-    if (isStageBasedOperation) {
-      // Transform stage-based progress to regenerator format
-      progress = transformStageProgressToRegeneratorFormat(stageProgress!);
-    } else {
-      // Use SelectiveSectionRegenerator progress as-is
-      const regenerator = new SelectiveSectionRegenerator();
-      progress = regenerator.getProgress(operationId);
-    }
+    const stageProgress = operationId.startsWith('regen-')
+      ? null
+      : await processingService.getProgressOrPersisted(operationId);
+    const isStageBasedOperation = !!stageProgress;
+    const progress: any = isStageBasedOperation
+      ? transformStageProgressToRegeneratorFormat(stageProgress!)
+      : await regenerator.getProgressOrPersisted(operationId);
 
     if (!progress) {
       return NextResponse.json(
@@ -99,48 +99,59 @@ export async function GET(
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       start(controller) {
-        // Send initial progress
-        const data = `data: ${JSON.stringify(progress)}\n\n`;
-        controller.enqueue(encoder.encode(data));
+        let closed = false;
+        let unsubscribe: () => void = () => {};
+        const safeClose = () => {
+          if (closed) return;
+          closed = true;
+          unsubscribe();
+          try { controller.close(); } catch { /* already closed */ }
+        };
+
+        // Send initial snapshot (persisted state on reconnect)
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(progress)}\n\n`));
+
+        // Already terminal: snapshot is the whole story
+        if (progress.status === 'completed' || progress.status === 'failed') {
+          safeClose();
+          return;
+        }
 
         if (isStageBasedOperation) {
-          // Subscribe to stage-based processing updates
-          processingService.subscribeToProgress(operationId, (updatedStageProgress) => {
-            // Transform to regenerator format
+          const onProgress = (updatedStageProgress: ProcessingProgress) => {
+            if (closed) return;
             const transformedProgress = transformStageProgressToRegeneratorFormat(updatedStageProgress);
-            const data = `data: ${JSON.stringify(transformedProgress)}\n\n`;
-            controller.enqueue(encoder.encode(data));
-
-            // Close stream when completed or failed
+            try {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(transformedProgress)}\n\n`));
+            } catch {
+              safeClose();
+              return;
+            }
             if (updatedStageProgress.status === 'completed' || updatedStageProgress.status === 'failed') {
-              controller.close();
+              safeClose();
             }
-          });
-
-          // Cleanup on client disconnect
-          request.signal.addEventListener('abort', () => {
-            controller.close();
-          });
+          };
+          unsubscribe = () => processingService.unsubscribeFromProgress(operationId, onProgress);
+          processingService.subscribeToProgress(operationId, onProgress);
         } else {
-          // Subscribe to SelectiveSectionRegenerator updates
-          const regenerator = new SelectiveSectionRegenerator();
-          regenerator.subscribeToProgress(operationId, (updatedProgress) => {
-            const data = `data: ${JSON.stringify(updatedProgress)}\n\n`;
-            controller.enqueue(encoder.encode(data));
-
-            // Close stream when completed or failed
-            if (updatedProgress.status === 'completed' || updatedProgress.status === 'failed') {
-              controller.close();
-              regenerator.unsubscribeFromProgress(operationId);
+          const onProgress = (updatedProgress: any) => {
+            if (closed) return;
+            try {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(updatedProgress)}\n\n`));
+            } catch {
+              safeClose();
+              return;
             }
-          });
-
-          // Cleanup on client disconnect
-          request.signal.addEventListener('abort', () => {
-            regenerator.unsubscribeFromProgress(operationId);
-            controller.close();
-          });
+            if (updatedProgress.status === 'completed' || updatedProgress.status === 'failed') {
+              safeClose();
+            }
+          };
+          unsubscribe = () => regenerator.unsubscribeFromProgress(operationId, onProgress);
+          regenerator.subscribeToProgress(operationId, onProgress);
         }
+
+        // Cleanup on client disconnect — removes only this client's callback
+        request.signal.addEventListener('abort', safeClose);
       }
     });
 
@@ -155,7 +166,7 @@ export async function GET(
   } catch (error) {
     console.error('Error getting regeneration progress:', error);
     return NextResponse.json(
-      { 
+      {
         error: 'Failed to get regeneration progress',
         details: error instanceof Error ? error.message : String(error)
       },

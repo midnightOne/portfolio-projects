@@ -25,7 +25,10 @@ export async function GET(
     }
 
     const processingService = getProcessingService();
-    const progress = processingService.getProgress(operationId);
+    // Durable-state fallback (task 6.3): reconnecting clients re-read
+    // persisted state — a completed/failed operation stays reachable after
+    // the in-memory projection is cleaned up or the process restarted
+    const progress = await processingService.getProgressOrPersisted(operationId);
 
     if (!progress) {
       return NextResponse.json(
@@ -39,31 +42,48 @@ export async function GET(
       return NextResponse.json(progress);
     }
 
-    // Server-Sent Events (SSE) response
+    // Server-Sent Events (SSE) response — a read/projection channel only:
+    // subscribing/disconnecting never causes a status transition (Req 9.2)
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       start(controller) {
-        // Send initial progress
-        const data = `data: ${JSON.stringify(progress)}\n\n`;
-        controller.enqueue(encoder.encode(data));
+        let closed = false;
+        const safeClose = () => {
+          if (closed) return;
+          closed = true;
+          processingService.unsubscribeFromProgress(operationId, onProgress);
+          try { controller.close(); } catch { /* already closed */ }
+        };
 
-        // Subscribe to progress updates
-        processingService.subscribeToProgress(operationId, (updatedProgress) => {
-          const data = `data: ${JSON.stringify(updatedProgress)}\n\n`;
-          controller.enqueue(encoder.encode(data));
-
+        const onProgress = (updatedProgress: typeof progress) => {
+          if (closed) return;
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(updatedProgress)}\n\n`));
+          } catch {
+            safeClose();
+            return;
+          }
           // Close stream when completed or failed
           if (updatedProgress.status === 'completed' || updatedProgress.status === 'failed') {
-            controller.close();
-            processingService.unsubscribeFromProgress(operationId);
+            safeClose();
           }
-        });
+        };
 
-        // Cleanup on client disconnect
-        request.signal.addEventListener('abort', () => {
-          processingService.unsubscribeFromProgress(operationId);
-          controller.close();
-        });
+        // Send initial snapshot (persisted state on reconnect)
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(progress)}\n\n`));
+
+        // Already terminal (e.g. reconnect after completion): snapshot is the
+        // whole story — close immediately
+        if (progress.status === 'completed' || progress.status === 'failed') {
+          safeClose();
+          return;
+        }
+
+        // Subscribe to live progress updates (multi-subscriber safe)
+        processingService.subscribeToProgress(operationId, onProgress);
+
+        // Cleanup on client disconnect — removes only this client's callback
+        request.signal.addEventListener('abort', safeClose);
       }
     });
 

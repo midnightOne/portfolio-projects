@@ -35,13 +35,15 @@ npm run diagnostics    # semantic system health (also :quick :t3 :sse :comprehen
 npm run db:migrate     # prisma migrate dev
 npm run db:seed        # base seed
 npm run seed:fixture   # verification fixture project + reflink (scripts/seed-fixture.ts)
-npm run check:semantic # assert fixture semantic state vs fixtures/expected-semantic.json (--no-live skips the OpenAI query)
+npm run check:semantic # assert fixture semantic state vs fixtures/expected-semantic.json (--no-live skips the live query; incl. cumulative-parent assertions)
+npm run drill:scope-all            # scope:'all' isolation + durable-status drill (fake AI, service-level)
+npm run drill:semantic-reliability # combined reliability gate drill (real AI, needs dev server; DRILL_BASE_URL to target a port)
 npm run check:gateway  # static: no cost-incurring route ships without withAIGateway (D33)
 npm run check:specs    # spec hygiene: status headers, duplicate Requirement N, prescriptive T4
 npm run verify         # umbrella: type-check + check:gateway + check:specs + check:semantic --no-live
 ```
 
-**Fixture needs ingestion to get embeddings.** `npm run seed:fixture` creates the fixture *project* but not its chunk embeddings — those come from the ingestion pipeline. After a fresh `db:reset`/`seed:fixture`, ingest the fixture per-project (POST `/api/admin/semantic/processing/start` with `scope:'project'`, `projectId`, all four stages `immediate`) before `check:semantic`'s live query will pass. `scope:'all'` no longer throws (the `ProjectAIIndex` upsert crash was removed with D37), but it still persists all projects' chunks against one entity (semantic-content task 6.2, open) — use per-project. Stage objects need `enabled: true` alongside `stage`/`mode`.
+**Fixture needs ingestion to get embeddings.** `npm run seed:fixture` creates the fixture *project* but not its chunk embeddings — those come from the ingestion pipeline. After a fresh `db:reset`/`seed:fixture`, ingest the fixture (POST `/api/admin/semantic/processing/start` with `scope:'project'`, `projectId`, all four stages `immediate`) before `check:semantic`'s live query will pass. `scope:'all'` is supported since 2026-07-12 (reliability gate passed): it runs one durable child operation per PUBLIC project with content; parent + children live in `semantic_processing_operations` (queue/SSE are projections of that table — status is durable with no SSE subscriber). Stage objects need `enabled: true` alongside `stage`/`mode`. Reliability drills: `npm run drill:scope-all` (service-level, fake AI) and `npm run drill:semantic-reliability` (HTTP, real AI, needs the dev server + admin creds; use a FRESHLY started server after editing pipeline code — global singletons survive HMR).
 
 Planned (verification spec, land with their phases): `check:models`, `livefire:semantic|chat`.
 

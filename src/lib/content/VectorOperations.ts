@@ -46,6 +46,7 @@ export class VectorOperations {
     content: string;
     tokenCount: number;
     embedding?: number[];
+    embeddingModel?: string; // actual model id used for `embedding` (D4 — never hardcoded)
     metadata?: any;
     // NEW: Hierarchical relationship fields
     parentChunkId?: string;
@@ -83,7 +84,7 @@ export class VectorOperations {
             token_count = ${data.tokenCount},
             embedding_vector = ${embeddingString}::vector(1536),
             embedding_generated_at = NOW(),
-            embedding_model = 'text-embedding-3-small',
+            embedding_model = ${data.embeddingModel || null},
             metadata = ${JSON.stringify(data.metadata || {})}::jsonb,
             parent_chunk_id = ${data.parentChunkId || null},
             root_chunk_id = ${data.rootChunkId || null},
@@ -132,7 +133,7 @@ export class VectorOperations {
             ${data.tokenCount},
             ${embeddingString}::vector(1536),
             NOW(),
-            'text-embedding-3-small',
+            ${data.embeddingModel || null},
             ${JSON.stringify(data.metadata || {})}::jsonb,
             ${data.parentChunkId || null},
             ${data.rootChunkId || null},

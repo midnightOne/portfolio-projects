@@ -20,7 +20,9 @@ import { BatchEmbeddingService } from './BatchEmbeddingService';
 import { VectorOperations } from './VectorOperations';
 import { SemanticBudgetManager } from './SemanticBudgetManager';
 import { HierarchicalContentParser } from './HierarchicalContentParser';
+import { buildT2SummarySource, orderSummaryChunksBottomUp, normalizeParentChunkIds } from './summary-source';
 import { IndexMaintenanceService } from '../database/IndexMaintenanceService';
+import { getProcessingOperationStore, ChildOutcome } from './ProcessingOperationStore';
 import { EventEmitter } from 'events';
 import OpenAI from 'openai';
 
@@ -150,9 +152,11 @@ export class StageBasedProcessingService extends EventEmitter {
   private indexMaintenance: IndexMaintenanceService;
   private openai: OpenAI | null;
 
-  // Progress tracking
+  // In-memory progress projection (checkpoints live here; durable state is
+  // the semantic_processing_operations row — see ProcessingOperationStore)
   private activeOperations = new Map<string, ProcessingProgress>();
-  private progressCallbacks = new Map<string, (progress: ProcessingProgress) => void>();
+  private progressCallbacks = new Map<string, Set<(progress: ProcessingProgress) => void>>();
+  private operationStore = getProcessingOperationStore();
 
   constructor() {
     super();
@@ -190,31 +194,36 @@ export class StageBasedProcessingService extends EventEmitter {
     const { operationId } = request;
 
     console.log(`[StageBasedProcessingService] Starting processing for operation: ${operationId}`);
-    console.log(`[StageBasedProcessingService] Active operations before: ${this.activeOperations.size}`);
 
     // Initialize progress tracking
     const progress = this.initializeProgress(request);
     this.activeOperations.set(operationId, progress);
-    
-    console.log(`[StageBasedProcessingService] Progress initialized and stored for ${operationId}`);
-    console.log(`[StageBasedProcessingService] Active operations after: ${this.activeOperations.size}`);
 
-    // Add to job queue
-    await this.addToJobQueue(request);
+    // Durable operation row is created BEFORE processing starts — the row is
+    // the state machine; queue/history/SSE project from it (Req 9.2)
+    await this.operationStore.createOperation(request, progress, {
+      type: this.determineProcessingType(request.stages.filter(s => s.enabled)),
+    });
 
     // Start processing asynchronously
-    this.executeProcessing(request).catch(error => {
+    this.executeProcessing(request).catch(async error => {
       console.error(`Processing operation ${operationId} failed:`, error);
-      progress.status = 'failed';
-      progress.errors.push({
-        stage: progress.currentStage || 'chunking',
-        itemId: 'system',
-        itemTitle: 'System Error',
-        error: error.message,
-        retryable: false,
-        timestamp: new Date()
-      });
-      this.notifyProgress(operationId, progress);
+      // executeProcessing persists its own failure transitions; this catch
+      // only handles errors thrown before/outside that path
+      if (progress.status !== 'failed') {
+        progress.status = 'failed';
+        progress.completedAt = new Date();
+        progress.errors.push({
+          stage: progress.currentStage || 'chunking',
+          itemId: 'system',
+          itemTitle: 'System Error',
+          error: error.message,
+          retryable: false,
+          timestamp: new Date()
+        });
+        await this.operationStore.persistProgress(operationId, progress, { force: true }).catch(() => {});
+        this.notifyProgress(operationId, progress);
+      }
     });
 
     return operationId;
@@ -224,9 +233,19 @@ export class StageBasedProcessingService extends EventEmitter {
    * Resume processing from a checkpoint
    */
   async resumeProcessing(operationId: string, fromStage?: ProcessingStage): Promise<void> {
-    const progress = this.activeOperations.get(operationId);
+    // Prefer in-memory progress (has checkpoints); fall back to the durable row
+    // so an operation survives process-local cleanup or a restart
+    let progress = this.activeOperations.get(operationId);
+    const row = await this.operationStore.getOperation(operationId);
     if (!progress) {
-      throw new Error(`Operation not found: ${operationId}`);
+      if (!row) {
+        throw new Error(`Operation not found: ${operationId}`);
+      }
+      progress = this.operationStore.toProcessingProgress(row);
+      this.activeOperations.set(operationId, progress);
+    }
+    if (!row) {
+      throw new Error(`Operation has no durable record: ${operationId}`);
     }
 
     if (progress.status !== 'paused' && progress.status !== 'failed') {
@@ -235,23 +254,24 @@ export class StageBasedProcessingService extends EventEmitter {
 
     // Determine resume stage
     const resumeStage = fromStage || progress.nextStage || 'chunking';
-    
+
     // Update progress
     progress.status = 'in_progress';
     progress.currentStage = resumeStage;
     progress.lastUpdatedAt = new Date();
 
-    // Reconstruct request from progress
+    // Reconstruct the request from the durable row (scope/projectId/stages
+    // were previously guessed and broke project-scope resumes)
     const request: ProcessingRequest = {
       operationId,
-      scope: 'project', // This would be stored in progress in a real implementation
-      stages: Object.keys(progress.stageProgress).map(stage => ({
-        stage: stage as ProcessingStage,
-        enabled: progress.stageProgress[stage as ProcessingStage].status !== 'skipped',
-        mode: 'immediate' // This would be stored in progress
-      })),
+      scope: row.scope as ProcessingRequest['scope'],
+      projectId: row.projectId ?? undefined,
+      sectionId: row.sectionId ?? undefined,
+      stages: Array.isArray(row.stages) ? (row.stages as unknown as StageConfig[]) : [],
       resumeFromStage: resumeStage
     };
+
+    await this.operationStore.persistProgress(operationId, progress, { force: true });
 
     // Continue processing
     await this.executeProcessing(request);
@@ -268,6 +288,7 @@ export class StageBasedProcessingService extends EventEmitter {
 
     progress.status = 'paused';
     progress.lastUpdatedAt = new Date();
+    await this.operationStore.persistProgress(operationId, progress, { force: true });
     this.notifyProgress(operationId, progress);
   }
 
@@ -291,37 +312,63 @@ export class StageBasedProcessingService extends EventEmitter {
       timestamp: new Date()
     });
 
+    await this.operationStore.persistProgress(operationId, progress, { force: true });
     this.notifyProgress(operationId, progress);
     this.activeOperations.delete(operationId);
   }
 
   /**
-   * Get processing progress
+   * Get in-memory processing progress (live checkpoints; null after cleanup)
    */
   getProgress(operationId: string): ProcessingProgress | null {
-    console.log(`[StageBasedProcessingService] getProgress called for ${operationId}`);
-    console.log(`[StageBasedProcessingService] Active operations count: ${this.activeOperations.size}`);
-    console.log(`[StageBasedProcessingService] Available operationIds:`, Array.from(this.activeOperations.keys()));
-    const progress = this.activeOperations.get(operationId) || null;
-    console.log(`[StageBasedProcessingService] Returning progress:`, progress ? 'FOUND' : 'NULL');
-    return progress;
+    return this.activeOperations.get(operationId) || null;
   }
 
   /**
-   * Subscribe to progress updates
+   * Get progress, falling back to the durable operation row when the
+   * in-memory projection is gone (completed + cleaned up, other instance,
+   * or process restart). This is what routes/SSE snapshots must use.
+   */
+  async getProgressOrPersisted(operationId: string): Promise<ProcessingProgress | null> {
+    const live = this.activeOperations.get(operationId);
+    if (live) return live;
+    const row = await this.operationStore.getOperation(operationId);
+    return row ? this.operationStore.toProcessingProgress(row) : null;
+  }
+
+  /**
+   * Subscribe to progress updates. Multiple subscribers per operation are
+   * supported (each SSE client registers its own callback).
    */
   subscribeToProgress(
     operationId: string,
     callback: (progress: ProcessingProgress) => void
   ): void {
-    this.progressCallbacks.set(operationId, callback);
+    let set = this.progressCallbacks.get(operationId);
+    if (!set) {
+      set = new Set();
+      this.progressCallbacks.set(operationId, set);
+    }
+    set.add(callback);
   }
 
   /**
-   * Unsubscribe from progress updates
+   * Unsubscribe from progress updates. With a callback, removes only that
+   * subscriber; without, removes all subscribers for the operation.
    */
-  unsubscribeFromProgress(operationId: string): void {
-    this.progressCallbacks.delete(operationId);
+  unsubscribeFromProgress(
+    operationId: string,
+    callback?: (progress: ProcessingProgress) => void
+  ): void {
+    if (!callback) {
+      this.progressCallbacks.delete(operationId);
+      return;
+    }
+    const set = this.progressCallbacks.get(operationId);
+    if (set) {
+      set.delete(callback);
+      if (set.size === 0) this.progressCallbacks.delete(operationId);
+    }
   }
 
   /**
@@ -394,114 +441,238 @@ export class StageBasedProcessingService extends EventEmitter {
       throw new Error(`Operation not found: ${request.operationId}`);
     }
 
-    console.log(`[ExecuteProcessing] Starting execution for ${request.operationId}`);
-    console.log(`[ExecuteProcessing] Request stages:`, request.stages);
+    console.log(`[ExecuteProcessing] Starting execution for ${request.operationId} (scope: ${request.scope})`);
 
+    // Durable transition first, SSE notification second (Req 9.2)
     progress.status = 'in_progress';
-    this.updateJobQueueStatus(request.operationId, 'in_progress');
+    await this.operationStore.persistProgress(request.operationId, progress, { force: true });
     this.notifyProgress(request.operationId, progress);
 
     try {
-      // Execute stages in order
-      const stages: ProcessingStage[] = ['chunking', 'summaries', 'embeddings', 'validation'];
-      const enabledStages = request.stages.filter(s => s.enabled).map(s => s.stage);
-      
-      console.log(`[ExecuteProcessing] Enabled stages:`, enabledStages);
-      
-      // Start from resume stage if specified
-      const startIndex = request.resumeFromStage 
-        ? stages.indexOf(request.resumeFromStage)
-        : 0;
-
-      for (let i = startIndex; i < stages.length; i++) {
-        const stage = stages[i];
-        
-        if (!enabledStages.includes(stage)) {
-          console.log(`[ExecuteProcessing] Skipping disabled stage: ${stage}`);
-          continue;
-        }
-
-        const stageConfig = request.stages.find(s => s.stage === stage);
-        if (!stageConfig) {
-          console.log(`[ExecuteProcessing] No config found for stage: ${stage}`);
-          continue;
-        }
-
-        console.log(`[ExecuteProcessing] Executing stage: ${stage}`);
-
-        progress.currentStage = stage;
-        progress.stageProgress[stage].status = 'in_progress';
-        progress.stageProgress[stage].startedAt = new Date();
-        this.notifyProgress(request.operationId, progress);
-
-        try {
-          await this.executeStage(request, stage, stageConfig);
-          
-          console.log(`[ExecuteProcessing] Stage ${stage} completed successfully`);
-          
-          progress.stageProgress[stage].status = 'completed';
-          progress.stageProgress[stage].completedAt = new Date();
-          progress.stageProgress[stage].progress = 100;
-          
-        } catch (error) {
-          console.error(`[ExecuteProcessing] Stage ${stage} failed:`, error);
-          
-          const stageErrorMessage = error instanceof Error ? error.message : String(error);
-          progress.stageProgress[stage].status = 'failed';
-          progress.stageProgress[stage].errors.push(stageErrorMessage);
-          progress.errors.push({
-            stage,
-            itemId: 'stage',
-            itemTitle: `Stage: ${stage}`,
-            error: stageErrorMessage,
-            retryable: true,
-            timestamp: new Date()
-          });
-
-          // Set next stage for resume capability
-          progress.nextStage = stages[i + 1] as ProcessingStage;
-          progress.canResume = true;
-          this.updateJobQueueStatus(request.operationId, 'failed');
-          throw error;
-        }
-
-        // Update overall progress
-        this.updateOverallProgress(progress);
-        this.notifyProgress(request.operationId, progress);
+      if (request.scope === 'all') {
+        // Coordinator: one durable child operation per project — the parent
+        // aggregates immutable per-project outcomes only (task 6.2, design §7)
+        await this.executeAllProjectsProcessing(request, progress);
+      } else {
+        await this.executeStagesForRequest(request, progress);
       }
 
-      // Mark as completed
+      // Mark as completed — durable write BEFORE the completion notification,
+      // so a lost SSE event can never leave the job non-terminal
       progress.status = 'completed';
       progress.completedAt = new Date();
       progress.currentStage = null;
       progress.overallProgress = 100;
       progress.canResume = false;
-      
-      this.updateJobQueueStatus(request.operationId, 'completed');
-      this.notifyProgress(request.operationId, progress);
 
-      // Keep operation in memory for 2 minutes for SSE connections
-      setTimeout(() => {
-        this.activeOperations.delete(request.operationId);
-        this.progressCallbacks.delete(request.operationId);
-        console.log(`Cleaned up completed operation: ${request.operationId}`);
-      }, 120000); // 2 minutes
+      await this.operationStore.persistProgress(request.operationId, progress, { force: true });
+      this.notifyProgress(request.operationId, progress);
+      this.scheduleCleanup(request.operationId);
 
     } catch (error) {
       progress.status = 'failed';
       progress.completedAt = new Date();
-      this.updateJobQueueStatus(request.operationId, 'failed');
+      await this.operationStore
+        .persistProgress(request.operationId, progress, { force: true })
+        .catch(persistError => console.error(`[ExecuteProcessing] Terminal persist failed for ${request.operationId}:`, persistError));
       this.notifyProgress(request.operationId, progress);
+      this.scheduleCleanup(request.operationId);
 
-      // Keep failed operation in memory for 2 minutes for SSE connections
-      setTimeout(() => {
-        this.activeOperations.delete(request.operationId);
-        this.progressCallbacks.delete(request.operationId);
-        console.log(`Cleaned up failed operation: ${request.operationId}`);
-      }, 120000); // 2 minutes
-      
       throw error;
     }
+  }
+
+  /**
+   * Run the enabled stages for one request (single-project unit of work)
+   */
+  private async executeStagesForRequest(
+    request: ProcessingRequest,
+    progress: ProcessingProgress
+  ): Promise<void> {
+    const stages: ProcessingStage[] = ['chunking', 'summaries', 'embeddings', 'validation'];
+    const enabledStages = request.stages.filter(s => s.enabled).map(s => s.stage);
+
+    console.log(`[ExecuteProcessing] Enabled stages for ${request.operationId}:`, enabledStages);
+
+    // Start from resume stage if specified
+    const startIndex = request.resumeFromStage
+      ? stages.indexOf(request.resumeFromStage)
+      : 0;
+
+    for (let i = startIndex; i < stages.length; i++) {
+      const stage = stages[i];
+
+      if (!enabledStages.includes(stage)) {
+        continue;
+      }
+
+      const stageConfig = request.stages.find(s => s.stage === stage);
+      if (!stageConfig) {
+        continue;
+      }
+
+      console.log(`[ExecuteProcessing] Executing stage: ${stage}`);
+
+      progress.currentStage = stage;
+      progress.stageProgress[stage].status = 'in_progress';
+      progress.stageProgress[stage].startedAt = new Date();
+      await this.operationStore.persistProgress(request.operationId, progress, { force: true });
+      this.notifyProgress(request.operationId, progress);
+
+      try {
+        await this.executeStage(request, stage, stageConfig);
+
+        console.log(`[ExecuteProcessing] Stage ${stage} completed successfully`);
+
+        progress.stageProgress[stage].status = 'completed';
+        progress.stageProgress[stage].completedAt = new Date();
+        progress.stageProgress[stage].progress = 100;
+
+      } catch (error) {
+        console.error(`[ExecuteProcessing] Stage ${stage} failed:`, error);
+
+        const stageErrorMessage = error instanceof Error ? error.message : String(error);
+        progress.stageProgress[stage].status = 'failed';
+        progress.stageProgress[stage].errors.push(stageErrorMessage);
+        progress.errors.push({
+          stage,
+          itemId: 'stage',
+          itemTitle: `Stage: ${stage}`,
+          error: stageErrorMessage,
+          retryable: true,
+          timestamp: new Date()
+        });
+
+        // Set next stage for resume capability
+        progress.nextStage = stages[i + 1] as ProcessingStage;
+        progress.canResume = true;
+        throw error;
+      }
+
+      // Update overall progress (durable, then notify)
+      this.updateOverallProgress(progress);
+      await this.operationStore.persistProgress(request.operationId, progress, { force: true });
+      this.notifyProgress(request.operationId, progress);
+    }
+  }
+
+  /**
+   * scope:'all' coordinator (task 6.2): enumerate projects and run the
+   * verified single-project pipeline once per project as a durable CHILD
+   * operation with its own entity, checkpoints, and error state. The parent
+   * never holds chunks — it aggregates immutable per-project outcomes only.
+   */
+  private async executeAllProjectsProcessing(
+    request: ProcessingRequest,
+    progress: ProcessingProgress
+  ): Promise<void> {
+    const projects = await this.getProjectsToProcess(request);
+    progress.totalItems = projects.length;
+    progress.totalItemsProcessed = 0;
+
+    console.log(`[ScopeAll] Coordinating ${projects.length} per-project child operations`);
+
+    const failures: string[] = [];
+
+    for (let i = 0; i < projects.length; i++) {
+      const project = projects[i];
+      const childId = `${request.operationId}-p${i + 1}`;
+      const childRequest: ProcessingRequest = {
+        operationId: childId,
+        scope: 'project',
+        projectId: project.id,
+        stages: request.stages,
+        preserveManualEdits: request.preserveManualEdits
+      };
+
+      const childProgress = this.initializeProgress(childRequest);
+      childProgress.status = 'in_progress';
+      this.activeOperations.set(childId, childProgress);
+      await this.operationStore.createOperation(childRequest, childProgress, {
+        parentId: request.operationId,
+        type: this.determineProcessingType(request.stages.filter(s => s.enabled)),
+      });
+
+      let outcomeStatus: ChildOutcome['status'] = 'completed';
+      let outcomeError: string | undefined;
+
+      try {
+        console.log(`[ScopeAll] Project ${i + 1}/${projects.length}: ${project.slug} (${childId})`);
+        await this.executeStagesForRequest(childRequest, childProgress);
+
+        childProgress.status = 'completed';
+        childProgress.completedAt = new Date();
+        childProgress.currentStage = null;
+        childProgress.overallProgress = 100;
+        childProgress.canResume = false;
+      } catch (error) {
+        outcomeStatus = 'failed';
+        outcomeError = error instanceof Error ? error.message : String(error);
+        failures.push(`${project.slug}: ${outcomeError}`);
+
+        childProgress.status = 'failed';
+        childProgress.completedAt = new Date();
+      }
+
+      // Durable child terminal state first, then the parent's aggregate
+      await this.operationStore.persistProgress(childId, childProgress, { force: true });
+      this.notifyProgress(childId, childProgress);
+      this.scheduleCleanup(childId);
+
+      const chunkingCp = childProgress.stageProgress.chunking.checkpoint as ChunkingCheckpoint | undefined;
+      const summariesCp = childProgress.stageProgress.summaries.checkpoint as SummariesCheckpoint | undefined;
+      const embeddingsCp = childProgress.stageProgress.embeddings.checkpoint as EmbeddingsCheckpoint | undefined;
+      const outcome: ChildOutcome = {
+        operationId: childId,
+        projectId: project.id,
+        projectSlug: project.slug,
+        projectTitle: project.title,
+        status: outcomeStatus,
+        chunksCreated: chunkingCp?.chunksCreated.length ?? 0,
+        summariesGenerated: summariesCp?.summariesGenerated.length ?? 0,
+        embeddingsGenerated: embeddingsCp?.embeddingsGenerated.length ?? 0,
+        costAccumulated: childProgress.costAccumulated,
+        error: outcomeError,
+        completedAt: new Date().toISOString(),
+      };
+      await this.operationStore.appendChildOutcome(request.operationId, outcome);
+
+      // Parent progress: projects are the unit of work
+      progress.totalItemsProcessed = i + 1;
+      progress.costAccumulated += childProgress.costAccumulated;
+      progress.tokensUsed += childProgress.tokensUsed;
+      progress.overallProgress = ((i + 1) / projects.length) * 100;
+      progress.lastUpdatedAt = new Date();
+      if (outcomeError) {
+        progress.errors.push({
+          stage: childProgress.currentStage || 'chunking',
+          itemId: project.id,
+          itemTitle: project.title || project.slug,
+          error: outcomeError,
+          retryable: true,
+          timestamp: new Date()
+        });
+      }
+      await this.operationStore.persistProgress(request.operationId, progress, { force: true });
+      this.notifyProgress(request.operationId, progress);
+    }
+
+    if (failures.length > 0) {
+      throw new Error(
+        `scope:'all' completed with ${failures.length}/${projects.length} project failure(s): ${failures.join('; ')}`
+      );
+    }
+  }
+
+  /**
+   * Keep a finished operation's in-memory projection around briefly for
+   * attached SSE clients, then release it (durable row remains)
+   */
+  private scheduleCleanup(operationId: string): void {
+    setTimeout(() => {
+      this.activeOperations.delete(operationId);
+      this.progressCallbacks.delete(operationId);
+    }, 120000); // 2 minutes
   }
 
   /**
@@ -557,7 +728,11 @@ export class StageBasedProcessingService extends EventEmitter {
       try {
         console.log(`[ChunkingStage] Processing project: ${project.id}`);
         console.log(`[ChunkingStage] Generating scaffold: T0 + T1/T2 placeholders + fully populated T3 chunks`);
-        
+
+        // The parser TTL-caches per project; an ingest often follows a content
+        // save, so parse fresh — a stale cache would chunk pre-save text
+        this.contentParser.clearProjectCache(project.id);
+
         // Generate ONLY scaffold: T0, placeholders (T1, T2), and fully populated T3 chunks
         // NO AI summary generation - that happens in summaries stage
         const result = await this.smartGenerator.generateScaffoldOnly(project);
@@ -662,67 +837,88 @@ export class StageBasedProcessingService extends EventEmitter {
       allT1T2Chunks = dbChunks
         .filter(chunk => chunk.tier === 1 || chunk.tier === 2)
         .map(convertToTierContent);
-      
+
       allT3Chunks = dbChunks
         .filter(chunk => chunk.tier === 3)
         .map(convertToTierContent);
+
+      // DB rows carry parent DB-uuids; hierarchy walks (cumulative parent
+      // sources) need logical chunk ids
+      const dbIdToChunkId = new Map<string, string>(dbChunks.map(c => [c.id, c.chunkId]));
+      normalizeParentChunkIds(allT1T2Chunks, dbIdToChunkId);
+      normalizeParentChunkIds(allT3Chunks, dbIdToChunkId);
     }
 
     // Filter only placeholders that need AI generation (T1 and T2)
-    // Auto-populated T2s (small sections that fit the budget) are already complete
+    // Auto-populated T2s (small subtrees that fit the budget) are already complete
     const autoPopulatedT2s = allT1T2Chunks.filter(chunk => chunk.tier === 2 && chunk.metadata.autoPopulated);
-    const chunksNeedingSummaries = allT1T2Chunks.filter(chunk => chunk.metadata.needsAIGeneration);
+    // Bottom-up order (Req 9.3): deepest T2s first so a parent's source can
+    // include its children's completed summaries; T1 last
+    const chunksNeedingSummaries = orderSummaryChunksBottomUp(
+      allT1T2Chunks.filter(chunk => chunk.metadata.needsAIGeneration)
+    );
 
-    console.log(`[SummariesStage] T1/T2 Summary: ${allT1T2Chunks.length} total, ${autoPopulatedT2s.length} auto-populated, ${chunksNeedingSummaries.length} need AI`);
+    console.log(`[SummariesStage] T1/T2 Summary: ${allT1T2Chunks.length} total, ${autoPopulatedT2s.length} auto-populated, ${chunksNeedingSummaries.length} need AI (bottom-up)`);
     stageProgress.totalItems = chunksNeedingSummaries.length;
 
     const checkpoint: SummariesCheckpoint = {
       summariesGenerated: []
     };
+    // Chunks resolved by fallback (child-overview / empty) — modified but not
+    // AI-generated; they must still persist and re-embed
+    const fallbackChunkIds = new Set<string>();
 
     for (const chunk of chunksNeedingSummaries) {
       try {
         console.log(`[SummariesStage] Generating ${chunk.tier === 1 ? 'T1' : 'T2'} summary for: ${chunk.chunkId}`);
-        
+
         // Get the actual content to summarize
         let sourceContent: string;
-        
+        let sourceProvenance: Record<string, any> | undefined;
+
         if (chunk.tier === 1) {
           // T1: Summarize entire project content
           sourceContent = allT3Chunks.map(c => c.content).join('\n\n');
           console.log(`[SummariesStage] T1: Using ${allT3Chunks.length} T3 chunks as source (${sourceContent.length} chars)`);
         } else {
-          // T2: Summarize section content (all T3 chunks in this section)
-          const sectionGroup = chunk.sectionGroup || chunk.chunkId;
-          const sectionT3Chunks = allT3Chunks.filter(
-            c => c.sectionGroup === sectionGroup
-          );
-          sourceContent = sectionT3Chunks.map(c => c.content).join('\n\n');
-          console.log(`[SummariesStage] T2 (${chunk.chunkId}): Using ${sectionT3Chunks.length} T3 chunks as source (${sourceContent.length} chars)`);
-        }
+          // T2: cumulative source — own T3 prose + direct child T2 summaries
+          // (children are complete: auto-populated or generated earlier in
+          // this bottom-up pass)
+          const cumulative = buildT2SummarySource(chunk, allT1T2Chunks, allT3Chunks);
+          sourceContent = cumulative.source;
+          sourceProvenance = {
+            ownT3Count: cumulative.ownT3Count,
+            childChunkIds: cumulative.contributingChildIds,
+          };
+          console.log(`[SummariesStage] T2 (${chunk.chunkId}): cumulative source from ${cumulative.ownT3Count} own T3(s) + ${cumulative.contributingChildIds.length} child T2(s) (${sourceContent.length} chars)`);
 
-        // Skip if no source content available
-        if (!sourceContent || sourceContent.length < 50) {
-          // Parent headings legitimately own no prose — their content lives in
-          // child sections. Synthesize an honest overview line instead of the
-          // 0-token placeholder that trips the dashboard's 'corrupted' flag.
-          const childTitles = allT1T2Chunks
-            .filter(c => c.tier === 2 && c.chunkId !== chunk.chunkId
-              && ((c as any).parentChunkId ?? c.metadata?.parentChunkId) === chunk.chunkId)
-            .map(c => (c.title || '').split('\n')[0].trim())
-            .filter(Boolean);
-          if (childTitles.length > 0) {
-            console.log(`[SummariesStage] ${chunk.chunkId}: no own prose — synthesizing child overview (${childTitles.length} subsections)`);
-            chunk.content = `Covers: ${childTitles.join(', ')}.`;
-            chunk.tokenCount = this.estimateTokenCount(chunk.content);
+          // Truly empty subtree: no own prose AND no child content. A heading
+          // list is permitted only here (Req 9.3)
+          if (sourceContent.length < 50) {
+            if (cumulative.childTitles.length > 0) {
+              console.log(`[SummariesStage] ${chunk.chunkId}: empty subtree with child headings — synthesizing overview line`);
+              chunk.content = `Covers: ${cumulative.childTitles.join(', ')}.`;
+              chunk.tokenCount = this.estimateTokenCount(chunk.content);
+              chunk.metadata.needsAIGeneration = false;
+              chunk.metadata.source = 'child-overview';
+              fallbackChunkIds.add(chunk.chunkId);
+              continue;
+            }
+            console.log(`[SummariesStage] Skipping ${chunk.chunkId}: insufficient source content`);
+            chunk.content = 'No content available for summary';
             chunk.metadata.needsAIGeneration = false;
-            chunk.metadata.source = 'child-overview';
+            chunk.metadata.source = 'empty';
+            fallbackChunkIds.add(chunk.chunkId);
             continue;
           }
+        }
+
+        if (chunk.tier === 1 && (!sourceContent || sourceContent.length < 50)) {
           console.log(`[SummariesStage] Skipping ${chunk.chunkId}: insufficient source content`);
           chunk.content = 'No content available for summary';
           chunk.metadata.needsAIGeneration = false;
           chunk.metadata.source = 'empty';
+          fallbackChunkIds.add(chunk.chunkId);
           continue;
         }
 
@@ -744,6 +940,11 @@ export class StageBasedProcessingService extends EventEmitter {
         chunk.metadata.confidenceScore = result.confidenceScore;
         chunk.metadata.source = 'ai-generated';
         chunk.metadata.generationMode = 'ai';
+        if (sourceProvenance) {
+          // Deterministic provenance for verification: which children fed
+          // this cumulative summary (asserted by check:semantic)
+          chunk.metadata.summarySource = sourceProvenance;
+        }
 
         console.log(`[SummariesStage] Generated summary for ${chunk.chunkId}: ${result.summary.substring(0, 100)}...`);
 
@@ -769,8 +970,11 @@ export class StageBasedProcessingService extends EventEmitter {
       }
     }
 
-    // Store only the modified chunks (the ones that had summaries generated) in checkpoint for validation stage
-    const modifiedChunkIds = new Set(checkpoint.summariesGenerated.map(s => s.chunkId));
+    // Store only the modified chunks (AI-generated or fallback-resolved) in checkpoint for validation stage
+    const modifiedChunkIds = new Set([
+      ...checkpoint.summariesGenerated.map(s => s.chunkId),
+      ...fallbackChunkIds,
+    ]);
     const modifiedChunks = chunksNeedingSummaries.filter(chunk => modifiedChunkIds.has(chunk.chunkId));
     checkpoint.modifiedChunks = modifiedChunks;
     stageProgress.checkpoint = checkpoint;
@@ -957,8 +1161,9 @@ export class StageBasedProcessingService extends EventEmitter {
           const embeddingInput = chunk.title && !chunk.content.startsWith(chunk.title)
             ? `${chunk.title}\n\n${chunk.content}`
             : chunk.content;
-          const { embedding, costUsd: cost } = await this.generateEmbedding(embeddingInput);
+          const { embedding, costUsd: cost, modelId } = await this.generateEmbedding(embeddingInput, request.operationId);
           chunk.embedding = embedding;
+          chunk.embeddingModel = modelId;
 
           checkpoint.embeddingsGenerated.push({
             chunkId: chunk.chunkId,
@@ -1293,7 +1498,7 @@ export class StageBasedProcessingService extends EventEmitter {
               metadata = ${JSON.stringify(chunk.metadata || {})}::jsonb,
               embedding_vector = ${embeddingString}::vector(1536),
               embedding_generated_at = NOW(),
-              embedding_model = 'text-embedding-3-small',
+              embedding_model = ${chunk.embeddingModel || null},
               updated_at = NOW()
             WHERE id = ${existingChunk.id}
           `;
@@ -1323,8 +1528,14 @@ export class StageBasedProcessingService extends EventEmitter {
   private async getProjectsToProcess(request: ProcessingRequest): Promise<any[]> {
     switch (request.scope) {
       case 'all':
+        // Only projects with article content can be ingested; contentless
+        // projects would produce empty scaffolds (matches the regeneration
+        // estimator's enumeration)
         return await prisma.project.findMany({
-          where: { visibility: 'PUBLIC' },
+          where: {
+            visibility: 'PUBLIC',
+            articleContent: { isNot: null }
+          },
           include: {
             articleContent: true,
             tags: true
@@ -1656,6 +1867,7 @@ export class StageBasedProcessingService extends EventEmitter {
       content: chunk.content,
       tokenCount: chunk.tokenCount,
       embedding: chunk.embedding,
+      embeddingModel: chunk.embeddingModel,
       metadata: chunk.metadata,
       parentChunkId: resolvedParentChunkId ?? undefined,
       rootChunkId: resolvedRootChunkId ?? undefined,
@@ -1690,23 +1902,13 @@ export class StageBasedProcessingService extends EventEmitter {
    * Generate one embedding via the shared provider (default-embedding alias, D4;
    * AI_FAKE_MODE-aware) and mirror the actual spend to the unified ledger (D32).
    */
-  private async generateEmbedding(content: string): Promise<{ embedding: number[]; tokensUsed: number; costUsd: number }> {
+  private async generateEmbedding(
+    content: string,
+    operationId?: string
+  ): Promise<{ embedding: number[]; tokensUsed: number; costUsd: number; modelId: string }> {
     try {
-      const { generateEmbedding: sharedGenerateEmbedding } = await import('@/lib/ai/embeddings');
-      const { estimateCost } = await import('@/lib/ai/pricing');
-      const { recordUsage } = await import('@/lib/ai/ledger');
-
-      const result = await sharedGenerateEmbedding(content, { taskType: 'document' });
-      const costUsd = await estimateCost(result.modelId, { inputTokens: result.tokensUsed });
-      await recordUsage({
-        feature: 'semantic',
-        usageType: 'embedding',
-        provider: result.provider,
-        modelId: result.modelId,
-        inputTokens: result.tokensUsed,
-        costUsd,
-      });
-      return { embedding: result.vector, tokensUsed: result.tokensUsed, costUsd };
+      const { generateChunkEmbedding } = await import('./chunk-embedding');
+      return await generateChunkEmbedding(content, { operationId });
     } catch (error) {
       console.error('[StageBasedProcessingService] Failed to generate embedding:', error);
       throw new Error(`Embedding generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -1752,35 +1954,6 @@ export class StageBasedProcessingService extends EventEmitter {
   }
 
   /**
-   * Add job to queue
-   */
-  private async addToJobQueue(request: ProcessingRequest): Promise<void> {
-    try {
-      const enabledStages = request.stages.filter(s => s.enabled);
-      const processingType = this.determineProcessingType(enabledStages);
-      
-      // Note: Job queue functionality moved to internal tracking
-      // const { jobQueue } = await import('../../app/api/admin/semantic/processing/queue/route');
-      
-      const job = {
-        operationId: request.operationId,
-        projectId: request.projectId,
-        type: processingType as 'full' | 'chunking' | 'summaries' | 'embeddings' | 'validation',
-        status: 'queued' as const,
-        startedAt: new Date(),
-        estimatedDuration: this.getEstimatedDuration(enabledStages),
-        stages: enabledStages.map(s => s.stage)
-      };
-
-      // jobQueue.set(request.operationId, job);
-      console.log(`Job tracking: ${request.operationId} (${processingType})`);
-    } catch (error) {
-      console.warn('Failed to add job to queue:', error);
-      // Don't fail the operation if queue update fails
-    }
-  }
-
-  /**
    * Determine processing type from enabled stages
    */
   private determineProcessingType(stages: StageConfig[]): string {
@@ -1802,46 +1975,28 @@ export class StageBasedProcessingService extends EventEmitter {
   }
 
   /**
-   * Get estimated duration for stages
-   */
-  private getEstimatedDuration(stages: StageConfig[]): string {
-    const hasBatch = stages.some(s => s.mode === 'batch');
-    const stageCount = stages.length;
-    
-    if (hasBatch) {
-      return '~24 hours (batch processing)';
-    } else if (stageCount >= 4) {
-      return '~2-3 minutes';
-    } else if (stageCount >= 2) {
-      return '~1 minute';
-    } else {
-      return '~30 seconds';
-    }
-  }
-
-  /**
-   * Update job queue status
-   */
-  private async updateJobQueueStatus(operationId: string, status: 'queued' | 'in_progress' | 'paused' | 'completed' | 'failed'): Promise<void> {
-    try {
-      // Job queue status tracking is now handled internally
-      console.log(`Job status update: ${operationId} -> ${status}`);
-    } catch (error) {
-      console.warn('Failed to update job queue status:', error);
-    }
-  }
-
-  /**
-   * Notify progress update
+   * Notify progress update. Subscriptions are a read/projection channel only:
+   * durable state is written by the caller (or the throttled write below) —
+   * a subscriber can never cause a status transition (Req 9.2).
    */
   private notifyProgress(operationId: string, progress: ProcessingProgress): void {
-    const callback = this.progressCallbacks.get(operationId);
-    if (callback) {
-      callback(progress);
+    const callbacks = this.progressCallbacks.get(operationId);
+    if (callbacks) {
+      for (const callback of callbacks) {
+        try {
+          callback(progress);
+        } catch (error) {
+          console.warn(`[notifyProgress] Subscriber callback failed for ${operationId}:`, error);
+        }
+      }
     }
 
     // Emit event for other listeners
     this.emit('progress', { operationId, progress });
+
+    // Opportunistic throttled persistence for per-item progress (stage and
+    // terminal transitions are persisted with force by their call sites)
+    void this.operationStore.persistProgress(operationId, progress).catch(() => {});
   }
 
 

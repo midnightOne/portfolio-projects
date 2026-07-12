@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { withAIGateway } from '@/lib/ai/gateway';
-import { SelectiveSectionRegenerator } from '@/lib/content/SelectiveSectionRegenerator';
+import { getSelectiveSectionRegenerator } from '@/lib/content/SelectiveSectionRegenerator';
 import { prisma } from '@/lib/prisma';
 import { getProcessingService } from '@/lib/content/StageBasedProcessingServiceSingleton';
 import type { ProcessingRequest, StageConfig } from '@/lib/content/StageBasedProcessingService';
@@ -107,7 +107,7 @@ async function handlePOST(request: NextRequest) {
     }
 
     // Existing project - use SelectiveSectionRegenerator
-    const regenerator = new SelectiveSectionRegenerator();
+    const regenerator = getSelectiveSectionRegenerator();
     
     // Start regeneration (async)
     const operationId = await regenerator.regenerate({

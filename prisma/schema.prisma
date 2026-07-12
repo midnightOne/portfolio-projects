@@ -1043,6 +1043,43 @@ model SemanticBudget {
   @@map("semantic_budgets")
 }
 
+// Durable stage-processing state machine (semantic-content Req 9.2 / task 6.3).
+// One row per processing operation; scope:'all' parents link children via parentId.
+// Every stage and terminal transition is written here FIRST — queue/history and SSE
+// are read-only projections of this row. Stage checkpoints (chunk payloads,
+// embeddings) stay in-memory; this row carries status, progress, and outcomes.
+model SemanticProcessingOperation {
+  id              String    @id // operationId (e.g. stage-proc-...)
+  parentId        String?   @map("parent_id")
+  scope           String // all | project | section
+  projectId       String?   @map("project_id")
+  sectionId       String?   @map("section_id")
+  type            String    @default("full") // full | chunking | summaries | embeddings | validation | custom
+  status          String    @default("queued") // queued | in_progress | paused | completed | failed
+  currentStage    String?   @map("current_stage")
+  stages          Json      @default("[]") // enabled StageConfig[]
+  stageProgress   Json      @default("{}") @map("stage_progress") // compact per-stage {status,progress,itemsProcessed,totalItems,errors}
+  overallProgress Float     @default(0) @map("overall_progress")
+  totalItems      Int       @default(0) @map("total_items")
+  itemsProcessed  Int       @default(0) @map("items_processed")
+  costAccumulated Decimal   @default(0.0000) @map("cost_accumulated") @db.Decimal(10, 4)
+  tokensUsed      Int       @default(0) @map("tokens_used")
+  error           String?
+  errors          Json      @default("[]") // ProcessingError[]
+  childOutcomes   Json?     @map("child_outcomes") // scope:'all' parent: immutable per-project outcomes
+  canResume       Boolean   @default(false) @map("can_resume")
+  nextStage       String?   @map("next_stage")
+  startedAt       DateTime  @default(now()) @map("started_at")
+  lastUpdatedAt   DateTime  @default(now()) @map("last_updated_at")
+  completedAt     DateTime? @map("completed_at")
+
+  @@index([parentId])
+  @@index([status])
+  @@index([projectId])
+  @@index([startedAt])
+  @@map("semantic_processing_operations")
+}
+
 model SemanticOperation {
   id              String         @id @default(cuid())
   budgetId        String         @map("budget_id")

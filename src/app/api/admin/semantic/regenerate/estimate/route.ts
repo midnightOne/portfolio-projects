@@ -7,7 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { SelectiveSectionRegenerator } from '@/lib/content/SelectiveSectionRegenerator';
+import { getSelectiveSectionRegenerator } from '@/lib/content/SelectiveSectionRegenerator';
 
 export async function POST(request: NextRequest) {
   try {
@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const regenerator = new SelectiveSectionRegenerator();
+    const regenerator = getSelectiveSectionRegenerator();
     const estimate = await regenerator.estimateRegenerationCost({
       scope,
       projectId,

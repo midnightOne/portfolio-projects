@@ -36,6 +36,7 @@ interface ChunkRow {
   section_group: string | null;
   parent_chunk_id: string | null;
   root_chunk_id: string | null;
+  metadata: any;
   has_embedding: boolean;
 }
 
@@ -53,7 +54,7 @@ async function main() {
 
   const chunks = await prisma.$queryRaw<ChunkRow[]>`
     SELECT c.id, c.tier, c.chunk_id, c.title, c.content, c.section_group,
-           c.parent_chunk_id, c.root_chunk_id,
+           c.parent_chunk_id, c.root_chunk_id, c.metadata,
            (c.embedding_vector IS NOT NULL) as has_embedding
     FROM context_chunks c
     JOIN content_entities e ON e.id = c.entity_id
@@ -96,6 +97,45 @@ async function main() {
   const badRoots = chunks.filter(c => c.root_chunk_id && c.root_chunk_id !== t0Id);
   assert('root linkage points at T0', badRoots.length === 0,
     `wrong root: ${badRoots.map(c => c.chunk_id).join(', ')}`);
+
+  // Cumulative parent T2 summaries (semantic-content Req 9.3 / task 9):
+  // a T2 with child sections must represent its whole subtree — either an AI
+  // summary whose recorded provenance includes every child, or verbatim
+  // auto-populated subtree content. "Covers:" heading lists are allowed only
+  // for truly empty subtrees (never here — fixture children have content).
+  const byChunkId = new Map(chunks.map(c => [c.chunk_id, c]));
+  for (const parent of (expected.cumulativeParents ?? []) as Array<{ chunkId: string; expectedChildren: string[] }>) {
+    const t2 = byTier(2).find(c => c.chunk_id === parent.chunkId);
+    assert(`cumulative parent T2 "${parent.chunkId}" exists`, !!t2);
+    if (!t2) continue;
+
+    assert(`parent T2 "${parent.chunkId}" content is real (no placeholder, no "Covers:" list)`,
+      t2.content.length >= 50 && !t2.content.includes('[TO BE GENERATED') && !/^Covers:/.test(t2.content),
+      `content starts: "${t2.content.slice(0, 60)}"`);
+
+    // Child T2 rows link to this parent
+    const linkedChildren = byTier(2).filter(c => c.parent_chunk_id === t2.id).map(c => c.chunk_id);
+    const missingLinks = parent.expectedChildren.filter(id => !linkedChildren.includes(id));
+    assert(`parent T2 "${parent.chunkId}" is linked parent of [${parent.expectedChildren.join(', ')}]`,
+      missingLinks.length === 0, `missing links: ${missingLinks.join(', ')}`);
+
+    // Cumulative coverage: AI summaries record child provenance; verbatim
+    // auto-population must contain each child's subtree text
+    const provenance: string[] | undefined = t2.metadata?.summarySource?.childChunkIds;
+    if (t2.metadata?.autoPopulated) {
+      const missingContent = parent.expectedChildren.filter(childId => {
+        const child = byChunkId.get(childId);
+        return !child || !t2.content.includes(child.content.slice(0, 80));
+      });
+      assert(`auto-populated parent "${parent.chunkId}" contains child content`,
+        missingContent.length === 0, `missing: ${missingContent.join(', ')}`);
+    } else {
+      const covered = parent.expectedChildren.filter(id => provenance?.includes(id));
+      assert(`AI parent "${parent.chunkId}" summary provenance covers children`,
+        covered.length === parent.expectedChildren.length,
+        `provenance=${JSON.stringify(provenance)}, expected ${JSON.stringify(parent.expectedChildren)}`);
+    }
+  }
 
   // T3 titles derive from parent T2 titles
   const byId = new Map(chunks.map(c => [c.id, c]));

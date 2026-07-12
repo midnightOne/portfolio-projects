@@ -1,8 +1,8 @@
 # semantic-content — Requirements
 
-**Status:** current — implemented; bulk-operation reliability closure pending (absorbed the open semantic-system-fixes items)
+**Status:** current — implemented incl. bulk-operation reliability closure (Req 9 drilled live 2026-07-12; scope:'all' enabled)
 **Owner domain:** T0–T3 semantic index: chunking, summaries, embeddings, stage-based processing, semantic search, budgets, semantic admin dashboard
-**Last verified against code:** 2026-07-02 (`e2d75b4`)
+**Last verified against code:** 2026-07-12
 **Registry decisions applied:** D27 (T0–T3), D28 (chunking defaults), D29 (embedding + hybrid retrieval), D32 (ledger integration), D37 (ProjectAIIndex retirement), D38 (pricing module)
 **Contracts:**
 
@@ -15,7 +15,7 @@
 
 | Provides | To |
 |---|---|
-| `ContentEntity`, `ContextChunk`, `SemanticBudget`, `SemanticOperation`, `ChunkingConfig`, `SummaryGenerationConfig`, `SummaryGenerationLog`, `BatchEmbeddingJob` models | — |
+| `ContentEntity`, `ContextChunk`, `SemanticBudget`, `SemanticOperation`, `SemanticProcessingOperation`, `ChunkingConfig`, `SummaryGenerationConfig`, `SummaryGenerationLog`, `BatchEmbeddingJob` models | — |
 | `ContentSearchService` (semantic search) | `ai-assistant` server tools, `mcp-server` |
 | `/api/admin/semantic/*` dashboard APIs | semantic admin UI |
 

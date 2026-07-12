@@ -10,7 +10,6 @@ import { withAIGateway } from '@/lib/ai/gateway';
 import { getSession } from '@/lib/auth-utils';
 import { ProcessingRequest, StageConfig } from '@/lib/content/StageBasedProcessingService';
 import { getProcessingService } from '@/lib/content/StageBasedProcessingServiceSingleton';
-import { getJobQueueManager, QueuedJob } from '@/lib/content/JobQueueManager';
 
 async function handlePOST(request: NextRequest) {
   try {
@@ -91,26 +90,8 @@ async function handlePOST(request: NextRequest) {
       preserveManualEdits
     };
 
-    // Determine job type based on enabled stages
-    const enabledStages = stages.filter((s: any) => s.enabled);
-    const jobType: QueuedJob['type'] = 
-      enabledStages.length === 1 && enabledStages[0].stage !== 'validation'
-        ? enabledStages[0].stage 
-        : 'full';
-
-    // Add job to queue for tracking
-    const queueManager = getJobQueueManager();
-    queueManager.addJob({
-      operationId,
-      projectId,
-      type: jobType,
-      status: 'queued',
-      startedAt: new Date(),
-      estimatedDuration: enabledStages.length === 1 ? '~30 seconds' : '~2 minutes',
-      stages: enabledStages.map((s: any) => s.stage)
-    });
-
-    // Start processing
+    // Start processing — the service creates the durable operation row
+    // (semantic_processing_operations) that the queue/history projects from
     const processingService = getProcessingService();
     await processingService.startProcessing(processingRequest);
 

@@ -25,6 +25,7 @@ export interface TierContent {
   content: string;
   tokenCount: number;
   embedding?: number[];
+  embeddingModel?: string; // actual model id used for `embedding` (D4 — never hardcoded)
   metadata: Record<string, any>;
   // Enhanced hierarchical fields
   parentChunkId?: string;
@@ -277,15 +278,22 @@ export class SmartContentGenerator {
       }
     }
     
-    // Get T3 chunks for this section
-    const sectionT3Chunks = t3Chunks.filter(t3 => t3.sectionGroup === section.anchorId);
-    const combinedContent = sectionT3Chunks.map(t3 => t3.content).join('\n\n');
+    // Cumulative subtree content (Req 9.3): a T2 represents its own prose PLUS
+    // every descendant section's material. The auto-populate decision must be
+    // made on the whole subtree — deciding on own-prose alone made parents
+    // with children auto-populate excluding all child content.
+    const descendantAnchorIds = this.getDescendantHeadingAnchorIds(section, enhancedIndex);
+    const subtreeAnchorIds = new Set([section.anchorId, ...descendantAnchorIds]);
+    const subtreeT3Chunks = t3Chunks.filter(
+      t3 => t3.sectionGroup && subtreeAnchorIds.has(t3.sectionGroup)
+    );
+    const combinedContent = subtreeT3Chunks.map(t3 => t3.content).join('\n\n');
     const totalTokens = this.estimateTokenCount(combinedContent);
-    
-    // If content fits within T2 budget, use it directly
+
+    // If the CUMULATIVE subtree fits within T2 budget, use it verbatim
     if (totalTokens <= t2MaxTokens && combinedContent.length > 0) {
-      console.log(`[T2AutoPopulate] Section "${section.title}": ${totalTokens} tokens fits budget (${t2MaxTokens}), using raw content`);
-      
+      console.log(`[T2AutoPopulate] Section "${section.title}": subtree of ${subtreeT3Chunks.length} T3(s) across ${subtreeAnchorIds.size} section(s) = ${totalTokens} tokens fits budget (${t2MaxTokens}), using raw content`);
+
       return {
         tier: 2,
         chunkId: section.anchorId,
@@ -309,14 +317,15 @@ export class SmartContentGenerator {
           generationMode: 'extracted',
           contentHash: section.contentHash,
           includesSubsections: true,
+          hasChildSections: descendantAnchorIds.length > 0,
           autoPopulated: true,
           originalTokenCount: totalTokens
         }
       };
     }
-    
-    // Content too large - create placeholder for AI summary
-    console.log(`[T2Placeholder] Section "${section.title}": ${totalTokens} tokens exceeds budget (${t2MaxTokens}), needs AI summary`);
+
+    // Subtree too large - create placeholder for cumulative AI summary
+    console.log(`[T2Placeholder] Section "${section.title}": subtree ${totalTokens} tokens exceeds budget (${t2MaxTokens}), needs AI summary`);
     
     return {
       tier: 2,
@@ -340,9 +349,39 @@ export class SmartContentGenerator {
         source: 'pending-ai',
         generationMode: 'pending',
         contentHash: section.contentHash,
-        includesSubsections: true
+        includesSubsections: true,
+        hasChildSections: descendantAnchorIds.length > 0
       }
     };
+  }
+
+  /**
+   * Anchor ids of every descendant heading of a section (transitive closure
+   * over parentSectionId). Used to gather a T2's cumulative subtree.
+   */
+  private getDescendantHeadingAnchorIds(
+    section: HierarchicalSection,
+    enhancedIndex: EnhancedProjectIndex
+  ): string[] {
+    const headings = enhancedIndex.hierarchicalSections.filter(s => s.nodeType === 'heading');
+    const byParent = new Map<string, HierarchicalSection[]>();
+    for (const heading of headings) {
+      if (!heading.parentSectionId) continue;
+      const siblings = byParent.get(heading.parentSectionId) ?? [];
+      siblings.push(heading);
+      byParent.set(heading.parentSectionId, siblings);
+    }
+
+    const anchorIds: string[] = [];
+    const stack = [section.id];
+    while (stack.length > 0) {
+      const id = stack.pop()!;
+      for (const child of byParent.get(id) ?? []) {
+        anchorIds.push(child.anchorId);
+        stack.push(child.id);
+      }
+    }
+    return anchorIds;
   }
 
   /**
