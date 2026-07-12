@@ -34,7 +34,7 @@ export function HomepageDevVoicePanel() {
   };
 
   return (
-    <div className="fixed bottom-4 left-4 z-[9999] max-w-sm" data-testid="homepage-dev-voice-panel">
+    <div className="fixed bottom-4 left-4 z-[9999] max-w-sm" data-testid="homepage-dev-voice-panel" data-ai-surface="true">
       <div className="bg-background border rounded-lg shadow-lg">
         <button
           className="w-full flex items-center justify-between gap-2 p-2 text-xs font-medium text-muted-foreground"

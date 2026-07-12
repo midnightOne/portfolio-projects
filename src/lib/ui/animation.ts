@@ -15,11 +15,12 @@
 'use client';
 
 import { gsap } from 'gsap';
-import type { 
-  AnimationCommand, 
-  AnimationOptions, 
+import { Z_LAYERS } from './ai-visual-config';
+import type {
+  AnimationCommand,
+  AnimationOptions,
   HighlightOptions,
-  UseAnimationReturn 
+  UseAnimationReturn
 } from './types';
 
 // Import GSAP plugins
@@ -331,7 +332,9 @@ class AnimationQueue {
     timeline.to(target, {
       duration,
       scale: 1.2,
-      zIndex: 100,
+      // Modal band of the central z-scale (Req 5.2): above the runtime
+      // overlay, below every AI surface (task 3.7).
+      zIndex: Z_LAYERS.modalContent,
       ease: 'power2.out',
       force3D: true, // Hardware acceleration
       transformOrigin: 'center center',
@@ -349,7 +352,7 @@ class AnimationQueue {
       bottom: 0;
       background: rgba(0, 0, 0, 0);
       backdrop-filter: blur(0px);
-      z-index: 50;
+      z-index: ${Z_LAYERS.modalOverlay};
       pointer-events: none;
     `;
     document.body.appendChild(overlay);

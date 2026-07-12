@@ -257,10 +257,13 @@
   transition: all 0.3s ease-in-out;
 }
 
-/* Hover effects for interactive elements */
+/* Hover effects for MCP-navigable elements. Deliberately NOT [data-testid]
+   (ui-system task 3.7 fix): data-testid is the test-selector convention used
+   across the whole UI — the old blanket rule made every tested element lift
+   on hover and its `transition: all` fought GSAP-owned geometry on the AI
+   pill (frozen CSS transitions held stale `bottom` values mid-dock). */
 [data-project-id]:hover,
-[data-section]:hover,
-[data-testid]:hover {
+[data-section]:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
   transition: all 0.2s ease-in-out;

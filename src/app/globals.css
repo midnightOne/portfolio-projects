@@ -91,6 +91,12 @@
   --ui-gradient-accent: linear-gradient(135deg, oklch(0.205 0 0) 0%, oklch(0.145 0 0) 100%);
   --ui-gradient-background: linear-gradient(180deg, oklch(1 0 0) 0%, oklch(0.99 0 0) 100%);
   --ui-gradient-ai: linear-gradient(135deg, oklch(0.99 0 0) 0%, oklch(1 0 0) 100%);
+  /* Liquid-pill ambient glow palette (ui-system 3.6 — Siri/Gemini edge
+     reference). Deeper hues on light so the edge reads against white. */
+  --ai-glow-1: oklch(0.62 0.19 255);
+  --ai-glow-2: oklch(0.6 0.2 300);
+  --ai-glow-3: oklch(0.66 0.16 195);
+  --ai-glow-4: oklch(0.64 0.19 335);
   --ui-duration-fast: 0.2s;
   --ui-duration-normal: 0.7s;
   --ui-duration-slow: 1.2s;
@@ -165,6 +171,11 @@
   --ui-gradient-accent: linear-gradient(135deg, oklch(0.922 0 0) 0%, oklch(0.985 0 0) 100%);
   --ui-gradient-background: linear-gradient(180deg, oklch(0.18 0 0) 0%, oklch(0.22 0 0) 100%);
   --ui-gradient-ai: linear-gradient(135deg, oklch(0.22 0 0) 0%, oklch(0.24 0 0) 100%);
+  /* Liquid-pill ambient glow palette — brighter hues against the dark surface. */
+  --ai-glow-1: oklch(0.75 0.16 255);
+  --ai-glow-2: oklch(0.73 0.17 300);
+  --ai-glow-3: oklch(0.78 0.14 195);
+  --ai-glow-4: oklch(0.76 0.16 335);
   --ui-shadow-ai: 0 8px 32px oklch(1 0 0 / 15%);
   --ui-shadow-highlight: 0 0 0 4px oklch(0.269 0 0 / 0.3);
 }

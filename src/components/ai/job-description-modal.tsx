@@ -20,6 +20,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, FileText, Upload, Mail, Copy, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { subscribeJdForm, isJdFormOpen, setJdFormOpen } from '@/lib/ai/jd-form';
+import { Z_LAYERS } from '@/lib/ui/ai-visual-config';
 
 const MAX_JD_CHARS = 20_000; // mirrors the analyze-job route cap
 const TEXT_FILE_RE = /\.(txt|md|markdown|text)$/i;
@@ -193,9 +194,11 @@ export function JobDescriptionModal({ reflinkId, onVisitorTurn, onAssistantConte
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[70] bg-black/50 flex items-center justify-center p-4"
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4"
+          style={{ zIndex: Z_LAYERS.aiOverlay }}
           onClick={close}
           data-testid="jd-form-modal"
+          data-ai-surface="true"
         >
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 10 }}

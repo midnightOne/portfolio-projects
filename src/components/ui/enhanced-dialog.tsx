@@ -1,8 +1,13 @@
 /**
  * Enhanced Dialog Component - UI System
- * 
+ *
  * Enhanced shadcn/ui Dialog with AI control hooks and GSAP animation coordination.
  * Maintains backward compatibility while adding AI modal management capabilities.
+ *
+ * AI-surface coexistence (ui-system task 3.7): same mechanism as dialog.tsx —
+ * non-modal Radix root, the Content element doubles as the full-viewport
+ * scrim, outside interactions scoped so `[data-ai-surface]` never dismisses,
+ * scroll lock + aria-modal handled here, z from the central scale (Req 5.2).
  */
 
 "use client";
@@ -12,22 +17,17 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { XIcon } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
-import type { AIControlProps, NavigationCommand } from "@/lib/ui/types";
+import type { AIControlProps } from "@/lib/ui/types";
+import { Z_LAYERS } from "@/lib/ui/ai-visual-config";
+import { isAISurfaceTarget } from "./dialog";
 
-interface EnhancedDialogProps 
+interface EnhancedDialogProps
   extends React.ComponentProps<typeof DialogPrimitive.Root>,
     AIControlProps {
   aiId?: string;
 }
 
-function EnhancedDialog({ aiControlEnabled = false, aiId, onAINavigate, ...props }: EnhancedDialogProps) {
-  // Handle AI navigation commands
-  const handleAICommand = React.useCallback((command: NavigationCommand) => {
-    if (onAINavigate) {
-      onAINavigate(command);
-    }
-  }, [onAINavigate]);
-
+function EnhancedDialog({ aiControlEnabled = false, aiId, onAINavigate, modal = false, ...props }: EnhancedDialogProps) {
   // Add AI-specific attributes
   const aiAttributes = aiControlEnabled ? {
     'data-ai-controllable': 'true',
@@ -36,10 +36,11 @@ function EnhancedDialog({ aiControlEnabled = false, aiId, onAINavigate, ...props
   } : {};
 
   return (
-    <DialogPrimitive.Root 
-      data-slot="dialog" 
+    <DialogPrimitive.Root
+      data-slot="dialog"
+      modal={modal}
       {...aiAttributes}
-      {...props} 
+      {...props}
     />
   );
 }
@@ -62,65 +63,66 @@ function EnhancedDialogClose({
   return <DialogPrimitive.Close data-slot="dialog-close" {...props} />;
 }
 
-interface EnhancedDialogOverlayProps 
+interface EnhancedDialogOverlayProps
   extends React.ComponentProps<typeof DialogPrimitive.Overlay> {
   animated?: boolean;
 }
 
+/**
+ * Kept for API compatibility (no-op while the root runs non-modal —
+ * EnhancedDialogContent paints its own scrim).
+ */
 function EnhancedDialogOverlay({
   className,
   animated = true,
   ...props
 }: EnhancedDialogOverlayProps) {
-  if (animated) {
-    // Filter out conflicting props for motion.div
-    const { 
-      onDrag, 
-      onDragStart, 
-      onDragEnd,
-      onAnimationStart,
-      onAnimationEnd,
-      onAnimationIteration,
-      ...motionProps 
-    } = props;
-    
-    return (
-      <DialogPrimitive.Overlay asChild>
-        <motion.div
-          data-slot="dialog-overlay"
-          className={cn(
-            "fixed inset-0 z-50 bg-black/50",
-            className
-          )}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          {...motionProps}
-        />
-      </DialogPrimitive.Overlay>
-    );
-  }
-
+  void animated;
   return (
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
       className={cn(
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 bg-black/50",
         className
       )}
+      style={{ zIndex: Z_LAYERS.modalOverlay }}
       {...props}
     />
   );
 }
 
-interface EnhancedDialogContentProps 
+// Shares nesting semantics with dialog.tsx's lock via its own counter — the
+// two wrappers are never nested inside each other in practice.
+let scrollLockCount = 0;
+function useDialogScrollLock() {
+  React.useEffect(() => {
+    scrollLockCount++;
+    if (scrollLockCount === 1) {
+      const root = document.documentElement;
+      const scrollbar = window.innerWidth - root.clientWidth;
+      root.style.overflow = "hidden";
+      if (scrollbar > 0) root.style.paddingRight = `${scrollbar}px`;
+    }
+    return () => {
+      scrollLockCount--;
+      if (scrollLockCount === 0) {
+        const root = document.documentElement;
+        root.style.overflow = "";
+        root.style.paddingRight = "";
+      }
+    };
+  }, []);
+}
+
+interface EnhancedDialogContentProps
   extends React.ComponentProps<typeof DialogPrimitive.Content>,
     AIControlProps {
   showCloseButton?: boolean;
   animated?: boolean;
   animationType?: 'fade' | 'slide' | 'scale';
   aiId?: string;
+  /** Extra classes for the full-viewport scrim container. */
+  overlayClassName?: string;
 }
 
 function EnhancedDialogContent({
@@ -133,14 +135,17 @@ function EnhancedDialogContent({
   aiId,
   onAINavigate,
   onAIHighlight,
+  overlayClassName,
+  style,
+  onInteractOutside,
+  onFocusOutside,
+  onPointerDown,
   ...props
 }: EnhancedDialogContentProps) {
-  // Handle AI navigation commands
-  const handleAICommand = React.useCallback((command: NavigationCommand) => {
-    if (onAINavigate) {
-      onAINavigate(command);
-    }
-  }, [onAINavigate]);
+  useDialogScrollLock();
+  const closeRef = React.useRef<HTMLButtonElement>(null);
+  void onAINavigate;
+  void onAIHighlight;
 
   // Animation variants based on type
   const getAnimationVariants = () => {
@@ -174,83 +179,83 @@ function EnhancedDialogContent({
     'data-ai-type': 'dialog-content',
   } : {};
 
-  if (animated) {
-    // Filter out conflicting props for motion.div
-    const { 
-      onDrag, 
-      onDragStart, 
-      onDragEnd,
-      onAnimationStart,
-      onAnimationEnd,
-      onAnimationIteration,
-      ...motionProps 
-    } = props;
-    
-    return (
-      <EnhancedDialogPortal>
-        <EnhancedDialogOverlay animated={animated} />
-        <DialogPrimitive.Content asChild>
+  const panelClassName = cn(
+    "relative grid w-full max-w-[calc(100%-2rem)] gap-4 rounded-lg border bg-background p-6 shadow-lg sm:max-w-lg",
+    !animated &&
+      "group-data-[state=open]:animate-in group-data-[state=closed]:animate-out group-data-[state=closed]:fade-out-0 group-data-[state=open]:fade-in-0 group-data-[state=closed]:zoom-out-95 group-data-[state=open]:zoom-in-95 duration-200",
+    className
+  );
+
+  const closeButton = showCloseButton && (
+    <DialogPrimitive.Close
+      data-slot="dialog-close"
+      className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+    >
+      <XIcon />
+      <span className="sr-only">Close</span>
+    </DialogPrimitive.Close>
+  );
+
+  return (
+    <EnhancedDialogPortal>
+      <DialogPrimitive.Content
+        data-slot="dialog-content"
+        aria-modal="true"
+        className={cn(
+          "group fixed inset-0 grid place-items-center overflow-y-auto bg-black/50 p-4",
+          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-200",
+          overlayClassName
+        )}
+        style={{ zIndex: Z_LAYERS.modalContent }}
+        onPointerDown={(event) => {
+          onPointerDown?.(event);
+          if (!event.defaultPrevented && event.target === event.currentTarget) {
+            closeRef.current?.click();
+          }
+        }}
+        onInteractOutside={(event) => {
+          onInteractOutside?.(event);
+          if (!event.defaultPrevented && isAISurfaceTarget(event.target)) {
+            event.preventDefault();
+          }
+        }}
+        onFocusOutside={(event) => {
+          onFocusOutside?.(event);
+          event.preventDefault();
+        }}
+        {...props}
+      >
+        {animated ? (
           <motion.div
-            data-slot="dialog-content"
-            className={cn(
-              "bg-background fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg sm:max-w-lg",
-              className
-            )}
+            data-slot="dialog-panel"
+            className={panelClassName}
+            style={style as React.CSSProperties}
             variants={getAnimationVariants()}
             initial="initial"
             animate="animate"
             exit="exit"
             transition={{ duration: 0.2, ease: "easeOut" }}
             {...aiAttributes}
-            {...motionProps}
           >
             {children}
-            {showCloseButton && (
-              <DialogPrimitive.Close
-                data-slot="dialog-close"
-                className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
-              >
-                <XIcon />
-                <span className="sr-only">Close</span>
-              </DialogPrimitive.Close>
-            )}
+            {closeButton}
           </motion.div>
-        </DialogPrimitive.Content>
-      </EnhancedDialogPortal>
-    );
-  }
-
-  return (
-    <EnhancedDialogPortal>
-      <EnhancedDialogOverlay animated={false} />
-      <DialogPrimitive.Content
-        data-slot="dialog-content"
-        className={cn(
-          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 sm:max-w-lg",
-          className
+        ) : (
+          <div data-slot="dialog-panel" className={panelClassName} style={style} {...aiAttributes}>
+            {children}
+            {closeButton}
+          </div>
         )}
-        {...aiAttributes}
-        {...props}
-      >
-        {children}
-        {showCloseButton && (
-          <DialogPrimitive.Close
-            data-slot="dialog-close"
-            className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
-          >
-            <XIcon />
-            <span className="sr-only">Close</span>
-          </DialogPrimitive.Close>
-        )}
+        <DialogPrimitive.Close ref={closeRef} tabIndex={-1} aria-hidden="true" className="hidden" />
       </DialogPrimitive.Content>
     </EnhancedDialogPortal>
   );
 }
 
-function EnhancedDialogHeader({ 
-  className, 
+function EnhancedDialogHeader({
+  className,
   aiId,
-  ...props 
+  ...props
 }: React.ComponentProps<"div"> & { aiId?: string }) {
   return (
     <div
@@ -262,10 +267,10 @@ function EnhancedDialogHeader({
   );
 }
 
-function EnhancedDialogFooter({ 
-  className, 
+function EnhancedDialogFooter({
+  className,
   aiId,
-  ...props 
+  ...props
 }: React.ComponentProps<"div"> & { aiId?: string }) {
   return (
     <div

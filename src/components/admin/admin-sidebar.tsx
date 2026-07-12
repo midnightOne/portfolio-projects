@@ -53,6 +53,7 @@ import {
   BookOpen,
   Workflow,
   Inbox,
+  Droplets,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -175,6 +176,7 @@ const ADMIN_NAVIGATION: AdminNavGroup[] = [
       { id: "ai-debug", title: "AI Debug & Test", href: "/admin/ai/debug", icon: Bug },
       { id: "tool-testing", title: "Tool Testing", href: "/admin/ai/tool-testing", icon: Terminal },
       { id: "voice-debug", title: "Voice Debug", href: "/admin/ai/voice-debug", icon: Mic },
+      { id: "pill-visuals", title: "Pill Visuals", href: "/admin/ai/pill-visuals", icon: Droplets },
     ],
   },
 ];

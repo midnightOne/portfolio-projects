@@ -6,6 +6,7 @@ import { ConversationalAgentProvider } from '@/components/providers/conversation
 import { ReflinkSessionProvider } from '@/components/providers/reflink-session-wrapper';
 import { useReflinkSession } from '@/components/providers/reflink-session-provider';
 import { HomepageDevVoicePanel } from './HomepageDevVoicePanel';
+import { AIVisualConfigProvider } from '@/lib/ui/ai-visual-config-context';
 
 interface AIInterfaceWrapperProps {
   /** Explicit override; when omitted the admin-configured site default is fetched. */
@@ -125,21 +126,23 @@ export function AIInterfaceWrapper({
 
   return (
     <ReflinkSessionProvider>
-      <AIInterfaceContent
-        defaultProvider={defaultProvider}
-        audioElement={audioElement}
-        position={position}
-        setPosition={setPosition}
-        mode={mode}
-        setMode={setMode}
-        currentNarration={currentNarration}
-        isVisible={isVisible}
-        setIsVisible={setIsVisible}
-        handleTextSubmit={handleTextSubmit}
-        handleSettingsClick={handleSettingsClick}
-        className={className}
-        isAdmin={isAdmin}
-      />
+      <AIVisualConfigProvider>
+        <AIInterfaceContent
+          defaultProvider={defaultProvider}
+          audioElement={audioElement}
+          position={position}
+          setPosition={setPosition}
+          mode={mode}
+          setMode={setMode}
+          currentNarration={currentNarration}
+          isVisible={isVisible}
+          setIsVisible={setIsVisible}
+          handleTextSubmit={handleTextSubmit}
+          handleSettingsClick={handleSettingsClick}
+          className={className}
+          isAdmin={isAdmin}
+        />
+      </AIVisualConfigProvider>
     </ReflinkSessionProvider>
   );
 }
