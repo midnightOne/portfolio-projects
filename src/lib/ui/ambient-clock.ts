@@ -1,15 +1,15 @@
 "use client";
 
 /**
- * The shared formula clock (ui-system tasks 3.2/3.6): one time source drives
- * the pill's liquid edge, the gradient rotation, and the viewport breathing
- * layer, so every ambient surface moves in the same "water". Built on the
- * GSAP ticker (D15 — one scheduler, pauses on hidden tabs).
+ * The shared ambient clock (ui-system task 3.6): one time source drives the
+ * pill's gradient rotation and the viewport breathing layer, so both ambient
+ * surfaces move together. Built on the GSAP ticker (D15 — one scheduler,
+ * pauses on hidden tabs).
  *
  * Reduced motion is the third enforcement layer here (task 2's GSAP
  * timeScale + globals.css handle tweens/CSS): when `prefers-reduced-motion`
- * is on, the clock stops advancing, freezing every formula-driven surface to
- * a static frame — matching Req 3.2's "reduced/instant alternatives".
+ * is on, the clock stops advancing, freezing every clock-driven surface to a
+ * static frame — matching Req 3.2's "reduced/instant alternatives".
  */
 
 import { gsap } from 'gsap';
@@ -45,7 +45,7 @@ function tick(_time: number, deltaTime: number) {
  * Under reduced motion the callback still fires (so state-driven visuals can
  * settle) but the clock value stays frozen.
  */
-export function subscribeLiquidClock(listener: ClockListener): () => void {
+export function subscribeAmbientClock(listener: ClockListener): () => void {
   ensureMediaQuery();
   listeners.add(listener);
   if (!tickerAttached) {
@@ -62,12 +62,12 @@ export function subscribeLiquidClock(listener: ClockListener): () => void {
 }
 
 /** Current clock value, seconds (frozen under reduced motion). */
-export function getLiquidTime(): number {
+export function getAmbientTime(): number {
   return clockTime;
 }
 
 /** Live reduced-motion state as the clock sees it. */
-export function isLiquidClockReduced(): boolean {
+export function isAmbientClockReduced(): boolean {
   ensureMediaQuery();
   return reduced;
 }

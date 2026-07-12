@@ -1,6 +1,6 @@
 /**
  * AI visual configuration — the single source of every tunable visual aspect
- * of the liquid pill and its satellite surfaces (ui-system task 3.8; owner
+ * of the AI pill and its satellite surfaces (ui-system task 3.8; owner
  * 2026-07-11: "this is an aesthetic task, I expect many iterations, so
  * architect it in a way that allows us to change the animations, the sizes,
  * the edge, and the other important visual aspects of it easily").
@@ -46,36 +46,18 @@ export const Z_LAYERS = {
 export type ZLayerName = keyof typeof Z_LAYERS;
 
 // ---------------------------------------------------------------------------
-// Liquid edge (tasks 3.1/3.2)
+// Pill shape (task 3.1 — "tab" dock aesthetic, owner revision 2026-07-12)
 // ---------------------------------------------------------------------------
 
-export interface LiquidEdgeConfig {
-  /** Control points sampled around the silhouette (more = smoother, costlier). */
-  points: number;
-  /** Peak outward/inward displacement of the floating edge, px. */
-  amplitude: number;
-  /** Full waves around the perimeter (integer keeps the loop seamless). */
-  wavelength: number;
-  /** Radians/second the wave field advances — the shared formula clock rate. */
-  speed: number;
-  /** 0..1 per-point phase scatter; 0 = perfectly regular wave, 1 = organic wobble. */
-  wobble: number;
-  /** Amplitude multiplier while docked (the wetted drop sits calmer). */
-  dockedAmplitudeScale: number;
-  /** Extra horizontal spread of the wetting meniscus at full dock, px per side. */
-  meniscusSpread: number;
-  /** Height of the meniscus contact curve above the screen edge, px. */
-  meniscusHeight: number;
+export interface PillShapeConfig {
   /**
-   * Stagger window (0..1 of the dock morph) between the bottom-center points
-   * leaving first and the outer points following — this produces the
-   * thin-neck-then-merge reading (§9.3: metaball aesthetic, no physics).
+   * External fillet radius at full dock, px: the outer bottom quarters of the
+   * pill flip from internal (convex) to this external (concave) radius whose
+   * curve flows into the bottom screen edge — the browser-tab foot.
    */
-  neckStagger: number;
-  /** Fraction of pill width that droops into the neck bump early in the morph. */
-  neckWidthRatio: number;
-  /** How far the neck tip reaches down, px, before the merge completes. */
-  neckDepth: number;
+  tabRadius: number;
+  /** Top-corner radius multiplier while docked (1 = unchanged capsule top). */
+  dockedTopRadiusScale: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,7 +123,7 @@ export interface PillDimensions {
   maxWidth: number;
   /** Base silhouette height of the collapsed input row, px. */
   height: number;
-  /** Horizontal bleed margin for edge wobble/meniscus, px per side. */
+  /** Horizontal bleed margin for the tab feet + edge glow, px per side. */
   bleedX: number;
   /** Top bleed margin for edge wobble, px. */
   bleedTop: number;
@@ -192,7 +174,7 @@ export interface SidebarConfig {
 // ---------------------------------------------------------------------------
 
 export interface AIVisualConfig {
-  liquidEdge: LiquidEdgeConfig;
+  shape: PillShapeConfig;
   gradient: GradientConfig;
   breathing: BreathingConfig;
   dimensions: ResponsiveDimensions;
@@ -202,18 +184,9 @@ export interface AIVisualConfig {
 }
 
 export const DEFAULT_AI_VISUAL_CONFIG: AIVisualConfig = {
-  liquidEdge: {
-    points: 32,
-    amplitude: 2.6,
-    wavelength: 6,
-    speed: 0.9,
-    wobble: 0.55,
-    dockedAmplitudeScale: 0.45,
-    meniscusSpread: 46,
-    meniscusHeight: 22,
-    neckStagger: 0.55,
-    neckWidthRatio: 0.3,
-    neckDepth: 18,
+  shape: {
+    tabRadius: 22,
+    dockedTopRadiusScale: 1,
   },
   gradient: {
     // Theme tokens (globals.css defines both palettes — Req 1.2/1.3); raw
@@ -243,7 +216,7 @@ export const DEFAULT_AI_VISUAL_CONFIG: AIVisualConfig = {
     desktop: {
       maxWidth: 672,
       height: 76,
-      bleedX: 56,
+      bleedX: 40,
       bleedTop: 14,
       floatingBottom: 24,
       heroBottomVh: 30,
@@ -313,3 +286,12 @@ function deepMerge(base: unknown, override: unknown): unknown {
 
 /** localStorage key the admin playground writes live overrides to. */
 export const AI_VISUAL_OVERRIDE_STORAGE_KEY = 'ai-visual-config-override';
+
+/**
+ * Bump on any AIVisualConfig schema OR default change: stored overrides carry
+ * this version and are DISCARDED on mismatch. The playground stores the whole
+ * edited config, which would otherwise silently shadow new code defaults
+ * (bitten 2026-07-12: a liquid-era override survived the tab-dock schema
+ * swap and hid the new defaults).
+ */
+export const AI_VISUAL_CONFIG_VERSION = 2;

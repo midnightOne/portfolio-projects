@@ -16,6 +16,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import {
   AI_VISUAL_OVERRIDE_STORAGE_KEY,
+  AI_VISUAL_CONFIG_VERSION,
   DEFAULT_AI_VISUAL_CONFIG,
   mergeAIVisualConfig,
   type AIVisualConfig,
@@ -41,7 +42,14 @@ function readStoredOverride(): DeepPartial<AIVisualConfig> | null {
     const raw = window.localStorage.getItem(AI_VISUAL_OVERRIDE_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? (parsed as DeepPartial<AIVisualConfig>) : null;
+    if (!parsed || typeof parsed !== 'object') return null;
+    // Versioned envelope: a stale override (schema or defaults changed since
+    // it was saved) must not shadow current code truth — discard it.
+    if (parsed.v !== AI_VISUAL_CONFIG_VERSION || !parsed.override || typeof parsed.override !== 'object') {
+      window.localStorage.removeItem(AI_VISUAL_OVERRIDE_STORAGE_KEY);
+      return null;
+    }
+    return parsed.override as DeepPartial<AIVisualConfig>;
   } catch {
     return null;
   }
@@ -69,7 +77,10 @@ export function AIVisualConfigProvider({ children }: { children: React.ReactNode
       if (next === null) {
         window.localStorage.removeItem(AI_VISUAL_OVERRIDE_STORAGE_KEY);
       } else {
-        window.localStorage.setItem(AI_VISUAL_OVERRIDE_STORAGE_KEY, JSON.stringify(next));
+        window.localStorage.setItem(
+          AI_VISUAL_OVERRIDE_STORAGE_KEY,
+          JSON.stringify({ v: AI_VISUAL_CONFIG_VERSION, override: next })
+        );
       }
     } catch {
       /* storage blocked — the in-memory override below still applies */

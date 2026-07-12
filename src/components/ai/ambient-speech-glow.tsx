@@ -6,7 +6,7 @@
  *
  * A fixed, pointer-events-none viewport-edge layer that swells while the
  * agent's audio output is active and recedes when it ends. Two stacked
- * gradient layers cross-fade on the shared liquid clock to make the colors
+ * gradient layers cross-fade on the shared ambient clock to make the colors
  * flow (compositor-only work: every animated property is opacity), and a
  * slow sine breath modulates the whole layer at `rateBpm`.
  *
@@ -17,7 +17,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { gsap } from 'gsap';
 import { useAIVisualConfig, useIsDarkTheme } from '@/lib/ui/ai-visual-config-context';
-import { subscribeLiquidClock, isLiquidClockReduced } from '@/lib/ui/liquid-clock';
+import { subscribeAmbientClock, isAmbientClockReduced } from '@/lib/ui/ambient-clock';
 
 const TAU = Math.PI * 2;
 
@@ -49,13 +49,13 @@ export function AmbientSpeechGlow({ speaking }: { speaking: boolean }) {
   }, [speaking]);
 
   useEffect(() => {
-    const unsubscribe = subscribeLiquidClock((t) => {
+    const unsubscribe = subscribeAmbientClock((t) => {
       const root = rootRef.current;
       if (!root) return;
       const { breathing } = liveConfig.current;
       const envelope = envelopeRef.current.value;
 
-      if (isLiquidClockReduced()) {
+      if (isAmbientClockReduced()) {
         root.style.opacity = (envelope * breathing.reducedMotionOpacity).toFixed(3);
         return;
       }

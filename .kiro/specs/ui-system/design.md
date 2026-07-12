@@ -2,7 +2,7 @@
 
 **Status:** current — describes implemented system
 **Owner domain:** theming, component layer, GSAP orchestration, wave hero, layout
-**Last verified against code:** 2026-07-11 (liquid pill session)
+**Last verified against code:** 2026-07-12 (tab-dock revision session)
 
 ---
 
@@ -13,10 +13,10 @@ src/lib/ui/theme.tsx        # theme provider, tokens, persistence (client-side o
 src/components/ui/          # customized shadcn/ui components
 src/lib/ui/animation.ts     # GSAP orchestration utilities, sequence registry, highlight effects
 src/components/wave/        # Three.js wave hero + admin config panel components
-src/lib/ui/ai-visual-config*.ts(x)  # liquid-pill visual config: single tunables source + provider (task 3.8)
-src/lib/ui/liquid-path.ts   # formula-driven silhouette generator (tasks 3.1/3.2)
-src/lib/ui/liquid-clock.ts  # shared formula clock (GSAP ticker; freezes under reduced motion)
-src/components/ai/liquid-pill-shell.tsx / transcript-sidebar.tsx / ambient-speech-glow.tsx
+src/lib/ui/ai-visual-config*.ts(x)  # AI-pill visual config: single tunables source + provider (task 3.8)
+src/lib/ui/pill-path.ts     # capsule + tab-dock silhouette generator (task 3.1, rev 2026-07-12)
+src/lib/ui/ambient-clock.ts # shared ambient clock (GSAP ticker; freezes under reduced motion)
+src/components/ai/pill-shell.tsx / transcript-sidebar.tsx / ambient-speech-glow.tsx
 ```
 
 ## 2. Theming
@@ -34,7 +34,7 @@ Theme provider sets a class/data attribute on `<html>`; CSS custom properties de
 
 Three.js scene (plane geometry + shader-driven displacement) rendered behind the hero. Config shape (`waveConfig` JSON on `HomepageConfig`, D12): wave params (amplitude, frequency, speed), transform (position, rotation), camera (normalized so preview == landing page at any resolution), per-theme colors (primary, valley, peak). Admin panel edits with live preview; save via `/api/admin/homepage/wave-config`. Failure fallback: static gradient. Mobile: reduced geometry/frame budget.
 
-## 5. The liquid pill (task 3, owner vision 2026-07-10/11)
+## 5. The AI pill (task 3, owner vision 2026-07-10/11; tab-dock revision 2026-07-12)
 
 Presentation-layer redesign of the AI pill; conversation-engine contracts (Req 13
 surfaces, chips, resume, mic flow, JD form) unchanged.
@@ -42,7 +42,7 @@ surfaces, chips, resume, mic flow, JD form) unchanged.
 ### 5.1 Iteration architecture (3.8)
 
 Every tunable visual aspect lives in ONE typed module, `src/lib/ui/ai-visual-config.ts`
-(`AIVisualConfig`): liquid-edge formula params, gradient palette + per-state
+(`AIVisualConfig`): tab-dock shape params, gradient palette + per-state
 intensity/rotation, breathing amplitude/spread/rate/attack/release, pill dimensions per
 breakpoint, dock/sidebar/relocate morph durations + eases, and the z-layer scale.
 Components consume it only through `useAIVisualConfig()` (`ai-visual-config-context.tsx`)
@@ -58,26 +58,31 @@ hands tuned values back for a config edit. (Rejected alternative: HomepageConfig
 persistence à la D12 — it would put a config fetch on every public page load for a
 surface the owner tunes with an agent in the loop anyway.)
 
-### 5.2 The silhouette (3.1/3.2/3.3)
+### 5.2 The silhouette (3.1/3.3) — tab dock (owner revision 2026-07-12)
 
-`src/lib/ui/liquid-path.ts` is a pure function (geometry, config, t, dockProgress) →
-closed cubic-bezier SVG path (owner budget: formula-driven beziers, NO physics, NO
-shaders). Floating = rounded-rect whose outline points breathe with a travelling sine
-field; docked = wetted-drop (flat bottom merged with the screen edge, quadratic meniscus
-curves flaring outward). Both outlines are sampled uniformly by arc length and paired by
-index; the morph staggers per point from the bottom-center outward with the vertical
-move leading the horizontal spread — the metaball thin-neck-then-merge read without
-simulation. Unit tests pin the geometric contract (`liquid-path.test.ts`).
+The liquid formula edge shipped 2026-07-11 was killed by the owner on first review
+("I hate it"). The silhouette is the classic capsule again, and docking is the **tab
+aesthetic**: the outer bottom quarters of the pill radius animate from an internal
+(convex) radius to an external (concave) one whose curve flows into the bottom screen
+edge — a browser-tab foot, sharp horn tips where the fillets meet the baseline.
 
-`LiquidPillShell` applies the same path to the glass surface (`clip-path: path()` on a
+`src/lib/ui/pill-path.ts` is a pure function (geometry, `shape` config, dockProgress) →
+closed SVG path from exact cubic-bezier arcs — no sampling, and **no idle animation**:
+the path rebuilds only while the dock morph tweens or the shell resizes. Each bottom
+corner is one cubic whose endpoints/controls interpolate between the convex quarter-arc
+(radius = capsule R) and the concave fillet (radius `shape.tabRadius`, clamped to the
+bleed); mid-morph the corner passes through nearly-straight — the radius visibly
+"flips" outward. `shape.dockedTopRadiusScale` optionally tightens the top corners while
+docked. Unit tests pin the contract (`pill-path.test.ts`).
+
+`PillShell` applies the path to the glass surface (`clip-path: path()` on a
 backdrop-blurred div) and to an SVG stroke pair (crisp edge + wide soft glow) with a
-rotating multicolor gradient (Siri/Gemini reference). Palette = theme tokens
-`--ai-glow-1…4` (globals.css, both themes). One `<path>` is updated per frame; two
-`<use>` strokes reference it. The frame loop rides `liquid-clock.ts` — one shared GSAP
-ticker clock for pill edge + ambient layer; frame-key memoization skips identical frames.
-Frame zero renders synchronously on measure (hidden tabs must still show a correct
-static pill). Desktop/tablet share the docked layout; the phone breakpoint gets tighter
-dimensions (`dimensions.phone`).
+rotating multicolor gradient (Siri/Gemini reference, task 3.6 — kept). Palette = theme
+tokens `--ai-glow-1…4` (globals.css, both themes). The gradient rotation rides
+`ambient-clock.ts` — one shared GSAP-ticker clock for pill edge + breathing layer,
+frozen under reduced motion. Frame zero renders synchronously on measure (hidden tabs
+must still show a correct static pill). Desktop/tablet share the docked layout; the
+phone breakpoint gets tighter dimensions (`dimensions.phone`).
 
 Dock state machine (in `floating-ai-interface.tsx`): hero (floating, 30vh) ↔ docked
 (position 'pinned', container bottom 0, dockProgress 1) ↔ sidebar (pill relocated to the
@@ -85,6 +90,11 @@ transcript sidebar's foot). One GSAP timeline tweens container geometry and dock
 together. The container's geometry is GSAP-owned — inline `transition: none` guards it
 (a global `[data-testid]:hover` transition rule in mcp-animations.css used to chase the
 writes; that selector overreach was removed the same session).
+
+Override hygiene (learned 2026-07-12): playground overrides are stored in a versioned
+envelope (`AI_VISUAL_CONFIG_VERSION`); a version mismatch discards the override — a
+liquid-era override had survived the schema swap in the owner's browser and silently
+shadowed the new defaults.
 
 ### 5.3 Transcript sidebar (3.4/3.5)
 

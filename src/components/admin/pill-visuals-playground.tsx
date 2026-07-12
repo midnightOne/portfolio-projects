@@ -4,7 +4,7 @@
  * Pill Visuals Playground (ui-system task 3.8 — this subsystem's one D16
  * admin playground slot; the wave-config panel is the pattern).
  *
- * Live-tweaks every tunable of the liquid pill: edge formula, gradient,
+ * Live-tweaks every tunable of the AI pill: tab-dock shape, gradient,
  * breathing, dimensions, morph timing. Changes write a config override to
  * localStorage through the AIVisualConfigProvider, so the preview here AND a
  * homepage pill open in another tab of this browser re-render instantly.
@@ -30,7 +30,7 @@ import {
   type AIVisualConfig,
   type AgentVisualState,
 } from '@/lib/ui/ai-visual-config';
-import { LiquidPillShell } from '@/components/ai/liquid-pill-shell';
+import { PillShell } from '@/components/ai/pill-shell';
 import { AmbientSpeechGlow } from '@/components/ai/ambient-speech-glow';
 
 // ---------------------------------------------------------------------------
@@ -45,18 +45,9 @@ interface SliderSpec {
   step: number;
 }
 
-const EDGE_SLIDERS: SliderSpec[] = [
-  { path: 'liquidEdge.points', label: 'Outline points', min: 16, max: 64, step: 2 },
-  { path: 'liquidEdge.amplitude', label: 'Wave amplitude (px)', min: 0, max: 10, step: 0.1 },
-  { path: 'liquidEdge.wavelength', label: 'Waves around edge', min: 1, max: 14, step: 1 },
-  { path: 'liquidEdge.speed', label: 'Wave speed (rad/s)', min: 0, max: 4, step: 0.05 },
-  { path: 'liquidEdge.wobble', label: 'Wobble (phase scatter)', min: 0, max: 1, step: 0.05 },
-  { path: 'liquidEdge.dockedAmplitudeScale', label: 'Docked calm factor', min: 0, max: 1, step: 0.05 },
-  { path: 'liquidEdge.meniscusSpread', label: 'Meniscus spread (px)', min: 0, max: 80, step: 1 },
-  { path: 'liquidEdge.meniscusHeight', label: 'Meniscus height (px)', min: 0, max: 60, step: 1 },
-  { path: 'liquidEdge.neckStagger', label: 'Neck stagger (0-1)', min: 0, max: 0.9, step: 0.05 },
-  { path: 'liquidEdge.neckWidthRatio', label: 'Neck width ratio', min: 0.05, max: 1, step: 0.05 },
-  { path: 'liquidEdge.neckDepth', label: 'Neck drip depth (px)', min: 0, max: 60, step: 1 },
+const SHAPE_SLIDERS: SliderSpec[] = [
+  { path: 'shape.tabRadius', label: 'Tab foot radius (px)', min: 0, max: 60, step: 1 },
+  { path: 'shape.dockedTopRadiusScale', label: 'Docked top-radius scale', min: 0.3, max: 1, step: 0.05 },
 ];
 
 const GRADIENT_STATE_SLIDERS = (state: AgentVisualState): SliderSpec[] => [
@@ -245,24 +236,29 @@ function PlaygroundInner() {
         </div>
         <div className="relative overflow-hidden rounded-lg border border-border/60 bg-muted/20 px-8 pt-16 pb-0">
           <div className="mx-auto" style={{ maxWidth: config.dimensions.desktop.maxWidth }}>
-            <LiquidPillShell agentState={previewState} getDockProgress={() => dockRef.current}>
+            <PillShell agentState={previewState} getDockProgress={() => dockRef.current}>
               <div className="flex items-center gap-3 px-5 py-3.5">
                 <span className="flex-1 text-lg text-muted-foreground select-none">Ask me about my work…</span>
                 <div className="w-12 h-12 rounded-full bg-primary flex-shrink-0" />
               </div>
-            </LiquidPillShell>
+            </PillShell>
           </div>
         </div>
         {previewBreathing && <AmbientSpeechGlow speaking />}
       </Section>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Section title="Liquid edge formula (3.1/3.2)">
+        <Section title="Tab-dock shape (3.1)">
           <div className="grid gap-3 sm:grid-cols-2">
-            {EDGE_SLIDERS.map((s) => (
+            {SHAPE_SLIDERS.map((s) => (
               <SliderRow key={s.path} spec={s} config={config} onChange={handleChange} />
             ))}
           </div>
+          <p className="text-[11px] text-muted-foreground mt-1">
+            The floating pill is the plain capsule; docking flips the outer bottom corners from an
+            internal radius to this external one, curving into the screen edge. Scrub the dock slider
+            above to preview the flip.
+          </p>
         </Section>
 
         <Section title="Edge gradient per state (3.6)">

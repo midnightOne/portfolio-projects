@@ -1,34 +1,37 @@
 "use client";
 
 /**
- * LiquidPillShell (ui-system tasks 3.1/3.2/3.6) — the liquid silhouette
- * around the pill's content.
+ * PillShell (ui-system tasks 3.1/3.6) — the pill's silhouette and ambient
+ * gradient edge.
  *
- * Rendering strategy (owner budget: no shaders, no physics, mobile-cheap):
- * one formula-generated bezier path per frame (liquid-path.ts) drives
- *  - the glass surface: a backdrop-blurred div clipped with `clip-path: path()`,
- *  - the ambient edge: the SAME path as an SVG stroke with a slowly rotating
- *    multicolor gradient (Siri/Gemini reference) — one base <path> updated per
- *    frame, referenced twice via <use> for the crisp edge + the soft glow.
+ * Owner revision 2026-07-12: the liquid formula edge is gone. The silhouette
+ * is the classic capsule; docking flips the outer bottom quarters of the
+ * radius from internal to external — the "tab" foot curving into the screen
+ * edge (pill-path.ts). The path is STATIC at rest: it rebuilds only while
+ * the dock morph tweens or the shell resizes, never per idle frame.
+ *
+ * What still animates per frame (shared ambient clock, compositor-cheap):
+ * the slowly rotating multicolor gradient stroke (Siri/Gemini reference,
+ * task 3.6), whose intensity/rotation follow the agent state. Under
+ * prefers-reduced-motion the clock freezes and the stroke holds a static
+ * tint at `gradient.reducedMotionIntensity`.
  *
  * All tunables come from useAIVisualConfig() (task 3.8 — zero magic numbers
- * here). The frame loop runs on the shared liquid clock, which freezes under
- * prefers-reduced-motion — the silhouette and gradient then hold a static
- * frame at `gradient.reducedMotionIntensity`.
+ * here).
  */
 
 import React, { useCallback, useEffect, useId, useMemo, useRef } from 'react';
 import { gsap } from 'gsap';
 import { cn } from '@/lib/utils';
 import { useAIVisualConfig, useIsDarkTheme } from '@/lib/ui/ai-visual-config-context';
-import { liquidPillPath, type LiquidGeometry } from '@/lib/ui/liquid-path';
-import { subscribeLiquidClock, getLiquidTime, isLiquidClockReduced } from '@/lib/ui/liquid-clock';
+import { pillTabPath, type PillGeometry } from '@/lib/ui/pill-path';
+import { subscribeAmbientClock, getAmbientTime, isAmbientClockReduced } from '@/lib/ui/ambient-clock';
 import type { AgentVisualState } from '@/lib/ui/ai-visual-config';
 
-export interface LiquidPillShellProps {
+export interface PillShellProps {
   /** Drives gradient intensity/rotation (idle / listening / thinking / speaking). */
   agentState: AgentVisualState;
-  /** 0 = floating, 1 = docked; read every frame (GSAP tweens the source object). */
+  /** 0 = floating, 1 = docked tab; read every frame (GSAP tweens the source object). */
   getDockProgress?: () => number;
   /** True while the phone breakpoint applies (tighter bleed). */
   compact?: boolean;
@@ -36,15 +39,15 @@ export interface LiquidPillShellProps {
   children: React.ReactNode;
 }
 
-export function LiquidPillShell({
+export function PillShell({
   agentState,
   getDockProgress,
   compact = false,
   className,
   children,
-}: LiquidPillShellProps) {
+}: PillShellProps) {
   const config = useAIVisualConfig();
-  const gradientId = useId().replace(/[:]/g, 'liq');
+  const gradientId = useId().replace(/[:]/g, 'pil');
 
   const shellRef = useRef<HTMLDivElement>(null);
   const glassRef = useRef<HTMLDivElement>(null);
@@ -61,7 +64,7 @@ export function LiquidPillShell({
     width: 0,
     height: 0,
     angle: 0,
-    lastKey: '',
+    lastShapeKey: '',
     style: { ...config.gradient.states.idle },
   });
 
@@ -93,30 +96,29 @@ export function LiquidPillShell({
 
   // One frame of the visual pipeline (also called synchronously on measure so
   // the silhouette exists before the first ticker frame — e.g. hidden tabs,
-  // where rAF is paused, must still show a correct static pill).
+  // where rAF is paused, must still show a correct static pill). The shape
+  // path rebuilds only when dock progress or size changed.
   const lastTimeRef = useRef(0);
   const renderFrame = useCallback((t: number) => {
     const fs = frameState.current;
     if (fs.width <= 0 || fs.height <= 0) return;
     const cfg = liveConfig.current;
     const dim = liveDims.current;
-    const reduced = isLiquidClockReduced();
+    const reduced = isAmbientClockReduced();
     const dock = dockRef.current ? dockRef.current() : 0;
 
-    const geom: LiquidGeometry = {
-      width: fs.width,
-      height: fs.height,
-      bleedX: dim.bleedX,
-      bleedTop: dim.bleedTop,
-      bottomPad: dim.bleedTop,
-      cornerRadius: dim.height / 2,
-    };
-
-    // Skip identical frames (reduced motion / settled dock).
-    const key = `${t.toFixed(3)}|${dock.toFixed(4)}|${fs.width}x${fs.height}`;
-    if (key !== fs.lastKey) {
-      fs.lastKey = key;
-      const d = liquidPillPath(geom, cfg.liquidEdge, t, dock);
+    const shapeKey = `${dock.toFixed(4)}|${fs.width}x${fs.height}`;
+    if (shapeKey !== fs.lastShapeKey) {
+      fs.lastShapeKey = shapeKey;
+      const geom: PillGeometry = {
+        width: fs.width,
+        height: fs.height,
+        bleedX: dim.bleedX,
+        bleedTop: dim.bleedTop,
+        bottomPad: dim.bleedTop,
+        cornerRadius: dim.height / 2,
+      };
+      const d = pillTabPath(geom, cfg.shape, dock);
       if (glassRef.current) glassRef.current.style.clipPath = `path("${d}")`;
       basePathRef.current?.setAttribute('d', d);
     }
@@ -149,11 +151,11 @@ export function LiquidPillShell({
       const rect = shell.getBoundingClientRect();
       frameState.current.width = rect.width;
       frameState.current.height = rect.height;
-      frameState.current.lastKey = ''; // force a path rebuild
+      frameState.current.lastShapeKey = ''; // force a path rebuild
       if (svgRef.current) {
         svgRef.current.setAttribute('viewBox', `0 0 ${rect.width} ${rect.height}`);
       }
-      renderFrame(getLiquidTime());
+      renderFrame(getAmbientTime());
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -161,8 +163,8 @@ export function LiquidPillShell({
     return () => observer.disconnect();
   }, [renderFrame]);
 
-  // The frame loop.
-  useEffect(() => subscribeLiquidClock(renderFrame), [renderFrame]);
+  // The frame loop (gradient rotation; shape rebuild only during the morph).
+  useEffect(() => subscribeAmbientClock(renderFrame), [renderFrame]);
 
   // Palette: dark override applies only when a custom dark palette is set;
   // the default palette is var(--ai-glow-N) tokens, which re-resolve on theme
@@ -187,11 +189,11 @@ export function LiquidPillShell({
         paddingBottom: dims.bleedTop,
       }}
     >
-      {/* Glass surface clipped to the liquid silhouette */}
+      {/* Glass surface clipped to the pill/tab silhouette */}
       <div
         ref={glassRef}
         className="absolute inset-0 bg-background/90 backdrop-blur-md"
-        data-testid="liquid-pill-glass"
+        data-testid="pill-glass"
       />
       {/* Gradient edge: one path, two strokes */}
       <svg

@@ -2,7 +2,7 @@
 
 **Status:** current
 **Owner domain:** theming, component layer, GSAP orchestration, wave hero, layout
-**Last verified against code:** 2026-07-11 (liquid pill session)
+**Last verified against code:** 2026-07-12 (tab-dock revision session)
 **Ledger regenerated from code truth per D36.**
 
 ---
@@ -14,8 +14,8 @@ Light/dark theme system with tokens, persistence, and flicker-free switching; cu
 ## Open tasks
 
 - [ ] 3. **The liquid pill** (owner vision 2026-07-10, extended 2026-07-11 — recorded in conversation-engine `design-ux-and-behavior.md` §9.3 and `docs/article-notes-design-judgment.md` 2026-07-10 + 2026-07-11 sessions; sequencing: conversation-engine Block G is done, so its chips/topic-label/auto-nav-toggle components exist self-contained against the current pill and relocate here):
-  - [x] 3.1 Bottom-edge docking with a water-drop "wetting" morph: floating pill = pill shape; docked pill = drop-on-a-surface silhouette whose lower boundary "wets" the screen edge (metaball-style thin-neck-then-merge aesthetic, referencing blur+threshold liquid rendering). **Constraint (owner): NO physics simulation, NO heavy shaders** — formula-driven animated bezier edge; must stay cheap on mobile. — *implemented (`liquid-path.ts` + `LiquidPillShell` + dock timeline); geometry unit-tested (merged bottom, meniscus flare, thin-neck stagger); docked container state driven in-browser. Motion/aesthetic drill + screenshots pending a visible Browser pane (headless session: hidden tab suspends rAF/GSAP) — owner tuning round expected anyway.*
-  - [x] 3.2 Liquidy dynamic edge rendering for the floating state (subtle, formula-governed animation). — *implemented; live clip-path verified in DOM; determinism + time-animation unit-tested; frame-motion drill pending as above.*
+  - [x] 3.1 **(REVISED, owner 2026-07-12 after v1 review: liquid/metaball vision killed — "I hate it".)** Bottom-edge docking is now the **tab aesthetic**: floating pill = the classic capsule; docked = the outer bottom quarters of the pill radius animate from an internal (convex) radius to an external (concave) radius whose curve flows into the bottom screen edge (browser-tab foot). Still **NO physics, NO shaders** — exact bezier arcs, zero idle animation (`pill-path.ts` + `PillShell`). — *geometry unit-tested (capsule at p=0, merged bottom + tabRadius flare at p=1, monotonic sweep, clamped to bleed); floating capsule driven in-browser; dock-morph visual pending a visible pane.*
+  - [x] 3.2 ~~Liquidy dynamic edge rendering for the floating state~~ — **cancelled by the same 2026-07-12 owner revision**: the floating pill is a static capsule; the only ambient motion on the silhouette is the 3.6 gradient stroke.
   - [x] 3.3 Responsive behavior: desktop/tablet share the docked layout; portrait phone gets a tighter fit that stays fully functional. — *phone dims from config; driven at 375×812: pill fits (371px), compact controls, sidebar = full-screen overlay.*
   - [x] 3.4 Transcript sidebar: chat history becomes a proper right sidebar; expanding = the sidebar slides in while the pill's parts animate into their positions at its bottom; floating/docked pill carries only input + mic/hang-up/sound/settings + a recognizable history affordance (floating speech-boxes icon); on mobile the history overlays full-screen for at-a-glance reading, closes to resume navigating. — *implemented (`TranscriptSidebar` + relocate timeline + history/hang-up buttons); open/close state + overlay mode driven; slide/relocate motion drill pending as above.*
   - [x] 3.5 Relocate the Block G components (chips row, topic label, auto-nav toggle, resume-confirm card) into the new pill/sidebar without contract changes. — *relocated verbatim (chips above shell, label above input, toggle in control row, resume card in shell); component contracts untouched.*

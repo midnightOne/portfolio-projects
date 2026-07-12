@@ -1,9 +1,9 @@
 /**
- * Floating AI Interface — the liquid pill (ui-system task 3, owner vision
- * 2026-07-10/11).
+ * Floating AI Interface — the AI pill (ui-system task 3, owner vision
+ * 2026-07-10/11; tab-dock revision 2026-07-12).
  *
  * Presentation-layer redesign of the original Task 8.1 pill: the silhouette
- * is a formula-driven liquid edge (LiquidPillShell), the chat history lives
+ * the classic capsule with a "tab" dock morph (PillShell), the chat history lives
  * in a right sidebar (TranscriptSidebar), the page breathes from its edges
  * while the agent speaks (AmbientSpeechGlow), and every AI surface sits on
  * the dedicated AI z-layer above modals (task 3.7). Conversation-engine
@@ -12,7 +12,8 @@
  *
  * Layout states (one GSAP timeline, ai-visual-config tunables):
  *  - hero:    floating pill above the hero section (position 'hero')
- *  - docked:  wetted drop merged with the bottom screen edge (position 'pinned')
+ *  - docked:  "tab" merged with the bottom screen edge — the outer bottom
+ *             corners flip to external fillets (position 'pinned')
  *  - sidebar: pill relocated to the transcript sidebar's foot (mode 'expanded'
  *             on desktop; on phones the history is a full-screen overlay and
  *             the pill keeps the bottom edge)
@@ -34,7 +35,7 @@ import { EngineChipsRow, EngineTopicLabel } from './engine-chips';
 import { JobDescriptionModal } from './job-description-modal';
 import { getAutoNav, setAutoNav, subscribeAutoNav } from '@/lib/ai/autonav';
 import type { EngineChip, EngineUx } from '@/lib/ai/engine/types';
-import { LiquidPillShell } from './liquid-pill-shell';
+import { PillShell } from './pill-shell';
 import { TranscriptSidebar } from './transcript-sidebar';
 import { AmbientSpeechGlow } from './ambient-speech-glow';
 import { useAIVisualConfig } from '@/lib/ui/ai-visual-config-context';
@@ -233,7 +234,7 @@ export function FloatingAIInterface({
 
   // ---- Dock morph + layout timeline (tasks 3.1/3.4) ----
   // The shell reads dockProgress every frame; GSAP tweens it together with
-  // the container geometry so the wetting morph and the drop into place are
+  // the container geometry so the corner flip and the drop into place are
   // one movement.
   const dockProgressRef = useRef({ p: 0 });
   const getDockProgress = useCallback(() => dockProgressRef.current.p, []);
@@ -791,8 +792,8 @@ export function FloatingAIInterface({
               </div>
             )}
 
-            {/* The liquid pill (tasks 3.1/3.2/3.6) */}
-            <LiquidPillShell
+            {/* The pill (tasks 3.1/3.6): capsule afloat, tab foot when docked */}
+            <PillShell
               agentState={agentVisualState}
               getDockProgress={getDockProgress}
               compact={compact}
@@ -1135,7 +1136,7 @@ export function FloatingAIInterface({
                   ${budgetStatus.spendRemaining.toFixed(2)} left
                 </div>
               )}
-            </LiquidPillShell>
+            </PillShell>
 
             {/* Enticing animation hints */}
             <AnimatePresence>
