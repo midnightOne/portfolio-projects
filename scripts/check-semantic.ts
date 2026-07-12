@@ -37,6 +37,7 @@ interface ChunkRow {
   parent_chunk_id: string | null;
   root_chunk_id: string | null;
   metadata: any;
+  embedding_model: string | null;
   has_embedding: boolean;
 }
 
@@ -54,7 +55,7 @@ async function main() {
 
   const chunks = await prisma.$queryRaw<ChunkRow[]>`
     SELECT c.id, c.tier, c.chunk_id, c.title, c.content, c.section_group,
-           c.parent_chunk_id, c.root_chunk_id, c.metadata,
+           c.parent_chunk_id, c.root_chunk_id, c.metadata, c.embedding_model,
            (c.embedding_vector IS NOT NULL) as has_embedding
     FROM context_chunks c
     JOIN content_entities e ON e.id = c.entity_id
@@ -78,6 +79,28 @@ async function main() {
   const missingEmb = chunks.filter(c => !c.has_embedding);
   assert('every chunk has an embedding', missingEmb.length === 0,
     `missing: ${missingEmb.map(c => c.chunk_id).join(', ')}`);
+
+  // Fake-contamination tripwire (owner ruling 2026-07-12: real ingestion/
+  // embedding/retrieval must ALWAYS work — fake test doubles may never linger
+  // in the index). Runs in --no-live mode too, so `npm run verify` fails loudly
+  // if a fake-mode run ever overwrote the fixture (this happened once and
+  // passed silently). Recovery: `npm run livefire:semantic`.
+  const models = [...new Set(chunks.filter(c => c.has_embedding).map(c => c.embedding_model ?? 'unrecorded'))];
+  assert('fixture embeddings are REAL (no fake-embedding vectors)',
+    !models.includes('fake-embedding'), `models: ${models.join(', ')} — re-ingest with npm run livefire:semantic`);
+  assert('fixture embeddings all come from ONE model (no drift)',
+    models.length === 1, `models: ${models.join(', ')} — mixed vectors are not comparable; re-ingest`);
+
+  // DB-wide: no entity may carry fake vectors — drills clean up after
+  // themselves; residue anywhere means a fake-mode run leaked into the index
+  const fakeResidue = await prisma.$queryRaw<Array<{ slug: string; n: bigint }>>`
+    SELECT e.slug, count(*) AS n FROM context_chunks c
+    JOIN content_entities e ON e.id = c.entity_id
+    WHERE c.embedding_model = 'fake-embedding'
+    GROUP BY e.slug`;
+  assert('no fake-embedding residue anywhere in the index',
+    fakeResidue.length === 0,
+    fakeResidue.map(r => `${r.slug} (${r.n})`).join(', ') + ' — delete or re-ingest these entities');
 
   const t1 = byTier(1)[0];
   assert('T1 summary is real generated content', !!t1 && t1.content.length >= expected.t1MinContentLength
