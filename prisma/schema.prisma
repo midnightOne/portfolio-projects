@@ -764,6 +764,9 @@ model ConversationLead {
   notifyChannel  String?   @map("notify_channel")
   notifyError    String?   @map("notify_error")
   createdAt      DateTime  @default(now()) @map("created_at")
+  /// Block K (Req 21.4): clock base for "leads until handled + M days" —
+  /// stamped when status enters 'handled', cleared when the owner reopens.
+  handledAt      DateTime? @map("handled_at")
 
   @@index([conversationId])
   @@index([status])
@@ -883,6 +886,48 @@ model ConversationMemoryConfig {
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   @@map("conversation_memory_config")
+}
+
+/// Block K (Req 21.4 as amended 2026-07-11) — owner-side retention knobs.
+/// Single row, id always "retention" (SafetyConfig/ConversationMemoryConfig
+/// singleton pattern). EVERY knob defaults to null = retain indefinitely —
+/// the owner ruling: interactions are deliberately kept; nothing expires
+/// unless the owner configures it. A missing row reads as the defaults.
+model ConversationRetentionConfig {
+  id                      String   @id @default("retention")
+  /// Days after a conversation's last activity before its visitor turns
+  /// (user/assistant rows + slot_filled markers) and derived visitor state
+  /// (profile, slots, flags) are deleted. Null = keep forever.
+  transcriptRetentionDays Int?     @map("transcript_retention_days")
+  /// Days before conversation_summary rows are deleted — meant to outlive
+  /// transcripts (Req 21.4 "summaries longer"). Null = keep forever.
+  summaryRetentionDays    Int?     @map("summary_retention_days")
+  /// Days after a lead was marked handled before the lead row is deleted
+  /// ("leads until handled + M"). Null = keep forever.
+  leadRetentionDays       Int?     @map("lead_retention_days")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  @@map("conversation_retention_config")
+}
+
+/// Block K (Req 21.2 as amended 2026-07-11) — audit trail for every owner-side
+/// deletion. Written by the retention sweep when it deletes anything; visitor
+/// initiated removal does not exist (owner ruling), so every row here is an
+/// owner/batch action. This table is operational telemetry — never expired.
+model DataLifecycleAudit {
+  id          String   @id @default(cuid())
+  /// 'retention_expiry' (batch sweep); future owner-manual actions get their own kind
+  action      String
+  /// Config snapshot + cutoffs the deletion ran under
+  criteria    Json     @default("{}")
+  /// What was deleted: { conversationsScrubbed, messageRowsDeleted, summaryRowsDeleted, leadsDeleted, ... }
+  counts      Json     @default("{}")
+  /// 'batch' | admin identifier for manual triggers
+  initiatedBy String   @map("initiated_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("data_lifecycle_audits")
 }
 
 // Hierarchical Content Storage Models for T0-T3 Tier System

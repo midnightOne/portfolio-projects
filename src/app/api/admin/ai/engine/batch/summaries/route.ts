@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { withAIGateway, type GatewayContext } from '@/lib/ai/gateway';
 import { createApiSuccess, createApiError } from '@/lib/types/api';
 import { runSummaryBackfillBatch } from '@/lib/services/ai/engine-batches';
+import { runRetentionSweep, type RetentionSweepResult } from '@/lib/services/ai/retention';
 
 async function requireAdmin(): Promise<boolean> {
   const session = await getServerSession(authOptions);
@@ -42,7 +43,18 @@ async function handlePOST(request: NextRequest, _ctx: GatewayContext) {
     ? new Date(Date.now() - parsed.data.sinceDays * 24 * 60 * 60 * 1000)
     : undefined;
   const result = await runSummaryBackfillBatch({ since });
-  return NextResponse.json(createApiSuccess(result));
+  // Block K (Req 21.4 as amended): owner-side retention expiry rides the same
+  // daily batch — never a conversation's request path (P23). Unconfigured
+  // knobs (the shipped default) make this a no-op; a sweep failure never
+  // fails the backfill result.
+  let retention: RetentionSweepResult | { error: string };
+  try {
+    retention = await runRetentionSweep({ initiatedBy: 'summaries-batch' });
+  } catch (err) {
+    retention = { error: err instanceof Error ? err.message : 'retention sweep failed' };
+    console.error('[batch/summaries] retention sweep failed:', err);
+  }
+  return NextResponse.json(createApiSuccess({ ...result, retention }));
 }
 
 export const POST = withAIGateway({ feature: 'chat', publicAllowed: false }, handlePOST);

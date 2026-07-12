@@ -236,12 +236,12 @@ Overview: [`../00-overview/README.md`](../00-overview/README.md) · Origin outli
 
 ## Requirement 21 — Privacy, consent, and data lifecycle
 
-**User story:** As the owner, I want the assistant to feel trustworthy rather than surveillant — resume, memory, and lead capture must respect the visitor and give both of us control over stored data.
+**User story:** As the owner, I want the assistant to feel trustworthy rather than surveillant — resume, memory, and lead capture must respect the visitor — while stored data remains under MY control (amended by owner 2026-07-11: this is a portfolio; interactions are deliberately retained to improve it and to understand what visitors are looking for).
 
 1. WHEN resume is offered cross-device THEN Req 17.1's confirmation rule applies (safe summary, explicit choice); a "start fresh" option SHALL always exist alongside resume.
-2. WHEN a visitor asks to be forgotten (or uses a "forget this conversation" affordance) THEN visitor content (transcript, summaries, profile, slots) SHALL be deletable while anonymized operational telemetry (ledger rows, node hit counts) is retained; the admin UI SHALL distinguish operational telemetry from visitor content.
-3. WHEN a lead is captured THEN consent SHALL be conversational and explicit ("I'll pass this along to Kirill with your contact — that okay?") before the record is created; leads carry a retention period and a deletion path.
-4. WHEN retention is configured THEN defaults SHALL exist (owner-adjustable): raw transcripts retained N days, summaries longer, leads until handled + M days; expiry runs in the existing batch jobs (never the request path).
+2. Visitor-initiated data removal SHALL NOT be offered (amended by owner 2026-07-11, superseding the original "forget this conversation" affordance: "I don't want to allow them to request removal of the data because this is my portfolio and I want to retain the interactions with it both to improve the portfolio itself and to understand what the people are looking for"). Deletion is owner-side only, via the Req 21.4 retention policy; every deletion SHALL be audit-logged; the admin UI SHALL distinguish operational telemetry (ledger rows, node hit counts, traversal markers) from visitor content (transcript turns, summaries, profile, slots).
+3. WHEN a lead is captured THEN consent SHALL be conversational and explicit ("I'll pass this along to Kirill with your contact — that okay?") before the record is created; leads carry a retention period and an owner-side deletion path (amended 2026-07-11: visitors cannot request lead deletion — the consent gate before capture is the visitor's control point).
+4. WHEN retention is configured THEN owner-adjustable knobs SHALL exist: raw transcripts N days, summaries longer, leads until handled + M days; the DEFAULT for every knob is retain-indefinitely (amended by owner 2026-07-11 — unconfigured means nothing is ever deleted); expiry runs in the existing batch jobs (never the request path).
 5. WHEN a reflink is revoked THEN its resume capability dies with it.
 
 ## Requirement 22 — Safety tripwire: static word flags → async investigation → configurable enforcement

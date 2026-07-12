@@ -18,7 +18,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Loader2, X } from 'lucide-react';
 import {
+  ContentClassLegend,
   ReplayStepCard,
+  RetentionExpiryNote,
   ShowOnGraphLink,
   useGraphAnnotations,
   type ReplayData,
@@ -89,6 +91,8 @@ export function ConversationTranscriptPanel({ conversationId, onClose }: Convers
               )}
             </div>
             {engine && <ShowOnGraphLink engine={engine} conversationId={data.conversation.id} />}
+            <ContentClassLegend />
+            <RetentionExpiryNote latestState={data.conversation.latestState} />
             {data.legs.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {data.legs.map((leg, i) => (

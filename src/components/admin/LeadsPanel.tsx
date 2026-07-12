@@ -110,7 +110,9 @@ export function LeadsPanel() {
         </CardTitle>
         <CardDescription>
           Captured by the assistant&apos;s lead_capture tool after explicit visitor consent — the row is
-          written before any notification, so a failed email never loses a lead.
+          written before any notification, so a failed email never loses a lead. Fit notes and slot values
+          are <strong>visitor content</strong> (the owner retention policy applies once handled); status,
+          node attribution, and notification outcomes are operational telemetry (Req 21.2).
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -162,7 +164,17 @@ export function LeadsPanel() {
                   </span>
                 </div>
 
-                {lead.fitNote && <p className="mt-2 text-sm">{lead.fitNote}</p>}
+                {(lead.fitNote || Object.keys(lead.slots).length > 0) && (
+                  <p className="mt-2 text-[10px] uppercase tracking-wide text-muted-foreground" data-testid="lead-visitor-content-label">
+                    visitor content
+                    {lead.handledAt && (
+                      <span className="ml-2 normal-case tracking-normal">
+                        — handled {new Date(lead.handledAt).toLocaleDateString()}; retention clock running
+                      </span>
+                    )}
+                  </p>
+                )}
+                {lead.fitNote && <p className="mt-1 text-sm">{lead.fitNote}</p>}
 
                 {Object.keys(lead.slots).length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5" data-testid="lead-slots">

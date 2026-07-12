@@ -75,6 +75,8 @@ export interface ReplayData {
     messageCount: number;
     totalTokens: number;
     totalCost: number;
+    /** Block K: the retention sweep stamps when it scrubbed visitor turns. */
+    latestState?: { retention?: { transcriptsExpiredAt?: string } } | null;
   };
   engine?: ReplayEngineMeta | null;
   legs: Array<{
@@ -202,6 +204,35 @@ export function useGraphAnnotations(conversationId: string | null | undefined, e
   return { annotations, byMessageId, annotate, enabled };
 }
 
+/**
+ * Block K (Req 21.2 as amended): honest note when the retention sweep deleted
+ * this conversation's visitor turns — the remaining rows are operational
+ * telemetry, and the reader should know WHY the transcript looks thin.
+ */
+export function RetentionExpiryNote({ latestState }: { latestState?: ReplayData['conversation']['latestState'] }) {
+  const expiredAt = latestState?.retention?.transcriptsExpiredAt;
+  if (!expiredAt) return null;
+  return (
+    <p
+      className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+      data-testid="retention-expired-note"
+    >
+      Visitor turns were deleted by the owner retention policy on {new Date(expiredAt).toLocaleString()} —
+      what remains below is operational telemetry (markers, traversal, summaries on their own clock).
+    </p>
+  );
+}
+
+/** Block K (Req 21.2): one-line content-class legend for transcript surfaces. */
+export function ContentClassLegend() {
+  return (
+    <p className="text-[10px] uppercase tracking-wide text-muted-foreground" data-testid="content-class-legend">
+      user/assistant turns + slot fills = visitor content · system markers (transitions, disruptions,
+      safety) = operational telemetry
+    </p>
+  );
+}
+
 /** Header chip + link: which graph/version the run pinned, and the way onto the canvas (E1). */
 export function ShowOnGraphLink({ engine, conversationId }: { engine: ReplayEngineMeta; conversationId: string }) {
   return (
@@ -300,6 +331,8 @@ export function ConversationReplayViewer({ sessionId, conversationId, onClose }:
               )}
               {engine && <ShowOnGraphLink engine={engine} conversationId={data.conversation.id} />}
             </div>
+
+            <RetentionExpiryNote latestState={data.conversation.latestState} />
 
             {data.legs.length > 0 && (
               <div className="flex flex-wrap gap-2 pb-2">

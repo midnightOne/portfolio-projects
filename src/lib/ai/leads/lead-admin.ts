@@ -22,6 +22,7 @@ export interface LeadRow {
   notifyChannel: string | null;
   notifyError: string | null;
   createdAt: string;
+  handledAt: string | null;
 }
 
 function toRow(lead: {
@@ -36,6 +37,7 @@ function toRow(lead: {
   notifyChannel: string | null;
   notifyError: string | null;
   createdAt: Date;
+  handledAt: Date | null;
 }): LeadRow {
   return {
     id: lead.id,
@@ -49,6 +51,7 @@ function toRow(lead: {
     notifyChannel: lead.notifyChannel,
     notifyError: lead.notifyError,
     createdAt: lead.createdAt.toISOString(),
+    handledAt: lead.handledAt?.toISOString() ?? null,
   };
 }
 
@@ -68,7 +71,13 @@ export async function countNewLeads(): Promise<number> {
 
 export async function setLeadStatus(leadId: string, status: LeadStatus): Promise<LeadRow | null> {
   try {
-    const lead = await prisma.conversationLead.update({ where: { id: leadId }, data: { status } });
+    // Block K (Req 21.4): handledAt is the retention clock base ("leads until
+    // handled + M days") — stamped on entering handled, cleared on reopen so
+    // a reopened lead never expires off a stale clock.
+    const lead = await prisma.conversationLead.update({
+      where: { id: leadId },
+      data: { status, handledAt: status === 'handled' ? new Date() : null },
+    });
     return toRow(lead);
   } catch {
     return null; // unknown id — the route answers 404
