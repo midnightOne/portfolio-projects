@@ -69,7 +69,11 @@ type DebugEventType =
   | 'index-context-loaded'
   | 'details-context-loaded'
   // Navigation context events
-  | 'nav-context';
+  | 'nav-context'
+  // Context-debug panel taps (ai-assistant task 7.0 — observer-only telemetry)
+  | 'context_flush'
+  | 'fid-context-published'
+  | 'chat-debug-envelope';
 
 interface DebugEvent {
   type: DebugEventType;

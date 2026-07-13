@@ -13,6 +13,7 @@ import { OpenAIRealtimeConfig } from '../../../../../types/voice-config';
 import { unifiedToolRegistry } from '../../../../../lib/ai/tools/UnifiedToolRegistry';
 import { reflinkManager } from '../../../../../lib/services/ai/reflink-manager';
 import { withAIGateway, type GatewayContext } from '@/lib/ai/gateway';
+import { stashMintDebug, type MintSectionMark } from '@/lib/ai/mint-debug-stash';
 
 interface OpenAISessionRequest {
   contextId?: string;
@@ -105,6 +106,13 @@ async function handleGET(request: NextRequest, ctx: GatewayContext) {
 
     // Build system instructions with context (using config as base)
     let systemInstructions = defaultConfig.instructions;
+
+    // Task 7.0a(3): length checkpoints after each append — the admin
+    // mint-stash builds its per-section size breakdown from these (the final
+    // string has no delimiters to re-split on).
+    const sectionMarks: MintSectionMark[] = [];
+    const mark = (label: string) => sectionMarks.push({ label, end: systemInstructions.length });
+    mark('base config instructions');
 
     /* Old tool prompt before moving to UIManager
     - When users ask to "open", "navigate to", "show me", or "go to" any project, ALWAYS use the "openProject" tool first
@@ -250,13 +258,16 @@ LANGUAGE POLICY (strict):
     // Latency-aware filler policy (owner, 2026-07-08): measured per-tool
     // medians tell the model which calls are instant (act silently) and which
     // deserve a short, context-relevant lead-in.
+    mark('tool guidance');
     const { buildToolLatencyGuidance } = await import('@/lib/ai/tool-latency');
     systemInstructions += await buildToolLatencyGuidance();
+    mark('tool latency guidance');
 
     // TODO: Inject actual context from ContextProviderService based on contextId and reflinkId
     if (contextId) {
       systemInstructions += `\n\nContext ID: ${contextId}`;
     }
+    mark('context id');
 
     if (reflinkId) {
       try {
@@ -312,6 +323,7 @@ LANGUAGE POLICY (strict):
     } else {
       console.log('No reflink ID provided, personalized context not loaded for reflink: ', reflinkId);
     }
+    mark('reflink personalization');
 
     // D49 5b.3: harness briefing — the new leg is briefed from ground truth
     // (conversation store snapshot + bounded recap), never from provider memory.
@@ -335,9 +347,11 @@ LANGUAGE POLICY (strict):
     // (notes §2.1.4). '' when no graph is active — static path unchanged (Req 2.7).
     // C1 (Req 5.4): the node's alias participates in mint-time model resolution
     // — the only point a node alias ever touches a native session (Req 5.3).
+    mark('resume briefing');
     const { buildEngineStartSuffix, resolveEngineMintModel } = await import('@/lib/services/ai/engine-runtime');
     const enginePolicy = await buildEngineStartSuffix({ isPublic: false, resumeSessionId });
     systemInstructions += enginePolicy.suffix;
+    mark('engine start suffix');
     const mintModel = await resolveEngineMintModel({
       routeProvider: 'openai',
       engineAlias: enginePolicy.modelAlias,
@@ -420,6 +434,20 @@ LANGUAGE POLICY (strict):
 
     // Generate session ID for tracking
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+
+    // Task 7.0a(3): stash what THIS session was actually minted with, for the
+    // admin context-debug panel (never throws; observability only).
+    stashMintDebug({
+      sessionId,
+      provider: 'openai',
+      handler: 'GET',
+      model: effectiveModel,
+      reflinkId,
+      resumeSessionId,
+      instructionsText: systemInstructions,
+      marks: sectionMarks,
+      tools: allTools,
+    });
 
     // Duration cap (task 8 / Req 2.4) — expires_at reflects the REAL cap the
     // adapter enforces, not a fictional 15 minutes. Older DB rows may predate
@@ -517,6 +545,11 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext) {
 
     // Build custom instructions (use config default if not provided)
     let instructions = body.instructions || defaultConfig.instructions;
+
+    // Task 7.0a(3): length checkpoints — same convention as GET.
+    const sectionMarks: MintSectionMark[] = [];
+    const mark = (label: string) => sectionMarks.push({ label, end: instructions.length });
+    mark('base config instructions');
 
     // Add tool usage guidelines for POST method (same as GET)
     instructions += `\n\nIMPORTANT TOOL USAGE GUIDELINES - UIManager Navigation System:
@@ -656,13 +689,16 @@ LANGUAGE POLICY (strict):
     // Latency-aware filler policy (owner, 2026-07-08): measured per-tool
     // medians tell the model which calls are instant (act silently) and which
     // deserve a short, context-relevant lead-in.
+    mark('tool guidance');
     const { buildToolLatencyGuidance } = await import('@/lib/ai/tool-latency');
     instructions += await buildToolLatencyGuidance();
+    mark('tool latency guidance');
 
     if (body.contextId) {
       // TODO: Load context from ContextProviderService
       instructions += `\n\nContext ID: ${body.contextId}`;
     }
+    mark('context id');
 
     if (body.reflinkId) {
       try {
@@ -718,6 +754,7 @@ LANGUAGE POLICY (strict):
     } else {
       console.log('No reflink ID provided, personalized context not loaded for reflink: ', body.reflinkId);
     }
+    mark('reflink personalization');
 
     // D47 conversation engine (B3): start-node guidance + prepared context,
     // '' when no graph is active (Req 2.7). POST mint has no resume path.
@@ -725,6 +762,7 @@ LANGUAGE POLICY (strict):
     const { buildEngineStartSuffix, resolveEngineMintModel } = await import('@/lib/services/ai/engine-runtime');
     const enginePolicy = await buildEngineStartSuffix({ isPublic: false });
     instructions += enginePolicy.suffix;
+    mark('engine start suffix');
     const mintModel = await resolveEngineMintModel({
       routeProvider: 'openai',
       engineAlias: enginePolicy.modelAlias,
@@ -799,6 +837,18 @@ LANGUAGE POLICY (strict):
 
     const sessionData = await sessionResponse.json();
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+
+    // Task 7.0a(3): stash the assembled mint material — same convention as GET.
+    stashMintDebug({
+      sessionId,
+      provider: 'openai',
+      handler: 'POST',
+      model: effectiveModel,
+      reflinkId: body.reflinkId,
+      instructionsText: instructions,
+      marks: sectionMarks,
+      tools,
+    });
     // Duration cap (task 8 / Req 2.4) — same enforcement contract as GET.
     const maxSessionSeconds = defaultConfig.maxSessionSeconds || 900;
     const expiresAt = new Date(Date.now() + maxSessionSeconds * 1000).toISOString();

@@ -17,7 +17,7 @@ import {
   ProviderMetadata,
   VoiceAgentError
 } from '@/types/voice-agent';
-import { ContextBuffer, ContextBlock } from '@/lib/ai/context-buffer';
+import { ContextBuffer, ContextBlock, ContextBufferEntrySnapshot } from '@/lib/ai/context-buffer';
 import { getAutoNav, subscribeAutoNav, renderAutoNavPolicy } from '@/lib/ai/autonav';
 import { isTestSessionEnabled } from '@/lib/ai/test-session';
 import {
@@ -189,11 +189,48 @@ export interface IConversationalAgentAdapter {
    */
   getPersistedConversationId?(): string | null;
 
+  /**
+   * Task 7.0: the mint-route tracking id (`session_…`) from the token-mint
+   * response — the key the server stashes this session's assembled
+   * instructions under for the admin context-mint debug endpoint. Null before
+   * connect and on providers without a mint (cascade).
+   */
+  getMintSessionId?(): string | null;
+
+  /**
+   * Task 7.0c: read-only context-state snapshot for the admin context-debug
+   * panel — buffer entries, last flush telemetry, rolling-window state.
+   * MUST never mutate the buffer or trigger a push (observer contract).
+   */
+  getContextDebugSnapshot?(): ContextDebugSnapshot;
+
   // Event handling (internal - called by the adapter implementation)
   _handleConnectionEvent(event: import('@/types/voice-agent').ConnectionEvent): void;
   _handleTranscriptEvent(event: import('@/types/voice-agent').TranscriptEvent): void;
   _handleAudioEvent(event: import('@/types/voice-agent').AudioEvent): void;
   _handleToolEvent(event: import('@/types/voice-agent').ToolEvent): void;
+}
+
+/** Telemetry of the last _applyContextBlock attempt (task 7.0b cadence ledger). */
+export interface ContextFlushInfo {
+  at: number;
+  version: number;
+  keys: string[];
+  dropped: string[];
+  tokens: number;
+  chars: number;
+  reason: string;
+  result: SessionUpdateFieldResult;
+  /** False = bit-identical every-turn re-append (still re-pays tokens on OpenAI). */
+  changed: boolean;
+}
+
+/** Read-only context state handed to the admin context-debug panel (task 7.0). */
+export interface ContextDebugSnapshot {
+  provider: VoiceProvider;
+  entries: ContextBufferEntrySnapshot[];
+  lastFlush: ContextFlushInfo | null;
+  windowState: EngineWindowUpdate | null;
 }
 
 /**
@@ -223,6 +260,10 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
   protected _contextBuffer = new ContextBuffer();
   /** Content version of the last successfully flushed block (change detection). */
   private _lastFlushedContextVersion = 0;
+  /** Task 7.0: last _applyContextBlock attempt, for the debug-panel snapshot. */
+  private _lastContextFlushInfo: ContextFlushInfo | null = null;
+  /** Task 7.0: mint-route tracking id (`session_…`) — set by providers that mint. */
+  protected _mintSessionId: string | null = null;
   /** Highest engine-directive seq applied — latest-wins, duplicates dropped (P4). */
   private _lastAppliedDirectiveSeq = 0;
   /** Directive that arrived mid-response, applied at the next turn boundary (P19). Latest wins. */
@@ -813,6 +854,25 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
     }
   }
 
+  /** Task 7.0: mint tracking id for the admin context-mint stash lookup. */
+  getMintSessionId(): string | null {
+    return this._mintSessionId;
+  }
+
+  /**
+   * Task 7.0c: read-only context state for the admin context-debug panel.
+   * Uses the buffer's side-effect-free inspector — never evicts, never bumps
+   * the content version, never pushes.
+   */
+  getContextDebugSnapshot(): ContextDebugSnapshot {
+    return {
+      provider: this._provider,
+      entries: this._contextBuffer.inspect(),
+      lastFlush: this._lastContextFlushInfo,
+      windowState: this._windowState,
+    };
+  }
+
   /**
    * Flush the merged floating block through the provider mechanics per this
    * adapter's cadence. Failures leave the buffer dirty; the next turn
@@ -834,6 +894,34 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
 
     try {
       const result = await this._applyContextBlock(block);
+      // Task 7.0b observer tap: EVERY apply attempt — including bit-identical
+      // every-turn re-appends, which the change-gated /log event below never
+      // records but which still re-pay tokens on OpenAI — reaches the admin
+      // context-debug panel via the client debug bus. Adds nothing
+      // model-visible; fire-and-forget.
+      const flushInfo: ContextFlushInfo = {
+        at: Date.now(),
+        version: block.version,
+        keys: block.keys,
+        dropped: block.dropped,
+        tokens: block.tokens,
+        chars: block.text.length,
+        reason,
+        result,
+        changed,
+      };
+      this._lastContextFlushInfo = flushInfo;
+      import('@/lib/debug/debugEventEmitter')
+        .then(({ debugEventEmitter }) => {
+          debugEventEmitter.emit(
+            'context_flush',
+            { provider: this._provider, ...flushInfo, blockText: block.text },
+            'voice-adapter',
+            undefined,
+            this.getConversationSessionId?.() ?? undefined
+          );
+        })
+        .catch(() => {});
       if (result === 'failed' || result === 'unsupported') return; // stays dirty → retried at next boundary
       if (changed) {
         this._lastFlushedContextVersion = block.version;

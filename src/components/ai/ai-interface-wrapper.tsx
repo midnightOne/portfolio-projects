@@ -6,6 +6,7 @@ import { ConversationalAgentProvider } from '@/components/providers/conversation
 import { ReflinkSessionProvider } from '@/components/providers/reflink-session-wrapper';
 import { useReflinkSession } from '@/components/providers/reflink-session-provider';
 import { HomepageDevVoicePanel } from './HomepageDevVoicePanel';
+import { ContextDebugPanel } from '@/components/admin/ContextDebugPanel';
 import { AIVisualConfigProvider } from '@/lib/ui/ai-visual-config-context';
 
 interface AIInterfaceWrapperProps {
@@ -216,6 +217,9 @@ function AIInterfaceContent({
         className={className}
       />
       {isAdmin && <HomepageDevVoicePanel />}
+      {/* Task 7.0: owner context-debug panel — admin-gated (server-side check
+          in page.tsx), NOT dev-only; must work in a production build. */}
+      {isAdmin && <ContextDebugPanel />}
     </ConversationalAgentProvider>
   );
 }

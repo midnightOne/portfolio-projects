@@ -2121,6 +2121,8 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             const mintResponse = await response.json();
             const { client_secret } = mintResponse;
             this._mintedModel = mintResponse.model ?? null;
+            // Task 7.0: key for the admin context-mint stash lookup.
+            this._mintSessionId = mintResponse.session_id ?? null;
             console.log('OpenAIRealtimeAdapter: Session token received, connecting...');
 
             // Connect to OpenAI Realtime using the client_secret

@@ -69,6 +69,20 @@ interface BufferEntry {
   seq: number; // publish order tiebreaker for equal priorities
 }
 
+/** One live entry as seen by the read-only inspector (ai-assistant task 7.0a). */
+export interface ContextBufferEntrySnapshot {
+  key: string;
+  text: string;
+  chars: number;
+  tokens: number;
+  priority: number;
+  publishedAt: number;
+  seq: number;
+  ttlMs?: number;
+  /** Outlived its TTL but not yet lazily evicted — getBlock() would drop it. */
+  expired: boolean;
+}
+
 export interface ContextBlock {
   /**
    * Monotonic CONTENT version: bumps only when the merged text actually
@@ -192,6 +206,29 @@ export class ContextBuffer {
       dropped,
       tokens,
     };
+  }
+
+  /**
+   * Read-only inspection for the admin context-debug panel (ai-assistant
+   * task 7.0). Deliberately side-effect free — no TTL eviction, no version
+   * bump — so observing the buffer can never perturb what the adapter
+   * flushes (7.0c). Entries are returned in merge order.
+   */
+  inspect(): ContextBufferEntrySnapshot[] {
+    const now = this.now();
+    return Array.from(this.entries.values())
+      .sort((a, b) => a.priority - b.priority || a.seq - b.seq)
+      .map((e) => ({
+        key: e.key,
+        text: e.text,
+        chars: e.text.length,
+        tokens: estimateTokensFromChars(e.text.length),
+        priority: e.priority,
+        publishedAt: e.publishedAt,
+        seq: e.seq,
+        ttlMs: e.ttlMs,
+        expired: e.ttlMs !== undefined && now - e.publishedAt >= e.ttlMs,
+      }));
   }
 
   private evictExpired(): void {

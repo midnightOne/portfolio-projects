@@ -24,6 +24,7 @@ import { assembleStartFrame } from '@/lib/ai/start-frame';
 import { buildEngineStartSuffix, resolveEngineMintModel } from '@/lib/services/ai/engine-runtime';
 import { buildToolLatencyGuidance } from '@/lib/ai/tool-latency';
 import { withAIGateway, type GatewayContext } from '@/lib/ai/gateway';
+import { stashMintDebug, type MintSectionMark } from '@/lib/ai/mint-debug-stash';
 
 interface GoogleSessionResponse {
   access_token: string;
@@ -56,13 +57,23 @@ async function buildSystemInstructions(
   contextId: string | null,
   reflinkId: string | null,
   resumeSessionId: string | null
-): Promise<{ instructions: string; engineModelAlias: string | null }> {
-  let instructions = baseInstructions + TOOL_GUIDANCE;
+): Promise<{ instructions: string; engineModelAlias: string | null; sectionMarks: MintSectionMark[] }> {
+  let instructions = baseInstructions;
+
+  // Task 7.0a(3): length checkpoints after each append — the admin mint-stash
+  // builds its per-section size breakdown from these.
+  const sectionMarks: MintSectionMark[] = [];
+  const mark = (label: string) => sectionMarks.push({ label, end: instructions.length });
+  mark('base config instructions');
+
+  instructions += TOOL_GUIDANCE;
+  mark('tool guidance');
 
   // Latency-aware filler policy (owner, 2026-07-08): measured per-tool medians
   // tell the model which calls are instant (act silently) and which deserve a
   // short, context-relevant lead-in.
   instructions += await buildToolLatencyGuidance();
+  mark('tool latency guidance');
 
   // Start frame (task 5d — same grounding as text chat): without it the model
   // has zero portfolio context at session start and answers "can't find
@@ -77,10 +88,12 @@ async function buildSystemInstructions(
   if (frame) {
     instructions += `\n\n${frame}`;
   }
+  mark('start frame');
 
   if (contextId) {
     instructions += `\n\nContext ID: ${contextId}`;
   }
+  mark('context id');
 
   if (reflinkId) {
     try {
@@ -102,6 +115,7 @@ async function buildSystemInstructions(
       console.error('[google/session] Failed to load reflink context:', error);
     }
   }
+  mark('reflink personalization');
 
   if (resumeSessionId) {
     try {
@@ -113,6 +127,7 @@ async function buildSystemInstructions(
       console.error('[google/session] Failed to build resume briefing (continuing without):', error);
     }
   }
+  mark('resume briefing');
 
   // D47 conversation engine (B3): the start node's guidance + prepared
   // context — or, on resume, the PERSISTED node's (Req 2.6). '' when no graph
@@ -124,8 +139,9 @@ async function buildSystemInstructions(
   // point it can ever touch a native session (Req 5.3).
   const enginePolicy = await buildEngineStartSuffix({ isPublic: false, resumeSessionId });
   instructions += enginePolicy.suffix;
+  mark('engine start suffix');
 
-  return { instructions, engineModelAlias: enginePolicy.modelAlias };
+  return { instructions, engineModelAlias: enginePolicy.modelAlias, sectionMarks };
 }
 
 function toModelResource(modelId: string): string {
@@ -233,7 +249,7 @@ async function handleGET(request: NextRequest, ctx: GatewayContext) {
     }
 
     const config = await loadConfig();
-    const { instructions: systemInstructions, engineModelAlias } = await buildSystemInstructions(
+    const { instructions: systemInstructions, engineModelAlias, sectionMarks } = await buildSystemInstructions(
       config.instructions,
       contextId,
       reflinkId,
@@ -258,6 +274,20 @@ async function handleGET(request: NextRequest, ctx: GatewayContext) {
     );
 
     const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+
+    // Task 7.0a(3): stash what THIS session was actually minted with, for the
+    // admin context-debug panel (never throws; observability only).
+    stashMintDebug({
+      sessionId,
+      provider: 'google',
+      handler: 'GET',
+      model: effectiveModel,
+      reflinkId,
+      resumeSessionId,
+      instructionsText: systemInstructions,
+      marks: sectionMarks,
+      tools: unifiedToolRegistry.getGoogleToolsArray(),
+    });
 
     await ctx.meter({
       usageType: 'voice_session_mint',

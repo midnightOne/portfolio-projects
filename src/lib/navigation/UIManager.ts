@@ -974,6 +974,21 @@ export class UIManager {
           },
           'ui-manager'
         );
+
+        // Task 7.0a(2): the RAW fid payload for the admin context-debug panel
+        // (the buffer only ever holds the stringified/compacted form). This is
+        // the before/after judgment view once 7.1a's compact-text publish
+        // lands. Observer-only — nothing model-visible rides this.
+        debugEventEmitter.emit(
+          'fid-context-published',
+          {
+            provider: this._connectedVoiceAdapter.provider,
+            route: newState.currentRoute,
+            project: newState.currentProject,
+            raw: fidContext,
+          },
+          'ui-manager'
+        );
       }
     } catch (error) {
       console.error('❌ Immediate passive context update failed:', error);

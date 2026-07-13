@@ -436,6 +436,22 @@ export class CascadeVoiceAdapter extends BaseConversationalAgentAdapter {
       throw new Error(chat?.error || `chat failed (${chatRes.status})`);
     }
 
+    // Task 7.0a(4): the gateway attaches _debug for admin callers — surface it
+    // on the client debug bus for the context-debug panel. Observer-only.
+    if (chat._debug) {
+      import('@/lib/debug/debugEventEmitter')
+        .then(({ debugEventEmitter }) => {
+          debugEventEmitter.emit(
+            'chat-debug-envelope',
+            { source: 'cascade', debug: chat._debug },
+            'cascade-adapter',
+            undefined,
+            this._conversationId ?? undefined
+          );
+        })
+        .catch(() => {});
+    }
+
     // The chat route persisted both turns — capture the DB conversation id for
     // the debug chip (same contract as the /log response).
     const cid = chat.conversationId;

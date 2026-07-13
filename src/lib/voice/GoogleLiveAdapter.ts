@@ -254,6 +254,8 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
 
       const sessionData = await this._mintSession();
       this._sessionModel = sessionData.model;
+      // Task 7.0: key for the admin context-mint stash lookup.
+      this._mintSessionId = sessionData.session_id ?? null;
 
       await this._openSocket(sessionData);
 

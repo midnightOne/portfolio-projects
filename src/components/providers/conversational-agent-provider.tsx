@@ -11,7 +11,7 @@ import {
   AudioEvent,
   ToolEvent
 } from '@/types/voice-agent';
-import { IConversationalAgentAdapter, AdapterRegistry, ConnectOptions, AudioInputMode } from '@/lib/voice/IConversationalAgentAdapter';
+import { IConversationalAgentAdapter, AdapterRegistry, ConnectOptions, AudioInputMode, ContextDebugSnapshot } from '@/lib/voice/IConversationalAgentAdapter';
 import { OpenAIRealtimeAdapter } from '@/lib/voice/OpenAIRealtimeAdapter';
 import { GoogleLiveAdapter } from '@/lib/voice/GoogleLiveAdapter';
 import { CascadeVoiceAdapter } from '@/lib/voice/CascadeVoiceAdapter';
@@ -45,6 +45,12 @@ interface ConversationalAgentContextType {
   audioInputMode: AudioInputMode | null;
   /** DB conversation id (cuid) once persisted — for debug display and lookup. */
   conversationId: string | null;
+  /** Task 7.0c: read-only context state (buffer entries + last flush) for the
+   *  admin context-debug panel; null with no adapter. Never perturbs the buffer. */
+  getContextDebugSnapshot: () => ContextDebugSnapshot | null;
+  /** Task 7.0: mint tracking id for the admin context-mint stash lookup;
+   *  null before connect and on cascade (no mint). */
+  getMintSessionId: () => string | null;
 
   // Audio management
   startAudioInput: () => Promise<void>;
@@ -915,6 +921,8 @@ export function ConversationalAgentProvider({
     isConnected,
     audioInputMode,
     conversationId,
+    getContextDebugSnapshot: () => currentAdapter?.getContextDebugSnapshot?.() ?? null,
+    getMintSessionId: () => currentAdapter?.getMintSessionId?.() ?? null,
 
     // Audio management
     startAudioInput,

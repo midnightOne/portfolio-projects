@@ -83,6 +83,15 @@ export async function sendPublicChatMessage(
 
   const data = await res.json().catch(() => ({} as Record<string, unknown>));
   if (res.ok) {
+    // Task 7.0a(4): the gateway attaches _debug for admin callers — surface it
+    // on the client debug bus for the context-debug panel. Observer-only.
+    if (data._debug) {
+      import('@/lib/debug/debugEventEmitter')
+        .then(({ debugEventEmitter }) => {
+          debugEventEmitter.emit('chat-debug-envelope', { source: 'public-chat', debug: data._debug }, 'public-chat-client');
+        })
+        .catch(() => {});
+    }
     return {
       ok: true,
       reply: typeof data.reply === 'string' ? data.reply : '',
