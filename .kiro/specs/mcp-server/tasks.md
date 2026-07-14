@@ -1,6 +1,6 @@
 # mcp-server — Tasks
 
-**Status:** current — v1 implemented + hardening-verified 2026-07-07 (Phase 4 Block B); discoverability (task 5) shipped 2026-07-08 (Phase 4 Block D) — spec complete, backlog only
+**Status:** current — v1 implemented + hardening-verified 2026-07-07 (Phase 4 Block B); discoverability (task 5) shipped 2026-07-08 (Phase 4 Block D); task 6 (`portfolio_overview`) added 2026-07-13
 **Owner domain:** external MCP server
 **Last verified against code:** 2026-07-08 (Phase 4 session — Block D)
 
@@ -31,6 +31,9 @@
   - [x] 5.1 `/about/ai` (`src/app/about/ai/page.tsx`, linked from the main nav "AI" item): the architecture story as a portfolio piece — three modes/one brain, T0–T3 + hybrid retrieval, F-I-D, latency-aware clips, gateway/ledger/watchdog — with an MCP section: endpoint URL (origin-aware client component `McpConnectCard`, copy buttons), the 3 tools, copy-paste configs (Claude Code `claude mcp add --transport http`, Claude Desktop via `mcp-remote`, raw JSON-RPC curl), and the Req 3 safeguards rewritten as prose ("the hardening is part of the pitch"). **Verified live 2026-07-08:** page renders both themes at mobile/1600px with no horizontal overflow; the raw JSON-RPC snippet exactly as printed (bare `tools/call`, no initialize needed in stateless mode) returned real `search_portfolio` results against `POST /api/mcp`.
   - [x] 5.2 README rewritten (was Next.js-14-era, predated the whole AI system): MCP server features in the architecture story with its hardening posture; every stack/command claim cross-checked against package.json and code; stale claims (db:push setup flow, nonexistent LICENSE, `/admin/ai-settings`) removed.
   - _Requirements: 5_
+
+- [ ] 6. **`portfolio_overview` MCP tool (owner ask 2026-07-13; shared implementation with ai-assistant 7.13).** Expose the owner/portfolio overview through the MCP server: external models get no mint instructions, so they currently start blind — this tool is their equivalent of the start frame. Same single assembly module as the mint frame and the in-session tool (`assembleStartFrame()` extended — never a fork); same tiny `depth: 'brief' | 'full'` schema; rides the existing v1.1 contracts, metering, and limits. Update the /about/ai `McpConnectCard` tool list and README (tool count 3 → 4). Acceptance: raw stateless `tools/call` (the task-5.1 curl pattern) returns the brief overview.
+  - _Requirements: 1 (tool contract), 5 (discoverability); cross-spec: ai-assistant 7.13_
 
 ## Backlog
 
