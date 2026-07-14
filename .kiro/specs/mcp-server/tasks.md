@@ -1,6 +1,6 @@
 # mcp-server — Tasks
 
-**Status:** current — v1 implemented + hardening-verified 2026-07-07 (Phase 4 Block B); discoverability (task 5) shipped 2026-07-08 (Phase 4 Block D); task 6 (`portfolio_overview`) added 2026-07-13
+**Status:** current — v1 implemented + hardening-verified 2026-07-07 (Phase 4 Block B); discoverability (task 5) shipped 2026-07-08 (Phase 4 Block D); task 6 (`portfolio_overview`) shipped + acceptance-verified 2026-07-14 (tool count now 4)
 **Owner domain:** external MCP server
 **Last verified against code:** 2026-07-08 (Phase 4 session — Block D)
 
@@ -32,7 +32,8 @@
   - [x] 5.2 README rewritten (was Next.js-14-era, predated the whole AI system): MCP server features in the architecture story with its hardening posture; every stack/command claim cross-checked against package.json and code; stale claims (db:push setup flow, nonexistent LICENSE, `/admin/ai-settings`) removed.
   - _Requirements: 5_
 
-- [ ] 6. **`portfolio_overview` MCP tool (owner ask 2026-07-13; shared implementation with ai-assistant 7.13).** Expose the owner/portfolio overview through the MCP server: external models get no mint instructions, so they currently start blind — this tool is their equivalent of the start frame. Same single assembly module as the mint frame and the in-session tool (`assembleStartFrame()` extended — never a fork); same tiny `depth: 'brief' | 'full'` schema; rides the existing v1.1 contracts, metering, and limits. Update the /about/ai `McpConnectCard` tool list and README (tool count 3 → 4). Acceptance: raw stateless `tools/call` (the task-5.1 curl pattern) returns the brief overview.
+- [x] 6. **`portfolio_overview` MCP tool (owner ask 2026-07-13; shared implementation with ai-assistant 7.13) — done 2026-07-14.** Expose the owner/portfolio overview through the MCP server: external models get no mint instructions, so they currently start blind — this tool is their equivalent of the start frame. Same single assembly module as the mint frame and the in-session tool (`assembleStartFrame()` extended — never a fork); same tiny `depth: 'brief' | 'full'` schema; rides the existing v1.1 contracts, metering, and limits. Update the /about/ai `McpConnectCard` tool list and README (tool count 3 → 4). Acceptance: raw stateless `tools/call` (the task-5.1 curl pattern) returns the brief overview.
+  - _Evidence (2026-07-14):_ `registerTool('portfolio_overview')` in `src/lib/mcp/server.ts` — zod `depth` enum, `safeError`/`textResult`/`meter` posture identical to the v1 tools, dispatches to `assemblePortfolioOverview()` (start-frame.ts — the ONE module; `brief` IS the mint frame, now carrying owner identity per ai-assistant 7.2c); `MCP_TOOL_NAMES` 3→4 + a first-contact recipe line in the server instructions; /about/ai prose + README tool list updated. Hardening suite extended: tools/list snapshot (4 tools), both depths return the shared artifact, out-of-enum depth rejected at the schema without touching assembly. **Acceptance passed live:** raw stateless `tools/call` against the dev server (no initialize) returned the brief overview (owner bio + framing + visitor intro + project lines) and the 4,322-char full overview with PROJECT INDEX + per-project technology lists; ledger metering rides the same `mcp_tool_call` defer path as the v1 tools.
   - _Requirements: 1 (tool contract), 5 (discoverability); cross-spec: ai-assistant 7.13_
 
 ## Backlog

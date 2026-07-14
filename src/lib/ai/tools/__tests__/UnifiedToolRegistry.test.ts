@@ -82,6 +82,22 @@ describe('UnifiedToolRegistry', () => {
       expect(tool).toBeUndefined();
     });
 
+    it('registers ui_details as a client tool with the no-repeat rule (7.1e)', () => {
+      const tool = registry.getToolDefinition('ui_details');
+      expect(tool).toBeDefined();
+      expect(tool?.executionContext).toBe('client');
+      expect(tool?.description).toContain('NAV_CONTEXT has not changed');
+      expect(tool?.description).toContain('do not call again');
+    });
+
+    it('registers portfolio_overview as a server tool with the tiny depth-only schema (7.13/7.2b)', () => {
+      const tool = registry.getToolDefinition('portfolio_overview');
+      expect(tool).toBeDefined();
+      expect(tool?.executionContext).toBe('server');
+      expect(Object.keys(tool?.parameters.properties ?? {})).toEqual(['depth']);
+      expect(tool?.parameters.required ?? []).toEqual([]);
+    });
+
     it('should filter tools by execution context', () => {
       const clientTools = registry.getClientToolDefinitions();
       const serverTools = registry.getServerToolDefinitions();

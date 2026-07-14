@@ -750,6 +750,11 @@ The platform has processed over $2M in transactions in its first year, with 99.9
   const modelAliases: Array<{ alias: string; provider: string; modelId: string }> = [
     { alias: 'default-chat', provider: 'openai', modelId: 'gpt-4o' },
     { alias: 'default-cheap', provider: 'openai', modelId: 'gpt-4o-mini' },
+    // N5 per-category engine aliases: classifier = the per-turn P26 cheap
+    // call; summarizer = the N1 profile+summary jobs (owner intends a
+    // stronger model there — repoint via the ModelAliasPanel, no deploy).
+    { alias: 'default-classifier', provider: 'openai', modelId: 'gpt-4o-mini' },
+    { alias: 'default-summarizer', provider: 'openai', modelId: 'gpt-4o-mini' },
     { alias: 'default-reasoning', provider: 'openai', modelId: 'gpt-4o' },
     // Google for tail-latency stability (owner + live benchmark 2026-07-09:
     // p50 parity ~190ms, but OpenAI spikes to 1.5–3.7s vs Google p90 ~210ms).

@@ -10,7 +10,7 @@
  * transition beats a wrong one). Pure given deps (D46 testability).
  */
 
-import type { GraphDocument, GraphEdge, GraphNode, TurnEvidence, EngineState } from './types';
+import type { GraphDocument, GraphEdge, GraphNode, TurnEvidence, EngineState, TurnSignals } from './types';
 import {
   CheapCallInput,
   CheapCallResult,
@@ -52,6 +52,14 @@ export interface EvaluationOutcome {
   lowEffortCount: number;
   /** Working slot state AFTER this turn's extraction merge (persist into state). */
   slots: Record<string, string>;
+  /**
+   * This turn's graded flag evidence (N2): the classifier's signals, with a
+   * regex-rail probe hit recorded as a 'strong' probing grade — the
+   * deterministic rail is the strongest evidence there is, and recording it
+   * lets repeated pattern probes flip `behavior` without the classifier.
+   * Ring update + hysteresis happen in the engine (host math, Req 19.2).
+   */
+  signals: TurnSignals;
 }
 
 function cosine(a: number[], b: number[]): number {
@@ -162,6 +170,8 @@ export async function evaluateEdges(args: {
   const lowEffort = heuristicLow || cheap?.lowEffort === true;
   const lowEffortCount = lowEffort ? state.consecutiveLowEffort + 1 : 0;
   const slots = { ...state.slots, ...(cheap?.slots ?? {}) };
+  const signals: TurnSignals = { ...(cheap?.signals ?? {}) };
+  if (probeByPattern) signals.probing = 'strong';
 
   const ctxBase: Omit<ConditionContext, 'similarity'> = {
     evidence,
@@ -185,5 +195,5 @@ export async function evaluateEdges(args: {
     }
   }
 
-  return { fired, firedReason, evaluated, cheap, lowEffortCount, slots };
+  return { fired, firedReason, evaluated, cheap, lowEffortCount, slots, signals };
 }

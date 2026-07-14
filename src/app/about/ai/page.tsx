@@ -223,10 +223,11 @@ export default async function AboutAIPage() {
               </a>{' '}
               server, so your own AI — Claude, an agent framework, anything that
               speaks MCP over Streamable HTTP — can search and read the portfolio
-              directly. Three read-only tools:{' '}
+              directly. Four read-only tools:{' '}
               <code className="rounded bg-muted px-1.5 py-0.5 text-sm">search_portfolio</code>,{' '}
               <code className="rounded bg-muted px-1.5 py-0.5 text-sm">get_project</code>,{' '}
-              <code className="rounded bg-muted px-1.5 py-0.5 text-sm">list_projects</code>{' '}
+              <code className="rounded bg-muted px-1.5 py-0.5 text-sm">list_projects</code>,{' '}
+              <code className="rounded bg-muted px-1.5 py-0.5 text-sm">portfolio_overview</code>{' '}
               — the same backend chain the voice assistant uses, exposed twice,
               implemented once.
             </p>

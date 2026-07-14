@@ -40,8 +40,8 @@ itself.
   binding, and per-device sublimits; a global spend watchdog darkens all
   public AI at once and requires manual re-enable.
 - **Public MCP server.** `POST /api/mcp` (Streamable HTTP, stateless) exposes
-  `search_portfolio`, `get_project`, `list_projects` — the same backend chain
-  the assistant uses. Inputs are schema-capped, output is PUBLIC-only enforced
+  `search_portfolio`, `get_project`, `list_projects`, `portfolio_overview` —
+  the same backend chain the assistant uses. Inputs are schema-capped, output is PUBLIC-only enforced
   in SQL, private and nonexistent projects are indistinguishable, every call
   is ledger-metered, and the endpoint shares the global kill switch. Client
   config snippets are on `/about/ai`.

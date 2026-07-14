@@ -11,6 +11,10 @@ import { prisma } from '@/lib/prisma';
 export type ModelAliasName =
   | 'default-chat'
   | 'default-cheap'
+  /** Engine per-turn classifier (P26 cheap call) — task N5 category alias. */
+  | 'default-classifier'
+  /** Engine profile+summary jobs (N1's two calls) — task N5 category alias. */
+  | 'default-summarizer'
   | 'default-reasoning'
   | 'default-embedding'
   | 'default-realtime'

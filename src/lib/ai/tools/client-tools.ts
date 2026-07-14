@@ -194,6 +194,38 @@ export const uiDescribeToolDefinition: UnifiedToolDefinition = {
   }
 };
 
+/**
+ * ui_details (task 7.1e): the instant pull behind the 7.1a orientation diet.
+ * The fid controller retains the FULL current-view context client-side;
+ * this tool returns it with zero server round-trip. Division of labor vs the
+ * semantic tools is encoded in the description (and mirrored in mint
+ * guidance): ui_details = current view in depth; content_search = the whole
+ * portfolio; content_get = a specific known id.
+ */
+export const uiDetailsToolDefinition: UnifiedToolDefinition = {
+  name: 'ui_details',
+  description:
+    'Instantly returns what the visitor is CURRENTLY looking at, in depth: the open project\'s brief + detailed summaries and its section handles. Deterministic, no query, read from the browser — use it FIRST for questions about the on-screen thing. Results are stable for a given NAV_CONTEXT state: if NAV_CONTEXT has not changed since your last ui_details call, you already have this — do not call again. For other topics or projects use content_search; for full detail on a specific known id use content_get.',
+  parameters: {
+    type: 'object',
+    properties: {}
+  },
+  executionContext: 'client',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean' },
+      navKey: { type: 'string' },
+      route: { type: 'string' },
+      currentProject: { type: 'string' },
+      briefSummary: { type: 'string' },
+      detailedSummary: { type: 'string' },
+      semanticItems: { type: 'array', items: { type: 'object' } },
+      availableProjects: { type: 'array', items: { type: 'object' } }
+    }
+  }
+};
+
 // UIManager Navigation Tools - Declarative navigation system
 export const uiIntentToolDefinition: UnifiedToolDefinition = {
   name: 'ui_intent',
@@ -367,6 +399,7 @@ export const clientToolDefinitions: UnifiedToolDefinition[] = [
   clearHighlightsToolDefinition,
   focusElementToolDefinition,
   uiDescribeToolDefinition,
+  uiDetailsToolDefinition,
   uiIntentToolDefinition,
   setAutoNavigationToolDefinition,
   jobDescriptionFormToolDefinition
@@ -957,6 +990,40 @@ export class UINavigationTools {
           'Job-description form opened. The visitor can paste the posting or drop a text file; you will be told when the analysis completes. If they close it without submitting, they may prefer to read the posting aloud instead.',
       };
     });
+  }
+
+  /**
+   * ui_details (7.1e): read the retained full view context straight from the
+   * PassiveFIDManager singleton — client memory, no /api round trip. The
+   * manager's prefetch-on-navigation keeps the buffer warm before the model
+   * can ask; an empty buffer (no navigation yet) is an honest miss, not an
+   * error.
+   */
+  async ['ui_details'](args: any = {}, sessionId?: string): Promise<NavigationResult> {
+    return this.executeAndReport('ui_details', args, async () => {
+      try {
+        const { PassiveFIDManager } = await import('@/lib/ai/PassiveFIDManager');
+        const details = PassiveFIDManager.getInstance().getRetainedDetails();
+        if (!details) {
+          return {
+            success: false,
+            message:
+              'No retained view context yet (no navigation has been observed this session). Use ui_describe for raw UI state or content_search for portfolio content.',
+          };
+        }
+        return {
+          success: true,
+          message: `Current-view detail for ${details.currentProject ?? `route "${details.route}"`} (navKey ${details.navKey} — do not re-call until NAV_CONTEXT changes)`,
+          data: details,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          message: 'Failed to read retained view details',
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }, sessionId);
   }
 
   async ['ui_describe'](args: any = {}, sessionId?: string): Promise<NavigationResult> {

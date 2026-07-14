@@ -31,7 +31,7 @@ import {
   nodeUx,
   resolveSlotTemplates,
 } from './directive';
-import { renderProfileText, flagsEqual, mergeFastFlags } from './profile';
+import { renderProfileText, flagsEqual, updateSignalRing, applySignalThresholds } from './profile';
 
 const DEFAULT_NODE_BUDGET_TOKENS = 1200; // notes §6
 const MAX_ALWAYS_HOPS = 3; // P5 hard cap
@@ -356,6 +356,7 @@ export class ConversationEngine {
         deliveredSummaryVersion: 0,
         lastSummarizerRunAt: null,
         summarizerInFlightSince: null,
+        signalRing: [],
       };
       await this.deps.stateStore.mergeEngineState(conversationId, state);
       // Turn-zero entry marker (notes §2.1.5) — replay shows graph entry
@@ -431,19 +432,24 @@ export class ConversationEngine {
     );
     if (!claimed) return none; // loser writes nothing — no markers, no directive
 
-    // Per-turn state (counters, slot extractions, fast flags — J2) — merge-write
-    // (P18). Fast flags REFINE the current profile per key (mergeFastFlags);
-    // wholesale replacement is the summarizer's move alone (P30). The flags
+    // Per-turn state (counters, slot extractions, graded signals — J2/N2) —
+    // merge-write (P18). The signal ring updates EVERY evaluated turn (it is
+    // steering evidence — the probe edge reads it — so it is not memory-gated);
+    // flag flips happen only past the hysteresis thresholds (Req 19.2 as
+    // amended: host math over ordinal grades, never one-utterance enum flips).
+    // Wholesale replacement is the summarizer's move alone (P30). The flags
     // value itself writes atomically (one key of the engine merge), so a
     // concurrent summarizer completion is last-write-wins, not interleaved.
     // Memory off (M2): flags stop being maintained or rendered — slots keep
     // flowing (stated facts are engine/steering data, Req 14, not memory).
-    const flags = memoryOn ? mergeFastFlags(state.flags, outcome.cheap?.flags ?? {}) : state.flags;
+    const signalRing = updateSignalRing(state.signalRing, evidence.turnMessageId, outcome.signals);
+    const flags = memoryOn ? applySignalThresholds(state.flags, signalRing) : state.flags;
     const profileChanged = memoryOn && !flagsEqual(state.flags, flags);
     const profileVersion = state.profileVersion + (profileChanged ? 1 : 0);
     await this.deps.stateStore.mergeEngineState(conversationId, {
       consecutiveLowEffort: outcome.lowEffortCount,
       slots: outcome.slots,
+      signalRing,
       ...(profileChanged ? { flags, profileVersion } : {}),
     });
     // Req 14.2 (H1): every NEW or CHANGED slot value this turn is mirrored as

@@ -285,3 +285,78 @@ describe('PassiveFIDManager', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// 7.1a — compact orientation text (the dieted publish form)
+// ---------------------------------------------------------------------------
+
+import { renderFidOrientation, FIDContext } from '../PassiveFIDManager';
+
+describe('renderFidOrientation (7.1a diet)', () => {
+  const fullContext: FIDContext = {
+    frame: {
+      portfolioOwner: 'Kirill Prymachov, Experienced game developer with realtime 3D expertise',
+      currentCapabilities: ['navigation', 'project-information'],
+      uiContext: 'viewing project modal',
+    },
+    index: {
+      route: 'home',
+      currentProject: 'verification-fixture-kiln',
+      visibleSections: ['thermal-control-system', 'results'],
+      availableProjects: [],
+      projectSemanticItems: [
+        { id: 'hash-abc123', oneLiner: 'Thermal Control System', chunkId: 'thermal-control-system', tier: 2 },
+      ],
+    },
+    details: {
+      briefSummary: 'A kiln controller project with PID loops.',
+      detailedSummary: 'LONG-DETAILED-BODY '.repeat(50),
+      projectSummary: 'A kiln controller project with PID loops.',
+    },
+  };
+
+  it('keeps location + pull handles, drops identity/capabilities/content prose', () => {
+    const text = renderFidOrientation(fullContext);
+    // orientation stays
+    expect(text).toContain('route "home"');
+    expect(text).toContain('project OPEN: verification-fixture-kiln');
+    expect(text).toContain('thermal-control-system');
+    // pull handles keep DB ids + anchors (content_get / ui_intent need them)
+    expect(text).toContain('hash-abc123');
+    expect(text).toContain('#thermal-control-system');
+    // the 7.1a drop list: bio, capabilities, summaries, raw JSON shape
+    expect(text).not.toContain('Kirill Prymachov'); // identity is mint-carried (7.2c)
+    expect(text).not.toContain('project-information');
+    expect(text).not.toContain('LONG-DETAILED-BODY');
+    expect(text).not.toContain('PID loops'); // brief summary is a pull now
+    expect(text).not.toContain('"frame"');
+    // and it points the model at the pull tools
+    expect(text).toContain('ui_details');
+    expect(text).toContain('content_search');
+  });
+
+  it('homepage renders titles+slugs only (one-liners live in the mint start frame)', () => {
+    const homepage: FIDContext = {
+      ...fullContext,
+      index: {
+        route: 'home',
+        currentProject: undefined,
+        visibleSections: [],
+        availableProjects: [
+          {
+            id: '1', slug: 'kiln', title: 'Chrono Kiln', description: 'desc',
+            tags: ['iot'], technologies: ['c++'], tier1Summary: 'ONE-LINER-PROSE', importance: 0.9,
+          },
+        ],
+        projectSemanticItems: undefined,
+      },
+      details: {},
+    };
+    const text = renderFidOrientation(homepage);
+    expect(text).toContain('Chrono Kiln (kiln)');
+    expect(text).toContain('no project open');
+    expect(text).not.toContain('ONE-LINER-PROSE');
+    expect(text).not.toContain('importance');
+    expect(text).not.toContain('c++'); // technologies twin array dropped
+  });
+});

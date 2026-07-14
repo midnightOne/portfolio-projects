@@ -10,6 +10,8 @@ import { UnifiedToolDefinition, UnifiedToolResult, ServerToolExecutionContext } 
 import { serverToolDefinitions } from './server-tools';
 import ContentSearchService from '@/lib/content/ContentSearchService';
 import { contextFrameManager, ContextSwapConfig } from '../ContextFrameManager';
+import { OWNER_PROFILE } from '../owner-profile';
+import { assemblePortfolioOverview } from '../start-frame';
 
 export interface BackendToolExecutionRequest {
   toolName: string;
@@ -205,6 +207,18 @@ export class BackendToolService {
         // owner notification through the ONE seam (lib/ai/leads). The handler
         // never throws — its `message` tells the model what to do next
         // (including "ask for consent first" when the attestation is missing).
+        // 7.13: owner/portfolio depth — one assembly module (start-frame.ts)
+        // serves the mint, this tool, and the MCP server. Never fork it.
+        case 'portfolio_overview': {
+          const depth = parameters.depth === 'full' ? 'full' : 'brief';
+          result = {
+            success: true,
+            depth,
+            overview: await assemblePortfolioOverview(depth),
+          };
+          break;
+        }
+
         case 'lead_capture': {
           const { captureLead } = await import('@/lib/ai/leads/lead-capture');
           result = await captureLead({
@@ -345,27 +359,24 @@ export class BackendToolService {
     const { includePrivate = false, includeSkills = true, includeExperience = true } = args;
 
     try {
-      // Return structured profile data directly without contextInjector to avoid hanging
-      // TODO: In the future, this could load real profile data from database
+      // Canonical identity lives in owner-profile.ts (7.2c) — one source for
+      // this handler, the mint start frame, and portfolio_overview.
       const profileData = {
-        name: 'Kirill Prymachov',
-        title: 'XR/AI Developer',
-        bio: 'Experienced game developer with expertise in realtime 3D mutiplayer games, AR/VR and applied AI engineering',
-        skills: includeSkills ? [
-          'JavaScript', 'TypeScript', 'React', 'Next.js', 'Node.js',
-          'Python', 'PostgreSQL', 'Prisma', 'Tailwind CSS', 'Git', 'Unity', 'Unreal Engine', 'Technical art (shaders)'
-        ] : [],
-        experience: includeExperience ? '7+ years of professional development experience' : undefined,
+        name: OWNER_PROFILE.name,
+        title: OWNER_PROFILE.title,
+        bio: OWNER_PROFILE.bio,
+        skills: includeSkills ? [...OWNER_PROFILE.skills] : [],
+        experience: includeExperience ? OWNER_PROFILE.experience : undefined,
         contact: {
           email: includePrivate && context.accessLevel === 'premium' ? 'contact@example.com' : undefined,
           linkedin: 'https://linkedin.com/in/developer',
           github: 'https://github.com/developer',
           website: 'https://portfolio.example.com'
         },
-        location: 'New York',
-        availability: 'Available for new opportunities',
-        interests: ['XR', 'applied/agentic AI', 'game development', 'AR applications of the future'],
-        education: 'Computer Science Degree',
+        location: OWNER_PROFILE.location,
+        availability: OWNER_PROFILE.availability,
+        interests: [...OWNER_PROFILE.interests],
+        education: OWNER_PROFILE.education,
         certifications: [],
         accessLevel: context.accessLevel,
         filteredForReflink: !!context.reflinkId,

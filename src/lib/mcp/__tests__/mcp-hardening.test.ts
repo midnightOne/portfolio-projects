@@ -29,6 +29,12 @@ jest.mock('@/lib/ai/tools/BackendToolService', () => {
   };
 });
 
+// Mock the ONE overview assembly module (task 6 dispatches through it)
+jest.mock('@/lib/ai/start-frame', () => ({
+  assemblePortfolioOverview: jest.fn(async (depth: string) => `OVERVIEW[${depth}]`),
+  assembleStartFrame: jest.fn(async () => 'OVERVIEW[brief]'),
+}));
+
 import { prisma } from '@/lib/prisma';
 import { BackendToolService } from '@/lib/ai/tools/BackendToolService';
 import { buildMcpServer, MCP_TOOL_NAMES } from '../server';
@@ -65,7 +71,7 @@ beforeEach(() => {
 });
 
 describe('MCP hardening — tools/list snapshot (no write path)', () => {
-  it('advertises exactly the three read-only v1 tools', async () => {
+  it('advertises exactly the four read-only tools', async () => {
     const client = await connectedClient();
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual([...MCP_TOOL_NAMES].sort());
@@ -217,5 +223,28 @@ describe('MCP hardening — metering', () => {
     expect(ctx.meter).toHaveBeenCalledWith(
       expect.objectContaining({ usageType: 'mcp_tool_call', metadata: expect.objectContaining({ tool: 'search_portfolio', ok: true }) })
     );
+  });
+});
+
+describe('MCP portfolio_overview (task 6 / ai-assistant 7.13)', () => {
+  it('returns the shared assembly artifact at both depths and defaults to brief', async () => {
+    const client = await connectedClient();
+
+    const brief = await client.callTool({ name: 'portfolio_overview', arguments: {} });
+    expect(JSON.stringify(brief)).toContain('OVERVIEW[brief]');
+
+    const full = await client.callTool({ name: 'portfolio_overview', arguments: { depth: 'full' } });
+    expect(JSON.stringify(full)).toContain('OVERVIEW[full]');
+  });
+
+  it('rejects an out-of-enum depth at the schema (never reaches the assembly)', async () => {
+    const { assemblePortfolioOverview } = jest.requireMock('@/lib/ai/start-frame');
+    (assemblePortfolioOverview as jest.Mock).mockClear();
+    const client = await connectedClient();
+    const result = await client
+      .callTool({ name: 'portfolio_overview', arguments: { depth: 'everything' } })
+      .catch((e) => e);
+    expect(JSON.stringify(result)).toMatch(/invalid|error/i);
+    expect(assemblePortfolioOverview).not.toHaveBeenCalled();
   });
 });

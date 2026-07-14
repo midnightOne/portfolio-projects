@@ -187,6 +187,40 @@ export interface TurnEvidence {
  * summarizer degrades that ONE flag to undefined instead of invalidating the
  * whole engine state (P18 — a bad flag must never turn the engine off).
  */
+/**
+ * Ordinal signal grade (Req 19.2 as amended 2026-07-13): classifier calls
+ * grade flag EVIDENCE as `none|weak|clear|strong` — never raw floats, which
+ * cheap models cannot calibrate. The host maps grades to numbers and applies
+ * hysteresis thresholds before any enum flips (profile.ts).
+ */
+export const SignalGradeSchema = z.enum(['none', 'weak', 'clear', 'strong']);
+export type SignalGrade = z.infer<typeof SignalGradeSchema>;
+
+/**
+ * One turn's graded flag evidence from the per-turn classifier. Per-field
+ * tolerant like VisitorFlags (P18): a garbage grade degrades that ONE signal
+ * to undefined, never the whole result.
+ */
+export const TurnSignalsSchema = z
+  .object({
+    /** Evidence the visitor DEMONSTRATES technical fluency themselves. */
+    technical: SignalGradeSchema.optional().catch(undefined),
+    /** Evidence of injection/off-topic probing (also feeds the probe edge). */
+    probing: SignalGradeSchema.optional().catch(undefined),
+    /** Evidence of sustained hostility (not bluntness). */
+    rude: SignalGradeSchema.optional().catch(undefined),
+    /** Graded intent read — value + how clearly this utterance signals it. */
+    intent: z
+      .object({
+        value: z.enum(['hiring', 'browsing', 'specific_role', 'general']),
+        strength: SignalGradeSchema,
+      })
+      .optional()
+      .catch(undefined),
+  })
+  .catch({});
+export type TurnSignals = z.infer<typeof TurnSignalsSchema>;
+
 export const VisitorFlagsSchema = z
   .object({
     register: z.enum(['technical', 'layman']).optional().catch(undefined),
@@ -239,6 +273,18 @@ export const EngineStateSchema = z.object({
   /** Behavior-summarizer bookkeeping (P29): staleness trigger + in-flight guard. */
   lastSummarizerRunAt: z.string().nullable().default(null),
   summarizerInFlightSince: z.string().nullable().default(null),
+  /**
+   * Per-flag signal ring (Req 19.2 as amended, task N2): the last few
+   * evaluated user turns' graded classifier evidence, keyed by turn id
+   * (idempotent on retries — P2). The host does the math: enum flips happen
+   * only past hysteresis thresholds (profile.ts applySignalThresholds).
+   * Defaults on parse so pre-N persisted blobs read cleanly (P18). Maintained
+   * whenever the engine evaluates a turn — it is steering evidence (the probe
+   * edge reads it) as much as memory evidence, so it is NOT memory-gated.
+   */
+  signalRing: z
+    .array(z.object({ turnId: z.string(), signals: TurnSignalsSchema }))
+    .default([]),
   // NOTE: no pendingModelSwap and no swap scheduling of any kind — the owner
   // removed native mid-session model switching (Req 5.3, 2026-07-09). Node
   // modelAlias is per-turn resolution data on cascade/text and mint-time input

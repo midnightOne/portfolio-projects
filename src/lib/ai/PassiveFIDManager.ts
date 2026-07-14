@@ -77,6 +77,65 @@ interface CacheEntry {
   ttl: number;
 }
 
+/**
+ * The retained full view context behind the dieted push (task 7.1e): the
+ * manager keeps holding everything it fetched for the CURRENT view; the
+ * `ui_details` client tool reads it straight from the browser — zero server
+ * round-trip. `navKey` identifies the NAV_CONTEXT state the detail belongs to
+ * (the tool's no-repeat rule keys on it).
+ */
+export interface RetainedViewDetails {
+  navKey: string;
+  route: string;
+  currentProject?: string;
+  visibleSections: string[];
+  briefSummary?: string;
+  detailedSummary?: string;
+  semanticItems?: SemanticItem[];
+  availableProjects?: Array<{ slug: string; title: string; oneLiner: string }>;
+}
+
+/**
+ * Render the fid as compact orientation TEXT (task 7.1a, owner ruling
+ * 2026-07-12): the passive push carries WHERE the visitor is plus pull
+ * handles (ids + heading names) — never content prose. What was dropped vs
+ * the old raw-JSON publish: `frame.portfolioOwner` + `currentCapabilities`
+ * (now mint-carried, 7.2c), `detailedSummary`/`briefSummary`/`projectSummary`
+ * (now pulls via ui_details), the tags/technologies twin arrays, importance
+ * floats, and per-project one-liners on the homepage (the mint start frame
+ * already lists them).
+ */
+export function renderFidOrientation(context: FIDContext): string {
+  const lines: string[] = [
+    'NAV_CONTEXT (visitor location — orientation only). For what the visitor is currently looking at in depth call ui_details; for other topics/projects use content_search; for a specific known id use content_get.',
+  ];
+  const route = context.index.route || 'home';
+  if (context.index.currentProject) {
+    lines.push(`Location: route "${route}" — project OPEN: ${context.index.currentProject}`);
+  } else {
+    lines.push(`Location: route "${route}" — no project open`);
+  }
+  if (context.index.visibleSections.length > 0) {
+    lines.push(`Visible sections: ${context.index.visibleSections.slice(0, 8).join(', ')}`);
+  }
+  const items = context.index.projectSemanticItems;
+  if (items && items.length > 0) {
+    lines.push('Section handles (heading — id for content_get, #anchor for ui_intent):');
+    for (const item of items.slice(0, 15)) {
+      const heading = item.oneLiner.length > 80 ? `${item.oneLiner.slice(0, 79)}…` : item.oneLiner;
+      lines.push(`- ${heading} [${item.id}, #${item.chunkId}]`);
+    }
+  }
+  const projects = context.index.availableProjects;
+  if (projects && projects.length > 0) {
+    lines.push(`Projects on page: ${projects.map((p) => `${p.title} (${p.slug})`).join('; ')}`);
+  }
+  if (context.details.selectedText) {
+    lines.push(`Visitor selected text: "${context.details.selectedText.slice(0, 200)}"`);
+  }
+  return lines.join('\n');
+}
+
 // Server API response format
 interface FIDContextAPIResponse {
   success: boolean;
@@ -119,6 +178,9 @@ export class PassiveFIDManager {
   // Cleanup timer
   private cleanupTimer: NodeJS.Timeout | null = null;
 
+  // 7.1e: the FULL context behind the dieted push, kept warm for ui_details.
+  private retained: { context: FIDContext; navKey: string } | null = null;
+
   private constructor() {
     this.startCleanupTimer();
 
@@ -156,6 +218,7 @@ export class PassiveFIDManager {
           timestamp: Date.now()
         });
 
+        this.retain(cached.context, uiState);
         return cached.context;
       }
 
@@ -172,6 +235,7 @@ export class PassiveFIDManager {
 
       // Store in cache
       this.setCache(cacheKey, context);
+      this.retain(context, uiState);
 
       debugEventEmitter.emit('fid-context-loaded', {
         cacheKey,
@@ -199,6 +263,41 @@ export class PassiveFIDManager {
       // Return minimal fallback context on error
       return await this.getMinimalFallbackContext(uiState);
     }
+  }
+
+  /**
+   * 7.1e retention: remember the full context for the current NAV state.
+   * navKey deliberately tracks route+project only — scrolling refines
+   * visibleSections without invalidating what the visitor "is looking at".
+   */
+  private retain(context: FIDContext, uiState: UIState): void {
+    this.retained = {
+      context,
+      navKey: `${uiState.currentRoute || 'home'}::${uiState.currentProject || 'none'}`,
+    };
+  }
+
+  /**
+   * The `ui_details` read (task 7.1e): the retained FULL view detail behind
+   * the dieted orientation push. Instant — browser memory, no server call.
+   */
+  getRetainedDetails(): RetainedViewDetails | null {
+    if (!this.retained) return null;
+    const { context, navKey } = this.retained;
+    return {
+      navKey,
+      route: context.index.route,
+      currentProject: context.index.currentProject,
+      visibleSections: context.index.visibleSections,
+      briefSummary: context.details.briefSummary,
+      detailedSummary: context.details.detailedSummary,
+      semanticItems: context.index.projectSemanticItems,
+      availableProjects: context.index.availableProjects?.map((p) => ({
+        slug: p.slug,
+        title: p.title,
+        oneLiner: p.tier1Summary || p.description,
+      })),
+    };
   }
 
   /**

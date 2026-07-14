@@ -31,6 +31,13 @@ interface ReflinkSessionContextType {
   
   // Actions
   refreshSession: () => Promise<void>;
+  /**
+   * 7.12: validate a typed access code through the SAME `?ref=` flow (D56 —
+   * no new access logic) and upgrade the session in place on success. Returns
+   * the failure reason instead of mutating global state on an invalid code,
+   * so callers can render an honest inline error.
+   */
+  applyAccessCode: (code: string) => Promise<{ ok: boolean; reason?: string }>;
   getUpgradeMessage: (feature: AIFeature) => Promise<UpgradeMessage>;
   
   // Budget monitoring
@@ -101,13 +108,49 @@ export function ReflinkSessionProvider({ children }: ReflinkSessionProviderProps
   };
 
   /**
+   * Activate a VALIDATED reflink session (shared by the `?ref=` URL flow and
+   * the 7.12 typed-code flow — one activation path, D56).
+   */
+  const activateReflinkSession = async (validation: any, reflinkCode: string) => {
+    sessionStorage.setItem('ai_reflink_code', reflinkCode);
+    const reflinkSession: ReflinkSession = {
+      reflink: validation.reflink,
+      accessLevel: 'premium',
+      personalizedContext: {
+        recipientName: validation.reflink.recipientName,
+        customNotes: validation.reflink.customContext,
+        conversationStarters: generateConversationStarters(validation.reflink),
+        emphasizedTopics: extractEmphasizedTopics(validation.reflink.customContext),
+      },
+      budgetStatus: validation.budgetStatus,
+      sessionStartTime: new Date(),
+    };
+
+    setSession(reflinkSession);
+    setAccessLevel('premium');
+    setPersonalizedContext(reflinkSession.personalizedContext);
+    setBudgetStatus(validation.budgetStatus);
+    setWelcomeMessage(validation.welcomeMessage || generateWelcomeMessage(validation.reflink));
+    setAccessMessage(null); // any basic-tier notice is obsolete once premium
+
+    // Get feature availability for premium access
+    await loadFeatureAvailability('premium');
+
+    // Store session in sessionStorage for persistence
+    sessionStorage.setItem('ai_reflink_session', JSON.stringify(reflinkSession));
+    // Consumers OUTSIDE this provider (header JD button) re-read the cache
+    // on this signal — sessionStorage fires no same-tab storage events.
+    window.dispatchEvent(new CustomEvent('ai-session-updated'));
+  };
+
+  /**
    * Initialize session with reflink
    */
   const initializeReflinkSession = async (reflinkCode: string) => {
     try {
       // Store reflink in session storage for persistence
       sessionStorage.setItem('ai_reflink_code', reflinkCode);
-      
+
       const response = await fetch('/api/ai/reflink/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -121,33 +164,7 @@ export function ReflinkSessionProvider({ children }: ReflinkSessionProviderProps
       const validation = await response.json();
 
       if (validation.valid && validation.reflink) {
-        const reflinkSession: ReflinkSession = {
-          reflink: validation.reflink,
-          accessLevel: 'premium',
-          personalizedContext: {
-            recipientName: validation.reflink.recipientName,
-            customNotes: validation.reflink.customContext,
-            conversationStarters: generateConversationStarters(validation.reflink),
-            emphasizedTopics: extractEmphasizedTopics(validation.reflink.customContext),
-          },
-          budgetStatus: validation.budgetStatus,
-          sessionStartTime: new Date(),
-        };
-
-        setSession(reflinkSession);
-        setAccessLevel('premium');
-        setPersonalizedContext(reflinkSession.personalizedContext);
-        setBudgetStatus(validation.budgetStatus);
-        setWelcomeMessage(validation.welcomeMessage || generateWelcomeMessage(validation.reflink));
-        
-        // Get feature availability for premium access
-        await loadFeatureAvailability('premium');
-        
-        // Store session in sessionStorage for persistence
-        sessionStorage.setItem('ai_reflink_session', JSON.stringify(reflinkSession));
-        // Consumers OUTSIDE this provider (header JD button) re-read the cache
-        // on this signal — sessionStorage fires no same-tab storage events.
-        window.dispatchEvent(new CustomEvent('ai-session-updated'));
+        await activateReflinkSession(validation, reflinkCode);
       } else {
         // Invalid reflink - show appropriate message and fall back to public access
         await handleInvalidReflink(validation.reason);
@@ -155,6 +172,34 @@ export function ReflinkSessionProvider({ children }: ReflinkSessionProviderProps
     } catch (error) {
       console.error('Failed to initialize reflink session:', error);
       await initializePublicSession();
+    }
+  };
+
+  /**
+   * 7.12: typed access code from the basic-access notice. Same validate
+   * endpoint + activation as the `?ref=` flow; an invalid code returns its
+   * reason WITHOUT touching global session state (the caller shows an inline
+   * error — the URL-flow's full-screen invalid handling stays URL-only).
+   */
+  const applyAccessCode = async (code: string): Promise<{ ok: boolean; reason?: string }> => {
+    const trimmed = code.trim();
+    if (!trimmed) return { ok: false, reason: 'empty' };
+    try {
+      const response = await fetch('/api/ai/reflink/validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: trimmed }),
+      });
+      if (!response.ok) return { ok: false, reason: 'error' };
+      const validation = await response.json();
+      if (validation.valid && validation.reflink) {
+        await activateReflinkSession(validation, trimmed);
+        return { ok: true };
+      }
+      return { ok: false, reason: validation.reason || 'invalid' };
+    } catch (error) {
+      console.error('Failed to apply access code:', error);
+      return { ok: false, reason: 'error' };
     }
   };
 
@@ -388,6 +433,7 @@ export function ReflinkSessionProvider({ children }: ReflinkSessionProviderProps
     personalizedContext,
     budgetStatus,
     refreshSession,
+    applyAccessCode,
     getUpgradeMessage,
     checkBudgetStatus,
     onBudgetExhausted,

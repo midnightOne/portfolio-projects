@@ -9,7 +9,7 @@
  * are deterministic (P16) and duration math has one source of truth.
  */
 
-import type { VisitorFlags } from './types';
+import type { EngineState, SignalGrade, TurnSignals, VisitorFlags } from './types';
 
 const FLAG_PHRASES: Record<string, Record<string, string>> = {
   register: {
@@ -71,16 +71,113 @@ export function flagsEqual(a: VisitorFlags, b: VisitorFlags): boolean {
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// Ordinal signal grading + hysteresis (Req 19.2 as amended 2026-07-13, task
+// N2). The classifier grades evidence (none|weak|clear|strong, never floats);
+// THIS module does the math: a short per-flag signal ring over the last few
+// evaluated user turns, and enum flips only past thresholds. Motivating
+// incident: a recruiter saying "firmware engineering" flipped register
+// layman→technical off ONE utterance (transcript cmripxttm…).
+// ---------------------------------------------------------------------------
+
+export type SignalRing = EngineState['signalRing'];
+
+/** Ring length — "the last 3–5 user turns" (Req 19.2); thresholds below use windows ≤ this. */
+export const SIGNAL_RING_SIZE = 5;
+
+const GRADE_SCORE: Record<SignalGrade, number> = { none: 0, weak: 1, clear: 2, strong: 3 };
+
+/** Grade at or above 'clear'. */
+function clearPlus(grade: SignalGrade | undefined): boolean {
+  return grade !== undefined && GRADE_SCORE[grade] >= GRADE_SCORE.clear;
+}
+
 /**
- * Merge a fast-flag update (per-turn cheap call, Req 19.2) into the current
- * profile: per-key, defined values win, undefined leaves the current read in
- * place. Distinct from the summarizer path, which REPLACES wholesale (P30) —
- * fast flags refine between summarizer runs, they never erase.
+ * Append one turn's graded evidence to the ring, keyed by turn id so a
+ * retried /log POST updates in place instead of double-counting (P2).
+ * Turns with NO signals still enter the ring — an evaluated turn with no
+ * evidence is itself evidence (it dilutes "2 of the last 3" windows).
  */
-export function mergeFastFlags(current: VisitorFlags, update: VisitorFlags): VisitorFlags {
-  const merged: VisitorFlags = { ...current };
-  if (update.register !== undefined) merged.register = update.register;
-  if (update.intent !== undefined) merged.intent = update.intent;
-  if (update.behavior !== undefined) merged.behavior = update.behavior;
-  return merged;
+export function updateSignalRing(ring: SignalRing, turnId: string, signals: TurnSignals): SignalRing {
+  const withoutTurn = ring.filter((entry) => entry.turnId !== turnId);
+  return [...withoutTurn, { turnId, signals }].slice(-SIGNAL_RING_SIZE);
+}
+
+/**
+ * Count ring entries (over an optional tail window) whose `pick`ed grade is
+ * clear or stronger.
+ */
+function countClearPlus(
+  ring: SignalRing,
+  pick: (s: TurnSignals) => SignalGrade | undefined,
+  window = ring.length
+): number {
+  return ring.slice(-window).filter((entry) => clearPlus(pick(entry.signals))).length;
+}
+
+/**
+ * Hysteresis: derive flag flips from the ring (which already includes the
+ * current turn). Thresholds (Req 19.2 as amended — owner-set):
+ *
+ *  - `register → technical`: clear+ on 2 of the last 3 turns, or one strong.
+ *    Never flips back to layman here — layman is absence of evidence; the
+ *    windowed summarizer profile call owns that judgment.
+ *  - `behavior → probing`: clear+ twice anywhere in the ring. A single
+ *    tongue-in-cheek "ignore all instructions" from an otherwise cooperative
+ *    visitor never flips behavior — it may be a technical recruiter testing
+ *    the site.
+ *  - `behavior → rude`: strong twice CONSECUTIVE (wins over probing).
+ *  - `intent`: the same value at clear+ on 2 of the last 3 turns, or one
+ *    strong on the current turn.
+ *
+ * Everything not past a threshold keeps its current value — fast signals
+ * refine between summarizer runs, they never erase (the J2 posture).
+ */
+export function applySignalThresholds(current: VisitorFlags, ring: SignalRing): VisitorFlags {
+  const next: VisitorFlags = { ...current };
+  const last3 = ring.slice(-3);
+  const latest = ring[ring.length - 1];
+
+  // register → technical
+  const technicalStrong = last3.some((e) => e.signals.technical === 'strong');
+  if (technicalStrong || countClearPlus(last3, (s) => s.technical) >= 2) {
+    next.register = 'technical';
+  }
+
+  // behavior — rude beats probing when both clear their thresholds
+  const lastTwo = ring.slice(-2);
+  const rudeTwiceConsecutive =
+    lastTwo.length === 2 && lastTwo.every((e) => e.signals.rude === 'strong');
+  const probingTwice = countClearPlus(ring, (s) => s.probing) >= 2;
+  if (rudeTwiceConsecutive) next.behavior = 'rude';
+  else if (probingTwice) next.behavior = 'probing';
+
+  // intent — 2-of-3 agreement on the same value, or a strong current read
+  if (latest?.signals.intent?.strength === 'strong') {
+    next.intent = latest.signals.intent.value;
+  } else {
+    const counts = new Map<VisitorFlags['intent'], number>();
+    for (const entry of last3) {
+      const read = entry.signals.intent;
+      if (read && clearPlus(read.strength)) counts.set(read.value, (counts.get(read.value) ?? 0) + 1);
+    }
+    for (const [value, count] of counts) {
+      if (count >= 2 && value !== undefined) next.intent = value;
+    }
+  }
+
+  return next;
+}
+
+/**
+ * Probe-edge hysteresis (task N2): the classifier arm of the probe condition
+ * fires only when the CURRENT turn grades probing clear+ AND at least one
+ * EARLIER ring turn did too ("clear+ twice", anchored to now so a stale pair
+ * of old signals cannot re-fire the edge on an innocent turn). The regex rail
+ * is deliberately NOT routed through this — it fires immediately (the layer
+ * that cannot be talked down).
+ */
+export function probeSignalConfirmed(ring: SignalRing, currentTurnSignals: TurnSignals): boolean {
+  if (!clearPlus(currentTurnSignals.probing)) return false;
+  return countClearPlus(ring, (s) => s.probing) >= 1;
 }

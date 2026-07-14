@@ -23,6 +23,15 @@ export interface ResumeBriefingInput {
   lastDisruption?: { issueType?: string };
   snapshot?: { provider?: string; modelAlias?: string } | null;
   summary?: { text: string; version: number } | null;
+  /**
+   * 7.11 (owner ruling 2026-07-13): resume #1 in a conversation may
+   * acknowledge briefly; every LATER resume reconnects silently — by resume
+   * #2 the model has used its "we're back" line, and forced speech on a
+   * disruption loop produced the `cmrjljvfm…` ghost continuation. The
+   * adapter suppresses its auto `response.create` for these legs; this flag
+   * makes the briefing match.
+   */
+  silent?: boolean;
 }
 
 /** Pure renderer (unit-tested): input → briefing text, or null when there is nothing to brief. */
@@ -35,7 +44,9 @@ export function renderResumeBriefing(briefing: ResumeBriefingInput): string | nu
     'SESSION RESUME (system): You are continuing a conversation that was interrupted' +
       (briefing.lastDisruption?.issueType ? ` (${briefing.lastDisruption.issueType})` : '') +
       ' and has just been re-established. The visitor is the same person.',
-    'Do NOT greet them as if new and do NOT restart the conversation. Briefly acknowledge the reconnection in one short clause, then continue naturally from where things left off.',
+    briefing.silent
+      ? 'This connection has already been re-established at least once before. Do not speak until the visitor does — no greeting, no reconnection acknowledgement, no picking up your last thread unprompted. The visitor heard a reconnect cue already; when they speak, continue naturally from where things left off.'
+      : 'Do NOT greet them as if new and do NOT restart the conversation. Briefly acknowledge the reconnection in one short clause, then continue naturally from where things left off.',
     'If you reference earlier context, do it unceremoniously and honestly ("last time you were looking at X") — no reintroduction fanfare.',
     'Keep answering in the language the conversation was already using.',
   ];
@@ -57,8 +68,11 @@ export function renderResumeBriefing(briefing: ResumeBriefingInput): string | nu
   return lines.join('\n');
 }
 
-export async function buildResumeBriefing(sessionId: string): Promise<string | null> {
+export async function buildResumeBriefing(
+  sessionId: string,
+  opts?: { silent?: boolean }
+): Promise<string | null> {
   const briefing = await conversationHistoryManager.getResumeBriefing(sessionId);
   if (!briefing) return null;
-  return renderResumeBriefing(briefing);
+  return renderResumeBriefing({ ...briefing, silent: opts?.silent });
 }

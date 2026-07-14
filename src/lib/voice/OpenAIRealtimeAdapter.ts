@@ -103,6 +103,8 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     /** Size/time of the last NAV_CONTEXT send, surfaced in disruption diagnostics. */
     private _lastNavPushInfo: { at: number; chars: number } | null = null;
     private _resumeInProgress = false;
+    /** 7.11: resumes performed for the CURRENT conversation (reset on fresh connect). */
+    private _conversationResumeCount = 0;
     /** Model id returned by the mint route for the current leg. */
     private _mintedModel: string | null = null;
     /** Bumped per RealtimeSession creation — scopes index-fallback item ids to a leg. */
@@ -2044,9 +2046,16 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
         // D49: adopt the interrupted conversation's identity — history continues
         // in the same conversation row; the mint route briefs the new leg.
+        // 7.11: count resumes per conversation — resume #1 may acknowledge
+        // briefly; every later resume reconnects SILENTLY (no auto
+        // response.create, "do not speak until the visitor does" briefing).
         if (resuming) {
             this._sessionId = options!.resumeFromSessionId!;
+            this._conversationResumeCount += 1;
+        } else {
+            this._conversationResumeCount = 0;
         }
+        const silentResume = resuming && this._conversationResumeCount >= 2;
 
         try {
             if (wantsMic) {
@@ -2101,6 +2110,8 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
             if (resuming) {
                 sessionUrl.searchParams.set('resumeSessionId', this._sessionId!);
+                // 7.11: the briefing must match the adapter's speech policy.
+                if (silentResume) sessionUrl.searchParams.set('silentResume', '1');
             }
 
             console.log('OpenAIRealtimeAdapter: Session request URL:', sessionUrl.toString());
@@ -2130,11 +2141,20 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 apiKey: client_secret,
             });
 
-            this._session.transport.sendEvent({
-                type: "response.create",
-                response: {},
-            });
-            //this._session.transport.sendMessage("",{},{ triggerResponse: true });
+            // 7.11 (owner ruling 2026-07-13): only a FRESH session or the
+            // FIRST resume of a conversation gets the auto response.create.
+            // Later resumes reconnect silently — on the Firefox ~36s
+            // disruption loop, forced speech every leg produced the
+            // `cmrjljvfm…` "3D work" ghost continuation by resume #2. The D50
+            // reconnect clip remains the only audible cue on silent legs.
+            if (!silentResume) {
+                this._session.transport.sendEvent({
+                    type: "response.create",
+                    response: {},
+                });
+            } else {
+                console.log('OpenAIRealtimeAdapter: silent resume — skipping auto response.create (7.11)');
+            }
 
             this._isConnected = true;
             this._connectionStatus = 'connected';
@@ -2895,6 +2915,12 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
      * oversized send can silently drop or kill the channel. Compact oversized
      * F-I-D payloads progressively BEFORE they enter the buffer (the buffer's
      * budget drops whole ITEMS, it never edits inside one — notes §6).
+     *
+     * 7.1a note: the production publish path (UIManager) now sends compact
+     * orientation TEXT, which passes through untouched — this object branch
+     * survives only as a safety net for legacy object publishers (the
+     * voice-debug panel's pushPassiveContext shim), verified dead on the
+     * production path.
      */
     publishPassiveContext(key: string, value: unknown, opts?: { ttlMs?: number; priority?: number }): void {
         if (key === 'fid' && value && typeof value === 'object') {

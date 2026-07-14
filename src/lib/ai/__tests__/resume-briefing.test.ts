@@ -61,4 +61,17 @@ describe('renderResumeBriefing (I3 / Req 17.3)', () => {
     const text = renderResumeBriefing({ recentTurns: [{ role: 'user', content: 'hi' }] });
     expect(text).toContain('unceremoniously');
   });
+
+  it('7.11: the silent variant forbids speaking until the visitor does (resume #2+)', () => {
+    const silent = renderResumeBriefing({
+      recentTurns: [{ role: 'user', content: 'hi' }],
+      silent: true,
+    });
+    expect(silent).toContain('Do not speak until the visitor does');
+    expect(silent).not.toContain('Briefly acknowledge the reconnection');
+    // resume #1 keeps the brief-acknowledge behavior
+    const first = renderResumeBriefing({ recentTurns: [{ role: 'user', content: 'hi' }] });
+    expect(first).toContain('Briefly acknowledge the reconnection');
+    expect(first).not.toContain('Do not speak until the visitor does');
+  });
 });

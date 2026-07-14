@@ -24,10 +24,12 @@ import type {
 } from '@/lib/ai/engine/types';
 import { buildCheapCallPrompt, CheapCallInput, CheapCallResult, CheapCallResultSchema } from '@/lib/ai/engine/cheap-call';
 import {
-  buildSummarizerPrompt,
+  buildProfilePrompt,
+  buildSummaryPrompt,
   summarizerNeeded,
   applySummarizerProfile,
-  SummarizerResultSchema,
+  ProfileResultSchema,
+  SummaryResultSchema,
 } from '@/lib/ai/engine/summarizer';
 import { runSecondaryLLMJob } from './secondary-llm';
 import { renderProfileText, flagsEqual } from '@/lib/ai/engine/profile';
@@ -88,7 +90,7 @@ function windowConfig(): WindowConfig {
 // live-fire finding: sessionId alone missed these rows).
 async function runCheapCallMetered(input: CheapCallInput, conversationId?: string): Promise<CheapCallResult | null> {
   const outcome = await runSecondaryLLMJob({
-    alias: 'default-cheap',
+    alias: 'default-classifier', // N5: per-category alias — owner-tunable via ModelAliasPanel
     prompt: buildCheapCallPrompt(input),
     schema: CheapCallResultSchema,
     usageType: 'engine_classifier',
@@ -309,23 +311,41 @@ export async function runSummarizerJob(conversationId: string): Promise<void> {
       return;
     }
 
-    // M1: the summarizer consumes the shared secondary-LLM path (the caller —
-    // this job — owns the P29 claim; the module owns alias/meter/parse).
-    const outcome = await runSecondaryLLMJob({
-      alias: 'default-cheap',
-      prompt: buildSummarizerPrompt(input),
-      schema: SummarizerResultSchema,
-      usageType: 'engine_summarizer',
-      temperature: 0.2,
-      maxOutputTokens: 700,
-      // F1 (P17): the ledger's conversationId join key — test-session
-      // summarizer spend is excluded from the watchdog like all other rows.
-      metadata: { conversationId },
-    });
-    const parsed = outcome.result;
+    // M1 + N1: TWO secondary-LLM calls with structurally separated inputs
+    // (Req 19.3 as amended) — the profile call sees VISITOR turns only (the
+    // prompt builder renders nothing else, so assistant text is unreachable
+    // by construction); the summary call sees both sides. Fired in parallel:
+    // the job is already async and staleness-gated (≤1/interval — doubling it
+    // is pennies, owner cost note). The caller owns the P29 claim; the module
+    // owns alias/meter/parse. F1 (P17): metadata.conversationId is the
+    // ledger's join key — test-session spend stays out of the watchdog.
+    const [profileOutcome, summaryOutcome] = await Promise.all([
+      runSecondaryLLMJob({
+        alias: 'default-summarizer', // N5 category alias — owner intends a stronger model here
+        prompt: buildProfilePrompt(input.turns),
+        schema: ProfileResultSchema,
+        usageType: 'engine_summarizer_profile',
+        temperature: 0.2,
+        maxOutputTokens: 300,
+        metadata: { conversationId },
+      }),
+      runSecondaryLLMJob({
+        alias: 'default-summarizer',
+        prompt: buildSummaryPrompt(input),
+        schema: SummaryResultSchema,
+        usageType: 'engine_summarizer',
+        temperature: 0.2,
+        maxOutputTokens: 700,
+        metadata: { conversationId },
+      }),
+    ]);
+    const parsed = summaryOutcome.result;
     if (!parsed || !parsed.summary.trim()) {
       throw new Error('summarizer returned no parseable summary');
     }
+    // P1 posture: a failed profile call degrades the profile refresh only —
+    // the summary (and its version bump) still lands.
+    const producedProfile = profileOutcome.result?.profile ?? null;
 
     const summaryVersion = state.summaryVersion + 1;
     const upToMessageId = turns.length > 0 ? turns[turns.length - 1].itemId : previous?.upToMessageId ?? null;
@@ -336,14 +356,15 @@ export async function runSummarizerJob(conversationId: string): Promise<void> {
       summaryText: parsed.summary,
       summaryVersion,
       upToMessageId,
-      profile: parsed.profile as Record<string, unknown>,
+      profile: (producedProfile ?? {}) as Record<string, unknown>,
     });
 
     // P30: the summarizer's profile REPLACES the previous one wholesale —
     // stale judgments decay by omission ("rude five minutes ago" is gone
-    // unless it is still the current read). startedAt survives (an anchor,
-    // not an assessment).
-    const flags = applySummarizerProfile(state.flags, parsed.profile);
+    // unless it is still the current read). startedAt survives, and so do
+    // omitted register/intent (Req 19.4 as amended — those change on new
+    // evidence, never by silence). A failed profile call keeps flags as-is.
+    const flags = producedProfile ? applySummarizerProfile(state.flags, producedProfile) : state.flags;
     const profileChanged = !flagsEqual(state.flags, flags);
     await conversationHistoryManager.mergeEngineState(conversationId, {
       flags,

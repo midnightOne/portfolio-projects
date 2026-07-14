@@ -109,8 +109,14 @@ export function FloatingAIInterface({
     welcomeMessage,
     accessMessage,
     personalizedContext,
-    budgetStatus
+    budgetStatus,
+    applyAccessCode
   } = useReflinkSession();
+
+  // 7.12: "Have an access code?" state on the basic-access notice
+  const [accessCodeInput, setAccessCodeInput] = useState('');
+  const [accessCodeError, setAccessCodeError] = useState<string | null>(null);
+  const [accessCodeBusy, setAccessCodeBusy] = useState(false);
 
   const {
     isInitialized,
@@ -985,6 +991,70 @@ export function FloatingAIInterface({
                 <div className="flex-1">
                   <h3 className="font-semibold text-foreground mb-2">{accessMessage.title}</h3>
                   <p className="text-muted-foreground text-sm mb-4">{accessMessage.description}</p>
+                  {/* 7.12: typed access code → the existing ?ref= validation flow
+                      (reflink-session provider, D56) — upgrades in place. */}
+                  <form
+                    className="mb-4"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (accessCodeBusy || !accessCodeInput.trim()) return;
+                      setAccessCodeBusy(true);
+                      setAccessCodeError(null);
+                      void (async () => {
+                        try {
+                          const result = await applyAccessCode(accessCodeInput);
+                          if (result.ok) {
+                            setAccessCodeInput('');
+                            setShowAccessMessage(false);
+                          } else {
+                            setAccessCodeError(
+                              result.reason === 'expired'
+                                ? 'That code has expired.'
+                                : result.reason === 'budget_exhausted'
+                                  ? 'That code’s budget is exhausted.'
+                                  : result.reason === 'inactive'
+                                    ? 'That code is inactive.'
+                                    : 'That code isn’t valid.'
+                            );
+                          }
+                        } finally {
+                          setAccessCodeBusy(false);
+                        }
+                      })();
+                    }}
+                  >
+                    <label className="block text-sm font-medium text-foreground mb-1" htmlFor="ai-access-code">
+                      Have an access code?
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        id="ai-access-code"
+                        data-testid="access-code-input"
+                        type="text"
+                        value={accessCodeInput}
+                        onChange={(e) => {
+                          setAccessCodeInput(e.target.value);
+                          if (accessCodeError) setAccessCodeError(null);
+                        }}
+                        placeholder="Enter code"
+                        autoComplete="off"
+                        className="flex-1 min-w-0 rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      />
+                      <button
+                        type="submit"
+                        data-testid="access-code-submit"
+                        disabled={accessCodeBusy || !accessCodeInput.trim()}
+                        className="bg-primary text-primary-foreground px-4 py-2 rounded-md text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {accessCodeBusy ? 'Checking…' : 'Apply'}
+                      </button>
+                    </div>
+                    {accessCodeError && (
+                      <p data-testid="access-code-error" className="mt-2 text-sm text-destructive">
+                        {accessCodeError}
+                      </p>
+                    )}
+                  </form>
                   <div className="flex gap-2">
                     {accessMessage.actionText && accessMessage.actionUrl && (
                       <a

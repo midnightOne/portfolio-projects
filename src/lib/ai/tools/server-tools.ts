@@ -761,6 +761,38 @@ export const leadCaptureToolDefinition: UnifiedToolDefinition = {
   },
 };
 
+/**
+ * portfolio_overview (ai-assistant 7.13 + mcp-server task 6): the deep
+ * owner/portfolio summary on demand, backed by the ONE start-frame assembly
+ * module (`brief` = the mint start frame verbatim; `full` = owner bio T1 +
+ * visitor intro + project index). The schema stays tiny deliberately — every
+ * minted schema is standing overhead (7.2b).
+ */
+export const portfolioOverviewToolDefinition: UnifiedToolDefinition = {
+  name: 'portfolio_overview',
+  description:
+    'Overview of the portfolio owner (Kirill) and the portfolio as a whole. Use when asked about the owner or the site in depth, or when you seem to have lost orientation. depth "brief" = compact grounding; "full" = complete bio, site intro, and project index.',
+  parameters: {
+    type: 'object',
+    properties: {
+      depth: {
+        type: 'string',
+        enum: ['brief', 'full'],
+        description: 'brief (default) or full',
+      },
+    },
+  },
+  executionContext: 'server',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean' },
+      overview: { type: 'string' },
+      depth: { type: 'string' },
+    },
+  },
+};
+
 // Export all server-side tool definitions
 export const serverToolDefinitions: UnifiedToolDefinition[] = [
   loadProjectContextToolDefinition,
@@ -778,6 +810,8 @@ export const serverToolDefinitions: UnifiedToolDefinition[] = [
   relatedContentToolDefinition,
   // Conversation-engine H2
   leadCaptureToolDefinition,
+  // 7.13 owner/portfolio depth
+  portfolioOverviewToolDefinition,
 ];
 
 // Note: getServerToolDefinitions function has been removed

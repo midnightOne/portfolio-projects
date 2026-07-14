@@ -42,6 +42,10 @@ async function handleGET(request: NextRequest, ctx: GatewayContext) {
     const reflinkId = searchParams.get('reflinkId');
     // D49 5b.3: adapter session id of an interrupted conversation to resume
     const resumeSessionId = searchParams.get('resumeSessionId');
+    // 7.11: set by the adapter from resume #2 on — the briefing tells the
+    // model not to speak until the visitor does (the adapter skips its auto
+    // response.create for the same legs).
+    const silentResume = searchParams.get('silentResume') === '1';
 
     console.log('GET /api/ai/openai/session - Request URL:', request.url);
     console.log('Search params:', Object.fromEntries(searchParams.entries()));
@@ -263,6 +267,16 @@ LANGUAGE POLICY (strict):
     systemInstructions += await buildToolLatencyGuidance();
     mark('tool latency guidance');
 
+    // 7.2c: owner identity + portfolio orientation ride the STABLE, cacheable
+    // mint instructions (Google-mint parity, task 5d.1) — the fid no longer
+    // carries them (7.1a), so this is the one home for who Kirill is.
+    const { assembleStartFrame } = await import('@/lib/ai/start-frame');
+    const startFrame = await assembleStartFrame().catch(() => '');
+    if (startFrame) {
+      systemInstructions += `\n\n${startFrame}`;
+    }
+    mark('start frame');
+
     // TODO: Inject actual context from ContextProviderService based on contextId and reflinkId
     if (contextId) {
       systemInstructions += `\n\nContext ID: ${contextId}`;
@@ -330,7 +344,7 @@ LANGUAGE POLICY (strict):
     if (resumeSessionId) {
       try {
         const { buildResumeBriefing } = await import('@/lib/ai/resume-briefing');
-        const briefing = await buildResumeBriefing(resumeSessionId);
+        const briefing = await buildResumeBriefing(resumeSessionId, { silent: silentResume });
         if (briefing) {
           systemInstructions += briefing;
           console.log(`Resume briefing injected for session ${resumeSessionId} (${briefing.length} chars)`);
@@ -693,6 +707,15 @@ LANGUAGE POLICY (strict):
     const { buildToolLatencyGuidance } = await import('@/lib/ai/tool-latency');
     instructions += await buildToolLatencyGuidance();
     mark('tool latency guidance');
+
+    // 7.2c: owner identity + portfolio orientation in the cacheable mint
+    // instructions — mirrors handleGET (the fid no longer carries them, 7.1a).
+    const { assembleStartFrame } = await import('@/lib/ai/start-frame');
+    const startFrame = await assembleStartFrame().catch(() => '');
+    if (startFrame) {
+      instructions += `\n\n${startFrame}`;
+    }
+    mark('start frame');
 
     if (body.contextId) {
       // TODO: Load context from ContextProviderService

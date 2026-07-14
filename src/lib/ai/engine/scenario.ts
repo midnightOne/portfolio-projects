@@ -6,8 +6,9 @@
  * every non-deterministic dependency:
  *
  *  - classifier: each turn may script the batched cheap-call result
- *    (edge scores, probe, lowEffort, slots, flags) — absent fields default
- *    per CheapCallResultSchema, exactly like a real parse;
+ *    (edge scores, lowEffort, slots, graded signals — legacy probe/flags
+ *    scripts translate to strong signals) — absent fields default per
+ *    CheapCallResultSchema, exactly like a real parse;
  *  - embeddings: a stable sha256-derived unit vector (the same construction
  *    as the D46 fake in src/lib/ai/embeddings.ts — reimplemented here rather
  *    than imported because embeddings.ts drags the model registry (Prisma)
@@ -32,10 +33,12 @@ import type { EvaluatedEdge } from './evaluator';
 import { CheapCallResultSchema, type CheapCallResult } from './cheap-call';
 import {
   GraphDocumentSchema,
+  TurnSignalsSchema,
   VisitorFlagsSchema,
   type EngineState,
   type GraphDocument,
   type TransitionRecord,
+  type TurnSignals,
 } from './types';
 
 // ============================================================================
@@ -58,10 +61,14 @@ export const ScenarioTurnSchema = z.object({
   cheap: z
     .object({
       edgeScores: z.record(z.number().min(0).max(1)).optional(),
+      /** Legacy script field (pre-N2 scenarios): translated to signals.probing 'strong'. */
       probe: z.boolean().optional(),
       lowEffort: z.boolean().optional(),
       slots: z.record(z.string()).optional(),
+      /** Legacy script field (pre-N2 scenarios): translated to strong signals. */
       flags: VisitorFlagsSchema.optional(),
+      /** Graded flag evidence (N2) — the current classifier contract. */
+      signals: TurnSignalsSchema.optional(),
     })
     .optional(),
 });
@@ -82,6 +89,22 @@ export type ScenarioScript = z.infer<typeof ScenarioScriptSchema>;
 
 /** The GraphScenario.expectedPath column: ordered node ids, graph entry first. */
 export const ScenarioExpectedPathSchema = z.array(z.string().min(1)).min(1);
+
+/**
+ * Translate a legacy (pre-N2) scripted cheap result into graded signals:
+ * `probe: true` and enum `flags` predate ordinal grading and are kept
+ * parseable so stored scenario rows and old recordings keep their meaning —
+ * a legacy boolean/enum was an unqualified assertion, so it maps to 'strong'.
+ */
+function legacySignals(cheap: NonNullable<ScenarioTurn['cheap']>): TurnSignals {
+  const signals: TurnSignals = {};
+  if (cheap.probe) signals.probing = 'strong';
+  if (cheap.flags?.register === 'technical') signals.technical = 'strong';
+  if (cheap.flags?.behavior === 'probing') signals.probing = 'strong';
+  if (cheap.flags?.behavior === 'rude') signals.rude = 'strong';
+  if (cheap.flags?.intent) signals.intent = { value: cheap.flags.intent, strength: 'strong' };
+  return signals;
+}
 
 // ============================================================================
 // Deterministic embedding fake (P16 — same construction as the D46 fake)
@@ -276,7 +299,11 @@ export async function runScenario(args: {
     const turn = script.turns[i];
     // Parse through the SAME schema a real classifier response goes through —
     // defaults and tolerance behave identically (D56: production pipeline).
-    currentCheap = turn.cheap ? CheapCallResultSchema.parse(turn.cheap) : CheapCallResultSchema.parse({});
+    // Legacy pre-N2 scripts (`probe: true`, enum `flags`) translate to strong
+    // graded signals so stored scenarios keep their meaning under hysteresis.
+    currentCheap = CheapCallResultSchema.parse(
+      turn.cheap ? { ...turn.cheap, signals: turn.cheap.signals ?? legacySignals(turn.cheap) } : {}
+    );
     const turnMessageId = `scenario_turn_${i + 1}`;
     const result = await engine.processTurn('scenario-conversation', {
       turnMessageId,
@@ -323,8 +350,10 @@ export async function runScenario(args: {
  *  - intent/pivot: `intentMode: 'classifier-only'` + a scripted winning score
  *    on the firing turn (the live similarity/score is not replayable);
  *  - slot: the recorded slot_filled events script `cheap.slots` on their turn;
- *  - probe: scripts `cheap.probe: true` on the firing turn (covers the
- *    classifier-flagged case; pattern probes also re-fire naturally);
+ *  - probe: scripts `signals.probing: 'strong'` on the firing turn AND
+ *    `'clear'` on the turn before it (N2 hysteresis needs clear+ twice for the
+ *    classifier arm — a live classifier-confirmed firing implies exactly that
+ *    history; pattern probes also re-fire naturally through the regex rail);
  *  - turn_quality: scripts `cheap.lowEffort: true` on the firing turn only —
  *    thresholds > 1 whose earlier turns were classifier-flagged (not
  *    heuristic) need hand-editing, which Req 10.2 expects ("recorded, then
@@ -361,7 +390,7 @@ export function buildScenarioFromTraversal(args: {
         const m = /^chip (\S+) tapped$/.exec(fired.evidence ?? '');
         if (m) turn.chipId = m[1];
       } else if (fired.conditionType === 'probe') {
-        cheap.probe = true;
+        cheap.signals = { ...cheap.signals, probing: 'strong' };
       } else if (fired.conditionType === 'turn_quality') {
         cheap.lowEffort = true;
       }
@@ -371,6 +400,17 @@ export function buildScenarioFromTraversal(args: {
     if (Object.keys(cheap).length > 0) turn.cheap = cheap;
     return turn;
   });
+  // N2 hysteresis back-fill: a classifier-confirmed probe firing needs a
+  // clear+ probing grade on an EARLIER ring turn to replay — grade the
+  // preceding turn 'clear' unless it already carries a probing signal.
+  for (let i = 1; i < turns.length; i++) {
+    if (turns[i].cheap?.signals?.probing !== 'strong') continue;
+    const prev = turns[i - 1];
+    const prevSignals = prev.cheap?.signals;
+    if (!prevSignals?.probing) {
+      prev.cheap = { ...prev.cheap, signals: { ...prevSignals, probing: 'clear' } };
+    }
+  }
 
   return {
     turns: { turns, intentMode: needsClassifierOnly ? 'classifier-only' : 'embeddings' },

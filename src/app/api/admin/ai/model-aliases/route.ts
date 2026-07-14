@@ -18,6 +18,8 @@ import { __clearModelAliasCache, type ModelAliasName } from '@/lib/ai/model-regi
 const VALID_ALIASES: ModelAliasName[] = [
   'default-chat',
   'default-cheap',
+  'default-classifier',
+  'default-summarizer',
   'default-reasoning',
   'default-embedding',
   'default-realtime',

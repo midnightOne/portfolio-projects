@@ -14,6 +14,19 @@
 import type { z } from 'zod';
 
 /**
+ * Neutralize `"""` quote-frames inside text interpolated into a secondary-LLM
+ * prompt (Req 19.8a): visitor/transcript text is wrapped in `"""…"""` frames,
+ * so a triple-quote run inside it could close the frame and promote the rest
+ * to instruction position. Each `"` in a run of 3+ gets a backslash — the
+ * content stays readable evidence (NO stripping — Req 19.8 prohibits content
+ * removal; the classifier must still see "ignore all instructions" verbatim),
+ * but the frame can no longer be closed from inside.
+ */
+export function escapeQuoteFrames(text: string): string {
+  return text.replace(/"{3,}/g, (run) => run.split('').map((q) => `\\${q}`).join(''));
+}
+
+/**
  * Extract and validate a single JSON object from raw model output.
  * Returns null when there is no parseable object or the schema rejects it.
  */

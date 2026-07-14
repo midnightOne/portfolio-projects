@@ -56,7 +56,8 @@ async function buildSystemInstructions(
   baseInstructions: string,
   contextId: string | null,
   reflinkId: string | null,
-  resumeSessionId: string | null
+  resumeSessionId: string | null,
+  silentResume = false
 ): Promise<{ instructions: string; engineModelAlias: string | null; sectionMarks: MintSectionMark[] }> {
   let instructions = baseInstructions;
 
@@ -119,7 +120,9 @@ async function buildSystemInstructions(
 
   if (resumeSessionId) {
     try {
-      const briefing = await buildResumeBriefing(resumeSessionId);
+      // 7.11: silentResume (resume #2+ per the adapter) briefs "do not speak
+      // until the visitor does" — matching the OpenAI route.
+      const briefing = await buildResumeBriefing(resumeSessionId, { silent: silentResume });
       if (briefing) {
         instructions += briefing;
       }
@@ -242,6 +245,7 @@ async function handleGET(request: NextRequest, ctx: GatewayContext) {
     const contextId = searchParams.get('contextId');
     const reflinkId = searchParams.get('reflinkId');
     const resumeSessionId = searchParams.get('resumeSessionId');
+    const silentResume = searchParams.get('silentResume') === '1'; // 7.11
 
     const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -253,7 +257,8 @@ async function handleGET(request: NextRequest, ctx: GatewayContext) {
       config.instructions,
       contextId,
       reflinkId,
-      resumeSessionId
+      resumeSessionId,
+      silentResume
     );
 
     // D47 C1 (Req 5.4): the start node's alias participates in mint-time model

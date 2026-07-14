@@ -1,12 +1,13 @@
 'use client';
 
 /**
- * Model alias registry panel (D4, ai-admin task 1.1)
+ * Model alias registry panel (D4, ai-admin task 1.1; N5 category aliases
+ * 2026-07-13)
  *
- * Edits the five role aliases (`default-chat`, `default-cheap`,
- * `default-reasoning`, `default-embedding`, `default-realtime`) that every
- * model reference in the system resolves through. Switching a model is a save
- * here — no deploy.
+ * Edits the role aliases (`default-chat`, `default-cheap`,
+ * `default-classifier`, `default-summarizer`, `default-reasoning`,
+ * `default-embedding`, `default-realtime`) that every model reference in the
+ * system resolves through. Switching a model is a save here — no deploy.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -28,6 +29,8 @@ interface AliasRow {
 const ALIAS_HINTS: Record<string, string> = {
   'default-chat': 'general chat / summaries',
   'default-cheap': 'public text tier (gateway)',
+  'default-classifier': 'engine per-turn classifier (edges, slots, probe, flag signals)',
+  'default-summarizer': 'engine profile + running-summary jobs',
   'default-reasoning': 'job analysis, MCP deep tools',
   'default-embedding': 'semantic index embeddings',
   'default-realtime': 'native voice sessions',

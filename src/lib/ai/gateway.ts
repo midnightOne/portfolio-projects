@@ -51,7 +51,14 @@ export interface GatewayReflinkInfo {
 }
 
 /** Public-tier tool allowlist (Req 2.1) — enforced at tier and re-checked at dispatch. */
-export const PUBLIC_TOOL_ALLOWLIST = ['content_search', 'content_get', 'ui_intent', 'ui_describe'] as const;
+export const PUBLIC_TOOL_ALLOWLIST = [
+  'content_search',
+  'content_get',
+  'ui_intent',
+  'ui_describe',
+  'ui_details', // 7.1e client pull — the dieted fid's detail channel
+  'portfolio_overview', // 7.13 — owner/portfolio depth on every runtime
+] as const;
 
 export interface GatewayDebugState {
   model?: { alias?: string; resolved?: string };

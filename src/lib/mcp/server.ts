@@ -26,8 +26,9 @@ export const MCP_SERVER_INFO = {
   version: '1.1.0',
 } as const;
 
-/** v1 tool names — snapshot-tested; adding a tool is a deliberate spec change. */
-export const MCP_TOOL_NAMES = ['search_portfolio', 'get_project', 'list_projects'] as const;
+/** Tool names — snapshot-tested; adding a tool is a deliberate spec change.
+ *  portfolio_overview added 2026-07-13 (task 6, shared with ai-assistant 7.13). */
+export const MCP_TOOL_NAMES = ['search_portfolio', 'get_project', 'list_projects', 'portfolio_overview'] as const;
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,199}$/;
 
@@ -60,6 +61,13 @@ const getProjectInput = {
     .enum(['overview', 'full'])
     .optional()
     .describe("'overview' (default): metadata + summary + section index without bodies. 'full': every section's text."),
+};
+
+const portfolioOverviewInput = {
+  depth: z
+    .enum(['brief', 'full'])
+    .optional()
+    .describe("'brief' (default): compact owner + portfolio grounding. 'full': complete bio, site intro, project index."),
 };
 
 const listProjectsInput = {
@@ -109,6 +117,7 @@ export function buildMcpServer(ctx: GatewayContext, options?: McpServerOptions):
   const server = new McpServer(MCP_SERVER_INFO, {
     instructions:
       "Read-only access to a software engineering portfolio. Recipes:\n" +
+      "- First contact / 'who is the owner?': portfolio_overview (depth 'brief' to orient, 'full' for the complete bio + project index).\n" +
       "- Browse or 'which projects use <tech>?': list_projects (optionally with technology/tag filters).\n" +
       "- 'Where is <topic> discussed?': search_portfolio — each result carries location {project, section} plus an excerpt.\n" +
       "- Read one section in full: get_project with slug + section (anchor from a search result or the overview section index).\n" +
@@ -348,6 +357,33 @@ export function buildMcpServer(ctx: GatewayContext, options?: McpServerOptions):
         console.error('[mcp] list_projects failed:', error);
         meter('list_projects', false);
         return safeError('list_projects');
+      }
+    }
+  );
+
+  // Task 6 (2026-07-13): external models never receive our mint instructions —
+  // for them this tool IS the start frame. Same assembly module as the mint
+  // and the in-session tool (ai-assistant 7.13) — one owner per concept.
+  server.registerTool(
+    'portfolio_overview',
+    {
+      title: 'Portfolio overview',
+      description:
+        'Overview of the portfolio owner and the portfolio as a whole — who Kirill is, what this site is, and the project index. ' +
+        "Start here to orient yourself. depth 'brief' (default) = compact grounding; 'full' = complete bio, site intro, and per-project detail.",
+      inputSchema: portfolioOverviewInput,
+    },
+    async ({ depth }) => {
+      try {
+        const { assemblePortfolioOverview } = await import('@/lib/ai/start-frame');
+        const resolvedDepth = depth === 'full' ? 'full' : 'brief';
+        const overview = await assemblePortfolioOverview(resolvedDepth);
+        meter('portfolio_overview', true);
+        return textResult({ depth: resolvedDepth, overview });
+      } catch (error) {
+        console.error('[mcp] portfolio_overview failed:', error);
+        meter('portfolio_overview', false);
+        return safeError('portfolio_overview');
       }
     }
   );

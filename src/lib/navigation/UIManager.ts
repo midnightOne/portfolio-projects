@@ -18,7 +18,7 @@ import { debugEventEmitter } from '../debug/debugEventEmitter';
 import { v4 as uuidv4 } from 'uuid';
 import { getSemanticIDRegistry, SemanticIDRegistryProvider } from './SemanticIDRegistry';
 import { contextFrameManager } from '../ai/ContextFrameManager';
-import { PassiveFIDManager } from '../ai/PassiveFIDManager';
+import { PassiveFIDManager, renderFidOrientation } from '../ai/PassiveFIDManager';
 import type { IConversationalAgentAdapter } from '../voice/IConversationalAgentAdapter';
 
 // Comprehensive UI State interfaces for both navigation and AI
@@ -956,13 +956,17 @@ export class UIManager {
       // D55 (conversation-engine task A3): publish into the adapter's context
       // buffer under source key 'fid' — the one injector delivers it via the
       // floating block (immediately when the model is idle, at the next turn
-      // boundary otherwise). Replaces the direct pushPassiveContext call, and
-      // works on EVERY adapter now (Gemini gets passive context for the first
-      // time, via versioned supersession).
+      // boundary otherwise). Works on EVERY adapter (Gemini via versioned
+      // supersession). 7.1a (owner ruling 2026-07-12): the published form is
+      // compact orientation TEXT — location + pull handles, never content
+      // prose or the raw JSON object; the full context stays retained in the
+      // manager for the ui_details pull (7.1e). Publisher-side change only —
+      // buffer mechanics, debounce, and change gating are untouched (7.1c).
       if (typeof (this._connectedVoiceAdapter as any).publishPassiveContext === 'function') {
-        (this._connectedVoiceAdapter as any).publishPassiveContext('fid', fidContext);
+        const orientationText = renderFidOrientation(fidContext);
+        (this._connectedVoiceAdapter as any).publishPassiveContext('fid', orientationText);
 
-        console.log('✅ Passive context published to D55 buffer (key: fid)');
+        console.log('✅ Passive context published to D55 buffer (key: fid, compact text)');
 
         debugEventEmitter.emit(
           'navigation_event',
