@@ -29,6 +29,7 @@ import { XIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Z_LAYERS } from "@/lib/ui/ai-visual-config"
+import { ScrollLock } from "@/components/ui/use-scroll-lock"
 
 function Dialog({
   modal = false,
@@ -82,29 +83,6 @@ export function isAISurfaceTarget(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest("[data-ai-surface]") !== null
 }
 
-// Page scroll lock with scrollbar compensation (nesting-safe). Radix's own
-// lock only applies in modal mode.
-let scrollLockCount = 0
-function useDialogScrollLock() {
-  React.useEffect(() => {
-    scrollLockCount++
-    if (scrollLockCount === 1) {
-      const root = document.documentElement
-      const scrollbar = window.innerWidth - root.clientWidth
-      root.style.overflow = "hidden"
-      if (scrollbar > 0) root.style.paddingRight = `${scrollbar}px`
-    }
-    return () => {
-      scrollLockCount--
-      if (scrollLockCount === 0) {
-        const root = document.documentElement
-        root.style.overflow = ""
-        root.style.paddingRight = ""
-      }
-    }
-  }, [])
-}
-
 function DialogContent({
   className,
   children,
@@ -120,7 +98,6 @@ function DialogContent({
   /** Extra classes for the full-viewport scrim container. */
   overlayClassName?: string
 }) {
-  useDialogScrollLock()
   const closeRef = React.useRef<HTMLButtonElement>(null)
 
   return (
@@ -156,6 +133,9 @@ function DialogContent({
         }}
         {...props}
       >
+        {/* Inside Content so it locks scroll only while the dialog is open
+            (Radix mounts this subtree only when open). */}
+        <ScrollLock />
         <div
           data-slot="dialog-panel"
           className={cn(

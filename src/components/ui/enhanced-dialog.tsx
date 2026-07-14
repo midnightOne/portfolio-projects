@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import type { AIControlProps } from "@/lib/ui/types";
 import { Z_LAYERS } from "@/lib/ui/ai-visual-config";
 import { isAISurfaceTarget } from "./dialog";
+import { ScrollLock } from "./use-scroll-lock";
 
 interface EnhancedDialogProps
   extends React.ComponentProps<typeof DialogPrimitive.Root>,
@@ -91,29 +92,6 @@ function EnhancedDialogOverlay({
   );
 }
 
-// Shares nesting semantics with dialog.tsx's lock via its own counter — the
-// two wrappers are never nested inside each other in practice.
-let scrollLockCount = 0;
-function useDialogScrollLock() {
-  React.useEffect(() => {
-    scrollLockCount++;
-    if (scrollLockCount === 1) {
-      const root = document.documentElement;
-      const scrollbar = window.innerWidth - root.clientWidth;
-      root.style.overflow = "hidden";
-      if (scrollbar > 0) root.style.paddingRight = `${scrollbar}px`;
-    }
-    return () => {
-      scrollLockCount--;
-      if (scrollLockCount === 0) {
-        const root = document.documentElement;
-        root.style.overflow = "";
-        root.style.paddingRight = "";
-      }
-    };
-  }, []);
-}
-
 interface EnhancedDialogContentProps
   extends React.ComponentProps<typeof DialogPrimitive.Content>,
     AIControlProps {
@@ -142,7 +120,6 @@ function EnhancedDialogContent({
   onPointerDown,
   ...props
 }: EnhancedDialogContentProps) {
-  useDialogScrollLock();
   const closeRef = React.useRef<HTMLButtonElement>(null);
   void onAINavigate;
   void onAIHighlight;
@@ -225,6 +202,9 @@ function EnhancedDialogContent({
         }}
         {...props}
       >
+        {/* Inside Content so it locks scroll only while the dialog is open
+            (Radix mounts this subtree only when open). */}
+        <ScrollLock />
         {animated ? (
           <motion.div
             data-slot="dialog-panel"
