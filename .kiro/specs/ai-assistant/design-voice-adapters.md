@@ -128,6 +128,12 @@ in the loop or by testing against real UI state (see the homepage fake-mic drill
 4. Mode switches (text↔voice) reuse the session (`sendMessage` vs audio); no server thread exists.
 5. Disconnect (user, cap, or error) → final log flush; admin replay available immediately.
 
+## 3b. Provider mount & SPA persistence (owner ruling 2026-07-15, task 7.7)
+
+The voice connection (WebRTC on OpenAI, WebSocket on Gemini/cascade) lives inside `ConversationalAgentProvider`. If that component unmounts, the connection dies — so **the provider must be mounted ONCE at the root layout**, above the router outlet, never per-page. Correspondingly, **all in-site navigation must be client-side (SPA)**: a hard navigation (full document load) tears down the React tree including the provider and kills any live session. The project-modal navigation already does this within a page; the ruling extends it to the whole site (routes, `/about/ai`, everything) so a visitor can walk the entire portfolio mid-conversation without a reconnect. The pill's VISIBILITY can still be surface-gated; the CONNECTION is not.
+
+**Portability note (owner ask, for a future extraction of this system):** this SPA requirement is a property of the *host*, not of the assistant. If the assistant is ever modularized onto a platform that cannot do SPA navigation (a multi-page CMS, a static-site host with hard page loads), the escape hatch is to **iframe the entire target website inside a persistent, AI-connected shell page**. The shell owns the voice connection and never navigates; the wrapped site navigates *inside* the iframe, so its full-page loads never touch the shell's connection. That keeps the "one persistent connection across all navigation" invariant on any host, at the cost of an iframe boundary (cross-frame messaging for the F-I-D/nav bridge).
+
 ## 4. Session continuity & resume (D49)
 
 ```
