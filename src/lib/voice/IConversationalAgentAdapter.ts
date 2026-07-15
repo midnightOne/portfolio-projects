@@ -479,6 +479,26 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
     this._lastError = null;
   }
 
+  /**
+   * Pre-load the dynamic-import chain every first tool call otherwise pays
+   * for (registry → debug emitter → uuid → client-tools → PassiveFIDManager →
+   * UIManager). In dev each is an on-demand chunk fetch — a client-LOCAL
+   * ui_details measured 879ms wall time around a ~2ms handler (owner report
+   * 2026-07-15), and that inflated median is also what made the clip player
+   * treat it as a slow tool. Fire-and-forget; adapters call this from init().
+   */
+  protected _prewarmToolPipeline(): void {
+    if (typeof window === 'undefined') return;
+    void Promise.all([
+      import('@/lib/ai/tools/UnifiedToolRegistry'),
+      import('@/lib/debug/debugEventEmitter'),
+      import('uuid'),
+      import('@/lib/ai/tools/client-tools'),
+      import('@/lib/ai/PassiveFIDManager'),
+      import('@/lib/navigation/UIManager'),
+    ]).catch(() => { /* prewarm is best-effort */ });
+  }
+
   /** 7.6 clip-feedback gate — no-op by default; native adapters override. */
   setClipMicGate(_gated: boolean): void {
     // Adapters without a mic-input seam (e.g. cascade push-to-talk) ignore this.

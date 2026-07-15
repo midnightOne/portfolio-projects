@@ -82,7 +82,11 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     /** call_id → tool name, captured at output_item.added (arguments.done events carry no name). */
     private _pendingToolNames: Map<string, string> = new Map();
     /** tool name → latest provider call_id, so the post-execution row can correlate. */
-    private _lastCallIdForTool: Map<string, string> = new Map();
+    /** Provider call_ids per tool NAME, FIFO — the model may issue the same
+     *  tool twice in PARALLEL (owner transcript cmrmi6t61…: two concurrent
+     *  ui_details calls), so a single-slot map lost the second id and its row
+     *  fell back to a generated id. */
+    private _pendingCallIdsForTool: Map<string, string[]> = new Map();
     private _silentAudioContext: AudioContext | null = null;
     /** Output-level meter tap on the WebRTC audio element's stream (task 3.6 audio-reactive glow). */
     private _outputMeterDetach: (() => void) | null = null;
@@ -592,7 +596,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         try {
             console.log('OpenAIRealtimeAdapter: Initializing with options:', options);
 
-
+            this._prewarmToolPipeline();
 
             // Load configuration first if not already loaded
             if (!this._config) {
@@ -1462,7 +1466,11 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
      */
     private _logToolCallCompletion(event: any) {
         const name = event.name || this._pendingToolNames.get(event.call_id);
-        if (name && event.call_id) this._lastCallIdForTool.set(name, event.call_id);
+        if (name && event.call_id) {
+            const queue = this._pendingCallIdsForTool.get(name) ?? [];
+            queue.push(event.call_id);
+            this._pendingCallIdsForTool.set(name, queue);
+        }
     }
 
     /**
@@ -1472,8 +1480,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
      */
     private _logToolRow(toolName: string, args: unknown, result: string, success: boolean, executionTime: number, startedAt: number): void {
         try {
-            const callId = this._lastCallIdForTool.get(toolName);
-            this._lastCallIdForTool.delete(toolName);
+            const callId = this._pendingCallIdsForTool.get(toolName)?.shift();
             this._postConversationLog({
                 sessionId: this._generateSessionId(),
                 provider: 'openai',

@@ -378,13 +378,26 @@ describe('GoogleLiveAdapter fidelity (task A2.2 — append-only stream)', () => 
     return { adapter: adapter as any, sent };
   }
 
-  it('instructions fold into superseding context text and report degraded (P7)', async () => {
+  // 2026-07-15 owner bug (conversation cmrmhao6w…): context/guidance frames
+  // used to ride realtimeInput.text, which Gemini's activity detection treats
+  // as a USER TURN — the model answered the autonav block out loud. They now
+  // ride clientContent with turnComplete:false (appended WITHOUT starting
+  // generation; drilled live on gemini-3.1). These tests pin that transport.
+  const contextFrameText = (frame: any): string => {
+    expect(frame.clientContent).toBeDefined();
+    expect(frame.clientContent.turnComplete).toBe(false);
+    expect(frame.clientContent.turns).toHaveLength(1);
+    return frame.clientContent.turns[0].parts[0].text as string;
+  };
+
+  it('instructions fold into a superseding, non-triggering clientContent frame and report degraded (P7)', async () => {
     const { adapter, sent } = googleWithFakeWs();
     const result = await adapter._applyInstructions('new node guidance');
     expect(result).toBe('degraded');
     expect(sent).toHaveLength(1);
-    expect(sent[0].realtimeInput.text).toMatch(/^\[UPDATED GUIDANCE v1 — supersedes all previous guidance\]\n/);
-    expect(sent[0].realtimeInput.text).toContain('new node guidance');
+    const text = contextFrameText(sent[0]);
+    expect(text).toMatch(/^\[UPDATED GUIDANCE v1 — harness state, not a visitor message; supersedes all previous guidance\. Apply silently\.\]\n/);
+    expect(text).toContain('new node guidance');
   });
 
   it('tool schema is unsupported mid-session (token-locked setup; re-mint fallback)', async () => {
@@ -392,11 +405,23 @@ describe('GoogleLiveAdapter fidelity (task A2.2 — append-only stream)', () => 
     expect(await adapter._applyToolSchema([{ name: 'x' }])).toBe('unsupported');
   });
 
-  it('context block delivers by versioned supersession (P27)', async () => {
+  it('context block delivers by versioned supersession WITHOUT triggering generation (P27)', async () => {
     const { adapter, sent } = googleWithFakeWs();
     const result = await adapter._applyContextBlock({ version: 3, text: 'ctx', keys: ['fid'], dropped: [], tokens: 1 });
     expect(result).toBe('superseded');
-    expect(sent[0].realtimeInput.text).toMatch(/^\[CURRENT CONTEXT v3 — supersedes all previous context blocks\]\nctx$/);
+    const text = contextFrameText(sent[0]);
+    expect(text).toContain('[CURRENT CONTEXT v3');
+    expect(text).toContain('not a visitor message');
+    expect(text).toMatch(/\nctx$/);
+  });
+
+  it('greeting cue is the ONE realtimeInput.text send — it must trigger generation (owner parity ask)', () => {
+    const { adapter, sent } = googleWithFakeWs();
+    adapter._triggerInitialGreeting(false);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].realtimeInput.text).toContain('Greet them briefly now');
+    adapter._triggerInitialGreeting(true);
+    expect(sent[1].realtimeInput.text).toContain('reconnection acknowledgement');
   });
 
   it('reports failed (not silent success) when the socket is down', async () => {

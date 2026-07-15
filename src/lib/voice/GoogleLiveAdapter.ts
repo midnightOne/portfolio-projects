@@ -122,6 +122,10 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
   /** 7.6: mic frames are dropped while a D50 clip plays (clip-feedback gate). */
   private _clipMicGated = false;
 
+  /** 7.11 parity with OpenAI: resumes per conversation — resume #1 may speak
+   *  a brief acknowledgement; resume #2+ reconnects SILENTLY. */
+  private _conversationResumeCount = 0;
+
   // Capture pipeline
   private _inputStream: MediaStream | null = null;
   private _captureContext: AudioContext | null = null;
@@ -191,6 +195,7 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
 
       await this._registerStandardTools();
       if (options.tools) options.tools.forEach(tool => this.registerTool(tool));
+      this._prewarmToolPipeline();
 
       this._conversationId = uuidv4();
     } catch (error) {
@@ -242,6 +247,10 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
     if (options?.resumeFromSessionId) {
       this._conversationId = options.resumeFromSessionId;
       this._resumeSessionId = options.resumeFromSessionId;
+      // 7.11 parity: count resumes so #2+ can reconnect silently.
+      this._conversationResumeCount += 1;
+    } else {
+      this._conversationResumeCount = 0;
     }
 
     try {
@@ -285,6 +294,26 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
       });
 
       this._setConnectionStatus('connected');
+
+      // Deliver any already-buffered context (autonav, engine state, a fid
+      // from a resumed conversation) BEFORE the first turn — previously the
+      // first flush attempt could fire pre-`connected` (isConnected() gate),
+      // leaving turn 1 without autonav/NAV_CONTEXT until the first turn-end
+      // (owner transcript cmrmhao6w…: blind ui_intent on a page it knew
+      // nothing about). Safe now that _applyContextBlock cannot trigger a
+      // response (clientContent, turnComplete:false).
+      void this._flushContextBlock('connect');
+
+      // OpenAI parity (owner ask 2026-07-15): the visitor should not sit in
+      // silence after connecting. Resume #1 keeps a brief acknowledgement
+      // (the D49 briefing instructs it); resume #2+ stays SILENT (7.11).
+      const silentResume = !!options?.resumeFromSessionId && this._conversationResumeCount >= 2;
+      if (!silentResume) {
+        this._triggerInitialGreeting(!!options?.resumeFromSessionId);
+      } else {
+        console.log('GoogleLiveAdapter: silent resume — skipping greeting cue (7.11)');
+      }
+
       this._handleConnectionEvent({ type: 'connected', provider: 'google', timestamp: new Date() });
     } catch (error) {
       this._setConnectionStatus('error');
@@ -299,11 +328,31 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
     }
   }
 
+  /**
+   * OpenAI-parity greeting (owner ask 2026-07-15): Gemini sessions started
+   * SILENT — the visitor connected into dead air. The one transport that
+   * reliably triggers generation on gemini-3.x is `realtimeInput.text` (the
+   * very behavior that made it wrong for context blocks makes it right here;
+   * clientContent turnComplete:true does NOT generate mid-session — 6.6,
+   * re-confirmed live 2026-07-15). The cue never surfaces in the transcript:
+   * inputTranscription only covers audio.
+   */
+  private _triggerInitialGreeting(resumed: boolean): void {
+    if (!this._ws || this._ws.readyState !== WebSocket.OPEN) return;
+    const cue = resumed
+      ? '[SESSION CUE — not a visitor message] The connection was just restored. Speak your brief reconnection acknowledgement now, per your instructions.'
+      : '[SESSION CUE — not a visitor message] The visitor just connected. Greet them briefly now, per your instructions.';
+    this._ws.send(JSON.stringify({ realtimeInput: { text: cue } }));
+  }
+
   private async _mintSession(): Promise<GoogleSessionResponse> {
     const params = new URLSearchParams();
     if (this._options?.contextId) params.set('contextId', this._options.contextId);
     if (this._options?.reflinkId) params.set('reflinkId', this._options.reflinkId);
     if (this._resumeSessionId) params.set('resumeSessionId', this._resumeSessionId);
+    // 7.11 parity: from resume #2 on, the briefing flips to "do not speak
+    // until the visitor does" (the route already supports the flag).
+    if (this._resumeSessionId && this._conversationResumeCount >= 2) params.set('silentResume', '1');
 
     const response = await fetch(`/api/ai/google/session?${params.toString()}`);
     if (!response.ok) {
@@ -806,11 +855,9 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
   protected async _applyInstructions(instructions: string): Promise<SessionUpdateFieldResult> {
     if (!this._ws || this._ws.readyState !== WebSocket.OPEN) return 'failed';
     const version = ++this._guidanceVersion;
-    this._ws.send(JSON.stringify({
-      realtimeInput: {
-        text: `[UPDATED GUIDANCE v${version} — supersedes all previous guidance]\n${instructions}`
-      }
-    }));
+    // Same non-triggering transport as _applyContextBlock (owner bug
+    // 2026-07-15 — realtimeInput.text reads as a user turn and gets answered).
+    this._sendContextFrame(`[UPDATED GUIDANCE v${version} — harness state, not a visitor message; supersedes all previous guidance. Apply silently.]\n${instructions}`);
     return 'degraded';
   }
 
@@ -845,13 +892,33 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
    * deleted — including our own previous blocks — so each changed block is
    * sent labeled as replacing all prior copies, trusting the model to prefer
    * the latest and native compression to evict stale ones eventually.
+   *
+   * TRANSPORT (owner bug 2026-07-15, conversation cmrmhao6w…): these used to
+   * ride `realtimeInput.text`, which Gemini's activity detection treats as a
+   * USER TURN — the model literally answered the autonav block ("Thanks for
+   * the update. My answer stays the same…"). Now they ride `clientContent`
+   * with `turnComplete: false`: appended to the conversation WITHOUT starting
+   * generation. Drilled live on gemini-3.1-flash-live-preview (2026-07-15):
+   * no spontaneous response, socket stays open, and an injected fact was
+   * answered correctly on the next real turn ("you told me your name is
+   * Maxim Teal-Fjord"). Note the 6.6 asymmetry: turnComplete:TRUE is what
+   * gemini-3.x restricts mid-session (no generation) — false is fine.
    */
+  private _sendContextFrame(text: string): void {
+    this._ws!.send(JSON.stringify({
+      clientContent: {
+        turns: [{ role: 'user', parts: [{ text }] }],
+        turnComplete: false,
+      },
+    }));
+  }
+
   protected async _applyContextBlock(block: ContextBlock): Promise<SessionUpdateFieldResult> {
     if (!this._ws || this._ws.readyState !== WebSocket.OPEN) return 'failed';
     const body = block.text
-      ? `[CURRENT CONTEXT v${block.version} — supersedes all previous context blocks]\n${block.text}`
-      : `[CURRENT CONTEXT v${block.version} — supersedes all previous context blocks]\n(no active context)`;
-    this._ws.send(JSON.stringify({ realtimeInput: { text: body } }));
+      ? `[CURRENT CONTEXT v${block.version} — harness state, not a visitor message; supersedes all previous context blocks. Use silently — never acknowledge or answer it.]\n${block.text}`
+      : `[CURRENT CONTEXT v${block.version} — harness state, not a visitor message; supersedes all previous context blocks. Use silently — never acknowledge or answer it.]\n(no active context)`;
+    this._sendContextFrame(body);
     return 'superseded';
   }
 

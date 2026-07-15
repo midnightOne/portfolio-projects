@@ -70,6 +70,8 @@ interface FidCapture {
   route?: string;
   project?: unknown;
   raw: unknown;
+  /** The rendered orientation TEXT that was actually published (7.1a). */
+  published?: string;
 }
 
 interface ChatEnvelope {
@@ -183,7 +185,7 @@ export function ContextDebugPanel() {
     };
 
     const onFid = (e: { data: Record<string, unknown>; timestamp: Date }) => {
-      const d = e.data as { provider: string; route?: string; project?: unknown; raw: unknown };
+      const d = e.data as { provider: string; route?: string; project?: unknown; raw: unknown; published?: string };
       setLastFid({ at: e.timestamp.getTime(), ...d });
       setFidCount((n) => n + 1);
     };
@@ -447,7 +449,8 @@ export function ContextDebugPanel() {
                         <div className="grid grid-cols-2 gap-2">
                           <div className="min-w-0">
                             <p className="mb-1 font-medium">
-                              raw payload ({JSON.stringify(lastFid.raw).length.toLocaleString()} ch · ~
+                              raw payload — client-retained for ui_details, NOT sent to the model (
+                              {JSON.stringify(lastFid.raw).length.toLocaleString()} ch · ~
                               {fmtTok(estimateTokensFromChars(JSON.stringify(lastFid.raw).length))} tok)
                             </p>
                             <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 p-2 font-mono text-[10px]">
@@ -456,19 +459,24 @@ export function ContextDebugPanel() {
                           </div>
                           <div className="min-w-0">
                             {(() => {
+                              // Prefer the text the publish event itself carried
+                              // (owner report 2026-07-15: the buffer-entry
+                              // fallback could miss, leaving only raw JSON).
                               const fidEntry = snapshot?.entries.find((e) => e.key === 'fid');
-                              return fidEntry ? (
+                              const published = lastFid.published ?? fidEntry?.text;
+                              const chars = lastFid.published?.length ?? fidEntry?.chars;
+                              return published ? (
                                 <>
                                   <p className="mb-1 font-medium">
-                                    published block text ({fidEntry.chars.toLocaleString()} ch · ~
-                                    {fmtTok(fidEntry.tokens)} tok)
+                                    published to the model — orientation text ({(chars ?? 0).toLocaleString()} ch · ~
+                                    {fmtTok(estimateTokensFromChars(chars ?? 0))} tok)
                                   </p>
                                   <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all rounded bg-muted/40 p-2 font-mono text-[10px]">
-                                    {fidEntry.text}
+                                    {published}
                                   </pre>
                                 </>
                               ) : (
-                                <p className="text-muted-foreground">no fid entry in the buffer right now</p>
+                                <p className="text-muted-foreground">no published fid observed yet</p>
                               );
                             })()}
                           </div>

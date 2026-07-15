@@ -990,6 +990,11 @@ export class UIManager {
             route: newState.currentRoute,
             project: newState.currentProject,
             raw: fidContext,
+            // Owner report 2026-07-15: the panel's fid tab could only show
+            // raw JSON — the rendered orientation text never rode the event
+            // (the "published" pane depended on catching the buffer entry
+            // before supersession). Ship what was ACTUALLY published.
+            published: orientationText,
           },
           'ui-manager'
         );
@@ -1173,6 +1178,15 @@ export class UIManager {
       currentModal: state.modalStack && state.modalStack.length > 0 ? state.modalStack[state.modalStack.length - 1].id : undefined,
       lastUserAction: convertedLastUserAction
     };
+  }
+
+  /**
+   * Current UI state in PassiveFIDManager's shape (7.1e cold-start fallback:
+   * the ui_details executor fetches the view context on demand when nothing
+   * is retained yet — e.g. a question fired before the first navigation).
+   */
+  getUIStateForPassiveFID(): import('../ai/tools/types').UIState {
+    return this._convertUIStateForPassiveFID(this.getCurrentUIState());
   }
 
   // ============================================================================

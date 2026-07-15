@@ -962,12 +962,26 @@ export class UINavigationTools {
     return this.executeAndReport('ui_details', args, async () => {
       try {
         const { PassiveFIDManager } = await import('@/lib/ai/PassiveFIDManager');
-        const details = PassiveFIDManager.getInstance().getRetainedDetails();
+        const manager = PassiveFIDManager.getInstance();
+        let details = manager.getRetainedDetails();
+        if (!details) {
+          // Cold start (question before the first navigation retained
+          // anything): fetch the CURRENT view context on demand through the
+          // same path the fid publisher uses, instead of erroring (owner
+          // console report 2026-07-15: "No retained view context yet").
+          try {
+            const { UIManager } = await import('@/lib/navigation/UIManager');
+            await manager.getOrFetchContext(UIManager.getInstance().getUIStateForPassiveFID());
+            details = manager.getRetainedDetails();
+          } catch (fetchError) {
+            console.warn('ui_details cold-start fetch failed:', fetchError);
+          }
+        }
         if (!details) {
           return {
             success: false,
             message:
-              'No retained view context yet (no navigation has been observed this session). Use ui_describe for raw UI state or content_search for portfolio content.',
+              'No view context is available yet. Use ui_describe for raw UI state or content_search for portfolio content.',
           };
         }
         return {
