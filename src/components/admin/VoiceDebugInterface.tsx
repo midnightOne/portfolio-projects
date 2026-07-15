@@ -27,7 +27,6 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { ConversationalAgentProvider, useConversationalAgent } from '@/components/providers/conversational-agent-provider';
 import { ReflinkSessionProvider } from '@/components/providers/reflink-session-wrapper';
-import { ContextMonitor } from './ContextMonitor';
 import { ToolCallMonitor } from './ToolCallMonitor';
 import { IntegrationValidator } from './IntegrationValidator';
 import { ConversationStateInspector } from './ConversationStateInspector';
@@ -1100,34 +1099,9 @@ function VoiceDebugContent() {
           )}
         </Card>
 
-        {/* Context Monitor Panel */}
-        <Card>
-          <CardHeader
-            className="pb-3 cursor-pointer"
-            onClick={() => togglePanel('context')}
-          >
-            <CardTitle className="text-base flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Eye className="h-4 w-4" />
-                Context Monitor
-              </div>
-              <Button variant="ghost" size="sm">
-                {expandedPanels.has('context') ? '−' : '+'}
-              </Button>
-            </CardTitle>
-          </CardHeader>
-          {expandedPanels.has('context') && (
-            <CardContent>
-              <ContextMonitor
-                conversationId={state.conversationMetadata?.sessionId || (isConnected ? `live-session-${selectedProvider}-${Date.now()}` : '')}
-                activeProvider={selectedProvider}
-                onContextUpdate={(update) => {
-                  console.log('Context update:', update);
-                }}
-              />
-            </CardContent>
-          )}
-        </Card>
+        {/* Context Monitor panel deleted (7.2e/7.0d): it modeled the Gen-1
+            contextSources/filteringResults shapes — superseded by the
+            ContextDebugPanel mounted on the pill pages (7.0). */}
 
         {/* Tool Call Monitor Panel */}
         <Card>

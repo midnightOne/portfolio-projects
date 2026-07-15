@@ -35,22 +35,10 @@ interface GoogleSessionResponse {
   responseModality: 'AUDIO' | 'TEXT';
 }
 
-const TOOL_GUIDANCE = `
-
-TOOL USAGE:
-- Your PRIMARY source of UI state is the NAV_CONTEXT message pushed to you automatically — call ui_describe only when you have no recent NAV_CONTEXT. Use ui_intent to navigate (projects, sections, routes, modals). Do not add artificial delays to tool calls.
-- Use content_search for discovery ("tell me about", "what do you know about") and content_get for full detail on a result. Always pass the current UI state for context-aware ranking.
-- RELEVANCE HONESTY: search results carry a score and facets. A weak match (score below ~0.6, or facets that do not mention what was asked) is NOT an answer — when the visitor asks for something specific (a technology, a topic) and the results do not actually contain it, SAY the portfolio does not have that, instead of presenting the closest result as if it matched. Never navigate to a project as an "answer" it is not.
-- CROSS-PROJECT HONESTY: results may come from a DIFFERENT project than the one open — each item's why field says what matched. When the project the visitor asked about has no real match but another project does, say exactly that ("X has no results section, but Y has one") and offer to navigate there.
-- Whether to SPEAK around a tool call depends on how long it actually takes — follow the TOOL LATENCY AWARENESS section below. Narrating an instant action ("give me a moment… here we are") prolongs the interaction; acting silently and then describing the result is what feels effortless.
-- NAVIGATE FROM ANYWHERE: you are never limited to what is currently on screen. A navTarget from content_search works from ANY starting point — the system stages the transition itself (closes the current project, opens the target, scrolls to the section). Do not tell the visitor something is unreachable from here; just pass the navTarget to ui_intent.
-- PICK BY MATCH, NOT BY SCORE: when the visitor asks for a section or topic, use the result whose why field says its heading matches the ask and which carries a sectionId — a project summary/metadata item is NOT a section.
-- SHOW, DON'T JUST TELL: when the visitor asks WHERE something is ("show me", "which part talks about..."), pass the result's navTarget to ui_intent UNCHANGED — including its highlight field. The system scrolls to the section and marks the exact passage. For paragraph-level asks you may also set highlight.text yourself — a SHORT run of consecutive words copied exactly from one sentence (never spanning bullets, headings, or line breaks; those cross element boundaries and will not match).
-- You will occasionally receive NAV_CONTEXT messages describing current UI state — use them silently for context, never read them aloud.
-
-LANGUAGE POLICY (strict):
-- ALWAYS speak and answer in English by default — including your very first greeting and any turn where the visitor's language seems ambiguous or the audio was unclear. Never guess a language from acoustics.
-- Switch to another language ONLY when the visitor explicitly asks you to, and switch back on request.`;
+// 7.2a: guidance moved to the ONE shared module (mint-guidance.ts) consumed by
+// all native mint handlers — this route's former local TOOL_GUIDANCE was the
+// compactness proof it was modeled on.
+import { MINT_TOOL_GUIDANCE } from '@/lib/ai/mint-guidance';
 
 async function buildSystemInstructions(
   baseInstructions: string,
@@ -67,7 +55,7 @@ async function buildSystemInstructions(
   const mark = (label: string) => sectionMarks.push({ label, end: instructions.length });
   mark('base config instructions');
 
-  instructions += TOOL_GUIDANCE;
+  instructions += MINT_TOOL_GUIDANCE;
   mark('tool guidance');
 
   // Latency-aware filler policy (owner, 2026-07-08): measured per-tool medians

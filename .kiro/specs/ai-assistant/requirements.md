@@ -2,7 +2,7 @@
 
 **Status:** current — core implemented; supersedes the client-side-ai spec (Gen-2 client-direct architecture only; the Gen-1 server-orchestrated design is dead and archived)
 **Owner domain:** visitor-facing AI: floating pill UI, voice/text conversation via client-direct adapters, unified tool registry, declarative navigation, F-I-D context, conversation persistence, debug/replay
-**Last verified against code:** 2026-07-02 (`e2d75b4`)
+**Last verified against code:** 2026-07-15 (Req 6 clause 4 added — 7.1d push/pull boundary; verified against the 7.1a/7.1e implementation live)
 **Registry decisions applied:** D17–D26, D39, D41 (open), D3, D4
 **Contracts:**
 
@@ -79,6 +79,7 @@ Overview: [`../00-overview/README.md`](../00-overview/README.md)
 1. WHEN the UI state changes THEN `PassiveFIDManager` SHALL push Frame (current page/section), Index (available content map), and Details (focused item) context into the session via `/api/ai/context/fid`, budgeted at Frame ≤ 400, Index ≤ 600, Details ≤ 1000 tokens (D25).
 2. WHEN new NAV_CONTEXT is injected THEN prior context items SHALL be **replaced, not appended** (delete-then-add), keeping realtime session context bounded.
 3. WHEN F-I-D context suffices THEN the model SHOULD answer without tool calls; tools are for content beyond the current frame.
+4. **Push/pull boundary (owner ruling 2026-07-12, task 7.1; principle recorded 7.1d):** the passive push SHALL carry **orientation + pull handles only** — a location line plus per-item ids/heading names (`content_get` handles) — and SHALL NEVER carry content prose (summaries, T2/T3 text, bio material). Content prose travels only via **pull tools** (`ui_details` for the current view, `content_search`/`content_get`/`portfolio_overview` beyond it) or via the conversation engine's budgeted PREPARED CONTEXT. Repeated navigation leaves a cheap location trail, never a re-stuffed payload. This boundary guards the 7.1a diet against regression and keeps the deferred full-PULL experiment cleanly comparable later (same information availability, different delivery).
 
 ## Requirement 7 — Grounded content access
 

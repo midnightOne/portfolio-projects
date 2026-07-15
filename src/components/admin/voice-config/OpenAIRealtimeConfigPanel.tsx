@@ -28,11 +28,12 @@ import {
 import { useToast } from '@/components/ui/toast';
 import { ButtonLoadingState } from '@/components/ui/loading-indicator';
 import { HelpText } from '@/components/ui/help-text';
-import { 
-  OpenAIRealtimeConfig, 
+import {
+  OpenAIRealtimeConfig,
   DEFAULT_OPENAI_CONFIG,
   OpenAIVoice,
   OpenAIRealtimeModel,
+  OPENAI_REALTIME_MODEL,
   TransportType
 } from '@/types/voice-config';
 import { OpenAIRealtimeSerializer } from '@/lib/voice/config-serializers/OpenAIRealtimeSerializer';
@@ -69,11 +70,25 @@ marin and cedar: Newer voices that are more natural and clear.
 
 alloy, ash, ballad, coral, echo, sage, shimmer, verse, marin, cedar*/
 
-const OPENAI_MODELS: { value: OpenAIRealtimeModel; label: string; description: string }[] = [
+// 7.8: this saved config is the authoritative model switch (DB config governs
+// the mint when present — ClientAIModelManager.getProviderConfig); the
+// OPENAI_REALTIME_MODEL constant is the code fallback ONLY (no DB row / load
+// failure), so the list derives its fallback marking from the constant instead
+// of a hardcoded literal — flipping the constant can never leave this UI lying.
+const OPENAI_MODEL_OPTIONS: { value: OpenAIRealtimeModel; label: string; description: string }[] = [
   { value: 'gpt-realtime', label: 'GPT Realtime', description: 'Newest realtime model' },
   { value: 'gpt-realtime-2', label: 'GPT Realtime 2', description: 'Suggested by OpenAI staff for the Firefox WebRTC interop issue' },
   { value: 'gpt-4o-realtime-preview-2025-06-03', label: 'GPT-4o Realtime (old model)', description: 'fallback old model' }
 ];
+const OPENAI_MODELS: { value: OpenAIRealtimeModel; label: string; description: string }[] = (
+  OPENAI_MODEL_OPTIONS.some((m) => m.value === OPENAI_REALTIME_MODEL)
+    ? OPENAI_MODEL_OPTIONS
+    : [{ value: OPENAI_REALTIME_MODEL, label: OPENAI_REALTIME_MODEL, description: 'Code fallback model' }, ...OPENAI_MODEL_OPTIONS]
+).map((m) =>
+  m.value === OPENAI_REALTIME_MODEL
+    ? { ...m, label: `${m.label} — code fallback when no saved config`, description: m.description }
+    : m
+);
 
 const TRANSPORT_TYPES: { value: TransportType; label: string; description: string }[] = [
   { value: 'webrtc', label: 'WebRTC', description: 'Low latency, peer-to-peer connection' },

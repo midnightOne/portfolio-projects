@@ -98,6 +98,28 @@ describe('UnifiedToolRegistry', () => {
       expect(tool?.parameters.required ?? []).toEqual([]);
     });
 
+    it('drops the five deprecated legacy tools from every mint but keeps them executable (7.2b)', () => {
+      const legacy = [
+        'loadUserProfile',
+        'getProjectSummary',
+        'submitContactForm',
+        'processUploadedFile',
+        'processJobSpec',
+      ];
+      const exposed = registry.getModelExposedToolDefinitions().map((t) => t.name);
+      const openai = registry.getOpenAIToolsArray().map((t) => t.name);
+      const google = registry.getGoogleToolsArray().map((t) => t.name);
+      for (const name of legacy) {
+        // Still registered — /api/ai/tools/execute keeps working
+        // (PassiveFIDManager.getUserProfile is a live loadUserProfile consumer).
+        expect(registry.hasToolDefinition(name)).toBe(true);
+        // But never minted to any model.
+        expect(exposed).not.toContain(name);
+        expect(openai).not.toContain(name);
+        expect(google).not.toContain(name);
+      }
+    });
+
     it('should filter tools by execution context', () => {
       const clientTools = registry.getClientToolDefinitions();
       const serverTools = registry.getServerToolDefinitions();

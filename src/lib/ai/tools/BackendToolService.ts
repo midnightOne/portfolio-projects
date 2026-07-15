@@ -9,7 +9,6 @@
 import { UnifiedToolDefinition, UnifiedToolResult, ServerToolExecutionContext } from './types';
 import { serverToolDefinitions } from './server-tools';
 import ContentSearchService from '@/lib/content/ContentSearchService';
-import { contextFrameManager, ContextSwapConfig } from '../ContextFrameManager';
 import { OWNER_PROFILE } from '../owner-profile';
 import { assemblePortfolioOverview } from '../start-frame';
 
@@ -66,38 +65,10 @@ export class BackendToolService {
     return this.toolDefinitions.get(toolName);
   }
 
-  /**
-   * Get F-I-D context for server-side tool execution
-   */
-  async getFIDContext(uiState?: any, userIntent?: string): Promise<{
-    frame: any;
-    index: any;
-    details: any;
-    totalTokens: number;
-    budgetExceeded: boolean;
-  }> {
-    try {
-      const config: ContextSwapConfig = {
-        route: uiState?.currentRoute || 'home',
-        projectId: uiState?.currentProject || undefined,
-        userIntent,
-        lastActions: uiState?.visibleAnchors || []
-      };
-
-      return await contextFrameManager.getCompleteContext(config);
-    } catch (error) {
-      console.error('Failed to get F-I-D context for server tool:', error);
-
-      // Return minimal context on error
-      return {
-        frame: { systemRules: '', voiceSettings: {}, routingPrimer: '', tokenCount: 0 },
-        index: { route: 'home', projectSummaries: [], routeMetadata: {}, availableTransitions: [], tokenCount: 0 },
-        details: { contentChunks: [], searchResults: [], tokenCount: 0, truncated: false },
-        totalTokens: 0,
-        budgetExceeded: false
-      };
-    }
-  }
+  // 7.2e: getFIDContext (the ContextFrameManager bridge) deleted — its only
+  // caller was a dead `await` on the content_get path (result never read,
+  // pure latency). ContextFrameManager itself stays: UIManager and
+  // /api/ai/context/fid are live consumers.
 
   /**
    * Execute a server-side tool
@@ -1143,7 +1114,6 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
 
       // Log backend tool performance breakdown
       console.log(`[BackendTool] Content search performance breakdown:`, {
-        fidContextLoading: `${backendTimings.fidContextLoading}ms`,
         scopeEnhancement: `${backendTimings.scopeEnhancement}ms`,
         filterEnhancement: `${backendTimings.filterEnhancement}ms`,
         cacheKeyGen: `${backendTimings.cacheKeyGeneration}ms`,
@@ -1225,9 +1195,6 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         console.log('Content get cache hit:', { cacheKey, sessionId: context.sessionId });
         return cachedResult;
       }
-
-      // Get F-I-D context for enhanced content retrieval
-      const fidContext = await this.getFIDContext(uiState);
 
       // Retrieve content using ContentSearchService (publicOnly for basic sessions —
       // SQL-level visibility enforcement, mcp-server Req 3.2/3.6)

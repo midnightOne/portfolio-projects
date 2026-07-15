@@ -460,6 +460,25 @@ function EventDetail({ detail }: { detail: string }) {
   );
 }
 
+/**
+ * 7.5a: tool results are stringified once at persist time (the /log route
+ * stores `aiResponse.result` as a JSON *string*, sliced to 8000 chars), so
+ * stringifying the envelope again rendered escaped-backslash walls. Decode
+ * the result once for DISPLAY only — persistence and what the model received
+ * stay untouched. Truncated payloads no longer parse; they render raw.
+ */
+function prettyToolResponse(aiResponse: Record<string, unknown>): string {
+  const display: Record<string, unknown> = { ...aiResponse };
+  if (typeof display.result === 'string') {
+    try {
+      display.result = JSON.parse(display.result);
+    } catch {
+      /* not valid JSON (plain string or 8000-char truncation) — render as-is */
+    }
+  }
+  return JSON.stringify(display, null, 2);
+}
+
 export function ReplayStepCard({
   step,
   legIndex,
@@ -573,8 +592,8 @@ export function ReplayStepCard({
             {JSON.stringify(step.debugInfo.aiRequest, null, 2)}
           </pre>
           {step.debugInfo.aiResponse && (
-            <pre className="text-xs whitespace-pre-wrap mt-1 bg-black/5 dark:bg-white/5 rounded p-2">
-              {JSON.stringify(step.debugInfo.aiResponse, null, 2)}
+            <pre className="text-xs whitespace-pre-wrap mt-1 bg-black/5 dark:bg-white/5 rounded p-2" data-testid="tool-result-detail">
+              {prettyToolResponse(step.debugInfo.aiResponse)}
             </pre>
           )}
         </details>

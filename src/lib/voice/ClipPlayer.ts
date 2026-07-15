@@ -63,10 +63,17 @@ export class ClipPlayer {
   private _context: AudioContext | null = null;
   private _current: { source: AudioBufferSourceNode; startedAt: number; lengthMs: number | null; info: Omit<ClipPlayedInfo, 'playedMs' | 'clipLengthMs' | 'cutOff'> } | null = null;
   private _onClipPlayed?: (info: ClipPlayedInfo) => void;
+  /** 7.6: fires (true) at clip start and (false) at end/cutoff — the host
+   *  gates the mic on it (clip audio leaking into the mic trips VAD). */
+  private _onPlaybackStateChange?: (playing: boolean) => void;
   private _preloadRun = 0; // invalidates a background preload when the provider changes
 
-  constructor(onClipPlayed?: (info: ClipPlayedInfo) => void) {
+  constructor(
+    onClipPlayed?: (info: ClipPlayedInfo) => void,
+    onPlaybackStateChange?: (playing: boolean) => void
+  ) {
     this._onClipPlayed = onClipPlayed;
+    this._onPlaybackStateChange = onPlaybackStateChange;
   }
 
   /**
@@ -170,9 +177,11 @@ export class ClipPlayer {
         if (this._current === entry) {
           this._current = null;
           this._report(entry, false);
+          this._notifyPlaybackState(false);
         }
       };
       source.start();
+      this._notifyPlaybackState(true);
       return true;
     } catch (err) {
       console.warn('[ClipPlayer] play failed:', err);
@@ -188,6 +197,15 @@ export class ClipPlayer {
     current.source.onended = null;
     try { current.source.stop(); } catch { /* already stopped */ }
     this._report(current, true);
+    this._notifyPlaybackState(false);
+  }
+
+  private _notifyPlaybackState(playing: boolean): void {
+    try {
+      this._onPlaybackStateChange?.(playing);
+    } catch (err) {
+      console.warn('[ClipPlayer] onPlaybackStateChange callback failed:', err);
+    }
   }
 
   async close(): Promise<void> {

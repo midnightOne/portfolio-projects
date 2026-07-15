@@ -112,6 +112,16 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
   private _resumeSessionId: string | null = null;
   private _sessionModel: string | null = null;
 
+  // 7.4: per-leg usage accounting — mirrors the OpenAI adapter's 6.16
+  // machinery. Gemini Live delivers usage as `usageMetadata` on server
+  // messages; before this the adapter counted nothing (the "N tok" header
+  // never moved on Gemini sessions).
+  private _legUsage = { responses: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  private _tpmWarned = false;
+
+  /** 7.6: mic frames are dropped while a D50 clip plays (clip-feedback gate). */
+  private _clipMicGated = false;
+
   // Capture pipeline
   private _inputStream: MediaStream | null = null;
   private _captureContext: AudioContext | null = null;
@@ -257,6 +267,10 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
       // Task 7.0: key for the admin context-mint stash lookup.
       this._mintSessionId = sessionData.session_id ?? null;
 
+      // 7.4: fresh leg, fresh usage counters (leg-end persistence reads them).
+      this._legUsage = { responses: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      this._tpmWarned = false;
+
       await this._openSocket(sessionData);
 
       this._audioInputMode = inputMode;
@@ -340,7 +354,8 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
         clearTimeout(timeout);
         console.warn(`Google Live WebSocket closed: code=${event.code} reason=${event.reason || '(none)'}`);
         if (this._connectionStatus === 'connected') {
-          this._logConnectionEvent('session_end', { endReason: 'provider_closed', closeCode: event.code, closeReason: event.reason });
+          // 7.4: leg totals ride the leg-end event into leg metadata (endLeg).
+          this._logConnectionEvent('session_end', { endReason: 'provider_closed', closeCode: event.code, closeReason: event.reason, usage: { ...this._legUsage } });
           this._logEvent('error', `Google Live connection closed unexpectedly (code ${event.code})`, { code: event.code, reason: event.reason });
           this._setConnectionStatus('disconnected');
           this._handleConnectionEvent({
@@ -379,6 +394,13 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
     if (msg.setupComplete && !this._setupComplete) {
       this._setupComplete = true;
       this._setupCompleteResolve?.();
+    }
+
+    // 7.4: usage rides its own top-level field, one report per completed
+    // generation (tool-call legs and the final answer each report — matching
+    // the OpenAI adapter's per-response semantics).
+    if (msg.usageMetadata) {
+      this._processUsageMetadata(msg.usageMetadata);
     }
 
     if (msg.serverContent) {
@@ -544,7 +566,9 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
         // Gate on _capturing only: `_isMuted` is the OUTPUT (playback) mute —
         // silencing the speaker must not silence the visitor's microphone
         // (same input/output conflation as the OpenAI 2026-07-11 deaf-mic bug).
-        if (!this._capturing || this._ws?.readyState !== WebSocket.OPEN) return;
+        // _clipMicGated (7.6) is the narrow exception: clip speaker output
+        // leaking back into the mic trips VAD, so frames drop during clips.
+        if (!this._capturing || this._clipMicGated || this._ws?.readyState !== WebSocket.OPEN) return;
         const input = e.inputBuffer.getChannelData(0);
         const downsampled = downsampleTo16k(input, ctx.sampleRate);
         const pcm16 = floatTo16BitPCM(downsampled);
@@ -659,7 +683,8 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
       this._playbackGain = null;
 
       if (this._ws) {
-        this._logConnectionEvent('session_end', { endReason: 'user_disconnect' });
+        // 7.4: leg totals ride the leg-end event into leg metadata (endLeg).
+        this._logConnectionEvent('session_end', { endReason: 'user_disconnect', usage: { ...this._legUsage } });
         this._ws.close(1000, 'client disconnect');
         this._ws = null;
       }
@@ -680,6 +705,11 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
     this._transcript = [];
     this._tools.clear();
     this._lastError = null;
+  }
+
+  /** 7.6 clip-feedback gate: drop mic frames while a D50 clip plays. */
+  setClipMicGate(gated: boolean): void {
+    this._clipMicGated = gated;
   }
 
   async startAudioInput(): Promise<void> {
@@ -840,6 +870,58 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
   }
 
   // ---- D49 leg lifecycle + persistence (baseline; see task 6.3 gap notes) ----
+
+  /**
+   * 7.4: per-response usage → leg accumulator + live-counter delta + TPM
+   * warning, the same contract the OpenAI adapter got in 6.16. The delta POST
+   * is what increments `conversation.totalTokens` (the admin header counts up
+   * DURING the session); leg-end persistence stores the leg totals in leg
+   * metadata only — the /log route deliberately does not increment there
+   * (double-count guard). Field names per the v1alpha bidi UsageMetadata
+   * (promptTokenCount/responseTokenCount/totalTokenCount), with the REST-style
+   * candidatesTokenCount accepted as fallback. Assumed per-generation, not
+   * session-cumulative — verify against the live drill's raw log if the
+   * header ever counts implausibly fast.
+   */
+  private _processUsageMetadata(usage: {
+    promptTokenCount?: number;
+    responseTokenCount?: number;
+    candidatesTokenCount?: number;
+    totalTokenCount?: number;
+  }): void {
+    try {
+      const inputTokens = usage.promptTokenCount ?? 0;
+      const outputTokens = usage.responseTokenCount ?? usage.candidatesTokenCount ?? 0;
+      const totalTokens = usage.totalTokenCount ?? inputTokens + outputTokens;
+      if (totalTokens <= 0) return;
+      console.log('Gemini Live usage metadata:', usage);
+
+      this._legUsage.responses += 1;
+      this._legUsage.inputTokens += inputTokens;
+      this._legUsage.outputTokens += outputTokens;
+      this._legUsage.totalTokens += totalTokens;
+
+      this._postConversationLog({
+        sessionId: this._conversationId,
+        provider: 'google',
+        reflinkId: this._options?.reflinkId,
+        usageDelta: { responses: 1, inputTokens, outputTokens, totalTokens },
+        timestamp: new Date().toISOString(),
+      });
+
+      // Same early-warning contract as OpenAI: one in-transcript row per leg
+      // before rate limiting starts silently failing responses.
+      const TPM_WARN_TOKENS = 15000;
+      if (totalTokens >= TPM_WARN_TOKENS && !this._tpmWarned) {
+        this._tpmWarned = true;
+        this._logEvent('error',
+          `High token burn: this response used ${totalTokens} tokens (${inputTokens} in / ${outputTokens} out) — a 40K TPM window fits ~${Math.max(1, Math.floor(40000 / totalTokens))} such responses per minute`,
+          { kind: 'tpm_warning', usage: { input: inputTokens, output: outputTokens, total: totalTokens } });
+      }
+    } catch (error) {
+      console.error('Error processing Gemini usage metadata:', error);
+    }
+  }
 
   private _logConnectionEvent(eventType: 'session_start' | 'session_end' | 'disruption', data: Record<string, unknown>): void {
     this._postConversationLog({

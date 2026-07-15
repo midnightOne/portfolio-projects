@@ -172,6 +172,8 @@ export function ConversationalAgentProvider({
    *  actually speaks. */
   const clipPlayedThisGapRef = useRef(false);
   const lastConnStatusRef = useRef<string>('disconnected');
+  /** 7.6: pending mic-ungate timer (150ms echo-tail after a clip ends). */
+  const clipGateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Register adapters on mount
   useEffect(() => {
@@ -213,9 +215,33 @@ export function ConversationalAgentProvider({
           timestamp: new Date().toISOString(),
         }),
       }).catch((err) => console.warn('[clip_played] log failed:', err));
+    }, (playing) => {
+      // 7.6 clip-feedback gate: browser AEC does not cancel non-WebRTC audio,
+      // so clip speaker output leaks into the mic and trips provider VAD
+      // (measured: response-cancellations ~3× enriched within seconds of clip
+      // onset, plus hallucinated foreign-language user rows). Suppress mic
+      // input for the clip's duration + a 150ms echo tail. Clips are short
+      // (≤ ~2s) — the visitor can still barge in the moment the clip ends,
+      // and speech_start cutoffs unfreeze the mic immediately via this path.
+      if (clipGateTimerRef.current) {
+        clearTimeout(clipGateTimerRef.current);
+        clipGateTimerRef.current = null;
+      }
+      if (playing) {
+        adapterRef.current?.setClipMicGate(true);
+      } else {
+        clipGateTimerRef.current = setTimeout(() => {
+          clipGateTimerRef.current = null;
+          adapterRef.current?.setClipMicGate(false);
+        }, 150);
+      }
     });
     clipPlayerRef.current = player;
     return () => {
+      if (clipGateTimerRef.current) {
+        clearTimeout(clipGateTimerRef.current);
+        clipGateTimerRef.current = null;
+      }
       clipPlayerRef.current = null;
       void player.close();
     };

@@ -2,7 +2,7 @@
 
 **Status:** current — describes implemented system (Gen-2 client-direct)
 **Owner domain:** visitor AI runtime
-**Last verified against code:** 2026-07-07 (Phase 3 consolidation session)
+**Last verified against code:** 2026-07-15 (7.1d push/pull boundary recorded; 7.2a/b/e prompt-diet + legacy-context cleanup session)
 **Focused designs:** [design-voice-adapters.md](./design-voice-adapters.md) · [design-tools-and-context.md](./design-tools-and-context.md)
 
 ---
@@ -30,7 +30,7 @@ Principles:
 - **Client-direct voice** (browser ↔ provider WebRTC) with server-minted ephemeral tokens; system prompt + tool schema injected server-side at mint. The server never proxies audio.
 - **One provider component** (`src/components/providers/conversational-agent-provider.tsx`, D21) drives both the public pill and admin debug.
 - **One tool chain**: registry → `/api/ai/tools/execute` → `BackendToolService` — shared with the future MCP server (D39).
-- **Passive context first, tools second** (F-I-D): the model is told where the user is; it searches only for what it can't see.
+- **Passive context first, tools second** (F-I-D): the model is told where the user is; it searches only for what it can't see. **Push = orientation + pull handles only (7.1d):** the passive push carries a location line and id/heading handles, never content prose — prose travels exclusively via pull tools (`ui_details` / `content_search` / `content_get` / `portfolio_overview`) or the engine's budgeted PREPARED CONTEXT.
 - **One persistence path** (D26/D58): voice adapters log via `/api/ai/conversation/log`, the text tier writes server-side in `/api/ai/chat`, both into `conversation-history-manager` — one text pipeline regardless of modality, per-message `voice`/`text` labels, audio never stored (debug audio would be a separate `media` file). Implemented + verified 2026-07-07 (task 2b).
 
 ## 2. Module map (code truth)

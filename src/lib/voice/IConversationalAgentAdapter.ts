@@ -133,6 +133,15 @@ export interface IConversationalAgentAdapter {
   isMuted(): boolean;
   setVolume(volume: number): void;
   getVolume(): number;
+  /**
+   * 7.6: suppress MIC INPUT while a D50 clip plays (browser AEC does not
+   * cancel non-WebRTC audio, so clip speaker output leaks into the mic and
+   * trips provider VAD — measured: response-cancellations are ~3× enriched
+   * near clip playback, with hallucinated foreign-language "user" rows in the
+   * same window). Distinct from mute()/unmute(), which are OUTPUT mute.
+   * Base implementation is a no-op; native adapters override.
+   */
+  setClipMicGate(gated: boolean): void;
   
   // Conversation management
   sendMessage(message: string): Promise<void>;
@@ -468,6 +477,11 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
 
   clearErrors(): void {
     this._lastError = null;
+  }
+
+  /** 7.6 clip-feedback gate — no-op by default; native adapters override. */
+  setClipMicGate(_gated: boolean): void {
+    // Adapters without a mic-input seam (e.g. cascade push-to-talk) ignore this.
   }
 
   mute(): void {

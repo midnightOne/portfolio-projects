@@ -9,7 +9,6 @@ import { CheckCircle, XCircle, RefreshCw, TestTube } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ConversationalAgentProvider, useConversationalAgent } from '@/components/providers/conversational-agent-provider';
 import { ReflinkSessionProvider } from '@/components/providers/reflink-session-wrapper';
-import { ContextMonitor } from './ContextMonitor';
 import { ToolCallMonitor } from './ToolCallMonitor';
 import { ConversationStateInspector } from './ConversationStateInspector';
 
@@ -141,7 +140,7 @@ function AdminDebugTestContent() {
             <Alert>
               <CheckCircle className="h-4 w-4" />
               <AlertDescription>
-                This test verifies that the admin debug components (ContextMonitor, ToolCallMonitor, ConversationStateInspector) 
+                This test verifies that the admin debug components (ToolCallMonitor, ConversationStateInspector)
                 work correctly with both OpenAI and ElevenLabs providers using the unified conversation system.
               </AlertDescription>
             </Alert>
@@ -221,12 +220,9 @@ function AdminDebugTestContent() {
         </CardContent>
       </Card>
 
-      {/* Debug Components Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <ContextMonitor
-          conversationId={state.conversationMetadata?.sessionId || 'test-session'}
-          activeProvider={state.activeProvider}
-        />
+      {/* Debug Components Grid — ContextMonitor deleted (7.2e/7.0d, superseded
+          by the pill-page ContextDebugPanel) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ToolCallMonitor
           conversationId={state.conversationMetadata?.sessionId || 'test-session'}
           activeProvider={state.activeProvider}

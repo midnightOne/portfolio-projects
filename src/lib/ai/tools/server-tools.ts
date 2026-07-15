@@ -62,6 +62,14 @@ export const loadProjectContextToolDefinition: UnifiedToolDefinition = {
 
 export const loadUserProfileToolDefinition: UnifiedToolDefinition = {
   name: 'loadUserProfile',
+  // 7.2b: globally-deprecated legacy tool — dropped from every mint (the
+  // guidance disavows it; identity now rides the start frame + the
+  // portfolio_overview tool) but STILL EXECUTABLE via /api/ai/tools/execute:
+  // PassiveFIDManager.getUserProfile() is a live client-side consumer.
+  // Reversible by deleting this flag; owner review flagged in tasks.md
+  // (the B5 "full tool set" ruling was about node narrowing, not
+  // guidance-disavowed tools).
+  modelExposed: false,
   description: 'Load user profile information for AI context and personalization.',
   parameters: {
     type: 'object',
@@ -156,6 +164,9 @@ export const searchProjectsToolDefinition: UnifiedToolDefinition = {
 
 export const getProjectSummaryToolDefinition: UnifiedToolDefinition = {
   name: 'getProjectSummary',
+  // 7.2b: legacy — superseded by portfolio_overview + content_search for
+  // models; remains executable server-side. See loadUserProfile note.
+  modelExposed: false,
   description: 'Get a comprehensive summary of all projects for context building.',
   parameters: {
     type: 'object',
@@ -202,6 +213,9 @@ export const getProjectSummaryToolDefinition: UnifiedToolDefinition = {
 // Job Analysis Tools - Server-side AI processing
 export const processJobSpecToolDefinition: UnifiedToolDefinition = {
   name: 'processJobSpec',
+  // 7.2b: legacy — the job-analysis flow models drive is job_description_form
+  // (G3); remains executable server-side. See loadUserProfile note.
+  modelExposed: false,
   description: 'Process and analyze a job specification against portfolio owner background.',
   parameters: {
     type: 'object',
@@ -258,6 +272,9 @@ export const processJobSpecToolDefinition: UnifiedToolDefinition = {
 // Contact and Communication Tools - Server-side form processing
 export const submitContactFormToolDefinition: UnifiedToolDefinition = {
   name: 'submitContactForm',
+  // 7.2b: legacy — the consent-gated conversion moment models drive is
+  // lead_capture (H2); remains executable server-side. See loadUserProfile note.
+  modelExposed: false,
   description: 'Submit contact form data to the server for processing and notification.',
   parameters: {
     type: 'object',
@@ -310,6 +327,10 @@ export const submitContactFormToolDefinition: UnifiedToolDefinition = {
 // File Processing Tools - Server-side document analysis
 export const processUploadedFileToolDefinition: UnifiedToolDefinition = {
   name: 'processUploadedFile',
+  // 7.2b: legacy — no model-facing upload flow exists (job specs arrive via
+  // job_description_form); remains executable server-side. See loadUserProfile
+  // note.
+  modelExposed: false,
   description: 'Process uploaded files (resumes, job specs) for analysis and context.',
   parameters: {
     type: 'object',
@@ -356,113 +377,69 @@ export const processUploadedFileToolDefinition: UnifiedToolDefinition = {
   }
 };
 
+/**
+ * 7.2b: the model-facing uiState parameter, shared by content_search and
+ * content_get (it was duplicated verbatim). Slimmed to the fields the ranking
+ * and navTarget generation actually read; UIManager-internal state
+ * (activeFilters, lastUserAction) is not the model's to pass — it never
+ * populated them meaningfully, and the server treats absence fine.
+ */
+const uiStateParameterSchema = {
+  type: 'object',
+  description: 'Current UI state, copied from your latest NAV_CONTEXT — used for context-aware ranking and navTarget generation',
+  properties: {
+    currentRoute: { type: 'string', description: 'Current route (home, projects, about)' },
+    currentProject: { type: 'string', description: 'Current project slug if a project is open' },
+    currentModal: { type: 'string', description: 'Current modal ID if a modal is open' },
+    breadcrumbPath: { type: 'string', description: 'Navigation path, e.g. "home.projects.aurora-avatar.technical-details"' },
+    visibleAnchors: { type: 'array', items: { type: 'string' }, description: 'Currently visible content anchors' }
+  }
+};
+
 // Content Search and Retrieval Tools - Semantic search with pgvector
 export const contentSearchToolDefinition: UnifiedToolDefinition = {
   name: 'content_search',
-  description: 'Search portfolio content semantically across projects and sections using hybrid search (semantic + metadata filtering) with UI state context awareness.',
+  description: 'Semantic search across ALL portfolio content (projects, sections, experience). Results carry navTargets, a relevance score, facets, and a why field explaining each match.',
   parameters: {
     type: 'object',
     properties: {
       query: {
         type: 'string',
-        description: 'Natural language search query to find relevant content'
+        description: 'Natural language query — specific beats broad ("React components", not "React")'
       },
-      uiState: {
-        type: 'object',
-        description: 'Current UI state context for context-aware search ranking',
-        properties: {
-          breadcrumbPath: {
-            type: 'string',
-            description: 'Hierarchical navigation path (e.g., "home.projects.aurora-avatar.technical-details")'
-          },
-          visibleAnchors: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Currently visible content anchors'
-          },
-          activeFilters: {
-            type: 'object',
-            properties: {
-              searchTerm: { type: 'string' },
-              tags: { type: 'array', items: { type: 'string' } },
-              techStack: { type: 'array', items: { type: 'string' } }
-            }
-          },
-          currentRoute: { type: 'string', description: 'Current route (home, projects, about)' },
-          currentProject: { type: 'string', description: 'Current project slug if viewing project' },
-          currentModal: { type: 'string', description: 'Current modal ID if modal is open' },
-          lastUserAction: {
-            type: 'object',
-            properties: {
-              type: { type: 'string', enum: ['navigate', 'search', 'filter', 'scroll'] },
-              timestamp: { type: 'number' }
-            }
-          }
-        }
-      },
+      uiState: uiStateParameterSchema,
       scope: {
         type: 'object',
+        description: 'Optional hard limit on where to search',
         properties: {
-          route: {
-            type: 'string',
-            description: 'Limit search to current route context (e.g., "home", "projects")'
-          },
-          projectId: {
-            type: 'string',
-            description: 'Limit search to specific project by ID or slug'
-          },
-          entityType: {
-            type: 'string',
-            description: 'Limit search to specific entity type (PROJECT, BIO, RESUME, etc.)'
-          }
+          route: { type: 'string' },
+          projectId: { type: 'string', description: 'Project ID or slug' },
+          entityType: { type: 'string', description: 'PROJECT, BIO, RESUME, …' }
         }
       },
       k: {
         type: 'number',
-        description: 'Number of results to return',
+        description: 'Results to return: 3-5 focused, 8-10 comprehensive',
         default: 5,
         minimum: 1,
         maximum: 20
       },
       maxTier: {
         type: 'number',
-        description: 'Maximum content tier to return (1=summary, 2=headings, 3=content)',
+        description: 'Max content tier (1=summary, 2=headings, 3=content)',
         enum: [1, 2, 3],
         default: 3
       },
       diversifyBy: {
         type: 'string',
-        description: 'Diversification strategy for results',
         enum: ['project', 'type'],
         default: 'project'
       },
       filters: {
         type: 'object',
         properties: {
-          tags: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Filter by content tags'
-          },
-          technologies: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Filter by technology stack'
-          },
-          dateRange: {
-            type: 'object',
-            properties: {
-              from: { type: 'string', format: 'date' },
-              to: { type: 'string', format: 'date' }
-            },
-            description: 'Filter by date range'
-          },
-          minImportance: {
-            type: 'number',
-            description: 'Minimum importance score (0-1)',
-            minimum: 0,
-            maximum: 1
-          }
+          tags: { type: 'array', items: { type: 'string' } },
+          technologies: { type: 'array', items: { type: 'string' } }
         }
       }
     },
@@ -504,53 +481,21 @@ export const contentSearchToolDefinition: UnifiedToolDefinition = {
 
 export const contentGetToolDefinition: UnifiedToolDefinition = {
   name: 'content_get',
-  description: 'Fetch specific content details by ID with token budget control, tier filtering, and UI state context for navigation target generation.',
+  description: 'Fetch full content by ID (from content_search results), with token budget and tier filtering. Results carry navTargets.',
   parameters: {
     type: 'object',
     properties: {
       ids: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Content chunk IDs to fetch',
+        description: 'Content chunk IDs from content_search results',
         minItems: 1,
         maxItems: 10
       },
-      uiState: {
-        type: 'object',
-        description: 'Current UI state context for navigation target compatibility',
-        properties: {
-          breadcrumbPath: {
-            type: 'string',
-            description: 'Hierarchical navigation path (e.g., "home.projects.aurora-avatar.technical-details")'
-          },
-          visibleAnchors: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Currently visible content anchors'
-          },
-          activeFilters: {
-            type: 'object',
-            properties: {
-              searchTerm: { type: 'string' },
-              tags: { type: 'array', items: { type: 'string' } },
-              techStack: { type: 'array', items: { type: 'string' } }
-            }
-          },
-          currentRoute: { type: 'string', description: 'Current route (home, projects, about)' },
-          currentProject: { type: 'string', description: 'Current project slug if viewing project' },
-          currentModal: { type: 'string', description: 'Current modal ID if modal is open' },
-          lastUserAction: {
-            type: 'object',
-            properties: {
-              type: { type: 'string', enum: ['navigate', 'search', 'filter', 'scroll'] },
-              timestamp: { type: 'number' }
-            }
-          }
-        }
-      },
+      uiState: uiStateParameterSchema,
       maxTokens: {
         type: 'number',
-        description: 'Token budget for response to prevent context overflow',
+        description: 'Response token budget (500-900 for detailed answers)',
         default: 900,
         minimum: 100,
         maximum: 4000
@@ -561,7 +506,7 @@ export const contentGetToolDefinition: UnifiedToolDefinition = {
           type: 'number',
           enum: [0, 1, 2, 3]
         },
-        description: 'Which content tiers to include (0=metadata, 1=summary, 2=headings, 3=content)',
+        description: 'Content tiers to include (0=metadata, 1=summary, 2=headings, 3=content)',
         default: [0, 1, 2, 3]
       }
     },

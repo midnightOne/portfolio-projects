@@ -2437,6 +2437,24 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         };
     }
 
+    /**
+     * 7.6 clip-feedback gate: suppress the mic while a D50 clip plays, via the
+     * SDK's input mute. Composes with the visitor's explicit mute (_inputMuted)
+     * — ungating never unmutes a track the visitor (or stopListening) muted.
+     */
+    setClipMicGate(gated: boolean): void {
+        if (!this._session || !this._isConnected) return;
+        try {
+            if (gated) {
+                this._session.mute(true);
+            } else if (!this._inputMuted && this._isRecording) {
+                this._session.mute(false);
+            }
+        } catch (error) {
+            console.warn('OpenAIRealtimeAdapter: clip mic gate failed (continuing):', error);
+        }
+    }
+
     // Additional methods for the new SDK
     async toggleMute(): Promise<void> {
         if (!this._session || !this._isConnected) {
