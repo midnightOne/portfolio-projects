@@ -21,8 +21,7 @@ import {
   Settings,
   MessageSquare,
   Activity,
-  Headphones,
-  Eye
+  Headphones
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ConversationalAgentProvider, useConversationalAgent } from '@/components/providers/conversational-agent-provider';

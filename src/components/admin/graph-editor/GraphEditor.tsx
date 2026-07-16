@@ -17,7 +17,6 @@ import {
   Controls,
   MiniMap,
   applyNodeChanges,
-  type Node,
   type Edge,
   type NodeChange,
   type EdgeChange,
