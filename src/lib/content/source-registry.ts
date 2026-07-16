@@ -30,6 +30,7 @@
  */
 
 import { prisma } from '@/lib/prisma';
+import type { Prisma } from '@prisma/client';
 
 export const PROJECTS_SOURCE_ID = 'projects';
 const DOC_PREFIX = 'doc:';
@@ -40,6 +41,8 @@ export const DOCUMENT_ENTITY_TYPES = ['BIO', 'RESUME', 'EXPERIENCE', 'SKILLS', '
 export type DocumentEntityType = (typeof DOCUMENT_ENTITY_TYPES)[number];
 
 export interface DocumentSourceSpec {
+  configId: string;
+  entityId: string | null;
   sourceId: string; // doc:<slug>
   entityType: DocumentEntityType;
   slug: string;
@@ -74,16 +77,20 @@ export function isEntitySourceId(sourceId: string): boolean {
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,63}$/;
 
 function parseDocRow(row: {
+  id: string;
   sourceId: string;
   enabled: boolean;
   updatedAt: Date;
   config: unknown;
+  contentEntity?: { id: string } | null;
 }): DocumentSourceSpec | null {
   const cfg = (row.config ?? {}) as Record<string, unknown>;
   const slug = typeof cfg.slug === 'string' ? cfg.slug : row.sourceId.slice(DOC_PREFIX.length);
   const entityType = cfg.entityType as DocumentEntityType;
   if (!DOCUMENT_ENTITY_TYPES.includes(entityType) || !SLUG_RE.test(slug)) return null;
   return {
+    configId: row.id,
+    entityId: row.contentEntity?.id ?? null,
     sourceId: row.sourceId,
     entityType,
     slug,
@@ -102,6 +109,7 @@ function parseDocRow(row: {
 export async function listDocumentSources(): Promise<DocumentSourceSpec[]> {
   const rows = await prisma.aIContentSourceConfig.findMany({
     where: { sourceId: { startsWith: DOC_PREFIX } },
+    include: { contentEntity: { select: { id: true } } },
   });
   return rows
     .map(parseDocRow)
@@ -112,11 +120,14 @@ export async function listDocumentSources(): Promise<DocumentSourceSpec[]> {
 export async function getDocumentSource(slug: string): Promise<DocumentSourceSpec | null> {
   const row = await prisma.aIContentSourceConfig.findUnique({
     where: { sourceId: docSourceId(slug) },
+    include: { contentEntity: { select: { id: true } } },
   });
   return row ? parseDocRow(row) : null;
 }
 
 export interface UpsertDocumentSourceInput {
+  /** Existing source identity. Omit only when creating a new source. */
+  sourceId?: string;
   slug: string;
   entityType: DocumentEntityType;
   title: string;
@@ -126,6 +137,73 @@ export interface UpsertDocumentSourceInput {
   uiLocation?: string | null;
   content: string;
   enabled?: boolean;
+}
+
+interface OwnedEntityInput {
+  entityType: DocumentEntityType;
+  slug: string;
+  title: string;
+  description?: string;
+  tags: string[];
+  technologies: string[];
+}
+
+function entityData(input: OwnedEntityInput) {
+  return {
+    entityType: input.entityType,
+    slug: input.slug,
+    title: input.title,
+    description: input.description || '',
+    tags: input.tags,
+    technologies: input.technologies,
+  };
+}
+
+async function ensureOwnedEntity(
+  tx: Prisma.TransactionClient,
+  configId: string,
+  input: OwnedEntityInput,
+): Promise<{ id: string }> {
+  const owned = await tx.contentEntity.findUnique({ where: { sourceConfigId: configId } });
+  if (owned) {
+    const collision = await tx.contentEntity.findUnique({
+      where: { entityType_slug: { entityType: input.entityType, slug: input.slug } },
+      select: { id: true },
+    });
+    if (collision && collision.id !== owned.id) {
+      throw new Error(`Content entity ${input.entityType}/${input.slug} already exists and is not owned by this source`);
+    }
+    return tx.contentEntity.update({
+      where: { id: owned.id },
+      data: entityData(input),
+      select: { id: true },
+    });
+  }
+
+  const collision = await tx.contentEntity.findUnique({
+    where: { entityType_slug: { entityType: input.entityType, slug: input.slug } },
+    select: { id: true, sourceConfigId: true },
+  });
+  if (collision) {
+    throw new Error(`Content entity ${input.entityType}/${input.slug} already exists and is not owned by this source`);
+  }
+
+  return tx.contentEntity.create({
+    data: { ...entityData(input), sourceConfigId: configId },
+    select: { id: true },
+  });
+}
+
+/** Resolve or create the entity owned by a document config without adopting collisions. */
+export async function ensureDocumentSourceEntity(doc: DocumentSourceSpec): Promise<{ id: string }> {
+  return prisma.$transaction(async tx => {
+    const config = await tx.aIContentSourceConfig.findUnique({
+      where: { id: doc.configId },
+      select: { id: true },
+    });
+    if (!config) throw new Error(`Document source config no longer exists: ${doc.sourceId}`);
+    return ensureOwnedEntity(tx, config.id, doc);
+  });
 }
 
 export async function upsertDocumentSource(input: UpsertDocumentSourceInput): Promise<DocumentSourceSpec> {
@@ -143,28 +221,69 @@ export async function upsertDocumentSource(input: UpsertDocumentSourceInput): Pr
   }
   if (!input.title?.trim()) throw new Error('title is required');
 
-  const sourceId = docSourceId(input.slug);
-  // Metadata-only edits may omit content — keep the stored text
-  let content = input.content ?? '';
-  if (!content.trim()) {
-    const existing = await getDocumentSource(input.slug);
-    if (!existing?.content.trim()) throw new Error('content is required');
-    content = existing.content;
-  }
-  const config = {
-    entityType: input.entityType,
-    slug: input.slug,
-    title: input.title.trim(),
-    description: input.description?.trim() || undefined,
-    tags: input.tags ?? [],
-    technologies: input.technologies ?? [],
-    uiLocation: input.uiLocation || null,
-    content,
-  };
-  const row = await prisma.aIContentSourceConfig.upsert({
-    where: { sourceId },
-    create: { sourceId, providerId: 'document', enabled: input.enabled ?? true, priority: 50, config },
-    update: { config, ...(input.enabled !== undefined ? { enabled: input.enabled } : {}) },
+  const targetSourceId = docSourceId(input.slug);
+  const row = await prisma.$transaction(async tx => {
+    const existing = input.sourceId
+      ? await tx.aIContentSourceConfig.findUnique({
+          where: { sourceId: input.sourceId },
+          include: { contentEntity: { select: { id: true } } },
+        })
+      : null;
+    if (input.sourceId && !existing) throw new Error(`Document source not found: ${input.sourceId}`);
+    if (existing && existing.providerId !== 'document') {
+      throw new Error(`Source ${input.sourceId} is not a managed document source`);
+    }
+    if (!existing) {
+      const duplicate = await tx.aIContentSourceConfig.findUnique({ where: { sourceId: targetSourceId } });
+      if (duplicate) throw new Error(`Document source ${targetSourceId} already exists; edit it by sourceId`);
+    } else if (existing.sourceId !== targetSourceId) {
+      const duplicate = await tx.aIContentSourceConfig.findUnique({ where: { sourceId: targetSourceId } });
+      if (duplicate && duplicate.id !== existing.id) throw new Error(`Document source ${targetSourceId} already exists`);
+    }
+
+    const previous = existing ? parseDocRow(existing) : null;
+    const content = input.content?.trim() ? input.content : previous?.content ?? '';
+    if (!content.trim()) throw new Error('content is required');
+    const config = {
+      entityType: input.entityType,
+      slug: input.slug,
+      title: input.title.trim(),
+      description: input.description?.trim() || undefined,
+      tags: input.tags ?? [],
+      technologies: input.technologies ?? [],
+      uiLocation: input.uiLocation || null,
+      content,
+    };
+    const saved = existing
+      ? await tx.aIContentSourceConfig.update({
+          where: { id: existing.id },
+          data: {
+            sourceId: targetSourceId,
+            config,
+            ...(input.enabled !== undefined ? { enabled: input.enabled } : {}),
+          },
+        })
+      : await tx.aIContentSourceConfig.create({
+          data: {
+            sourceId: targetSourceId,
+            providerId: 'document',
+            enabled: input.enabled ?? true,
+            priority: 50,
+            config,
+          },
+        });
+    await ensureOwnedEntity(tx, saved.id, {
+      entityType: input.entityType,
+      slug: input.slug,
+      title: config.title,
+      description: config.description,
+      tags: config.tags,
+      technologies: config.technologies,
+    });
+    return tx.aIContentSourceConfig.findUniqueOrThrow({
+      where: { id: saved.id },
+      include: { contentEntity: { select: { id: true } } },
+    });
   });
   invalidateSourceRegistryCache();
   return parseDocRow(row)!;
@@ -175,15 +294,22 @@ export async function deleteDocumentSource(
   slug: string,
   opts: { deleteEntity?: boolean } = {}
 ): Promise<{ deletedEntity: boolean }> {
-  const doc = await getDocumentSource(slug);
-  await prisma.aIContentSourceConfig.deleteMany({ where: { sourceId: docSourceId(slug) } });
-  let deletedEntity = false;
-  if (doc && (opts.deleteEntity ?? true)) {
-    const res = await prisma.contentEntity.deleteMany({
-      where: { entityType: doc.entityType, slug: doc.slug },
+  const deletedEntity = await prisma.$transaction(async tx => {
+    const config = await tx.aIContentSourceConfig.findUnique({
+      where: { sourceId: docSourceId(slug) },
+      include: { contentEntity: { select: { id: true } } },
     });
-    deletedEntity = res.count > 0; // chunks cascade
-  }
+    if (!config) return false;
+    const ownsEntity = !!config.contentEntity;
+    if (ownsEntity && opts.deleteEntity === false) {
+      await tx.contentEntity.update({
+        where: { id: config.contentEntity!.id },
+        data: { sourceConfigId: null },
+      });
+    }
+    await tx.aIContentSourceConfig.delete({ where: { id: config.id } });
+    return ownsEntity && (opts.deleteEntity ?? true);
+  });
   invalidateSourceRegistryCache();
   return { deletedEntity };
 }
@@ -236,7 +362,7 @@ export async function getSourceExclusions(): Promise<SourceExclusions> {
   try {
     const rows = await prisma.aIContentSourceConfig.findMany({
       where: { enabled: false },
-      select: { sourceId: true, config: true },
+      select: { id: true, sourceId: true, config: true },
     });
     for (const row of rows) {
       if (row.sourceId === PROJECTS_SOURCE_ID) {

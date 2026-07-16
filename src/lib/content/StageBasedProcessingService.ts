@@ -23,7 +23,7 @@ import { HierarchicalContentParser } from './HierarchicalContentParser';
 import { buildT2SummarySource, orderSummaryChunksBottomUp, normalizeParentChunkIds } from './summary-source';
 import { IndexMaintenanceService } from '../database/IndexMaintenanceService';
 import { getProcessingOperationStore, ChildOutcome } from './ProcessingOperationStore';
-import { getDocumentSource, listDocumentSources, invalidateSourceRegistryCache, DocumentSourceSpec } from './source-registry';
+import { ensureDocumentSourceEntity, getDocumentSource, listDocumentSources, invalidateSourceRegistryCache, DocumentSourceSpec } from './source-registry';
 import { generateDocumentScaffold } from './document-scaffold';
 import { ChunkingConfigService } from './ChunkingConfigService';
 import { EventEmitter } from 'events';
@@ -1548,14 +1548,10 @@ export class StageBasedProcessingService extends EventEmitter {
   private async getEntityForRequest(request: ProcessingRequest): Promise<{ id: string; slug: string }> {
     if (request.scope === 'entity') {
       const doc = await this.resolveDocumentSource(request);
-      const entity = await prisma.contentEntity.findFirst({
-        where: { entityType: doc.entityType as any, slug: doc.slug },
-        select: { id: true, slug: true }
-      });
-      if (!entity) {
+      if (!doc.entityId) {
         throw new Error(`No content entity for document source ${doc.slug} — run the chunking stage first`);
       }
-      return entity;
+      return { id: doc.entityId, slug: doc.slug };
     }
     const projects = await this.getProjectsToProcess(request);
     const project = projects[0];
@@ -1579,23 +1575,7 @@ export class StageBasedProcessingService extends EventEmitter {
   private async getOrCreateEntityForRequest(request: ProcessingRequest): Promise<{ id: string }> {
     if (request.scope === 'entity') {
       const doc = await this.resolveDocumentSource(request);
-      return prisma.contentEntity.upsert({
-        where: { entityType_slug: { entityType: doc.entityType as any, slug: doc.slug } },
-        create: {
-          entityType: doc.entityType as any,
-          slug: doc.slug,
-          title: doc.title,
-          description: doc.description || '',
-          tags: doc.tags,
-          technologies: doc.technologies
-        },
-        update: {
-          title: doc.title,
-          description: doc.description || '',
-          tags: doc.tags,
-          technologies: doc.technologies
-        }
-      });
+      return ensureDocumentSourceEntity(doc);
     }
     const projects = await this.getProjectsToProcess(request);
     const project = projects[0];

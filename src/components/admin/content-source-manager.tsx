@@ -40,6 +40,7 @@ interface SourceRow {
 }
 
 interface DocDraft {
+  sourceId?: string;
   slug: string;
   entityType: string;
   title: string;
@@ -144,6 +145,7 @@ export function ContentSourceManager() {
 
   const editSource = (source: SourceRow) => {
     setDraft({
+      sourceId: source.sourceId,
       slug: source.slug || '',
       entityType: source.entityType,
       title: source.title,
@@ -161,6 +163,7 @@ export function ContentSourceManager() {
     setError(null);
     try {
       const body: Record<string, unknown> = {
+        sourceId: draft.sourceId,
         slug: draft.slug.trim(),
         entityType: draft.entityType,
         title: draft.title.trim(),
@@ -236,6 +239,11 @@ export function ContentSourceManager() {
         <Card data-testid="document-source-form">
           <CardHeader><CardTitle className="text-lg">Document source</CardTitle></CardHeader>
           <CardContent className="space-y-3">
+            {draft.sourceId && (
+              <p className="text-xs text-muted-foreground">
+                Changing slug or type performs an atomic source migration; the owned entity and chunks keep their identity.
+              </p>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               <div>
                 <Label className="text-sm">Slug</Label>

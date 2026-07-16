@@ -251,16 +251,16 @@ model AIGeneralSettings {
   @@map("ai_general_settings")
 }
 
-
 model AIContentSourceConfig {
-  id         String   @id @default(cuid())
-  sourceId   String   @unique
-  providerId String
-  enabled    Boolean  @default(true)
-  priority   Int      @default(50)
-  config     Json     @default("{}")
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id            String         @id @default(cuid())
+  sourceId      String         @unique
+  providerId    String
+  enabled       Boolean        @default(true)
+  priority      Int            @default(50)
+  config        Json           @default("{}")
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  contentEntity ContentEntity? @relation("DocumentSourceEntity")
 
   @@index([sourceId])
   @@index([enabled])
@@ -412,23 +412,23 @@ model AIRateLimitLog {
 }
 
 model AIUsageLog {
-  id         String     @id @default(cuid())
-  reflinkId  String?    @map("reflink_id")
-  sessionId  String?    @map("session_id")
-  usageType  String     @map("usage_type")
-  feature    String?
-  hashedIp   String?    @map("hashed_ip")
-  requestId  String?    @map("request_id")
-  provider   String?
-  inputTokens  Int?     @map("input_tokens")
-  outputTokens Int?     @map("output_tokens")
-  tokensUsed Int?       @map("tokens_used")
-  costUsd    Decimal    @map("cost_usd") @db.Decimal(10, 6)
-  modelUsed  String?    @map("model_used")
-  endpoint   String?
-  metadata   Json       @default("{}")
-  timestamp  DateTime   @default(now())
-  reflink    AIReflink? @relation(fields: [reflinkId], references: [id])
+  id           String     @id @default(cuid())
+  reflinkId    String?    @map("reflink_id")
+  sessionId    String?    @map("session_id")
+  usageType    String     @map("usage_type")
+  feature      String?
+  hashedIp     String?    @map("hashed_ip")
+  requestId    String?    @map("request_id")
+  provider     String?
+  inputTokens  Int?       @map("input_tokens")
+  outputTokens Int?       @map("output_tokens")
+  tokensUsed   Int?       @map("tokens_used")
+  costUsd      Decimal    @map("cost_usd") @db.Decimal(10, 6)
+  modelUsed    String?    @map("model_used")
+  endpoint     String?
+  metadata     Json       @default("{}")
+  timestamp    DateTime   @default(now())
+  reflink      AIReflink? @relation(fields: [reflinkId], references: [id])
 
   @@index([reflinkId])
   @@index([timestamp])
@@ -462,23 +462,23 @@ model AIGlobalLimits {
 /// Single-row public access settings (access-and-cost Req 2/3, D31). Row id is always "public".
 /// Replaces the JSON-config PublicAccessManager placeholder.
 model AIPublicAccessSettings {
-  id                       String   @id @default("public")
-  publicTier               String   @default("text_chat") // disabled | text_chat
-  turnstileEnabled         Boolean  @default(false) @map("turnstile_enabled")
-  sessionTtlMinutes        Int      @default(30) @map("session_ttl_minutes")
-  sessionsPerIpPerHour     Int      @default(10) @map("sessions_per_ip_per_hour")
-  messagesPerMinute        Int      @default(6) @map("messages_per_minute")
-  messagesPerDay           Int      @default(60) @map("messages_per_day")
-  tokensPerDay             Int      @default(150000) @map("tokens_per_day")
-  maxHistoryMessages       Int      @default(12) @map("max_history_messages")
+  id                   String   @id @default("public")
+  publicTier           String   @default("text_chat") // disabled | text_chat
+  turnstileEnabled     Boolean  @default(false) @map("turnstile_enabled")
+  sessionTtlMinutes    Int      @default(30) @map("session_ttl_minutes")
+  sessionsPerIpPerHour Int      @default(10) @map("sessions_per_ip_per_hour")
+  messagesPerMinute    Int      @default(6) @map("messages_per_minute")
+  messagesPerDay       Int      @default(60) @map("messages_per_day")
+  tokensPerDay         Int      @default(150000) @map("tokens_per_day")
+  maxHistoryMessages   Int      @default(12) @map("max_history_messages")
   // MCP server bucket (mcp-server Req 3.1, D30): own knobs, stricter than pill traffic
-  mcpEnabled               Boolean  @default(true) @map("mcp_enabled")
-  mcpRequestsPerMinute     Int      @default(10) @map("mcp_requests_per_minute")
-  mcpRequestsPerDay        Int      @default(200) @map("mcp_requests_per_day")
+  mcpEnabled           Boolean  @default(true) @map("mcp_enabled")
+  mcpRequestsPerMinute Int      @default(10) @map("mcp_requests_per_minute")
+  mcpRequestsPerDay    Int      @default(200) @map("mcp_requests_per_day")
   // Voice adapter family served to visitors by default (owner, 2026-07-09):
   // openai (Realtime) | google (Gemini Live) | cascade (D45 STT→LLM→TTS)
-  defaultVoiceProvider     String   @default("openai") @map("default_voice_provider")
-  updatedAt                DateTime @updatedAt @map("updated_at")
+  defaultVoiceProvider String   @default("openai") @map("default_voice_provider")
+  updatedAt            DateTime @updatedAt @map("updated_at")
 
   @@map("ai_public_access_settings")
 }
@@ -635,14 +635,16 @@ model VoiceProviderConfig {
 // CDN url + public id. Same upload path future full-conversation debug
 // recordings will use.
 model VoiceClipPhrase {
-  id        String   @id // stable slug, e.g. 'filler_checking_1'
+  id        String      @id // stable slug, e.g. 'filler_checking_1'
   text      String
-  /** Trigger class: filler | disruption | resume_failed | greeting */
+  /**
+   * Trigger class: filler | disruption | resume_failed | greeting
+   */
   tag       String
-  enabled   Boolean  @default(true)
-  sortOrder Int      @default(0) @map("sort_order")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  enabled   Boolean     @default(true)
+  sortOrder Int         @default(0) @map("sort_order")
+  createdAt DateTime    @default(now()) @map("created_at")
+  updatedAt DateTime    @updatedAt @map("updated_at")
   clips     VoiceClip[]
 
   @@index([tag])
@@ -650,21 +652,27 @@ model VoiceClipPhrase {
 }
 
 model VoiceClip {
-  id          String   @id @default(cuid())
-  voiceId     String   @map("voice_id")
-  phraseId    String   @map("phrase_id")
-  /** Phrase text at generation time (drift-detectable against the phrase row). */
+  id          String          @id @default(cuid())
+  voiceId     String          @map("voice_id")
+  phraseId    String          @map("phrase_id")
+  /**
+   * Phrase text at generation time (drift-detectable against the phrase row).
+   */
   text        String
-  /** CDN delivery URL (media pipeline; versioned — changes on regeneration). */
+  /**
+   * CDN delivery URL (media pipeline; versioned — changes on regeneration).
+   */
   url         String
-  /** Media-provider public id, for cleanup on phrase deletion. */
-  publicId    String   @map("public_id")
-  contentType String   @map("content_type")
+  /**
+   * Media-provider public id, for cleanup on phrase deletion.
+   */
+  publicId    String          @map("public_id")
+  contentType String          @map("content_type")
   provider    String
-  modelId     String   @map("model_id")
-  durationMs  Int?     @map("duration_ms")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  modelId     String          @map("model_id")
+  durationMs  Int?            @map("duration_ms")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
   phrase      VoiceClipPhrase @relation(fields: [phraseId], references: [id], onDelete: Cascade)
 
   @@unique([voiceId, phraseId])
@@ -877,13 +885,13 @@ model SafetyInvestigation {
 /// off = the app behaves exactly as pre-engine. A missing row reads as the
 /// defaults — fresh clones need no seed step.
 model ConversationMemoryConfig {
-  id            String   @id @default("memory")
-  memoryEnabled Boolean  @default(true) @map("memory_enabled")
+  id                     String   @id @default("memory")
+  memoryEnabled          Boolean  @default(true) @map("memory_enabled")
   /// Owner-curated default tool set for GRAPH-LESS sessions (registry names).
   /// Narrow-only, same posture as node allowlists (never grants beyond tier);
   /// null = no narrowing (session default set, today's behavior).
-  graphlessToolAllowlist Json? @map("graphless_tool_allowlist")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  graphlessToolAllowlist Json?    @map("graphless_tool_allowlist")
+  updatedAt              DateTime @updatedAt @map("updated_at")
 
   @@map("conversation_memory_config")
 }
@@ -937,16 +945,18 @@ model DataLifecycleAudit {
 // Vector fields are not accessible via Prisma client. Use raw SQL queries instead.
 
 model ContentEntity {
-  id            String            @id @default(cuid())
-  entityType    ContentEntityType
-  slug          String
-  title         String?           @db.VarChar(255)
-  description   String?
-  tags          Json              @default("[]")
-  technologies  Json              @default("[]")
-  createdAt     DateTime          @default(now()) @map("created_at")
-  updatedAt     DateTime          @updatedAt @map("updated_at")
-  contentChunks ContextChunk[]
+  id             String                 @id @default(cuid())
+  entityType     ContentEntityType
+  slug           String
+  title          String?                @db.VarChar(255)
+  description    String?
+  tags           Json                   @default("[]")
+  technologies   Json                   @default("[]")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
+  sourceConfigId String?                @unique @map("source_config_id")
+  sourceConfig   AIContentSourceConfig? @relation("DocumentSourceEntity", fields: [sourceConfigId], references: [id], onDelete: Cascade)
+  contentChunks  ContextChunk[]
 
   @@unique([entityType, slug])
   @@index([entityType])
@@ -957,39 +967,39 @@ model ContentEntity {
 }
 
 model ContextChunk {
-  id                   String                 @id @default(cuid())
-  entityId             String                 @map("entity_id")
+  id                   String                       @id @default(cuid())
+  entityId             String                       @map("entity_id")
   tier                 Int
-  chunkId              String                 @map("chunk_id")
-  title                String?                @db.VarChar(255)
+  chunkId              String                       @map("chunk_id")
+  title                String?                      @db.VarChar(255)
   content              String
-  tokenCount           Int                    @default(0) @map("token_count")
+  tokenCount           Int                          @default(0) @map("token_count")
   embeddingVector      Unsupported("vector(1536)")? @map("embedding_vector")
-  metadata             Json                   @default("{}")
-  createdAt            DateTime               @default(now()) @map("created_at")
-  updatedAt            DateTime               @updatedAt @map("updated_at")
-  parentChunkId        String?                @map("parent_chunk_id")
-  rootChunkId          String?                @map("root_chunk_id")
-  sectionGroup         String?                @map("section_group")
+  metadata             Json                         @default("{}")
+  createdAt            DateTime                     @default(now()) @map("created_at")
+  updatedAt            DateTime                     @updatedAt @map("updated_at")
+  parentChunkId        String?                      @map("parent_chunk_id")
+  rootChunkId          String?                      @map("root_chunk_id")
+  sectionGroup         String?                      @map("section_group")
   derivation_path      String?
-  chunkIndexInSection  Int?                   @map("chunk_index_in_section")
-  contentHash          String?                @map("content_hash") @db.VarChar(255)
-  embeddingGeneratedAt DateTime?              @map("embedding_generated_at")
-  embeddingModel       String?                @map("embedding_model")
-  generationMode       String                 @default("system") @map("generation_mode")
-  importance           Float                  @default(0.5)
-  importanceSource     String                 @default("ai") @map("importance_source")
-  lastModified         DateTime               @default(now()) @map("last_modified")
-  manuallyEdited       Boolean                @default(false) @map("manually_edited")
-  modifiedBy           String                 @default("system") @map("modified_by")
-  sectionBounded       Boolean                @default(false) @map("section_bounded")
-  sectionContentHash   String?                @map("section_content_hash") @db.VarChar(255)
-  sectionEndLine       Int?                   @map("section_end_line")
-  sectionStartLine     Int?                   @map("section_start_line")
-  search_vector        Unsupported("tsvector")? @default(dbgenerated("to_tsvector('english'::regconfig, (((COALESCE(title, ''::character varying))::text || ' '::text) || content))"))
-  entity               ContentEntity          @relation(fields: [entityId], references: [id], onDelete: Cascade)
-  parentChunk          ContextChunk?          @relation("ChunkHierarchy", fields: [parentChunkId], references: [id])
-  childChunks          ContextChunk[]         @relation("ChunkHierarchy")
+  chunkIndexInSection  Int?                         @map("chunk_index_in_section")
+  contentHash          String?                      @map("content_hash") @db.VarChar(255)
+  embeddingGeneratedAt DateTime?                    @map("embedding_generated_at")
+  embeddingModel       String?                      @map("embedding_model")
+  generationMode       String                       @default("system") @map("generation_mode")
+  importance           Float                        @default(0.5)
+  importanceSource     String                       @default("ai") @map("importance_source")
+  lastModified         DateTime                     @default(now()) @map("last_modified")
+  manuallyEdited       Boolean                      @default(false) @map("manually_edited")
+  modifiedBy           String                       @default("system") @map("modified_by")
+  sectionBounded       Boolean                      @default(false) @map("section_bounded")
+  sectionContentHash   String?                      @map("section_content_hash") @db.VarChar(255)
+  sectionEndLine       Int?                         @map("section_end_line")
+  sectionStartLine     Int?                         @map("section_start_line")
+  search_vector        Unsupported("tsvector")?     @default(dbgenerated("to_tsvector('english'::regconfig, (((COALESCE(title, ''::character varying))::text || ' '::text) || content))"))
+  entity               ContentEntity                @relation(fields: [entityId], references: [id], onDelete: Cascade)
+  parentChunk          ContextChunk?                @relation("ChunkHierarchy", fields: [parentChunkId], references: [id])
+  childChunks          ContextChunk[]               @relation("ChunkHierarchy")
 
   @@unique([entityId, tier, chunkId])
   @@index([entityId])
@@ -1178,23 +1188,23 @@ model SummaryGenerationLog {
 }
 
 model BatchEmbeddingJob {
-  id               String   @id @default(cuid())
-  batchId          String   @unique @map("batch_id")
-  status           String   @map("status")
-  model            String   @map("model")
-  priority         String   @map("priority")
-  requestCount     Int      @map("request_count")
-  completedCount   Int      @default(0) @map("completed_count")
-  failedCount      Int      @default(0) @map("failed_count")
-  estimatedTokens  Int      @map("estimated_tokens")
-  actualTokens     Int?     @map("actual_tokens")
-  estimatedCost    Decimal  @db.Decimal(10, 4) @map("estimated_cost")
-  actualCost       Decimal? @db.Decimal(10, 4) @map("actual_cost")
-  estimatedSavings Decimal  @db.Decimal(10, 4) @map("estimated_savings")
-  actualSavings    Decimal? @db.Decimal(10, 4) @map("actual_savings")
-  projectIds       String[] @map("project_ids")
-  metadata         Json     @default("{}")
-  createdAt        DateTime @default(now()) @map("created_at")
+  id               String    @id @default(cuid())
+  batchId          String    @unique @map("batch_id")
+  status           String    @map("status")
+  model            String    @map("model")
+  priority         String    @map("priority")
+  requestCount     Int       @map("request_count")
+  completedCount   Int       @default(0) @map("completed_count")
+  failedCount      Int       @default(0) @map("failed_count")
+  estimatedTokens  Int       @map("estimated_tokens")
+  actualTokens     Int?      @map("actual_tokens")
+  estimatedCost    Decimal   @map("estimated_cost") @db.Decimal(10, 4)
+  actualCost       Decimal?  @map("actual_cost") @db.Decimal(10, 4)
+  estimatedSavings Decimal   @map("estimated_savings") @db.Decimal(10, 4)
+  actualSavings    Decimal?  @map("actual_savings") @db.Decimal(10, 4)
+  projectIds       String[]  @map("project_ids")
+  metadata         Json      @default("{}")
+  createdAt        DateTime  @default(now()) @map("created_at")
   completedAt      DateTime? @map("completed_at")
 
   @@index([batchId])

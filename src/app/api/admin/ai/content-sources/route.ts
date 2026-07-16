@@ -146,6 +146,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const doc = await upsertDocumentSource({
+      sourceId: body.sourceId ? String(body.sourceId) : undefined,
       slug: String(body.slug ?? ''),
       entityType: body.entityType as DocumentEntityType,
       title: String(body.title ?? ''),

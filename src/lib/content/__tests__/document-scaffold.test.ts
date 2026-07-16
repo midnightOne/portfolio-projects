@@ -11,6 +11,8 @@ import { chunkTextByParagraphs, estimateTextTokens } from '../bounded-text-chunk
 import type { DocumentSourceSpec } from '../source-registry';
 
 const doc = (content: string, overrides: Partial<DocumentSourceSpec> = {}): DocumentSourceSpec => ({
+  configId: 'config-test-doc',
+  entityId: 'entity-test-doc',
   sourceId: 'doc:test-doc',
   entityType: 'RESUME',
   slug: 'test-doc',
