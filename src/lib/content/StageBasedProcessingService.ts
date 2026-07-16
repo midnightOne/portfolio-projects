@@ -145,6 +145,29 @@ interface ValidationCheckpoint {
   healthMetrics: any;
 }
 
+interface ExistingScaffoldChunk {
+  id: string;
+  tier: number;
+  chunkId: string;
+  manuallyEdited: boolean;
+}
+
+export function scaffoldChunkKey(chunk: Pick<ExistingScaffoldChunk, 'tier' | 'chunkId'>): string {
+  return `${chunk.tier}:${chunk.chunkId}`;
+}
+
+export function selectStaleScaffoldChunkIds(
+  existing: ExistingScaffoldChunk[],
+  incoming: Array<Pick<ExistingScaffoldChunk, 'tier' | 'chunkId'>>,
+  preserveManualEdits: boolean,
+): string[] {
+  const incomingKeys = new Set(incoming.map(scaffoldChunkKey));
+  return existing
+    .filter(chunk => !incomingKeys.has(scaffoldChunkKey(chunk)))
+    .filter(chunk => !preserveManualEdits || !chunk.manuallyEdited)
+    .map(chunk => chunk.id);
+}
+
 /**
  * Main Stage-Based Processing Service
  */
@@ -1438,27 +1461,14 @@ export class StageBasedProcessingService extends EventEmitter {
     // Ensure content entity exists (project OR document source — 7.15)
     const entity = await this.getOrCreateEntityForRequest(request);
 
-    // Re-chunking REPLACES the scaffold: purge rows whose chunk_id the new
-    // scaffold no longer produces. They used to linger forever — after the
-    // 2026-07-08 heading-body parser fix, the old monster-slug T2s survived
-    // as stale 0-token duplicates alongside their clean replacements.
     if (!hasEmbeddings) {
-      const stale = await prisma.contextChunk.deleteMany({
-        where: { entityId: entity.id, chunkId: { notIn: chunks.map(c => c.chunkId) } }
-      });
-      if (stale.count > 0) {
-        console.log(`[ChunkingStage] Removed ${stale.count} stale chunks no longer in the scaffold`);
-      }
+      await this.batchStoreChunks(chunks, entity.id, request.preserveManualEdits ?? true);
+      return;
     }
 
-    // Use batch storage for efficiency
-    if (!hasEmbeddings && chunks.length > 1) {
-      await this.batchStoreChunks(chunks, entity.id);
-    } else {
-      // Store one by one (with embeddings or single chunk)
-      for (const chunk of chunks) {
-        await this.storeValidatedChunk(chunk, entity.id);
-      }
+    // Embedding-bearing updates are not scaffold replacement operations.
+    for (const chunk of chunks) {
+      await this.storeValidatedChunk(chunk, entity.id);
     }
   }
 
@@ -1683,7 +1693,11 @@ export class StageBasedProcessingService extends EventEmitter {
   /**
    * Batch store chunks in database (more efficient for multiple chunks without embeddings)
    */
-  private async batchStoreChunks(chunks: TierContent[], entityId: string): Promise<void> {
+  private async batchStoreChunks(
+    chunks: TierContent[],
+    entityId: string,
+    preserveManualEdits: boolean,
+  ): Promise<void> {
     console.log(`[batchStoreChunks] Batch storing ${chunks.length} chunks for entity: ${entityId}`);
 
     const startTime = Date.now();
@@ -1698,10 +1712,18 @@ export class StageBasedProcessingService extends EventEmitter {
     // Use Prisma transaction with individual upserts (Prisma doesn't have native upsertMany)
     // This is still faster than separate transactions per chunk
     await prisma.$transaction(async (tx) => {
+      const existingChunks = await tx.contextChunk.findMany({
+        where: { entityId: entity.id },
+        select: { id: true, tier: true, chunkId: true, manuallyEdited: true },
+      });
+      const existingByKey = new Map(existingChunks.map(chunk => [scaffoldChunkKey(chunk), chunk]));
+
       // First pass: Store T0 chunk to get its database ID
       const t0Chunk = chunks.find(c => c.tier === 0);
       if (t0Chunk) {
-        const t0Result = await tx.contextChunk.upsert({
+        const existingT0 = existingByKey.get(scaffoldChunkKey(t0Chunk));
+        const preserveT0 = preserveManualEdits && existingT0?.manuallyEdited;
+        const t0Result = preserveT0 ? existingT0 : await tx.contextChunk.upsert({
           where: {
             entityId_tier_chunkId: {
               entityId: entity.id,
@@ -1735,11 +1757,14 @@ export class StageBasedProcessingService extends EventEmitter {
         t0DbId = t0Result.id;
         chunkIdToDbId.set(t0Chunk.chunkId, t0DbId);
         
-        // Update T0's rootChunkId to point to itself
-        await tx.contextChunk.update({
-          where: { id: t0DbId },
-          data: { rootChunkId: t0DbId }
-        });
+        // Update T0's rootChunkId to point to itself unless the whole manual
+        // row is intentionally preserved without mutation.
+        if (!preserveT0) {
+          await tx.contextChunk.update({
+            where: { id: t0DbId },
+            data: { rootChunkId: t0DbId }
+          });
+        }
         
         console.log(`[batchStoreChunks] T0 chunk stored with ID: ${t0DbId}`);
       }
@@ -1788,7 +1813,10 @@ export class StageBasedProcessingService extends EventEmitter {
           resolvedRootChunkId = t0DbId;
         }
         
-        const result = await tx.contextChunk.upsert({
+        const existingChunk = existingByKey.get(scaffoldChunkKey(chunk));
+        const result = preserveManualEdits && existingChunk?.manuallyEdited
+          ? existingChunk
+          : await tx.contextChunk.upsert({
           where: {
             entityId_tier_chunkId: {
               entityId: entity.id,
@@ -1826,6 +1854,15 @@ export class StageBasedProcessingService extends EventEmitter {
         
         // Store the database ID for this chunk (for use as parent by subsequent chunks)
         chunkIdToDbId.set(chunk.chunkId, result.id);
+      }
+
+      // Replacement is committed atomically with the upserts above. Composite
+      // tier/chunk identity avoids retaining a stale row merely because a new
+      // tier reused the same logical chunkId.
+      const staleIds = selectStaleScaffoldChunkIds(existingChunks, chunks, preserveManualEdits);
+      if (staleIds.length > 0) {
+        const stale = await tx.contextChunk.deleteMany({ where: { id: { in: staleIds } } });
+        console.log(`[ChunkingStage] Removed ${stale.count} stale chunks no longer in the scaffold`);
       }
     });
     
