@@ -111,6 +111,8 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     private _wsCaptureStream: MediaStream | null = null;
     /** True when the adapter acquired the stream itself (mic) and must stop its tracks. */
     private _wsCaptureStreamOwned = false;
+    /** Mic acquired for a WS attempt but not yet transferred to the capture graph. */
+    private _pendingWsMicStream: MediaStream | null = null;
     private _wsCapturing = false;
     /** 7.6 clip-feedback gate on the WS capture path (frame drop — no track to mute). */
     private _wsClipMicGated = false;
@@ -945,7 +947,14 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         this._wsCaptureContext = null;
     }
 
+    private _stopPendingWsMicStream(): void {
+        if (!this._pendingWsMicStream) return;
+        this._pendingWsMicStream.getTracks().forEach((track) => track.stop());
+        this._pendingWsMicStream = null;
+    }
+
     private _teardownWsAudio(): void {
+        this._stopPendingWsMicStream();
         this._stopWsCapture();
         this._stopWsPlayback();
         if (this._wsPlaybackContext && this._wsPlaybackContext.state !== 'closed') {
@@ -2353,6 +2362,10 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                     if (this._resolveTransportKind() === 'websocket') {
                         // 7.3: the WS transport does not manage the mic — the
                         // adapter keeps the stream and drives capture itself.
+                        // Own the stream immediately: token mint and transport
+                        // setup can fail before the capture graph takes it.
+                        this._stopPendingWsMicStream();
+                        this._pendingWsMicStream = stream;
                         wsMicStream = stream;
                     } else {
                         // Stop the stream since the WebRTC SDK will acquire it
@@ -2437,6 +2450,8 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 this._ensureWsPlayback();
                 if (inputKind === 'mic' && wsMicStream) {
                     this._startWsCapture(wsMicStream, true);
+                    // Ownership moved to _wsCaptureStream.
+                    this._pendingWsMicStream = null;
                 } else if (inputKind === 'synthetic' && options?.syntheticInputStream) {
                     this._startWsCapture(options.syntheticInputStream, false);
                 }
@@ -2503,6 +2518,11 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
         } catch (error) {
             console.error('OpenAIRealtimeAdapter: Connection failed:', error);
+            // Failed setup still owns resources acquired before _isConnected.
+            this._teardownWsAudio();
+            try { this._session?.close(); } catch { /* already closed / failed setup */ }
+            this._isConnected = false;
+            this._audioInputMode = null;
             this._connectionStatus = 'error';
             const errorMessage = error instanceof Error ? error.message : 'Unknown error';
             this._emitConnectionEvent('error', errorMessage);
@@ -2576,8 +2596,14 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     async disconnect(): Promise<void> {
         this._clearDurationCap();
         this._clearResponseStallWatchdog();
-        if (this._session && this._isConnected) {
-            try {
+        const wasConnected = this._isConnected;
+        let disconnectError: unknown;
+        let sessionClosed = false;
+        this._intentionalDisconnect = true;
+        this._stopDisruptionWatcher();
+
+        try {
+            if (this._session && wasConnected) {
                 // D49: user-requested disconnect — not a disruption
                 this._intentionalDisconnect = true;
                 this._stopDisruptionWatcher();
@@ -2590,6 +2616,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 }
 
                 this._session.close();
+                sessionClosed = true;
                 this._isConnected = false;
                 this._connectionStatus = 'disconnected';
                 this._audioInputMode = null;
@@ -2621,13 +2648,51 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
                 console.log('Disconnected from OpenAI Realtime');
                 this._emitConnectionEvent('disconnected');
-            } catch (error) {
-                console.error('Disconnect failed:', error);
-                throw new ConnectionError(
-                    `Failed to disconnect: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                    'openai'
-                );
             }
+        } catch (error) {
+            console.error('Disconnect failed:', error);
+            disconnectError = error;
+        } finally {
+            if (!sessionClosed) {
+                try {
+                    this._session?.close();
+                } catch (closeError) {
+                    disconnectError ??= closeError;
+                }
+            }
+            this._isConnected = false;
+            this._connectionStatus = 'disconnected';
+            this._audioInputMode = null;
+
+            // Also releases a WS mic acquired while connect() was still pending.
+            this._teardownWsAudio();
+
+            if (this._silentAudioContext) {
+                this._silentAudioContext.close().catch(() => {});
+                this._silentAudioContext = null;
+            }
+
+            this._outputMeterDetach?.();
+            this._outputMeterDetach = null;
+            this._meteredOutputStream = null;
+
+            if (typeof window !== 'undefined') {
+                const uiManager = UIManager.getInstance();
+                uiManager.setBackgroundUpdateCallback(null);
+                uiManager.disablePassiveContext();
+            }
+
+            this.tokenListenerSetup = false;
+            this.pendingTokens.clear();
+            this.trackedNavItemIds.clear();
+            this._lastNavItemId = null;
+        }
+
+        if (disconnectError) {
+            throw new ConnectionError(
+                `Failed to disconnect: ${disconnectError instanceof Error ? disconnectError.message : 'Unknown error'}`,
+                'openai'
+            );
         }
     }
 
