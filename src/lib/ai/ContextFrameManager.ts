@@ -399,7 +399,6 @@ export class ContextFrameManager {
         const searchResult = await this.contentSearchService.searchContent({
           query: config.userIntent,
           scope: {
-            route: config.route,
             projectId: config.projectId
           },
           k: 5,

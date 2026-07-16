@@ -22,16 +22,19 @@ import { embeddingCache } from './EmbeddingCache';
 import { generateEmbedding as sharedGenerateEmbedding, currentEmbeddingModelId } from '@/lib/ai/embeddings';
 import { estimateCost } from '@/lib/ai/pricing';
 import { recordUsage } from '@/lib/ai/ledger';
+import { getSourceExclusions, isEntityExcluded, getUiLocationBySlug } from './source-registry';
 
 const prisma = new PrismaClient();
 
 // Search interfaces
 export interface ContentSearchParams {
   query: string;                        // Natural language query
+  // Search is GLOBAL and multi-entity by DEFAULT (7.15, owner ruling
+  // 2026-07-15) — scope is an explicit opt-in narrowing, never auto-applied.
+  // (The old scope.route field was accepted but never consulted — dropped.)
   scope?: {
-    route?: string;                     // Limit to current route context
-    projectId?: string;                 // Limit to specific project
-    entityType?: string;                // Limit to specific entity type
+    projectId?: string;                 // Entity slug — narrows to ONE source (project, document, article)
+    entityType?: string;                // Narrows to one entity type (PROJECT, BIO, RESUME, …)
   };
   k?: number;                          // Number of results (default: 5)
   maxTier?: 1 | 2 | 3;                // Maximum content tier to return (simplified T0-T3 structure)
@@ -57,6 +60,8 @@ export interface ContentSearchResult {
   items: Array<{
     id: string;
     project?: string;
+    /** Source attribution (7.15d): every result says which entity it came from. */
+    source: { type: string; label: string; slug: string };
     title: string;
     oneLiner: string;                   // T1 summary for quick scanning
     snippet?: string;                   // Short verbatim excerpt of the matched chunk
@@ -109,6 +114,8 @@ export interface ContentGetResult {
     metadata: Record<string, any>;
     chunkId?: string;                   // Semantic chunk ID for navigation
     project?: string;                   // Project slug if content belongs to a project
+    /** Source attribution (7.15d). */
+    source?: { type: string; label: string; slug: string };
     navTarget?: any;
   }>;
   totalTokens: number;
@@ -288,7 +295,7 @@ export class ContentSearchService implements ContentProvider {
       // Step 2: Perform semantic search with metadata filtering
       const hybridSearchStartTime = Date.now();
       console.log(`[ContentSearch] Query embedding length: ${queryEmbedding.length}, calling hybridSearch with maxTier: ${maxTier}, k: ${k * 3}`);
-      const searchResults = await this._performHybridSearch(
+      const rawSearchResults = await this._performHybridSearch(
         queryEmbedding,
         query,
         scope,
@@ -298,7 +305,15 @@ export class ContentSearchService implements ContentProvider {
         publicOnly
       );
       timings.hybridSearchTime = Date.now() - hybridSearchStartTime;
-      console.log(`[ContentSearch] Hybrid search returned ${searchResults.length} results`);
+
+      // 7.15: source allowlist — a source unticked in the content-source
+      // config is hidden from retrieval without re-ingesting (the index rows
+      // stay; only the query path filters them).
+      const exclusions = await getSourceExclusions();
+      const searchResults = exclusions.hasAny
+        ? rawSearchResults.filter(r => !isEntityExcluded(exclusions, r.entityType, r.entitySlug))
+        : rawSearchResults;
+      console.log(`[ContentSearch] Hybrid search returned ${rawSearchResults.length} results (${searchResults.length} after source filter)`);
 
       // Settle the concurrent ledger write (usually already resolved — the
       // hybrid search takes longer than the ledger transaction).
@@ -480,9 +495,15 @@ export class ContentSearchService implements ContentProvider {
         ]
       });
 
+      // 7.15: source allowlist — chunks of an unticked source are not fetchable
+      // by id either (same rule as search; MCP callers can pass arbitrary ids).
+      const exclusions = await getSourceExclusions();
+      let visibleChunks = exclusions.hasAny
+        ? chunks.filter(c => !isEntityExcluded(exclusions, c.entity?.entityType, c.entity?.slug))
+        : chunks;
+
       // PUBLIC-visibility enforcement in SQL (mcp-server Req 3.2/3.6): keep only
       // chunk ids the visibility query returns — never post-hoc trust of the fetch.
-      let visibleChunks = chunks;
       if (publicOnly && chunks.length > 0) {
         const candidateIds = chunks.map(c => c.id);
         const allowedRows = await prisma.$queryRaw<Array<{ id: string }>>`
@@ -495,7 +516,7 @@ export class ContentSearchService implements ContentProvider {
             ))
         `;
         const allowed = new Set(allowedRows.map(r => r.id));
-        visibleChunks = chunks.filter(c => allowed.has(c.id));
+        visibleChunks = visibleChunks.filter(c => allowed.has(c.id));
       }
 
       // Apply token budget management
@@ -524,7 +545,11 @@ export class ContentSearchService implements ContentProvider {
           title: chunk.title || undefined,
           metadata: chunk.metadata as Record<string, any>,
           chunkId: chunkId, // Add chunkId for navigation
-          project: project // Add project info
+          project: project, // Add project info
+          // Source attribution (7.15d) — same shape as search results
+          source: chunk.entity
+            ? { type: chunk.entity.entityType, label: chunk.entity.title || chunk.entity.slug, slug: chunk.entity.slug }
+            : undefined
         });
 
         totalTokens += estimatedTokens;
@@ -570,7 +595,6 @@ export class ContentSearchService implements ContentProvider {
       const searchParams: ContentSearchParams = {
         query: context.currentProject || context.currentRoute || 'overview',
         scope: {
-          route: context.currentRoute,
           projectId: context.currentProject || undefined
         },
         k: 10,
@@ -1194,9 +1218,10 @@ export class ContentSearchService implements ContentProvider {
     const params: any[] = [maxTier];
     let paramIndex = 2;
 
-    // Add scope filtering
+    // Add scope filtering (slug-generic: an entity slug names ANY source —
+    // project, document, article — matching _matchesScope, 7.15)
     if (scope.projectId) {
-      sql += ` AND e."entityType" = 'PROJECT' AND e.slug = $${paramIndex}`;
+      sql += ` AND e.slug = $${paramIndex}`;
       params.push(scope.projectId);
       paramIndex++;
     } else if (scope.entityType) {
@@ -1503,6 +1528,13 @@ export class ContentSearchService implements ContentProvider {
   ): Promise<ContentSearchResult['items']> {
     const formatted: ContentSearchResult['items'] = [];
 
+    // Non-project sources with an on-site page get a route navTarget;
+    // conversational-only documents get none (7.15 — owner: sources without a
+    // UI location are "just conversational").
+    const uiLocations = results.some(r => r.entityType !== 'PROJECT')
+      ? await getUiLocationBySlug()
+      : new Map<string, string>();
+
     for (const result of results) {
       // Generate one-liner (use T1 content or create from title)
       const oneLiner = result.tier === 1 ?
@@ -1513,7 +1545,7 @@ export class ContentSearchService implements ContentProvider {
       const why = this._generateRelevanceJustification(result, query);
 
       // Create navigation target
-      const navTarget = this._createNavigationTarget(result);
+      const navTarget = this._createNavigationTarget(result, uiLocations);
 
       // Extract facets
       const facets = {
@@ -1531,6 +1563,14 @@ export class ContentSearchService implements ContentProvider {
       formatted.push({
         id: result.id,
         project: result.entityType === 'PROJECT' ? result.entitySlug : undefined,
+        // Explicit source attribution for EVERY result (7.15d): a bio/resume/
+        // article hit is labeled as such so the model can narrate cross-source
+        // relatedness honestly instead of presenting it as a project.
+        source: {
+          type: result.entityType,
+          label: result.entityTitle || result.entitySlug,
+          slug: result.entitySlug,
+        },
         title: result.title || result.entityTitle || 'Untitled',
         oneLiner,
         snippet,
@@ -1655,7 +1695,10 @@ export class ContentSearchService implements ContentProvider {
   /**
    * Create navigation target for UIManager
    */
-  private _createNavigationTarget(result: InternalSearchResult): any {
+  private _createNavigationTarget(
+    result: InternalSearchResult,
+    uiLocations: Map<string, string> = new Map()
+  ): any {
     // The chunk↔anchor contract: T2 chunkIds ARE the rendered heading ids
     // (same slug algorithm in HierarchicalContentParser.generateAnchorId and
     // the Tiptap display renderer). T0/T1 chunks ('metadata'/'summary') and
@@ -1683,14 +1726,18 @@ export class ContentSearchService implements ContentProvider {
         sectionId,
         ...(highlight ? { highlight } : {})
       };
-    } else {
-      return {
-        type: 'section',
-        id: sectionId ?? result.chunkId,
-        projectId: result.entitySlug,
-        ...(highlight ? { highlight } : {})
-      };
     }
+
+    // Non-project source (7.15): navigable ONLY when it has an on-site page
+    // (uiLocation from the source config, or the entity's T0 metadata `page`).
+    // Conversational-only documents (a resume file, an uploaded doc) return
+    // NO navTarget — there is nowhere on the site to take the visitor.
+    const page = uiLocations.get(result.entitySlug);
+    if (page) {
+      const routeId = page.replace(/^\//, '') || 'home';
+      return { type: 'route', id: routeId };
+    }
+    return undefined;
   }
 
   /**

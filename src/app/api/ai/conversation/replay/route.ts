@@ -64,6 +64,20 @@ export async function GET(request: NextRequest) {
       null;
     const engineMeta = pinnedVersionId ? await getVersionMeta(pinnedVersionId).catch(() => null) : null;
 
+    // 7.5b: conversations older than the live usage counter (6.16) persisted
+    // totalTokens = 0. Derive a display total from persisted evidence instead:
+    // per-leg usage metadata (written by session_end/disruption since 6.15),
+    // else the sum of per-message tokensUsed. Read-path only — the stored
+    // aggregate is never rewritten, and non-zero stored totals win untouched.
+    const storedTotalTokens = conversation.totalTokens ?? 0;
+    const legUsageTokens = (conversation.legs ?? []).reduce((sum, leg) => {
+      const usage = (leg.metadata as { usage?: { totalTokens?: unknown } } | undefined)?.usage;
+      return sum + (typeof usage?.totalTokens === 'number' ? usage.totalTokens : 0);
+    }, 0);
+    const messageTokens = conversation.messages.reduce((sum, m) => sum + (m.tokensUsed ?? 0), 0);
+    const effectiveTotalTokens =
+      storedTotalTokens > 0 ? storedTotalTokens : legUsageTokens > 0 ? legUsageTokens : messageTokens;
+
     const replayData = {
       conversation: {
         id: conversation.id,
@@ -72,7 +86,7 @@ export async function GET(request: NextRequest) {
         startedAt: conversation.startedAt,
         lastMessageAt: conversation.lastMessageAt,
         messageCount: conversation.messageCount,
-        totalTokens: conversation.totalTokens,
+        totalTokens: effectiveTotalTokens,
         totalCost: conversation.totalCost,
         latestState: conversation.latestState ?? null
       },

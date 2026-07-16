@@ -1051,9 +1051,10 @@ model SemanticBudget {
 model SemanticProcessingOperation {
   id              String    @id // operationId (e.g. stage-proc-...)
   parentId        String?   @map("parent_id")
-  scope           String // all | project | section
+  scope           String // all | project | section | entity
   projectId       String?   @map("project_id")
   sectionId       String?   @map("section_id")
+  sourceId        String?   @map("source_id") // scope:'entity' — the AIContentSourceConfig sourceId (doc:<slug>)
   type            String    @default("full") // full | chunking | summaries | embeddings | validation | custom
   status          String    @default("queued") // queued | in_progress | paused | completed | failed
   currentStage    String?   @map("current_stage")

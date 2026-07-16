@@ -135,12 +135,11 @@ function ProjectsPageContent() {
     };
 
     uiManager.registerModalHandler('projects', modalHandler);
-    // Client-side route bridge: AI route steps must never full-reload
-    uiManager.registerRouteNavigator((path) => router.push(path));
+    // Route navigator: registered GLOBALLY by AIInterfaceWrapper since the
+    // 7.7 layout lift (a per-page registration would clobber it on unmount).
 
     return () => {
       uiManager.unregisterModalHandler('projects');
-      uiManager.registerRouteNavigator(null);
     };
   }, [selectedProject, projectModalOpen, handleCloseModal, handleProjectClick]);
 

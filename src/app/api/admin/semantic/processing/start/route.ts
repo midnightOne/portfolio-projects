@@ -27,14 +27,15 @@ async function handlePOST(request: NextRequest) {
       scope, 
       projectId, 
       sectionId, 
+      sourceId,
       stages,
       preserveManualEdits = true
     } = body;
 
     // Validate request
-    if (!scope || !['all', 'project', 'section'].includes(scope)) {
+    if (!scope || !['all', 'project', 'section', 'entity'].includes(scope)) {
       return NextResponse.json(
-        { error: 'Invalid scope. Must be: all, project, or section' },
+        { error: 'Invalid scope. Must be: all, project, section, or entity' },
         { status: 400 }
       );
     }
@@ -49,6 +50,14 @@ async function handlePOST(request: NextRequest) {
     if (scope === 'section' && (!projectId || !sectionId)) {
       return NextResponse.json(
         { error: 'projectId and sectionId required for section scope' },
+        { status: 400 }
+      );
+    }
+
+    // 7.15: scope 'entity' ingests one config-owned document source (doc:<slug>)
+    if (scope === 'entity' && !sourceId) {
+      return NextResponse.json(
+        { error: 'sourceId required for entity scope' },
         { status: 400 }
       );
     }
@@ -86,6 +95,7 @@ async function handlePOST(request: NextRequest) {
       scope,
       projectId,
       sectionId,
+      sourceId,
       stages: stages as StageConfig[],
       preserveManualEdits
     };

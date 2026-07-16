@@ -63,13 +63,19 @@ export function ReflinkSessionProvider({ children }: ReflinkSessionProviderProps
   const [budgetStatus, setBudgetStatus] = useState<BudgetStatus | null>(null);
   const [budgetExhaustedCallbacks, setBudgetExhaustedCallbacks] = useState<(() => void)[]>([]);
 
-  // Initialize session on mount and when URL changes
+  // Initialize session on mount and when the ?ref= VALUE changes. Depending on
+  // the searchParams OBJECT re-ran this on every route change (its identity is
+  // new per navigation even with no params), flipping isLoading and unmounting
+  // the provider chain above a live session — fatal once the AI provider moved
+  // to the root layout (7.7).
+  const refParam = searchParams?.get('ref') ?? null;
   useEffect(() => {
     // Only initialize on client side to avoid SSR issues
     if (typeof window !== 'undefined') {
       initializeSession();
     }
-  }, [searchParams]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refParam]);
 
   // Periodic budget checking for premium users
   useEffect(() => {

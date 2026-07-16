@@ -405,12 +405,12 @@ export function Homepage({ config, className, enableDynamicConfig = true }: Home
     };
 
     uiManager.registerModalHandler('homepage', modalHandler);
-    // Client-side route bridge: AI route steps must never full-reload
-    uiManager.registerRouteNavigator((path) => router.push(path));
+    // Route navigator: registered GLOBALLY by AIInterfaceWrapper since the
+    // 7.7 layout lift — a per-page registration here would clobber it on
+    // unmount (its cleanup nulled the navigator when leaving this page).
 
     return () => {
       uiManager.unregisterModalHandler('homepage');
-      uiManager.registerRouteNavigator(null);
     };
   }, [selectedProject, projectModalOpen, handleCloseModal, handleProjectClickInternal]);
 

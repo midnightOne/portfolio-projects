@@ -590,7 +590,10 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
       provider: 'google',
       metadata
     };
-    this._addTranscriptItem(item);
+    // 7.14e: _handleTranscriptEvent already pushes into _transcript (base
+    // impl) — the extra _addTranscriptItem here DOUBLE-pushed every item, so
+    // any adapter-transcript reader (voice-debug local panel, exportTranscript)
+    // showed each row twice while the DB stayed single (persistence posts once).
     this._handleTranscriptEvent({ type: 'transcript_update', item, timestamp: new Date() });
 
     if (type === 'user_speech' || type === 'ai_response') {

@@ -1,22 +1,13 @@
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
 import { Homepage } from '@/components/homepage/homepage';
 import { MainNavigation } from '@/components/layout/main-navigation';
-import { AIInterfaceWrapper } from '@/components/ai/ai-interface-wrapper';
 
-export default async function Home() {
-  // Dev-only fake-mic drill affordance (owner, 2026-07-07): admin-gated so the
-  // real portfolio UI state (routes/projects/sections) can be exercised by the
-  // same C0 driver used in /admin/ai/voice-debug — never shown to a visitor.
-  const session = await getServerSession(authOptions);
-  const isAdmin = (session?.user as any)?.role === 'admin';
-
+// The AI provider chain (pill, dev panels) mounts ONCE in the root layout
+// since 7.7 — a live session survives navigating away from this page.
+export default function Home() {
   return (
     <div className="min-h-screen">
       <MainNavigation />
       <Homepage />
-      {/* No defaultProvider prop: the admin-configured site default governs */}
-      <AIInterfaceWrapper isAdmin={isAdmin} />
     </div>
   );
 }

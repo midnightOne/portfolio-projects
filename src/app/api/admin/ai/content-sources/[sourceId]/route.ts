@@ -1,201 +1,84 @@
 /**
- * Individual Content Source Management API
- * Admin endpoints for managing specific content sources
+ * Individual content-source management (ai-assistant 7.15).
+ *  - POST   toggle enabled/disabled (the query-time allowlist — an unticked
+ *           source stays in the index but is hidden from retrieval)
+ *  - DELETE remove a document source AND its ingested entity + chunks
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
-import { contentSourceManager } from '@/lib/services/ai/content-source-manager';
+import { getSession } from '@/lib/auth-utils';
+import {
+  deleteDocumentSource,
+  isDocSourceId,
+  setSourceEnabled,
+} from '@/lib/content/source-registry';
 
 interface RouteParams {
-  params: Promise<{
-    sourceId: string;
-  }>;
+  params: Promise<{ sourceId: string }>;
 }
 
-/**
- * GET /api/admin/ai/content-sources/[sourceId]
- * Get specific content source details
- */
-export async function GET(request: NextRequest, { params }: RouteParams) {
-  try {
-    // Check authentication
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        { error: { message: 'Unauthorized' } },
-        { status: 401 }
-      );
-    }
-
-    const { sourceId } = await params;
-
-    // Get provider
-    const provider = contentSourceManager.getProvider(sourceId);
-    if (!provider) {
-      return NextResponse.json(
-        { error: { message: 'Content source not found' } },
-        { status: 404 }
-      );
-    }
-
-    // Get configuration
-    const config = contentSourceManager.getSourceConfig(sourceId);
-    
-    // Get schema
-    const schema = await contentSourceManager.getSourceSchema(sourceId);
-    
-    // Get metadata
-    const isAvailable = await provider.isAvailable();
-    const metadata = isAvailable ? await provider.getMetadata() : null;
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        provider: {
-          id: provider.id,
-          type: provider.type,
-          name: provider.name,
-          description: provider.description,
-          version: provider.version
-        },
-        config: config || {
-          id: sourceId,
-          providerId: sourceId,
-          enabled: true,
-          priority: 50,
-          config: {},
-          createdAt: new Date(),
-          updatedAt: new Date()
-        },
-        schema,
-        metadata,
-        isAvailable
-      }
-    });
-
-  } catch (error) {
-    const { sourceId } = await params;
-    console.error(`Error getting content source ${sourceId}:`, error);
-    return NextResponse.json(
-      { 
-        error: { 
-          message: 'Failed to get content source',
-          details: error instanceof Error ? error.message : 'Unknown error'
-        } 
-      },
-      { status: 500 }
-    );
+async function requireAdmin() {
+  const session = await getSession();
+  if (!session?.user || (session.user as any)?.role !== 'admin') {
+    return NextResponse.json({ error: { message: 'Unauthorized' } }, { status: 401 });
   }
+  return null;
 }
 
 /**
- * PUT /api/admin/ai/content-sources/[sourceId]
- * Update specific content source configuration
- */
-export async function PUT(request: NextRequest, { params }: RouteParams) {
-  try {
-    // Check authentication
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        { error: { message: 'Unauthorized' } },
-        { status: 401 }
-      );
-    }
-
-    const { sourceId } = await params;
-    const body = await request.json();
-
-    // Validate provider exists
-    const provider = contentSourceManager.getProvider(sourceId);
-    if (!provider) {
-      return NextResponse.json(
-        { error: { message: 'Content source not found' } },
-        { status: 404 }
-      );
-    }
-
-    // Update configuration
-    await contentSourceManager.updateSourceConfig(sourceId, body);
-
-    // Get updated configuration
-    const updatedConfig = contentSourceManager.getSourceConfig(sourceId);
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        message: 'Content source updated successfully',
-        config: updatedConfig
-      }
-    });
-
-  } catch (error) {
-    const { sourceId } = await params;
-    console.error(`Error updating content source ${sourceId}:`, error);
-    return NextResponse.json(
-      { 
-        error: { 
-          message: 'Failed to update content source',
-          details: error instanceof Error ? error.message : 'Unknown error'
-        } 
-      },
-      { status: 500 }
-    );
-  }
-}
-
-/**
- * POST /api/admin/ai/content-sources/[sourceId]/toggle
- * Toggle content source enabled/disabled
+ * POST /api/admin/ai/content-sources/[sourceId] — toggle enabled.
  */
 export async function POST(request: NextRequest, { params }: RouteParams) {
+  const unauthorized = await requireAdmin();
+  if (unauthorized) return unauthorized;
+
+  const { sourceId } = await params;
   try {
-    // Check authentication
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        { error: { message: 'Unauthorized' } },
-        { status: 401 }
-      );
-    }
-
-    const { sourceId } = await params;
-    const body = await request.json();
-    const { enabled } = body;
-
+    const { enabled } = await request.json();
     if (typeof enabled !== 'boolean') {
+      return NextResponse.json({ error: { message: 'enabled must be a boolean' } }, { status: 400 });
+    }
+    await setSourceEnabled(decodeURIComponent(sourceId), enabled);
+    return NextResponse.json({
+      success: true,
+      data: { message: `Source ${enabled ? 'enabled' : 'disabled'} — retrieval filter updates within ~30s.` },
+    });
+  } catch (error) {
+    console.error(`Error toggling content source ${sourceId}:`, error);
+    return NextResponse.json(
+      { error: { message: 'Failed to toggle content source' } },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE /api/admin/ai/content-sources/[sourceId] — remove a document source
+ * (config row + ingested entity/chunks).
+ */
+export async function DELETE(_request: NextRequest, { params }: RouteParams) {
+  const unauthorized = await requireAdmin();
+  if (unauthorized) return unauthorized;
+
+  const { sourceId: raw } = await params;
+  const sourceId = decodeURIComponent(raw);
+  try {
+    if (!isDocSourceId(sourceId)) {
       return NextResponse.json(
-        { error: { message: 'enabled must be a boolean' } },
+        { error: { message: 'Only document sources (doc:<slug>) can be deleted here' } },
         { status: 400 }
       );
     }
-
-    // Toggle source
-    await contentSourceManager.toggleSource(sourceId, enabled);
-
-    // Get updated configuration
-    const updatedConfig = contentSourceManager.getSourceConfig(sourceId);
-
+    const slug = sourceId.slice('doc:'.length);
+    const { deletedEntity } = await deleteDocumentSource(slug);
     return NextResponse.json({
       success: true,
-      data: {
-        message: `Content source ${enabled ? 'enabled' : 'disabled'} successfully`,
-        config: updatedConfig
-      }
+      data: { message: `Document source removed${deletedEntity ? ' (index entity + chunks deleted)' : ''}.` },
     });
-
   } catch (error) {
-    const { sourceId } = await params;
-    console.error(`Error toggling content source ${sourceId}:`, error);
+    console.error(`Error deleting content source ${sourceId}:`, error);
     return NextResponse.json(
-      { 
-        error: { 
-          message: 'Failed to toggle content source',
-          details: error instanceof Error ? error.message : 'Unknown error'
-        } 
-      },
+      { error: { message: 'Failed to delete content source' } },
       { status: 500 }
     );
   }

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { FloatingAIInterface } from './floating-ai-interface';
 import { ConversationalAgentProvider } from '@/components/providers/conversational-agent-provider';
 import { ReflinkSessionProvider } from '@/components/providers/reflink-session-wrapper';
@@ -8,6 +9,16 @@ import { useReflinkSession } from '@/components/providers/reflink-session-provid
 import { HomepageDevVoicePanel } from './HomepageDevVoicePanel';
 import { ContextDebugPanel } from '@/components/admin/ContextDebugPanel';
 import { AIVisualConfigProvider } from '@/lib/ui/ai-visual-config-context';
+import { UIManager } from '@/lib/navigation/UIManager';
+
+/**
+ * 7.7 (owner ruling 2026-07-15): the AI provider chain mounts ONCE in the ROOT
+ * layout and survives every client-side route change — a live voice/text
+ * session no longer dies when the visitor (or the model) navigates. The PILL
+ * still shows only on its designated surfaces; the CONNECTION persists
+ * everywhere outside /admin.
+ */
+const PILL_SURFACES = new Set(['/', '/about/ai']);
 
 interface AIInterfaceWrapperProps {
   /** Explicit override; when omitted the admin-configured site default is fetched. */
@@ -24,6 +35,22 @@ export function AIInterfaceWrapper({
   onSettingsClick,
   isAdmin = false
 }: AIInterfaceWrapperProps) {
+  const pathname = usePathname() ?? '/';
+  const router = useRouter();
+
+  // ONE global client-side route navigator (7.7): route steps ride
+  // router.push app-wide, so ui_intent route targets never hard-reload.
+  // (The per-page registrations on homepage/projects are retired — this
+  // wrapper outlives every page.)
+  const inAdminArea = pathname.startsWith('/admin');
+  useEffect(() => {
+    if (inAdminArea) return;
+    const uiManager = UIManager.getInstance();
+    uiManager.registerRouteNavigator((path) => router.push(path));
+    return () => {
+      uiManager.registerRouteNavigator(null);
+    };
+  }, [router, inAdminArea]);
   // Site default voice provider (admin-set, AIPublicAccessSettings). An explicit
   // prop wins; otherwise fetched once at mount with 'openai' as the fallback.
   const [defaultProvider, setDefaultProvider] = useState<'openai' | 'google' | 'cascade'>(
@@ -121,6 +148,13 @@ export function AIInterfaceWrapper({
     }
   };
 
+  // /admin keeps its own tooling (voice-debug mounts its own provider chain) —
+  // mounting a second global provider there would double-initialize adapters.
+  // Leaving to /admin intentionally ends a live session (documented 7.7 scope).
+  if (inAdminArea) {
+    return null;
+  }
+
   if (!providerResolved) {
     return null; // one fetch, ~ms — the pill is invisible during session load anyway
   }
@@ -142,6 +176,7 @@ export function AIInterfaceWrapper({
           handleSettingsClick={handleSettingsClick}
           className={className}
           isAdmin={isAdmin}
+          showPill={PILL_SURFACES.has(pathname)}
         />
       </AIVisualConfigProvider>
     </ReflinkSessionProvider>
@@ -163,6 +198,8 @@ interface AIInterfaceContentProps {
   handleSettingsClick: () => void;
   className?: string;
   isAdmin?: boolean;
+  /** 7.7: pill visibility is a ROUTE decision now — the provider stays mounted either way. */
+  showPill: boolean;
 }
 
 function AIInterfaceContent({
@@ -178,7 +215,8 @@ function AIInterfaceContent({
   handleTextSubmit,
   handleSettingsClick,
   className,
-  isAdmin = false
+  isAdmin = false,
+  showPill
 }: AIInterfaceContentProps) {
   const { session, accessLevel, isLoading } = useReflinkSession();
 
@@ -191,8 +229,16 @@ function AIInterfaceContent({
     }
   }, [session, accessLevel, isLoading, setIsVisible]);
 
-  // Don't render anything while loading or if not visible
-  if (isLoading || !isVisible) {
+  // 7.7: gate on the FIRST resolution only. A transient isLoading (session
+  // revalidation) must never unmount ConversationalAgentProvider — with the
+  // provider in the root layout that would tear down a live session mid-nav.
+  // no_access still unmounts it (kill-switch semantics).
+  const [everResolved, setEverResolved] = useState(false);
+  useEffect(() => {
+    if (!isLoading) setEverResolved(true);
+  }, [isLoading]);
+
+  if ((isLoading && !everResolved) || !isVisible) {
     return null;
   }
 
@@ -201,25 +247,31 @@ function AIInterfaceContent({
       defaultProvider={defaultProvider}
       audioElement={audioElement}
     >
-      <FloatingAIInterface
-        position={position}
-        onPositionChange={setPosition}
-        mode={mode}
-        onModeChange={setMode}
-        currentNarration={currentNarration ?? undefined}
-        placeholder="Ask me about my work..."
-        onTextSubmit={handleTextSubmit}
-        onSettingsClick={handleSettingsClick}
-        theme="default"
-        size="md"
-        hideOnScroll={false}
-        animationDuration={700}
-        className={className}
-      />
-      {isAdmin && <HomepageDevVoicePanel />}
-      {/* Task 7.0: owner context-debug panel — admin-gated (server-side check
-          in page.tsx), NOT dev-only; must work in a production build. */}
-      {isAdmin && <ContextDebugPanel />}
+      {/* 7.7: the provider (and any live session) survives route changes; the
+          pill and admin panels render only on their designated surfaces. */}
+      {showPill && (
+        <>
+          <FloatingAIInterface
+            position={position}
+            onPositionChange={setPosition}
+            mode={mode}
+            onModeChange={setMode}
+            currentNarration={currentNarration ?? undefined}
+            placeholder="Ask me about my work..."
+            onTextSubmit={handleTextSubmit}
+            onSettingsClick={handleSettingsClick}
+            theme="default"
+            size="md"
+            hideOnScroll={false}
+            animationDuration={700}
+            className={className}
+          />
+          {isAdmin && <HomepageDevVoicePanel />}
+          {/* Task 7.0: owner context-debug panel — admin-gated (server-side check
+              in layout.tsx), NOT dev-only; must work in a production build. */}
+          {isAdmin && <ContextDebugPanel />}
+        </>
+      )}
     </ConversationalAgentProvider>
   );
 }

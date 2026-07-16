@@ -87,6 +87,7 @@ export class ProcessingOperationStore {
         scope: request.scope,
         projectId: request.projectId ?? null,
         sectionId: request.sectionId ?? null,
+        sourceId: request.sourceId ?? null,
         type: opts.type ?? 'full',
         stages: JSON.parse(JSON.stringify(request.stages)) as object,
         startedAt: progress.startedAt,

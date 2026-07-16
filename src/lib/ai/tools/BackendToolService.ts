@@ -1264,13 +1264,9 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
 
     // NEVER auto-apply filtering based on UI state
     // Only apply explicit scope parameters passed by the agent
+    // (scope.route was accepted but never consulted — dropped, 7.15)
 
-    // Only apply route filtering if explicitly provided in scope
-    if (scope.route) {
-      enhancedScope.route = scope.route;
-    }
-
-    // Only apply project filtering if explicitly provided in scope
+    // Only apply project/entity filtering if explicitly provided in scope
     if (scope.projectId) {
       enhancedScope.projectId = scope.projectId;
     }
@@ -1461,6 +1457,8 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
     let projectId = content.project;
     let tier: number | undefined = content.tier ?? content.facets?.tier;
     let metadata: any = content.metadata;
+    let entityType: string | undefined = content.source?.type;
+    let entitySlug: string | undefined = content.source?.slug;
 
     // If we don't have chunkId or project, query the database to get them
     if (!content.chunkId || !content.project) {
@@ -1476,6 +1474,8 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
           projectId = chunk.entity?.entityType === 'PROJECT' ? chunk.entity.slug : undefined;
           tier = chunk.tier;
           metadata = chunk.metadata;
+          entityType = chunk.entity?.entityType ?? entityType;
+          entitySlug = chunk.entity?.slug ?? entitySlug;
         }
       } catch (error) {
         console.warn('Failed to fetch chunk details for navigation target:', error);
@@ -1485,6 +1485,19 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         } else if (content.metadata) {
           sectionId = content.metadata.anchorId || content.metadata.sectionGroup || content.id;
         }
+      }
+    }
+
+    // Non-project source (7.15): navigable only when it has an on-site page —
+    // a conversational-only document (resume file, uploaded doc) gets NO
+    // navTarget instead of a fabricated section target the UI can't resolve.
+    if (entityType && entityType !== 'PROJECT' && !projectId) {
+      try {
+        const { getUiLocationBySlug } = await import('@/lib/content/source-registry');
+        const page = entitySlug ? (await getUiLocationBySlug()).get(entitySlug) : undefined;
+        return page ? { type: 'route', id: page.replace(/^\//, '') || 'home' } : undefined;
+      } catch {
+        return undefined;
       }
     }
 

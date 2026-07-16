@@ -48,8 +48,33 @@ import {
     RealtimeItem,
     backgroundResult,
     OpenAIRealtimeWebRTC,
+    OpenAIRealtimeWebSocket,
 } from '@openai/agents/realtime';
 import { z } from 'zod';
+
+/** OpenAI Realtime PCM16 audio rate (both directions on the WS transport). */
+const WS_AUDIO_RATE = 24000;
+const WS_CAPTURE_CHUNK = 4096;
+
+function resamplePCM(input: Float32Array, inputRate: number, outputRate: number): Float32Array {
+    if (inputRate === outputRate) return input;
+    const ratio = inputRate / outputRate;
+    const outLength = Math.round(input.length / ratio);
+    const output = new Float32Array(outLength);
+    for (let i = 0; i < outLength; i++) {
+        output[i] = input[Math.min(input.length - 1, Math.round(i * ratio))];
+    }
+    return output;
+}
+
+function floatTo16BitPCMBuffer(input: Float32Array): ArrayBuffer {
+    const output = new Int16Array(input.length);
+    for (let i = 0; i < input.length; i++) {
+        const s = Math.max(-1, Math.min(1, input[i]));
+        output[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+    return output.buffer;
+}
 
 // Global reference for debugging (temporary for testing)
 let globalOpenAIAdapter: OpenAIRealtimeAdapter | null = null;
@@ -74,6 +99,27 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     private _sessionInputKind: 'mic' | 'silent' | 'synthetic' = 'mic';
     /** D53 emulated-microphone stream when _sessionInputKind === 'synthetic'. */
     private _syntheticInputStream: MediaStream | null = null;
+
+    // ---- 7.3 WebSocket transport (Firefox fallback for the WebRTC↔OpenAI
+    // ICE-consent interop bug, openai-agents-js#1353) ----
+    /** Transport the current RealtimeSession runs on. */
+    private _transportKind: 'webrtc' | 'websocket' = 'webrtc';
+    private _wsTransport: OpenAIRealtimeWebSocket | null = null;
+    /** WS transport does not manage the mic — client-side capture pipeline (GoogleLiveAdapter pattern). */
+    private _wsCaptureContext: AudioContext | null = null;
+    private _wsCaptureProcessor: ScriptProcessorNode | null = null;
+    private _wsCaptureStream: MediaStream | null = null;
+    /** True when the adapter acquired the stream itself (mic) and must stop its tracks. */
+    private _wsCaptureStreamOwned = false;
+    private _wsCapturing = false;
+    /** 7.6 clip-feedback gate on the WS capture path (frame drop — no track to mute). */
+    private _wsClipMicGated = false;
+    /** WS playback: PCM chunks scheduled into a MediaStreamDestination feeding the audio element. */
+    private _wsPlaybackContext: AudioContext | null = null;
+    private _wsPlaybackDestination: MediaStreamAudioDestinationNode | null = null;
+    private _wsNextPlayTime = 0;
+    private _wsActiveSources: AudioBufferSourceNode[] = [];
+    private _wsAudioListenersSetup = false;
     /** INPUT-track mute state (mic on/off). Deliberately separate from the base
      *  class's `_isMuted`, which tracks OUTPUT (audio element) mute — sharing
      *  one field let output mute/unmute desync the input flag and skip the real
@@ -634,6 +680,25 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
      * 'synthetic': custom WebRTC transport fed the D53 SyntheticMicDriver stream —
      *              TTS-generated speech drives the real voice path with no human mic.
      */
+    /**
+     * Which transport this browser/session should use (7.3):
+     * - The admin voice-config's `sessionConfig.transport` is honored when it
+     *   explicitly says 'websocket' (it defaults to 'webrtc').
+     * - Firefox is routed to WebSocket regardless: the Firefox↔OpenAI WebRTC
+     *   ICE-consent interop bug (openai-agents-js#1353, 6.11) kills every
+     *   session ~36s in, and gpt-realtime-2 did not cure it (owner 2026-07-08).
+     * - Everything else stays on WebRTC (the SDK default, mic managed for us).
+     */
+    private _resolveTransportKind(): 'webrtc' | 'websocket' {
+        const configured = (this._config as any)?.sessionConfig?.transport as string | undefined;
+        if (configured === 'websocket') return 'websocket';
+        if (typeof navigator !== 'undefined' && /firefox/i.test(navigator.userAgent)) {
+            console.log('OpenAIRealtimeAdapter: Firefox detected — using WebSocket transport (WebRTC interop bug, 6.11/7.3)');
+            return 'websocket';
+        }
+        return 'webrtc';
+    }
+
     private _createRealtimeSession(inputKind: 'mic' | 'silent' | 'synthetic', inputStream?: MediaStream): void {
         if (!this._agent) {
             throw new ConnectionError('Agent not initialized', 'openai');
@@ -657,7 +722,23 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         // resumed leg dies as a 10s "Ack timeout".
         this.tokenListenerSetup = false;
 
-        if (inputKind === 'synthetic') {
+        this._transportKind = this._resolveTransportKind();
+        this._wsTransport = null;
+        this._wsAudioListenersSetup = false;
+
+        if (this._transportKind === 'websocket') {
+            // 7.3: first-class SDK WS transport. It does NOT manage the mic or
+            // speakers (muted === null): capture/playback are the adapter's
+            // job — wired in connect() via the WS audio plumbing below.
+            this._teardownWsAudio();
+            const transport = new OpenAIRealtimeWebSocket();
+            this._session = new RealtimeSession(this._agent, { transport });
+            this._wsTransport = transport;
+            this._syntheticInputStream = inputKind === 'synthetic' ? (inputStream ?? null) : null;
+            if (inputKind === 'synthetic' && !inputStream) {
+                throw new ConnectionError('Synthetic input requires a MediaStream', 'openai');
+            }
+        } else if (inputKind === 'synthetic') {
             if (!inputStream) {
                 throw new ConnectionError('Synthetic input requires a MediaStream', 'openai');
             }
@@ -720,6 +801,160 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
         this._silentAudioContext = new AudioCtx();
         return this._silentAudioContext.createMediaStreamDestination().stream;
+    }
+
+    // ---- 7.3 WS transport audio plumbing (GoogleLiveAdapter pattern) ----
+    // The SDK's WS transport carries events only: the client owns mic capture
+    // (PCM16 24kHz via sendAudio) and speaker playback (scheduled buffers).
+
+    /** Session-level audio listeners: model PCM out + interruption stop. */
+    private _setupWsAudioListeners(): void {
+        if (!this._session || this._wsAudioListenersSetup) return;
+        this._wsAudioListenersSetup = true;
+        this._session.on('audio', (event: { data: ArrayBuffer }) => {
+            this._playWsAudioChunk(event.data);
+        });
+        // VAD barge-in / explicit interrupt: the transport truncates the item
+        // server-side; the client must kill the locally scheduled tail.
+        this._session.on('audio_interrupted', () => {
+            this._stopWsPlayback();
+            this._emitAudioEvent('speech_end');
+        });
+    }
+
+    /**
+     * Playback graph: scheduled PCM buffers → MediaStreamDestination → the
+     * SAME audio element WebRTC uses (so base-class output mute/volume and the
+     * task 3.6 output meter work unchanged). No element = direct to speakers.
+     */
+    private _ensureWsPlayback(): void {
+        if (this._wsPlaybackContext) return;
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        const ctx: AudioContext = new AudioCtx();
+        this._wsPlaybackContext = ctx;
+        const element = this._options?.audioElement;
+        if (element) {
+            const destination = ctx.createMediaStreamDestination();
+            this._wsPlaybackDestination = destination;
+            element.srcObject = destination.stream;
+            element.play().catch((err) => console.warn('OpenAIRealtimeAdapter(ws): audio element play failed:', err));
+        }
+        if (ctx.state === 'suspended') {
+            ctx.resume().catch((err) => console.warn('OpenAIRealtimeAdapter(ws): playback AudioContext resume failed:', err));
+        }
+    }
+
+    private _playWsAudioChunk(data: ArrayBuffer): void {
+        try {
+            this._ensureWsPlayback();
+            const ctx = this._wsPlaybackContext!;
+            const pcm16 = new Int16Array(data);
+            const float32 = new Float32Array(pcm16.length);
+            for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 0x8000;
+
+            const buffer = ctx.createBuffer(1, float32.length, WS_AUDIO_RATE);
+            buffer.copyToChannel(float32, 0);
+            const source = ctx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(this._wsPlaybackDestination ?? ctx.destination);
+
+            // First audible chunk after silence: same signals the WebRTC path
+            // derives from output_audio_buffer.started (clip cutoff, 9b.5
+            // turn-onset, stall watchdog, glow meter).
+            if (this._wsActiveSources.length === 0) {
+                if (!this._turnFirstAudioAt) this._turnFirstAudioAt = new Date();
+                this._clearResponseStallWatchdog();
+                this._stallNudgeCount = 0;
+                this._ensureOutputMeter();
+                this._emitAudioEvent('speech_start');
+            }
+
+            const startAt = Math.max(ctx.currentTime, this._wsNextPlayTime);
+            source.start(startAt);
+            this._wsNextPlayTime = startAt + buffer.duration;
+            this._wsActiveSources.push(source);
+            source.onended = () => {
+                this._wsActiveSources = this._wsActiveSources.filter(s => s !== source);
+                if (this._wsActiveSources.length === 0) {
+                    this._emitAudioEvent('speech_end');
+                }
+            };
+        } catch (error) {
+            console.error('OpenAIRealtimeAdapter(ws): failed to play audio chunk:', error);
+        }
+    }
+
+    private _stopWsPlayback(): void {
+        for (const source of this._wsActiveSources) {
+            try { source.stop(); } catch { /* already stopped */ }
+        }
+        this._wsActiveSources = [];
+        if (this._wsPlaybackContext) {
+            this._wsNextPlayTime = this._wsPlaybackContext.currentTime;
+        }
+    }
+
+    /** Mic/synthetic capture → downsample → PCM16 → transport.sendAudio. */
+    private _startWsCapture(stream: MediaStream, owned: boolean): void {
+        this._stopWsCapture();
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        const ctx: AudioContext = new AudioCtx();
+        this._wsCaptureContext = ctx;
+        this._wsCaptureStream = stream;
+        this._wsCaptureStreamOwned = owned;
+
+        const source = ctx.createMediaStreamSource(stream);
+        const processor = ctx.createScriptProcessor(WS_CAPTURE_CHUNK, 1, 1);
+        const silentGain = ctx.createGain();
+        silentGain.gain.value = 0;
+
+        processor.onaudioprocess = (e) => {
+            // _inputMuted = visitor/stopListening mute; _wsClipMicGated = the 7.6
+            // clip-feedback gate. Both drop frames — the WS transport has no
+            // track to mute (session.mute throws by design).
+            if (!this._wsCapturing || this._inputMuted || this._wsClipMicGated) return;
+            if (this._wsTransport?.status !== 'connected') return;
+            const input = e.inputBuffer.getChannelData(0);
+            const resampled = resamplePCM(input, ctx.sampleRate, WS_AUDIO_RATE);
+            try {
+                this._wsTransport.sendAudio(floatTo16BitPCMBuffer(resampled));
+            } catch (error) {
+                console.warn('OpenAIRealtimeAdapter(ws): sendAudio failed:', error);
+            }
+        };
+
+        source.connect(processor);
+        processor.connect(silentGain);
+        silentGain.connect(ctx.destination);
+        this._wsCaptureProcessor = processor;
+        this._wsCapturing = true;
+    }
+
+    private _stopWsCapture(): void {
+        this._wsCapturing = false;
+        this._wsCaptureProcessor?.disconnect();
+        this._wsCaptureProcessor = null;
+        if (this._wsCaptureStream && this._wsCaptureStreamOwned) {
+            this._wsCaptureStream.getTracks().forEach(t => t.stop());
+        }
+        this._wsCaptureStream = null;
+        this._wsCaptureStreamOwned = false;
+        if (this._wsCaptureContext && this._wsCaptureContext.state !== 'closed') {
+            this._wsCaptureContext.close().catch(() => {});
+        }
+        this._wsCaptureContext = null;
+    }
+
+    private _teardownWsAudio(): void {
+        this._stopWsCapture();
+        this._stopWsPlayback();
+        if (this._wsPlaybackContext && this._wsPlaybackContext.state !== 'closed') {
+            this._wsPlaybackContext.close().catch(() => {});
+        }
+        this._wsPlaybackContext = null;
+        this._wsPlaybackDestination = null;
+        this._wsNextPlayTime = 0;
+        this._wsClipMicGated = false;
     }
 
     private _setupEventListeners() {
@@ -1570,6 +1805,16 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         const pc = this._getPeerConnection();
         const dc = this._getDataChannel();
         const diag: Record<string, unknown> = {
+            transportKind: this._transportKind,
+            // WS-transport equivalents (7.3): the pc/ice/dataChannel fields
+            // below legitimately read 'none'/'unknown' on WebSocket legs.
+            ...(this._transportKind === 'websocket'
+                ? {
+                    websocketStatus: this._wsTransport?.status ?? 'disconnected',
+                    wsCapturing: this._wsCapturing,
+                    wsScheduledSources: this._wsActiveSources.length,
+                }
+                : {}),
             peerConnectionState: pc?.connectionState ?? 'none',
             iceConnectionState: pc?.iceConnectionState ?? 'none',
             signalingState: pc?.signalingState ?? 'none',
@@ -1631,6 +1876,24 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         this._disruptionTickBusy = true;
         try {
             if (!this._isConnected || this._intentionalDisconnect || this._resumeInProgress) return;
+
+            // 7.3 WS transport: no peer connection to watch — the socket is
+            // either open or gone (a closed WebSocket never self-recovers, so
+            // there is no blip/grace semantics to apply).
+            if (this._transportKind === 'websocket') {
+                const wsStatus = this._wsTransport?.status ?? 'disconnected';
+                if (wsStatus !== this._lastPcState) {
+                    console.log(`OpenAIRealtimeAdapter: ws transport status ${this._lastPcState ?? '∅'}→${wsStatus}`);
+                    this._lastPcState = wsStatus;
+                }
+                if (wsStatus === 'disconnected') {
+                    const diag = await this._connectionDiagnostics();
+                    console.warn('OpenAIRealtimeAdapter: websocket closed without user intent — treating as disruption', diag);
+                    void this._handleDisruption('network', diag);
+                }
+                return;
+            }
+
             const pc = this._getPeerConnection();
             const state = pc?.connectionState ?? 'none';
             const ice = pc?.iceConnectionState ?? 'none';
@@ -1775,6 +2038,8 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
         try {
             try { this._session?.close(); } catch { /* already dead */ }
+            // WS legs: stop capture before the resume rebuilds the pipeline
+            this._teardownWsAudio();
 
             const delaysMs = [1000, 3000];
             for (let attempt = 0; attempt < delaysMs.length; attempt++) {
@@ -1808,6 +2073,11 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
      * and drive the resume flow.
      */
     public forceDropConnection(): void {
+        if (this._transportKind === 'websocket' && this._wsTransport) {
+            console.warn('OpenAIRealtimeAdapter: forceDropConnection (drill) — closing websocket');
+            this._wsTransport.close();
+            return;
+        }
         const pc = this._getPeerConnection();
         if (pc) {
             console.warn('OpenAIRealtimeAdapter: forceDropConnection (drill) — closing peer connection');
@@ -2065,6 +2335,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         const silentResume = resuming && this._conversationResumeCount >= 2;
 
         try {
+            let wsMicStream: MediaStream | null = null;
             if (wantsMic) {
                 // Request microphone permission explicitly
                 console.log('OpenAIRealtimeAdapter: Requesting microphone permission...');
@@ -2079,8 +2350,14 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                         }
                     });
                     console.log('OpenAIRealtimeAdapter: Microphone permission granted');
-                    // Stop the stream since OpenAI SDK will handle it
-                    stream.getTracks().forEach(track => track.stop());
+                    if (this._resolveTransportKind() === 'websocket') {
+                        // 7.3: the WS transport does not manage the mic — the
+                        // adapter keeps the stream and drives capture itself.
+                        wsMicStream = stream;
+                    } else {
+                        // Stop the stream since the WebRTC SDK will acquire it
+                        stream.getTracks().forEach(track => track.stop());
+                    }
                 } catch (micError) {
                     console.error('OpenAIRealtimeAdapter: Microphone permission denied:', micError);
                     throw new AudioError('Microphone permission required for voice AI', 'openai');
@@ -2143,10 +2420,28 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             this._mintSessionId = mintResponse.session_id ?? null;
             console.log('OpenAIRealtimeAdapter: Session token received, connecting...');
 
-            // Connect to OpenAI Realtime using the client_secret
+            // Connect to OpenAI Realtime using the client_secret. On the WS
+            // transport the model must ride the connection URL (WebRTC gets it
+            // from the ephemeral key's session automatically).
             await this._session.connect({
                 apiKey: client_secret,
+                ...(this._transportKind === 'websocket' && this._mintedModel
+                    ? { model: this._mintedModel }
+                    : {}),
             });
+
+            // 7.3 WS transport: wire client-side audio (the transport carries
+            // events only — no mic, no speakers of its own).
+            if (this._transportKind === 'websocket') {
+                this._setupWsAudioListeners();
+                this._ensureWsPlayback();
+                if (inputKind === 'mic' && wsMicStream) {
+                    this._startWsCapture(wsMicStream, true);
+                } else if (inputKind === 'synthetic' && options?.syntheticInputStream) {
+                    this._startWsCapture(options.syntheticInputStream, false);
+                }
+                // 'silent' (text-only): no capture — nothing is ever sent.
+            }
 
             // 7.11 (owner ruling 2026-07-13): only a FRESH session or the
             // FIRST resume of a conversation gets the auto response.create.
@@ -2299,6 +2594,9 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 this._connectionStatus = 'disconnected';
                 this._audioInputMode = null;
 
+                // 7.3: release the WS capture/playback pipeline (mic tracks incl.)
+                this._teardownWsAudio();
+
                 if (this._silentAudioContext) {
                     this._silentAudioContext.close().catch(() => {});
                     this._silentAudioContext = null;
@@ -2349,8 +2647,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             // session.mute(false) is idempotent on the track; input mute now
             // has its own field (_inputMuted) so output mute can never shadow it.
             console.log('OpenAIRealtimeAdapter: Ensuring input track is unmuted (was inputMuted:', this._inputMuted, ')');
-            this._session?.mute(false);
-            this._inputMuted = false;
+            this._setInputMuted(false);
 
             this._isRecording = true;
             this._sessionStatus = 'listening';
@@ -2378,8 +2675,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     async stopListening(): Promise<void> {
         try {
             if (this._session && !this._inputMuted) {
-                this._session.mute(true);
-                this._inputMuted = true;
+                this._setInputMuted(true);
             }
             this._isRecording = false;
             this._sessionStatus = 'idle';
@@ -2445,13 +2741,30 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     }
 
     /**
-     * 7.6 clip-feedback gate: suppress the mic while a D50 clip plays, via the
-     * SDK's input mute. Composes with the visitor's explicit mute (_inputMuted)
-     * — ungating never unmutes a track the visitor (or stopListening) muted.
+     * Transport-aware input mute (7.3): WebRTC mutes the SDK-managed track;
+     * the WS transport has no track (session.mute throws by design) — the
+     * capture pipeline drops frames on _inputMuted instead.
+     */
+    private _setInputMuted(muted: boolean): void {
+        if (this._transportKind !== 'websocket') {
+            this._session?.mute(muted);
+        }
+        this._inputMuted = muted;
+    }
+
+    /**
+     * 7.6 clip-feedback gate: suppress the mic while a D50 clip plays. WebRTC
+     * rides the SDK's input mute; WS drops capture frames (_wsClipMicGated).
+     * Composes with the visitor's explicit mute (_inputMuted) — ungating never
+     * unmutes a track the visitor (or stopListening) muted.
      */
     setClipMicGate(gated: boolean): void {
         if (!this._session || !this._isConnected) return;
         try {
+            if (this._transportKind === 'websocket') {
+                this._wsClipMicGated = gated;
+                return;
+            }
             if (gated) {
                 this._session.mute(true);
             } else if (!this._inputMuted && this._isRecording) {
@@ -2469,13 +2782,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         }
 
         try {
-            if (this._inputMuted) {
-                this._session.mute(false);
-                this._inputMuted = false;
-            } else {
-                this._session.mute(true);
-                this._inputMuted = true;
-            }
+            this._setInputMuted(!this._inputMuted);
             console.log('Input mute toggled:', this._inputMuted);
         } catch (error) {
             throw new AudioError(
@@ -2506,6 +2813,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     // Required abstract methods from IConversationalAgentAdapter
     async cleanup(): Promise<void> {
         await this.disconnect();
+        this._teardownWsAudio();
         this._releaseBaseSubscriptions();
         this._agent = null;
         this._session = null;

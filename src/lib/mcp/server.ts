@@ -173,6 +173,9 @@ export function buildMcpServer(ctx: GatewayContext, options?: McpServerOptions):
               excerpt: item.snippet ?? item.oneLiner,
               relevance: item.why,
               score: item.score,
+              // Source attribution (7.15d): which entity the hit came from —
+              // a bio/resume/article hit is labeled, not presented as a project.
+              source: item.source ?? null,
               location: {
                 project: item.project ?? null,
                 // Section anchor within the project's write-up; null = the

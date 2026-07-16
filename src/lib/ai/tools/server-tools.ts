@@ -399,7 +399,7 @@ const uiStateParameterSchema = {
 // Content Search and Retrieval Tools - Semantic search with pgvector
 export const contentSearchToolDefinition: UnifiedToolDefinition = {
   name: 'content_search',
-  description: 'Semantic search across ALL portfolio content (projects, sections, experience). Results carry navTargets, a relevance score, facets, and a why field explaining each match.',
+  description: 'Semantic search across EVERY grounded source by default — projects, the owner bio/resume, articles, documents. Each result is labeled with its source (source.type/label) and carries a navTarget (when the source has an on-site page), a relevance score, facets, and a why field. Pass scope ONLY to deliberately narrow to one source.',
   parameters: {
     type: 'object',
     properties: {
@@ -410,11 +410,10 @@ export const contentSearchToolDefinition: UnifiedToolDefinition = {
       uiState: uiStateParameterSchema,
       scope: {
         type: 'object',
-        description: 'Optional hard limit on where to search',
+        description: 'Optional deliberate narrowing — global is the default; use this only when the visitor wants ONE source and nothing else',
         properties: {
-          route: { type: 'string' },
-          projectId: { type: 'string', description: 'Project ID or slug' },
-          entityType: { type: 'string', description: 'PROJECT, BIO, RESUME, …' }
+          projectId: { type: 'string', description: 'Entity slug: a project, article, or document — restricts results to that one source' },
+          entityType: { type: 'string', description: 'PROJECT, BIO, RESUME, EXPERIENCE, SKILLS, CUSTOM' }
         }
       },
       k: {
@@ -460,6 +459,7 @@ export const contentSearchToolDefinition: UnifiedToolDefinition = {
               properties: {
                 id: { type: 'string' },
                 project: { type: 'string' },
+                source: { type: 'object', description: 'Which source this hit came from: {type, label, slug}' },
                 title: { type: 'string' },
                 oneLiner: { type: 'string' },
                 why: { type: 'string' },

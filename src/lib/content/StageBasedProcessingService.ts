@@ -23,6 +23,9 @@ import { HierarchicalContentParser } from './HierarchicalContentParser';
 import { buildT2SummarySource, orderSummaryChunksBottomUp, normalizeParentChunkIds } from './summary-source';
 import { IndexMaintenanceService } from '../database/IndexMaintenanceService';
 import { getProcessingOperationStore, ChildOutcome } from './ProcessingOperationStore';
+import { getDocumentSource, listDocumentSources, invalidateSourceRegistryCache, DocumentSourceSpec } from './source-registry';
+import { generateDocumentScaffold } from './document-scaffold';
+import { ChunkingConfigService } from './ChunkingConfigService';
 import { EventEmitter } from 'events';
 
 // Processing stages
@@ -42,9 +45,13 @@ export interface StageConfig {
 // Processing request
 export interface ProcessingRequest {
   operationId: string;
-  scope: 'all' | 'project' | 'section';
+  // 'entity' (7.15): one non-project document source from the content-source
+  // config (resume/CV, article, arbitrary text) through the SAME stages.
+  scope: 'all' | 'project' | 'section' | 'entity';
   projectId?: string;
   sectionId?: string;
+  /** scope:'entity' — AIContentSourceConfig sourceId (doc:<slug>). */
+  sourceId?: string;
   stages: StageConfig[];
   resumeFromStage?: ProcessingStage;
   preserveManualEdits?: boolean;
@@ -257,6 +264,7 @@ export class StageBasedProcessingService extends EventEmitter {
       scope: row.scope as ProcessingRequest['scope'],
       projectId: row.projectId ?? undefined,
       sectionId: row.sectionId ?? undefined,
+      sourceId: row.sourceId ?? undefined,
       stages: Array.isArray(row.stages) ? (row.stages as unknown as StageConfig[]) : [],
       resumeFromStage: resumeStage
     };
@@ -557,22 +565,55 @@ export class StageBasedProcessingService extends EventEmitter {
     progress: ProcessingProgress
   ): Promise<void> {
     const projects = await this.getProjectsToProcess(request);
-    progress.totalItems = projects.length;
+
+    // 7.15: the content-source config is the ingestion manifest — scope:'all'
+    // also runs one child operation per ENABLED document source with content,
+    // so a resume/article added to the config gets ingested with everything else.
+    const docSources = (await listDocumentSources().catch(() => [] as DocumentSourceSpec[]))
+      .filter(d => d.enabled && d.content.trim().length > 0);
+
+    // Uniform unit list: projects keep their exact existing child shape
+    const units: Array<{
+      id: string; slug: string; title: string;
+      childRequest: Omit<ProcessingRequest, 'operationId'>;
+    }> = [
+      ...projects.map((project: any) => ({
+        id: project.id as string,
+        slug: project.slug as string,
+        title: (project.title ?? project.slug) as string,
+        childRequest: {
+          scope: 'project' as const,
+          projectId: project.id as string,
+          stages: request.stages,
+          preserveManualEdits: request.preserveManualEdits
+        }
+      })),
+      ...docSources.map(doc => ({
+        id: doc.sourceId,
+        slug: doc.slug,
+        title: doc.title,
+        childRequest: {
+          scope: 'entity' as const,
+          sourceId: doc.sourceId,
+          stages: request.stages,
+          preserveManualEdits: request.preserveManualEdits
+        }
+      }))
+    ];
+
+    progress.totalItems = units.length;
     progress.totalItemsProcessed = 0;
 
-    console.log(`[ScopeAll] Coordinating ${projects.length} per-project child operations`);
+    console.log(`[ScopeAll] Coordinating ${projects.length} project + ${docSources.length} document child operations`);
 
     const failures: string[] = [];
 
-    for (let i = 0; i < projects.length; i++) {
-      const project = projects[i];
+    for (let i = 0; i < units.length; i++) {
+      const unit = units[i];
       const childId = `${request.operationId}-p${i + 1}`;
       const childRequest: ProcessingRequest = {
         operationId: childId,
-        scope: 'project',
-        projectId: project.id,
-        stages: request.stages,
-        preserveManualEdits: request.preserveManualEdits
+        ...unit.childRequest
       };
 
       const childProgress = this.initializeProgress(childRequest);
@@ -587,7 +628,7 @@ export class StageBasedProcessingService extends EventEmitter {
       let outcomeError: string | undefined;
 
       try {
-        console.log(`[ScopeAll] Project ${i + 1}/${projects.length}: ${project.slug} (${childId})`);
+        console.log(`[ScopeAll] Unit ${i + 1}/${units.length}: ${unit.slug} (${childId})`);
         await this.executeStagesForRequest(childRequest, childProgress);
 
         childProgress.status = 'completed';
@@ -598,7 +639,7 @@ export class StageBasedProcessingService extends EventEmitter {
       } catch (error) {
         outcomeStatus = 'failed';
         outcomeError = error instanceof Error ? error.message : String(error);
-        failures.push(`${project.slug}: ${outcomeError}`);
+        failures.push(`${unit.slug}: ${outcomeError}`);
 
         childProgress.status = 'failed';
         childProgress.completedAt = new Date();
@@ -614,9 +655,9 @@ export class StageBasedProcessingService extends EventEmitter {
       const embeddingsCp = childProgress.stageProgress.embeddings.checkpoint as EmbeddingsCheckpoint | undefined;
       const outcome: ChildOutcome = {
         operationId: childId,
-        projectId: project.id,
-        projectSlug: project.slug,
-        projectTitle: project.title,
+        projectId: unit.id,
+        projectSlug: unit.slug,
+        projectTitle: unit.title,
         status: outcomeStatus,
         chunksCreated: chunkingCp?.chunksCreated.length ?? 0,
         summariesGenerated: summariesCp?.summariesGenerated.length ?? 0,
@@ -627,17 +668,17 @@ export class StageBasedProcessingService extends EventEmitter {
       };
       await this.operationStore.appendChildOutcome(request.operationId, outcome);
 
-      // Parent progress: projects are the unit of work
+      // Parent progress: ingestion units (projects + document sources)
       progress.totalItemsProcessed = i + 1;
       progress.costAccumulated += childProgress.costAccumulated;
       progress.tokensUsed += childProgress.tokensUsed;
-      progress.overallProgress = ((i + 1) / projects.length) * 100;
+      progress.overallProgress = ((i + 1) / units.length) * 100;
       progress.lastUpdatedAt = new Date();
       if (outcomeError) {
         progress.errors.push({
           stage: childProgress.currentStage || 'chunking',
-          itemId: project.id,
-          itemTitle: project.title || project.slug,
+          itemId: unit.id,
+          itemTitle: unit.title || unit.slug,
           error: outcomeError,
           retryable: true,
           timestamp: new Date()
@@ -649,7 +690,7 @@ export class StageBasedProcessingService extends EventEmitter {
 
     if (failures.length > 0) {
       throw new Error(
-        `scope:'all' completed with ${failures.length}/${projects.length} project failure(s): ${failures.join('; ')}`
+        `scope:'all' completed with ${failures.length}/${units.length} unit failure(s): ${failures.join('; ')}`
       );
     }
   }
@@ -700,6 +741,30 @@ export class StageBasedProcessingService extends EventEmitter {
   ): Promise<void> {
     const progress = this.activeOperations.get(request.operationId)!;
     const stageProgress = progress.stageProgress.chunking;
+
+    // Document source (7.15): same scaffold contract, markdown chunker
+    if (request.scope === 'entity') {
+      const doc = await this.resolveDocumentSource(request);
+      const chunkingConfig = await ChunkingConfigService.getInstance().getDefaultConfig();
+      const tiers = generateDocumentScaffold(doc, chunkingConfig.t2MaxLength);
+      console.log(`[ChunkingStage] Document scaffold for ${doc.sourceId}: ${tiers.length} items (T2=${tiers.filter(t => t.tier === 2).length}, T3=${tiers.filter(t => t.tier === 3).length})`);
+
+      const docCheckpoint: ChunkingCheckpoint = {
+        projectsProcessed: [doc.sourceId],
+        sectionsProcessed: [],
+        chunksCreated: tiers
+      };
+      stageProgress.totalItems = tiers.length;
+      stageProgress.itemsProcessed = 1;
+      stageProgress.progress = 100;
+      stageProgress.checkpoint = docCheckpoint;
+      this.notifyProgress(request.operationId, progress);
+
+      await this.saveChunksToDatabase(request, tiers, false);
+      invalidateSourceRegistryCache();
+      console.log(`[ChunkingStage] ✓ Document chunks saved for ${doc.entityType}/${doc.slug}`);
+      return;
+    }
 
     // Get projects to process
     const projects = await this.getProjectsToProcess(request);
@@ -770,13 +835,6 @@ export class StageBasedProcessingService extends EventEmitter {
 
     console.log(`[SummariesStage] Starting AI summary generation for T1 and T2 placeholders`);
 
-    // Get project to fetch actual content
-    const projects = await this.getProjectsToProcess(request);
-    const project = projects[0]; // Assuming single project for now
-
-    // Get enhanced project index for content extraction
-    const enhancedIndex = await this.contentParser.indexProjectHierarchical(project.id);
-
     // Get chunks - either from chunking checkpoint or from database
     const chunkingCheckpoint = progress.stageProgress.chunking.checkpoint as ChunkingCheckpoint;
     let allT1T2Chunks: TierContent[];
@@ -790,15 +848,9 @@ export class StageBasedProcessingService extends EventEmitter {
     } else {
       // Fetch existing chunks from database
       console.log(`[SummariesStage] No chunking checkpoint - fetching existing chunks from database`);
-      
-      // Get content entity
-      const entity = await prisma.contentEntity.findFirst({
-        where: { slug: project.slug }
-      });
 
-      if (!entity) {
-        throw new Error(`No content entity found for project ${project.slug}`);
-      }
+      // Get content entity (project or document source — 7.15)
+      const entity = await this.getEntityForRequest(request);
 
       // Fetch all chunks from database
       const dbChunks = await prisma.contextChunk.findMany({
@@ -1020,17 +1072,8 @@ export class StageBasedProcessingService extends EventEmitter {
     } else {
       // Fetch existing chunks from database
       console.log(`[EmbeddingsStage] No checkpoint found - fetching existing chunks from database`);
-      
-      const projects = await this.getProjectsToProcess(request);
-      const project = projects[0];
-      
-      const entity = await prisma.contentEntity.findFirst({
-        where: { slug: project.slug }
-      });
 
-      if (!entity) {
-        throw new Error(`No content entity found for project ${project.slug}`);
-      }
+      const entity = await this.getEntityForRequest(request);
 
       const dbChunks = await prisma.contextChunk.findMany({
         where: { entityId: entity.id },
@@ -1266,17 +1309,8 @@ export class StageBasedProcessingService extends EventEmitter {
     } else {
       // Fetch existing chunks from database
       console.log(`[ValidationStage] No checkpoint found - fetching existing chunks from database`);
-      
-      const projects = await this.getProjectsToProcess(request);
-      const project = projects[0];
-      
-      const entity = await prisma.contentEntity.findFirst({
-        where: { slug: project.slug }
-      });
 
-      if (!entity) {
-        throw new Error(`No content entity found for project ${project.slug}`);
-      }
+      const entity = await this.getEntityForRequest(request);
 
       const dbChunks = await prisma.contextChunk.findMany({
         where: { entityId: entity.id },
@@ -1397,27 +1431,8 @@ export class StageBasedProcessingService extends EventEmitter {
     chunks: TierContent[],
     hasEmbeddings: boolean = false
   ): Promise<void> {
-    const projects = await this.getProjectsToProcess(request);
-    const project = projects[0];
-    
-    // Ensure content entity exists
-    let entity = await prisma.contentEntity.findFirst({
-      where: {
-        slug: project.slug,
-        entityType: 'PROJECT'
-      }
-    });
-
-    if (!entity) {
-      entity = await prisma.contentEntity.create({
-        data: {
-          slug: project.slug,
-          entityType: 'PROJECT',
-          title: project.title,
-          description: project.description || project.summary || `AI context for ${project.title}`
-        }
-      });
-    }
+    // Ensure content entity exists (project OR document source — 7.15)
+    const entity = await this.getOrCreateEntityForRequest(request);
 
     // Re-chunking REPLACES the scaffold: purge rows whose chunk_id the new
     // scaffold no longer produces. They used to linger forever — after the
@@ -1434,11 +1449,11 @@ export class StageBasedProcessingService extends EventEmitter {
 
     // Use batch storage for efficiency
     if (!hasEmbeddings && chunks.length > 1) {
-      await this.batchStoreChunks(chunks, request);
+      await this.batchStoreChunks(chunks, entity.id);
     } else {
       // Store one by one (with embeddings or single chunk)
       for (const chunk of chunks) {
-        await this.storeValidatedChunk(chunk, request);
+        await this.storeValidatedChunk(chunk, entity.id);
       }
     }
   }
@@ -1451,16 +1466,7 @@ export class StageBasedProcessingService extends EventEmitter {
     chunks: TierContent[],
     hasEmbeddings: boolean = false
   ): Promise<void> {
-    const projects = await this.getProjectsToProcess(request);
-    const project = projects[0];
-    
-    const entity = await prisma.contentEntity.findFirst({
-      where: { slug: project.slug }
-    });
-
-    if (!entity) {
-      throw new Error(`Content entity not found for project ${project.slug}`);
-    }
+    const entity = await this.getEntityForRequest(request);
 
     // Update chunks one by one
     for (const chunk of chunks) {
@@ -1513,6 +1519,108 @@ export class StageBasedProcessingService extends EventEmitter {
   }
 
   /**
+   * Resolve the document source for a scope:'entity' request from the
+   * content-source config (the ingestion manifest — 7.15).
+   */
+  private async resolveDocumentSource(request: ProcessingRequest): Promise<DocumentSourceSpec> {
+    if (!request.sourceId) {
+      throw new Error('sourceId required for entity scope');
+    }
+    const slug = request.sourceId.startsWith('doc:') ? request.sourceId.slice(4) : request.sourceId;
+    const doc = await getDocumentSource(slug);
+    if (!doc) {
+      throw new Error(`Document source not found in content-source config: ${request.sourceId}`);
+    }
+    if (!doc.content.trim()) {
+      throw new Error(`Document source ${request.sourceId} has no content`);
+    }
+    return doc;
+  }
+
+  /**
+   * The EXISTING ContentEntity row a request's stages operate on (summaries/
+   * embeddings/validation DB fallbacks). Throws when chunking hasn't run.
+   */
+  private async getEntityForRequest(request: ProcessingRequest): Promise<{ id: string; slug: string }> {
+    if (request.scope === 'entity') {
+      const doc = await this.resolveDocumentSource(request);
+      const entity = await prisma.contentEntity.findFirst({
+        where: { entityType: doc.entityType as any, slug: doc.slug },
+        select: { id: true, slug: true }
+      });
+      if (!entity) {
+        throw new Error(`No content entity for document source ${doc.slug} — run the chunking stage first`);
+      }
+      return entity;
+    }
+    const projects = await this.getProjectsToProcess(request);
+    const project = projects[0];
+    if (!project) {
+      throw new Error('No project found for request');
+    }
+    const entity = await prisma.contentEntity.findFirst({
+      where: { slug: project.slug },
+      select: { id: true, slug: true }
+    });
+    if (!entity) {
+      throw new Error(`No content entity found for project ${project.slug}`);
+    }
+    return entity;
+  }
+
+  /**
+   * Get-or-create the ContentEntity a request's chunks are written under —
+   * the ONE place entityType/slug is decided (was hardcoded PROJECT, 7.15).
+   */
+  private async getOrCreateEntityForRequest(request: ProcessingRequest): Promise<{ id: string }> {
+    if (request.scope === 'entity') {
+      const doc = await this.resolveDocumentSource(request);
+      return prisma.contentEntity.upsert({
+        where: { entityType_slug: { entityType: doc.entityType as any, slug: doc.slug } },
+        create: {
+          entityType: doc.entityType as any,
+          slug: doc.slug,
+          title: doc.title,
+          description: doc.description || '',
+          tags: doc.tags,
+          technologies: doc.technologies
+        },
+        update: {
+          title: doc.title,
+          description: doc.description || '',
+          tags: doc.tags,
+          technologies: doc.technologies
+        }
+      });
+    }
+    const projects = await this.getProjectsToProcess(request);
+    const project = projects[0];
+    if (!project) {
+      throw new Error('No project found for request');
+    }
+    return prisma.contentEntity.upsert({
+      where: {
+        entityType_slug: {
+          entityType: 'PROJECT',
+          slug: project.slug
+        }
+      },
+      create: {
+        entityType: 'PROJECT',
+        slug: project.slug,
+        title: project.title,
+        description: project.description || '',
+        tags: [],
+        technologies: []
+      },
+      update: {
+        title: project.title,
+        description: project.description || ''
+      }
+    });
+  }
+
+  /**
    * Get projects to process based on request scope
    */
   private async getProjectsToProcess(request: ProcessingRequest): Promise<any[]> {
@@ -1558,7 +1666,11 @@ export class StageBasedProcessingService extends EventEmitter {
           }
         });
         return sectionProject ? [sectionProject] : [];
-      
+
+      case 'entity':
+        // Document sources have no project — callers use the entity helpers
+        throw new Error('getProjectsToProcess called for entity scope (use getEntityForRequest)');
+
       default:
         throw new Error(`Invalid scope: ${request.scope}`);
     }
@@ -1587,43 +1699,13 @@ export class StageBasedProcessingService extends EventEmitter {
   /**
    * Batch store chunks in database (more efficient for multiple chunks without embeddings)
    */
-  private async batchStoreChunks(chunks: TierContent[], request: ProcessingRequest): Promise<void> {
-    console.log(`[batchStoreChunks] Batch storing ${chunks.length} chunks for projectId: ${request.projectId}`);
-    
+  private async batchStoreChunks(chunks: TierContent[], entityId: string): Promise<void> {
+    console.log(`[batchStoreChunks] Batch storing ${chunks.length} chunks for entity: ${entityId}`);
+
     const startTime = Date.now();
-    
-    // Get or create project and entity (once for all chunks)
-    const projects = await this.getProjectsToProcess(request);
-    const project = projects[0];
-    
-    if (!project) {
-      throw new Error('No project found for batch storage');
-    }
-    
-    console.log(`[batchStoreChunks] Found project: ${project.slug}`);
-    
-    const entity = await prisma.contentEntity.upsert({
-      where: {
-        entityType_slug: {
-          entityType: 'PROJECT',
-          slug: project.slug
-        }
-      },
-      create: {
-        entityType: 'PROJECT',
-        slug: project.slug,
-        title: project.title,
-        description: project.description || '',
-        tags: [],
-        technologies: []
-      },
-      update: {
-        title: project.title,
-        description: project.description || ''
-      }
-    });
-    
-    console.log(`[batchStoreChunks] Entity and project index ready. Starting batch upsert...`);
+    const entity = { id: entityId };
+
+    console.log(`[batchStoreChunks] Entity ready. Starting batch upsert...`);
     
     // Build a map of logical chunk IDs to database IDs for parent and root resolution
     const chunkIdToDbId = new Map<string, string>();
@@ -1770,38 +1852,9 @@ export class StageBasedProcessingService extends EventEmitter {
   /**
    * Store validated chunk in database
    */
-  private async storeValidatedChunk(chunk: TierContent, request: ProcessingRequest): Promise<void> {
-    console.log(`[storeValidatedChunk] Storing chunk: ${chunk.chunkId} (T${chunk.tier}), projectId: ${request.projectId}`);
-    
-    // Get or create content entity
-    const project = await prisma.project.findUnique({
-      where: { id: request.projectId },
-      select: { slug: true, title: true }
-    });
-
-    if (!project) {
-      throw new Error(`Project not found: ${request.projectId}`);
-    }
-
-    console.log(`[storeValidatedChunk] Found project: ${project.slug}`);
-
-    const entity = await prisma.contentEntity.upsert({
-      where: {
-        entityType_slug: {
-          entityType: 'PROJECT',
-          slug: project.slug
-        }
-      },
-      create: {
-        entityType: 'PROJECT',
-        slug: project.slug,
-        title: project.title || chunk.title || '',
-        description: '',
-        tags: [],
-        technologies: []
-      },
-      update: {}
-    });
+  private async storeValidatedChunk(chunk: TierContent, entityId: string): Promise<void> {
+    console.log(`[storeValidatedChunk] Storing chunk: ${chunk.chunkId} (T${chunk.tier}) for entity: ${entityId}`);
+    const entity = { id: entityId };
 
     // Resolve parent chunk ID from logical ID to database UUID
     let resolvedParentChunkId: string | null = null;

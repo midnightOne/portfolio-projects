@@ -1,12 +1,17 @@
 /**
- * Content Source Manager Component
- * Admin interface for managing AI content sources with enable/disable toggles
+ * Content Source Manager (ai-assistant 7.15).
+ *
+ * The admin face of the ingestion manifest: one list of REAL retrieval
+ * sources (projects, config-owned documents, script-ingested entities) with
+ * index state, enable/disable toggles (query-time allowlist), document
+ * add/edit (paste text/markdown — classic RAG), one-click ingestion through
+ * the stage pipeline (scope:'entity'), and document removal.
  */
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
@@ -14,199 +19,185 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LoadingIndicator } from '@/components/ui/loading-indicator';
-import { 
-  Settings, 
-  Database, 
-  FileText, 
-  User, 
-  Briefcase, 
-  Code, 
-  Star,
-  RefreshCw,
-  AlertCircle,
-  CheckCircle,
-  Info
-} from 'lucide-react';
+import { Database, FileText, Globe, Plus, RefreshCw, Trash2, AlertCircle, CheckCircle } from 'lucide-react';
 
-interface ContentSource {
-  id: string;
-  type: string;
+interface SourceRow {
+  sourceId: string;
+  kind: 'projects' | 'document' | 'entity';
   title: string;
+  entityType: string;
+  slug?: string;
+  description?: string;
+  tags?: string[];
+  technologies?: string[];
+  uiLocation?: string | null;
+  contentLength?: number;
   enabled: boolean;
-  summary: string;
-  lastUpdated: Date;
-  priority: number;
-  config: Record<string, any>;
-  schema?: ContentSourceSchema;
-  provider: {
-    id: string;
-    name: string;
-    description: string;
-    version: string;
-  };
-  metadata?: {
-    lastUpdated: Date;
-    itemCount: number;
-    size: number;
-    tags: string[];
-    summary: string;
-  };
-  isAvailable?: boolean;
+  ingested?: boolean;
+  entities?: number;
+  chunks: number;
+  embedded: number;
 }
 
-interface ContentSourceSchema {
-  configFields: ConfigField[];
-  searchFilters: SearchFilter[];
-  outputFormat: OutputFormat;
+interface DocDraft {
+  slug: string;
+  entityType: string;
+  title: string;
+  description: string;
+  tags: string;
+  technologies: string;
+  uiLocation: string;
+  content: string;
 }
 
-interface ConfigField {
-  key: string;
-  type: 'string' | 'number' | 'boolean' | 'select' | 'multiselect';
-  label: string;
-  description?: string;
-  required: boolean;
-  defaultValue?: any;
-  options?: { value: any; label: string }[];
-}
-
-interface SearchFilter {
-  key: string;
-  type: 'text' | 'date' | 'number' | 'select';
-  label: string;
-  description?: string;
-}
-
-interface OutputFormat {
-  fields: string[];
-  supportedFormats: ('text' | 'json' | 'markdown')[];
-}
-
-const getSourceIcon = (type: string) => {
-  switch (type) {
-    case 'project': return Database;
-    case 'about': return User;
-    case 'resume': return FileText;
-    case 'experience': return Briefcase;
-    case 'skills': return Code;
-    default: return Settings;
-  }
-};
-
-const getSourceColor = (type: string) => {
-  switch (type) {
-    case 'project': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
-    case 'about': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-    case 'resume': return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
-    case 'experience': return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200';
-    case 'skills': return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200';
-    default: return 'bg-gray-100 text-gray-800 dark:bg-neutral-900 dark:text-gray-200';
-  }
+const EMPTY_DRAFT: DocDraft = {
+  slug: '', entityType: 'CUSTOM', title: '', description: '', tags: '', technologies: '', uiLocation: '', content: '',
 };
 
 export function ContentSourceManager() {
-  const [sources, setSources] = useState<ContentSource[]>([]);
+  const [sources, setSources] = useState<SourceRow[]>([]);
+  const [entityTypes, setEntityTypes] = useState<string[]>(['BIO', 'RESUME', 'EXPERIENCE', 'SKILLS', 'CUSTOM']);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [expandedSource, setExpandedSource] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [draft, setDraft] = useState<DocDraft>(EMPTY_DRAFT);
 
-  // Load content sources
-  const loadSources = async () => {
+  const flash = (msg: string) => { setSuccess(msg); setTimeout(() => setSuccess(null), 4000); };
+
+  const loadSources = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-
-      const response = await fetch('/api/admin/ai/content-sources');
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error?.message || 'Failed to load content sources');
-      }
-
-      const data = await response.json();
+      const res = await fetch('/api/admin/ai/content-sources');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || 'Failed to load content sources');
       setSources(data.data?.sources || []);
+      if (Array.isArray(data.data?.documentEntityTypes)) setEntityTypes(data.data.documentEntityTypes);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error occurred');
+      setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  // Toggle source enabled/disabled
+  useEffect(() => { loadSources(); }, [loadSources]);
+
   const toggleSource = async (sourceId: string, enabled: boolean) => {
+    setBusy(sourceId);
+    setError(null);
     try {
-      setSaving(true);
-      setError(null);
-
-      const response = await fetch(`/api/admin/ai/content-sources/${sourceId}/toggle`, {
+      const res = await fetch(`/api/admin/ai/content-sources/${encodeURIComponent(sourceId)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled })
+        body: JSON.stringify({ enabled }),
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error?.message || 'Failed to toggle source');
-      }
-
-      // Update local state
-      setSources(prev => prev.map(source => 
-        source.id === sourceId ? { ...source, enabled } : source
-      ));
-
-      setSuccess(`Content source ${enabled ? 'enabled' : 'disabled'} successfully`);
-      setTimeout(() => setSuccess(null), 3000);
-
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || 'Toggle failed');
+      setSources(prev => prev.map(s => (s.sourceId === sourceId ? { ...s, enabled } : s)));
+      flash(data.data?.message || 'Saved');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error occurred');
+      setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
-      setSaving(false);
+      setBusy(null);
     }
   };
 
-  // Update source priority
-  const updatePriority = async (sourceId: string, priority: number) => {
+  const ingestSource = async (source: SourceRow) => {
+    setBusy(source.sourceId);
+    setError(null);
     try {
-      setSaving(true);
-      setError(null);
-
-      const response = await fetch(`/api/admin/ai/content-sources/${sourceId}`, {
-        method: 'PUT',
+      const stages = ['chunking', 'summaries', 'embeddings', 'validation']
+        .map(stage => ({ stage, enabled: true, mode: 'immediate' }));
+      const res = await fetch('/api/admin/semantic/processing/start', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ priority })
+        body: JSON.stringify({ scope: 'entity', sourceId: source.sourceId, stages }),
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error?.message || 'Failed to update priority');
-      }
-
-      // Update local state
-      setSources(prev => prev.map(source => 
-        source.id === sourceId ? { ...source, priority } : source
-      ));
-
-      setSuccess('Priority updated successfully');
-      setTimeout(() => setSuccess(null), 3000);
-
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.details || 'Ingestion failed to start');
+      flash(`Ingestion started (${data.operationId}) — refresh in a moment to see index state.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error occurred');
+      setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
-      setSaving(false);
+      setBusy(null);
     }
   };
 
-  // Refresh sources
-  const refreshSources = async () => {
-    await loadSources();
-    setSuccess('Content sources refreshed');
-    setTimeout(() => setSuccess(null), 3000);
+  const deleteSource = async (source: SourceRow) => {
+    if (!window.confirm(`Remove "${source.title}" and delete its indexed chunks?`)) return;
+    setBusy(source.sourceId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/ai/content-sources/${encodeURIComponent(source.sourceId)}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || 'Delete failed');
+      flash(data.data?.message || 'Removed');
+      await loadSources();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setBusy(null);
+    }
   };
 
-  useEffect(() => {
-    loadSources();
-  }, []);
+  const editSource = (source: SourceRow) => {
+    setDraft({
+      slug: source.slug || '',
+      entityType: source.entityType,
+      title: source.title,
+      description: source.description || '',
+      tags: (source.tags || []).join(', '),
+      technologies: (source.technologies || []).join(', '),
+      uiLocation: source.uiLocation || '',
+      content: '', // content is fetched lazily? keep simple: must re-paste to change
+    });
+    setShowForm(true);
+  };
+
+  const saveDraft = async () => {
+    setBusy('draft');
+    setError(null);
+    try {
+      const body: Record<string, unknown> = {
+        slug: draft.slug.trim(),
+        entityType: draft.entityType,
+        title: draft.title.trim(),
+        description: draft.description.trim() || undefined,
+        tags: draft.tags.split(',').map(s => s.trim()).filter(Boolean),
+        technologies: draft.technologies.split(',').map(s => s.trim()).filter(Boolean),
+        uiLocation: draft.uiLocation.trim() || null,
+        content: draft.content,
+      };
+      const res = await fetch('/api/admin/ai/content-sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error?.message || 'Save failed');
+      flash('Document source saved — use Ingest to index it.');
+      setShowForm(false);
+      setDraft(EMPTY_DRAFT);
+      await loadSources();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const onFilePicked = async (file: File | null) => {
+    if (!file) return;
+    const text = await file.text();
+    setDraft(d => ({
+      ...d,
+      content: text,
+      title: d.title || file.name.replace(/\.[^.]+$/, ''),
+      slug: d.slug || file.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''),
+    }));
+  };
 
   if (loading) {
     return (
@@ -217,268 +208,139 @@ export function ContentSourceManager() {
     );
   }
 
-  const enabledCount = sources.filter(s => s.enabled).length;
-  const totalCount = sources.length;
+  const kindBadge = (s: SourceRow) =>
+    s.kind === 'projects' ? 'Projects (pipeline)' : s.kind === 'document' ? 'Document' : 'Indexed entity';
 
   return (
-    <div className="space-y-6">
-      {/* Status and Actions */}
+    <div className="space-y-6" data-testid="content-source-manager">
       <div className="flex items-center justify-between">
-        <Badge variant="outline">
-          {enabledCount} of {totalCount} enabled
-        </Badge>
-        <Button onClick={refreshSources} variant="outline" size="sm">
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
-        </Button>
+        <Badge variant="outline">{sources.filter(s => s.enabled).length} of {sources.length} enabled</Badge>
+        <div className="flex gap-2">
+          <Button onClick={() => { setDraft(EMPTY_DRAFT); setShowForm(v => !v); }} size="sm" data-testid="add-document-source">
+            <Plus className="h-4 w-4 mr-2" />Add document
+          </Button>
+          <Button onClick={loadSources} variant="outline" size="sm">
+            <RefreshCw className="h-4 w-4 mr-2" />Refresh
+          </Button>
+        </div>
       </div>
 
-      {/* Status Messages */}
       {error && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
+        <Alert variant="destructive"><AlertCircle className="h-4 w-4" /><AlertDescription>{error}</AlertDescription></Alert>
       )}
-
       {success && (
-        <Alert>
-          <CheckCircle className="h-4 w-4" />
-          <AlertDescription>{success}</AlertDescription>
-        </Alert>
+        <Alert><CheckCircle className="h-4 w-4" /><AlertDescription>{success}</AlertDescription></Alert>
       )}
 
-      {/* Overview Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Total Sources</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalCount}</div>
-            <p className="text-xs text-muted-foreground">
-              Available content providers
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Enabled Sources</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{enabledCount}</div>
-            <p className="text-xs text-muted-foreground">
-              Active in AI context
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Total Content</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {sources.reduce((sum, s) => sum + (s.metadata?.itemCount || 0), 0)}
+      {showForm && (
+        <Card data-testid="document-source-form">
+          <CardHeader><CardTitle className="text-lg">Document source</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <Label className="text-sm">Slug</Label>
+                <Input value={draft.slug} onChange={e => setDraft({ ...draft, slug: e.target.value })} placeholder="resume-kirill" data-testid="doc-slug" />
+              </div>
+              <div>
+                <Label className="text-sm">Type</Label>
+                <select
+                  className="w-full h-9 rounded-md border bg-transparent px-3 text-sm"
+                  value={draft.entityType}
+                  onChange={e => setDraft({ ...draft, entityType: e.target.value })}
+                  data-testid="doc-entity-type"
+                >
+                  {entityTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <Label className="text-sm">Title</Label>
+                <Input value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} placeholder="Kirill — Resume" data-testid="doc-title" />
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Items across all sources
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Content Sources List */}
-      <div className="space-y-4">
-        {sources.map((source) => {
-          const Icon = getSourceIcon(source.type);
-          const isExpanded = expandedSource === source.id;
-
-          return (
-            <Card key={source.id} className={`transition-all ${source.enabled ? 'border-green-200 dark:border-green-800' : 'border-gray-200 dark:border-gray-800'}`}>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`p-2 rounded-lg ${getSourceColor(source.type)}`}>
-                      <Icon className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-lg">{source.provider.name}</CardTitle>
-                      <CardDescription>{source.provider.description}</CardDescription>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <Badge variant={source.isAvailable ? 'default' : 'secondary'}>
-                      {source.isAvailable ? 'Available' : 'Unavailable'}
-                    </Badge>
-                    <Switch
-                      checked={source.enabled}
-                      onCheckedChange={(enabled) => toggleSource(source.id, enabled)}
-                      disabled={saving || !source.isAvailable}
-                    />
-                  </div>
-                </div>
-              </CardHeader>
-
-              <CardContent>
-                <div className="space-y-4">
-                  {/* Basic Info */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <Label className="text-sm font-medium">Priority</Label>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Input
-                          type="number"
-                          min="0"
-                          max="100"
-                          value={source.priority}
-                          onChange={(e) => {
-                            const priority = parseInt(e.target.value) || 0;
-                            setSources(prev => prev.map(s => 
-                              s.id === source.id ? { ...s, priority } : s
-                            ));
-                          }}
-                          onBlur={(e) => {
-                            const priority = parseInt(e.target.value) || 0;
-                            if (priority !== source.priority) {
-                              updatePriority(source.id, priority);
-                            }
-                          }}
-                          className="w-20"
-                        />
-                        <div className="flex">
-                          {[...Array(5)].map((_, i) => (
-                            <Star
-                              key={i}
-                              className={`h-4 w-4 ${
-                                i < Math.floor(source.priority / 20) 
-                                  ? 'text-yellow-400 fill-current' 
-                                  : 'text-gray-300'
-                              }`}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Higher priority sources are weighted more heavily
-                      </p>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-medium">Type</Label>
-                      <div className="mt-1">
-                        <Badge className={getSourceColor(source.type)}>
-                          {source.type}
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Metadata */}
-                  {source.metadata && (
-                    <div>
-                      <Label className="text-sm font-medium">Content Statistics</Label>
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2 text-sm">
-                        <div>
-                          <span className="text-muted-foreground">Items:</span>
-                          <span className="ml-1 font-medium">{source.metadata.itemCount}</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Size:</span>
-                          <span className="ml-1 font-medium">
-                            {(source.metadata.size / 1024).toFixed(1)}KB
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Tags:</span>
-                          <span className="ml-1 font-medium">{source.metadata.tags.length}</span>
-                        </div>
-                        <div>
-                          <span className="text-muted-foreground">Updated:</span>
-                          <span className="ml-1 font-medium">
-                            {new Date(source.metadata.lastUpdated).toLocaleDateString()}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Summary */}
-                  <div>
-                    <Label className="text-sm font-medium">Summary</Label>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {source.summary}
-                    </p>
-                  </div>
-
-                  {/* Advanced Configuration */}
-                  {source.schema && (
-                    <div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setExpandedSource(isExpanded ? null : source.id)}
-                      >
-                        <Settings className="h-4 w-4 mr-2" />
-                        {isExpanded ? 'Hide' : 'Show'} Advanced Settings
-                      </Button>
-
-                      {isExpanded && (
-                        <div className="mt-4 p-4 border rounded-lg bg-muted/50">
-                          <h4 className="font-medium mb-3">Advanced Configuration</h4>
-                          
-                          {source.schema.configFields.length > 0 ? (
-                            <div className="space-y-3">
-                              {source.schema.configFields.map((field) => (
-                                <div key={field.key}>
-                                  <Label className="text-sm">{field.label}</Label>
-                                  {field.description && (
-                                    <p className="text-xs text-muted-foreground">{field.description}</p>
-                                  )}
-                                  {/* Add field inputs based on type */}
-                                  <div className="mt-1">
-                                    <Input
-                                      placeholder={`Configure ${field.label.toLowerCase()}`}
-                                      disabled
-                                      className="bg-muted"
-                                    />
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              <Info className="h-4 w-4" />
-                              No advanced configuration options available
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-
-      {sources.length === 0 && (
-        <Card>
-          <CardContent className="text-center py-8">
-            <Database className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2">No Content Sources Found</h3>
-            <p className="text-muted-foreground mb-4">
-              Content sources will be automatically discovered when available.
-            </p>
-            <Button onClick={refreshSources} variant="outline">
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Refresh Sources
-            </Button>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-sm">UI location (route path — empty = conversational-only)</Label>
+                <Input value={draft.uiLocation} onChange={e => setDraft({ ...draft, uiLocation: e.target.value })} placeholder="/about" />
+              </div>
+              <div>
+                <Label className="text-sm">Tags (comma-separated)</Label>
+                <Input value={draft.tags} onChange={e => setDraft({ ...draft, tags: e.target.value })} placeholder="resume, experience" />
+              </div>
+            </div>
+            <div>
+              <Label className="text-sm">Content (markdown or plain text) — or pick a .md/.txt file</Label>
+              <input
+                type="file"
+                accept=".md,.markdown,.txt,text/plain,text/markdown"
+                className="block my-2 text-sm"
+                onChange={e => onFilePicked(e.target.files?.[0] ?? null)}
+              />
+              <textarea
+                className="w-full min-h-48 rounded-md border bg-transparent p-3 text-sm font-mono"
+                value={draft.content}
+                onChange={e => setDraft({ ...draft, content: e.target.value })}
+                placeholder={'# Heading\n\nBody text…'}
+                data-testid="doc-content"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button onClick={saveDraft} disabled={busy === 'draft'} data-testid="doc-save">Save source</Button>
+              <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+            </div>
           </CardContent>
         </Card>
       )}
+
+      <div className="space-y-3">
+        {sources.map(source => (
+          <Card key={source.sourceId} className={source.enabled ? 'border-green-200 dark:border-green-800' : 'opacity-70'}>
+            <CardContent className="py-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="p-2 rounded-lg bg-muted shrink-0">
+                    {source.kind === 'projects' ? <Database className="h-4 w-4" /> : source.uiLocation ? <Globe className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{source.title}</div>
+                    <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3">
+                      <span>{kindBadge(source)}</span>
+                      <span>{source.entityType}{source.slug ? `/${source.slug}` : ''}</span>
+                      {source.kind === 'projects'
+                        ? <span>{source.entities} projects · {source.chunks} chunks ({source.embedded} embedded)</span>
+                        : <span>{source.chunks} chunks ({source.embedded} embedded){source.ingested === false ? ' — NOT INGESTED' : ''}</span>}
+                      {source.uiLocation ? <span>page: {source.uiLocation}</span> : <span>conversational-only</span>}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {source.kind === 'document' && (
+                    <>
+                      <Button size="sm" variant="outline" disabled={busy === source.sourceId} onClick={() => ingestSource(source)} data-testid={`ingest-${source.sourceId}`}>
+                        Ingest
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => editSource(source)}>Edit</Button>
+                      <Button size="sm" variant="outline" disabled={busy === source.sourceId} onClick={() => deleteSource(source)}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </>
+                  )}
+                  <Switch
+                    checked={source.enabled}
+                    onCheckedChange={enabled => toggleSource(source.sourceId, enabled)}
+                    disabled={busy === source.sourceId}
+                    data-testid={`toggle-${source.sourceId}`}
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        Toggles govern retrieval (unticked sources stay indexed but are hidden from search within ~30s).
+        Documents ingest through the same stage pipeline as projects; deleting a document also removes its index entity and chunks.
+      </p>
     </div>
   );
 }

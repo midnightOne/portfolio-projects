@@ -3483,16 +3483,16 @@ export class UIManager {
         execute: async () => {
           try {
             if (typeof window !== 'undefined') {
-              // A live voice session is wired through the background-update
-              // callback; a full page load would destroy it. Route changes
-              // also unmount the per-page AI provider, so while a session is
-              // active the honest answer is "stay here and use modals" — the
-              // model gets a clear failure it can act on instead of a dead
-              // connection the user has to notice.
-              if (this._backgroundUpdateCallback) {
+              // 7.7: the AI provider lives in the ROOT layout now, so a
+              // CLIENT-side route change (registered navigator → router.push)
+              // no longer tears down a live session — route steps are allowed
+              // during voice sessions. Only the full-page-load fallback
+              // (window.location.href, no navigator registered) remains
+              // session-fatal and is still refused while a session is live.
+              if (this._backgroundUpdateCallback && !this._routeNavigator) {
                 return {
                   success: false,
-                  message: `Route navigation to ${targetPath} would end the live voice session. Stay on this page — projects and sections can be opened here directly (use a project/section target instead).`,
+                  message: `Route navigation to ${targetPath} would end the live voice session (no client-side navigator available). Stay on this page — projects and sections can be opened here directly (use a project/section target instead).`,
                   error: 'ROUTE_CHANGE_BLOCKED_DURING_VOICE_SESSION'
                 };
               }

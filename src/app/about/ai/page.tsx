@@ -1,8 +1,5 @@
 import type { Metadata } from 'next';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
 import { MainNavigation } from '@/components/layout/main-navigation';
-import { AIInterfaceWrapper } from '@/components/ai/ai-interface-wrapper';
 import { McpConnectCard } from '@/components/about/McpConnectCard';
 
 export const metadata: Metadata = {
@@ -17,10 +14,9 @@ export const metadata: Metadata = {
  * the assistant is, why it answers the same in every mode, what it costs to
  * run safely in public, and how to connect an AI agent of your own to it.
  */
-export default async function AboutAIPage() {
-  const session = await getServerSession(authOptions);
-  const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'admin';
-
+// The AI provider chain (pill, panels) mounts ONCE in the root layout since
+// 7.7 — a live session survives navigating to/from this page.
+export default function AboutAIPage() {
   return (
     <div className="min-h-screen">
       <MainNavigation />
@@ -296,9 +292,6 @@ export default async function AboutAIPage() {
           </section>
         </article>
       </main>
-
-      {/* No defaultProvider prop: the admin-configured site default governs */}
-      <AIInterfaceWrapper isAdmin={isAdmin} />
     </div>
   );
 }

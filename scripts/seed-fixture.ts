@@ -20,6 +20,24 @@ const prisma = new PrismaClient();
 
 export const FIXTURE_SLUG = 'verification-fixture-kiln';
 export const FIXTURE_REFLINK_CODE = 'fixture-verify';
+export const FIXTURE_RESUME_SLUG = 'fixture-resume';
+
+// 7.15 cross-source fixture: a deterministic RESUME document source with
+// vocabulary that deliberately overlaps the kiln project (thermal control,
+// PID) so one query can return labeled hits from BOTH entity types, plus
+// distinctive resume-only terms for scoped assertions. Conversational-only
+// (no uiLocation) — its results must carry NO navTarget.
+const FIXTURE_RESUME = `# Verification Fixture Resume
+
+Fictional engineer resume used only for automated cross-source retrieval verification.
+
+## Professional Experience
+
+Staff firmware engineer at Fictional Thermodynamics Ltd, responsible for embedded thermal control systems. Designed PID regulation firmware for industrial ovens and led the migration of the fleet telemetry stack to ESP32 hardware. Earlier role as ceramics studio technician maintaining kiln equipment and glaze inventory databases.
+
+## Skills Summary
+
+Embedded C and FreeRTOS, PID control loop tuning, thermocouple instrumentation, PostgreSQL analytics, and the entirely fictional Zirconium Career Certification that appears nowhere else in this portfolio.`;
 
 // Deterministic content with distinctive vocabulary so retrieval assertions are unambiguous.
 // Structure: H1 title, intro paragraph, 4 H2 sections, and one nested H2→H3×2
@@ -143,8 +161,44 @@ async function main() {
     },
   });
 
+  // 7.15: resume document source in the content-source config (the ingestion
+  // manifest). Config row only — ingestion runs through the stage pipeline
+  // (processing/start scope:'entity' sourceId:'doc:fixture-resume').
+  await prisma.aIContentSourceConfig.upsert({
+    where: { sourceId: `doc:${FIXTURE_RESUME_SLUG}` },
+    update: {
+      config: {
+        entityType: 'RESUME',
+        slug: FIXTURE_RESUME_SLUG,
+        title: 'Verification Fixture Resume',
+        description: 'Deterministic resume document for cross-source retrieval verification (7.15).',
+        tags: ['verification-fixture'],
+        technologies: ['ESP32', 'FreeRTOS', 'PostgreSQL'],
+        uiLocation: null,
+        content: FIXTURE_RESUME,
+      },
+    },
+    create: {
+      sourceId: `doc:${FIXTURE_RESUME_SLUG}`,
+      providerId: 'document',
+      enabled: true,
+      priority: 50,
+      config: {
+        entityType: 'RESUME',
+        slug: FIXTURE_RESUME_SLUG,
+        title: 'Verification Fixture Resume',
+        description: 'Deterministic resume document for cross-source retrieval verification (7.15).',
+        tags: ['verification-fixture'],
+        technologies: ['ESP32', 'FreeRTOS', 'PostgreSQL'],
+        uiLocation: null,
+        content: FIXTURE_RESUME,
+      },
+    },
+  });
+
   console.log(`✅ Fixture project ready: ${project.id} (slug: ${FIXTURE_SLUG})`);
   console.log(`✅ Fixture reflink ready: ${FIXTURE_REFLINK_CODE}`);
+  console.log(`✅ Fixture resume document source ready: doc:${FIXTURE_RESUME_SLUG} (ingest via processing/start scope:'entity')`);
   console.log('ℹ️  Admin auth is env-based (ADMIN_USERNAME/ADMIN_PASSWORD) — nothing to seed.');
   console.log('⚠️  Public tier cannot be enabled yet (hardcoded disabled until access-and-cost Phase 2, D31).');
   console.log('➡️  Next: ingest via POST /api/admin/semantic/processing/start, then `npm run check:semantic`.');

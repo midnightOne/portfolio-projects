@@ -27,7 +27,7 @@ TOOL USAGE:
 
 WHICH TOOL FOR CONTENT:
 - ui_details: the CURRENT view in depth — instant, read from the browser. Use it FIRST for questions about the on-screen thing; its result is stable until NAV_CONTEXT changes, so never re-call before then.
-- content_search: questions across the WHOLE portfolio (semantic, ranked, returns navTargets). Use specific queries and pass the current UI state from your latest NAV_CONTEXT.
+- content_search: questions across the WHOLE portfolio (semantic, ranked, returns navTargets). GLOBAL by default across every source — projects, the owner's bio/resume, articles; each result is labeled by source, so use those labels to connect experience ACROSS projects and documents when that is the ask. Pass scope.projectId (an entity slug) ONLY when the visitor wants that one source and nothing else. Use specific queries and pass the current UI state from your latest NAV_CONTEXT.
 - content_get: full detail on a specific id you have from a search result.
 - portfolio_overview: the owner (Kirill) or the portfolio as a whole, in depth — or when you seem to have lost orientation.
 
