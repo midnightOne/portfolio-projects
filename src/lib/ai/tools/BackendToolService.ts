@@ -1270,6 +1270,12 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
     if (scope.projectId) {
       enhancedScope.projectId = scope.projectId;
     }
+    if (scope.entityType) {
+      enhancedScope.entityType = scope.entityType;
+    }
+    if (scope.entitySlug) {
+      enhancedScope.entitySlug = scope.entitySlug;
+    }
 
     // Store UI context for ranking enhancement (not filtering)
     enhancedScope._uiContext = {
@@ -1493,8 +1499,10 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
     // navTarget instead of a fabricated section target the UI can't resolve.
     if (entityType && entityType !== 'PROJECT' && !projectId) {
       try {
-        const { getUiLocationBySlug } = await import('@/lib/content/source-registry');
-        const page = entitySlug ? (await getUiLocationBySlug()).get(entitySlug) : undefined;
+        const { contentEntityKey, getUiLocationByEntityKey } = await import('@/lib/content/source-registry');
+        const page = entitySlug
+          ? (await getUiLocationByEntityKey()).get(contentEntityKey(entityType, entitySlug))
+          : undefined;
         return page ? { type: 'route', id: page.replace(/^\//, '') || 'home' } : undefined;
       } catch {
         return undefined;

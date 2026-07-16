@@ -412,8 +412,9 @@ export const contentSearchToolDefinition: UnifiedToolDefinition = {
         type: 'object',
         description: 'Optional deliberate narrowing — global is the default; use this only when the visitor wants ONE source and nothing else',
         properties: {
-          projectId: { type: 'string', description: 'Entity slug: a project, article, or document — restricts results to that one source' },
-          entityType: { type: 'string', description: 'PROJECT, BIO, RESUME, EXPERIENCE, SKILLS, CUSTOM' }
+          projectId: { type: 'string', description: 'Project slug — restricts results to that PROJECT only' },
+          entityType: { type: 'string', description: 'PROJECT, BIO, RESUME, EXPERIENCE, SKILLS, CUSTOM' },
+          entitySlug: { type: 'string', description: 'Use with entityType to select one typed non-project source' }
         }
       },
       k: {

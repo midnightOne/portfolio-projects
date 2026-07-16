@@ -8,6 +8,7 @@ jest.mock('@/lib/prisma', () => ({ prisma: {} }));
 import {
   docSourceId,
   entitySourceId,
+  contentEntityKey,
   isDocSourceId,
   isEntitySourceId,
   isEntityExcluded,
@@ -22,6 +23,12 @@ describe('source id scheme', () => {
     expect(isEntitySourceId('entity:CUSTOM:about-ai')).toBe(true);
     expect(isDocSourceId('projects')).toBe(false);
     expect(isEntitySourceId('projects')).toBe(false);
+  });
+
+  it('uses entity type in map identities so equal slugs cannot collide', () => {
+    expect(contentEntityKey('PROJECT', 'about')).toBe('PROJECT:about');
+    expect(contentEntityKey('BIO', 'about')).toBe('BIO:about');
+    expect(contentEntityKey('PROJECT', 'about')).not.toBe(contentEntityKey('BIO', 'about'));
   });
 });
 

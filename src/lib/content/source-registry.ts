@@ -66,6 +66,11 @@ export function entitySourceId(entityType: string, slug: string): string {
   return `${ENTITY_PREFIX}${entityType}:${slug}`;
 }
 
+/** Stable identity for maps that must not conflate equal slugs across types. */
+export function contentEntityKey(entityType: string, slug: string): string {
+  return `${entityType}:${slug}`;
+}
+
 export function isDocSourceId(sourceId: string): boolean {
   return sourceId.startsWith(DOC_PREFIX);
 }
@@ -401,32 +406,34 @@ export function isEntityExcluded(
 }
 
 /**
- * uiLocation by entity slug for non-project sources — lets search results
+ * uiLocation by typed entity identity for non-project sources — lets search results
  * carry an honest route navTarget for sources that have an on-site page,
  * and none at all for conversational-only documents. Reads the doc-source
  * config AND the T0 metadata `page` field (script-ingested entities like
  * CUSTOM/about-ai record their page there).
  */
-export async function getUiLocationBySlug(): Promise<Map<string, string>> {
+export async function getUiLocationByEntityKey(): Promise<Map<string, string>> {
   const now = Date.now();
   if (uiLocationCache && now - uiLocationCache.at < EXCLUSIONS_TTL_MS) return uiLocationCache.value;
   const map = new Map<string, string>();
   try {
     const t0s = await prisma.contextChunk.findMany({
       where: { tier: 0, entity: { entityType: { not: 'PROJECT' } } },
-      select: { content: true, entity: { select: { slug: true } } },
+      select: { content: true, entity: { select: { entityType: true, slug: true } } },
     });
     for (const t0 of t0s) {
       try {
         const meta = JSON.parse(t0.content) as { page?: string };
-        if (meta.page && t0.entity?.slug) map.set(t0.entity.slug, meta.page);
+        if (meta.page && t0.entity?.slug) {
+          map.set(contentEntityKey(t0.entity.entityType, t0.entity.slug), meta.page);
+        }
       } catch {
         // non-JSON T0 — no page
       }
     }
     const docs = await listDocumentSources();
     for (const d of docs) {
-      if (d.uiLocation) map.set(d.slug, d.uiLocation);
+      if (d.uiLocation) map.set(contentEntityKey(d.entityType, d.slug), d.uiLocation);
     }
   } catch (error) {
     console.error('[SourceRegistry] uiLocation read failed:', error);

@@ -22,7 +22,7 @@ import { embeddingCache } from './EmbeddingCache';
 import { generateEmbedding as sharedGenerateEmbedding, currentEmbeddingModelId } from '@/lib/ai/embeddings';
 import { estimateCost } from '@/lib/ai/pricing';
 import { recordUsage } from '@/lib/ai/ledger';
-import { getSourceExclusions, isEntityExcluded, getUiLocationBySlug, type SourceExclusions } from './source-registry';
+import { contentEntityKey, getSourceExclusions, isEntityExcluded, getUiLocationByEntityKey, type SourceExclusions } from './source-registry';
 
 const prisma = new PrismaClient();
 
@@ -33,7 +33,8 @@ export interface ContentSearchParams {
   // 2026-07-15) — scope is an explicit opt-in narrowing, never auto-applied.
   // (The old scope.route field was accepted but never consulted — dropped.)
   scope?: {
-    projectId?: string;                 // Entity slug — narrows to ONE source (project, document, article)
+    entitySlug?: string;                // With entityType, narrows to one typed source
+    projectId?: string;                 // Project slug only
     entityType?: string;                // Narrows to one entity type (PROJECT, BIO, RESUME, …)
   };
   k?: number;                          // Number of results (default: 5)
@@ -54,6 +55,19 @@ export interface ContentSearchParams {
    * are always public.
    */
   publicOnly?: boolean;
+}
+
+export function matchesContentScope(
+  entity: { entityType: string; slug: string },
+  scope: ContentSearchParams['scope'] = {},
+): boolean {
+  if (scope.projectId) {
+    if (scope.entitySlug || (scope.entityType && scope.entityType !== 'PROJECT')) return false;
+    return entity.entityType === 'PROJECT' && entity.slug === scope.projectId;
+  }
+  if (scope.entityType && entity.entityType !== scope.entityType) return false;
+  if (scope.entitySlug && (!scope.entityType || entity.slug !== scope.entitySlug)) return false;
+  return true;
 }
 
 export interface ContentSearchResult {
@@ -1241,13 +1255,28 @@ export class ContentSearchService implements ContentProvider {
     // Add scope filtering (slug-generic: an entity slug names ANY source —
     // project, document, article — matching _matchesScope, 7.15)
     if (scope.projectId) {
-      sql += ` AND e.slug = $${paramIndex}`;
-      params.push(scope.projectId);
-      paramIndex++;
-    } else if (scope.entityType) {
-      sql += ` AND e."entityType" = $${paramIndex}`;
-      params.push(scope.entityType);
-      paramIndex++;
+      if (scope.entitySlug || (scope.entityType && scope.entityType !== 'PROJECT')) {
+        sql += ' AND 1 = 0';
+      } else {
+        sql += ` AND e."entityType" = 'PROJECT' AND e.slug = $${paramIndex}`;
+        params.push(scope.projectId);
+        paramIndex++;
+      }
+    } else {
+      if (scope.entityType) {
+        sql += ` AND e."entityType" = $${paramIndex}`;
+        params.push(scope.entityType);
+        paramIndex++;
+      }
+      if (scope.entitySlug) {
+        if (!scope.entityType) {
+          sql += ' AND 1 = 0';
+        } else {
+          sql += ` AND e.slug = $${paramIndex}`;
+          params.push(scope.entitySlug);
+          paramIndex++;
+        }
+      }
     }
 
     // Add tag filtering using JSON operations
@@ -1552,7 +1581,7 @@ export class ContentSearchService implements ContentProvider {
     // conversational-only documents get none (7.15 — owner: sources without a
     // UI location are "just conversational").
     const uiLocations = results.some(r => r.entityType !== 'PROJECT')
-      ? await getUiLocationBySlug()
+      ? await getUiLocationByEntityKey()
       : new Map<string, string>();
 
     for (const result of results) {
@@ -1752,7 +1781,7 @@ export class ContentSearchService implements ContentProvider {
     // (uiLocation from the source config, or the entity's T0 metadata `page`).
     // Conversational-only documents (a resume file, an uploaded doc) return
     // NO navTarget — there is nowhere on the site to take the visitor.
-    const page = uiLocations.get(result.entitySlug);
+    const page = uiLocations.get(contentEntityKey(result.entityType, result.entitySlug));
     if (page) {
       const routeId = page.replace(/^\//, '') || 'home';
       return { type: 'route', id: routeId };
@@ -1822,15 +1851,7 @@ export class ContentSearchService implements ContentProvider {
    * Check if chunk matches scope filters
    */
   private _matchesScope(chunk: any, scope: ContentSearchParams['scope'] = {}): boolean {
-    if (scope.projectId && chunk.entity.slug !== scope.projectId) {
-      return false;
-    }
-
-    if (scope.entityType && chunk.entity.entityType !== scope.entityType) {
-      return false;
-    }
-
-    return true;
+    return matchesContentScope(chunk.entity, scope);
   }
 
   /**
