@@ -21,8 +21,13 @@
 
 import type { TierContent } from './SmartContentGenerator';
 import type { DocumentSourceSpec } from './source-registry';
+import { chunkTextByParagraphs, estimateTextTokens } from './bounded-text-chunking';
 
-const T3_TARGET_TOKENS = 400; // paragraph-packed chunk size (chars/4 estimate)
+export interface DocumentScaffoldChunkingOptions {
+  t2MaxTokens: number;
+  targetChunkTokens: number;
+  maxChunkTokens: number;
+}
 
 interface DocSection {
   anchorId: string;
@@ -33,7 +38,7 @@ interface DocSection {
 }
 
 function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+  return estimateTextTokens(text);
 }
 
 /** Same slug algorithm as HierarchicalContentParser.generateAnchorId. */
@@ -112,32 +117,15 @@ export function parseDocumentSections(doc: { title: string; content: string }): 
   return sections;
 }
 
-/** Pack paragraphs into ~T3_TARGET_TOKENS chunks (never splitting a paragraph). */
-function chunkBody(body: string): string[] {
-  const paragraphs = body.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
-  const chunks: string[] = [];
-  let buf: string[] = [];
-  let bufTokens = 0;
-  for (const p of paragraphs) {
-    const t = estimateTokens(p);
-    if (buf.length > 0 && bufTokens + t > T3_TARGET_TOKENS) {
-      chunks.push(buf.join('\n\n'));
-      buf = [];
-      bufTokens = 0;
-    }
-    buf.push(p);
-    bufTokens += t;
-  }
-  if (buf.length > 0) chunks.push(buf.join('\n\n'));
-  return chunks;
-}
-
 /**
  * Generate the full T0–T3 scaffold for a document source. Mirrors the project
  * scaffold contract exactly (placeholders marked needsAIGeneration; T2
  * auto-populated verbatim when the cumulative subtree fits `t2MaxTokens`).
  */
-export function generateDocumentScaffold(doc: DocumentSourceSpec, t2MaxTokens: number): TierContent[] {
+export function generateDocumentScaffold(
+  doc: DocumentSourceSpec,
+  options: DocumentScaffoldChunkingOptions,
+): TierContent[] {
   const sections = parseDocumentSections(doc);
   const tiers: TierContent[] = [];
 
@@ -193,7 +181,10 @@ export function generateDocumentScaffold(doc: DocumentSourceSpec, t2MaxTokens: n
   // T3 first (the T2 auto-populate decision needs them)
   const t3Chunks: TierContent[] = [];
   for (const section of sections) {
-    const parts = chunkBody(section.body);
+    const parts = chunkTextByParagraphs(section.body, {
+      targetTokens: options.targetChunkTokens,
+      maxTokens: options.maxChunkTokens,
+    });
     parts.forEach((content, i) => {
       t3Chunks.push({
         tier: 3,
@@ -238,7 +229,7 @@ export function generateDocumentScaffold(doc: DocumentSourceSpec, t2MaxTokens: n
     const combined = subtreeT3.map(c => c.content).join('\n\n');
     const combinedTokens = estimateTokens(combined);
     const hasChildren = childrenOf(section.anchorId).length > 0;
-    const autoPopulate = combined.length > 0 && combinedTokens <= t2MaxTokens;
+    const autoPopulate = combined.length > 0 && combinedTokens <= options.t2MaxTokens;
 
     tiers.push({
       tier: 2,

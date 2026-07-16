@@ -746,7 +746,11 @@ export class StageBasedProcessingService extends EventEmitter {
     if (request.scope === 'entity') {
       const doc = await this.resolveDocumentSource(request);
       const chunkingConfig = await ChunkingConfigService.getInstance().getDefaultConfig();
-      const tiers = generateDocumentScaffold(doc, chunkingConfig.t2MaxLength);
+      const tiers = generateDocumentScaffold(doc, {
+        t2MaxTokens: chunkingConfig.t2MaxLength,
+        targetChunkTokens: chunkingConfig.targetChunkSize,
+        maxChunkTokens: chunkingConfig.maxSectionSize,
+      });
       console.log(`[ChunkingStage] Document scaffold for ${doc.sourceId}: ${tiers.length} items (T2=${tiers.filter(t => t.tier === 2).length}, T3=${tiers.filter(t => t.tier === 3).length})`);
 
       const docCheckpoint: ChunkingCheckpoint = {

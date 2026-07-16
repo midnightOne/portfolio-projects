@@ -7,6 +7,7 @@
  */
 
 import { generateDocumentScaffold, parseDocumentSections, documentAnchorId } from '../document-scaffold';
+import { chunkTextByParagraphs, estimateTextTokens } from '../bounded-text-chunking';
 import type { DocumentSourceSpec } from '../source-registry';
 
 const doc = (content: string, overrides: Partial<DocumentSourceSpec> = {}): DocumentSourceSpec => ({
@@ -73,7 +74,8 @@ describe('parseDocumentSections', () => {
 });
 
 describe('generateDocumentScaffold', () => {
-  const scaffold = generateDocumentScaffold(doc(MD), 150);
+  const options = { t2MaxTokens: 150, targetChunkTokens: 300, maxChunkTokens: 400 };
+  const scaffold = generateDocumentScaffold(doc(MD), options);
   const byTier = (t: number) => scaffold.filter(c => c.tier === t);
 
   it('produces the project-pipeline tier shape (T0 metadata, T1 placeholder, T2 per heading, populated T3s)', () => {
@@ -102,12 +104,12 @@ describe('generateDocumentScaffold', () => {
   });
 
   it('T2 auto-populates verbatim only when the cumulative subtree fits the budget', () => {
-    const small = generateDocumentScaffold(doc(MD), 10_000);
+    const small = generateDocumentScaffold(doc(MD), { ...options, t2MaxTokens: 10_000 });
     const smallT2s = small.filter(c => c.tier === 2);
     // Everything fits a huge budget → all verbatim
     expect(smallT2s.every(t2 => t2.metadata.autoPopulated === true)).toBe(true);
 
-    const tiny = generateDocumentScaffold(doc(MD), 1);
+    const tiny = generateDocumentScaffold(doc(MD), { ...options, t2MaxTokens: 1 });
     const tinyT2s = tiny.filter(c => c.tier === 2);
     // Nothing fits a 1-token budget → all placeholders for AI summaries
     expect(tinyT2s.every(t2 => t2.metadata.needsAIGeneration === true)).toBe(true);
@@ -123,8 +125,48 @@ describe('generateDocumentScaffold', () => {
   });
 
   it('records uiLocation in T0 when the source has an on-site page', () => {
-    const withPage = generateDocumentScaffold(doc(MD, { uiLocation: '/about' }), 150);
+    const withPage = generateDocumentScaffold(doc(MD, { uiLocation: '/about' }), options);
     const t0 = withPage.find(c => c.tier === 0)!;
     expect(JSON.parse(t0.content).page).toBe('/about');
+  });
+
+  it('uses the configured hard limit for a long single paragraph', () => {
+    const longParagraph = Array.from({ length: 300 }, (_, i) => `Sentence ${i} has useful detail.`).join(' ');
+    const bounded = generateDocumentScaffold(doc(longParagraph), {
+      t2MaxTokens: 150,
+      targetChunkTokens: 40,
+      maxChunkTokens: 50,
+    }).filter(chunk => chunk.tier === 3);
+
+    expect(bounded.length).toBeGreaterThan(1);
+    expect(bounded.every(chunk => chunk.tokenCount <= 50)).toBe(true);
+  });
+});
+
+describe('chunkTextByParagraphs', () => {
+  const limits = { targetTokens: 20, maxTokens: 25 };
+
+  it('keeps paragraph boundaries as the preferred split', () => {
+    const paragraphs = ['A'.repeat(36), 'B'.repeat(36), 'C'.repeat(36)];
+    expect(chunkTextByParagraphs(paragraphs.join('\n\n'), limits)).toEqual([
+      `${paragraphs[0]}\n\n${paragraphs[1]}`,
+      paragraphs[2],
+    ]);
+  });
+
+  it('falls back from a large paragraph to sentence and word boundaries', () => {
+    const paragraph = Array.from({ length: 40 }, (_, i) => `Sentence ${i} contains several words.`).join(' ');
+    const chunks = chunkTextByParagraphs(paragraph, limits);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every(chunk => estimateTextTokens(chunk) <= limits.maxTokens)).toBe(true);
+    expect(chunks.join(' ')).toContain('Sentence 39 contains several words.');
+  });
+
+  it('hard-slices an unbroken token so minified or URL-like input cannot exceed the cap', () => {
+    const unbroken = `https://example.com/${'a'.repeat(500)}`;
+    const chunks = chunkTextByParagraphs(unbroken, limits);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every(chunk => estimateTextTokens(chunk) <= limits.maxTokens)).toBe(true);
+    expect(chunks.join('')).toBe(unbroken);
   });
 });

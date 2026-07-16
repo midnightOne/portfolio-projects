@@ -7,6 +7,7 @@
 
 import { EnhancedProjectIndex, HierarchicalSection } from './HierarchicalContentParser';
 import { TierContent } from './SmartContentGenerator';
+import { chunkTextByParagraphs } from './bounded-text-chunking';
 
 export interface ChunkingConfig {
   targetChunkSize: number;
@@ -187,74 +188,10 @@ export class T3HeadingBoundedChunking {
    * Chunk by paragraphs while respecting token limits (original method)
    */
   private chunkByParagraphs(content: string): string[] {
-    const chunks: string[] = [];
-    const totalTokens = this.estimateTokenCount(content);
-
-    // If content is small enough, return as single chunk
-    if (totalTokens <= this.maxChunkTokens) {
-      return [content];
-    }
-
-    // Split by paragraphs first (double newline)
-    const paragraphs = content.split('\n\n').filter(p => p.trim().length > 0);
-    
-    let currentChunk = '';
-    let currentTokens = 0;
-
-    for (const paragraph of paragraphs) {
-      const paragraphTokens = this.estimateTokenCount(paragraph);
-      
-      // If this single paragraph is too large, split it by sentences
-      if (paragraphTokens > this.maxChunkTokens) {
-        // Save current chunk if it has content
-        if (currentChunk.trim().length > 0) {
-          chunks.push(currentChunk.trim());
-          currentChunk = '';
-          currentTokens = 0;
-        }
-        
-        // Split large paragraph by sentences
-        const sentences = paragraph.split(/(?<=[.!?])\s+/);
-        let sentenceChunk = '';
-        let sentenceTokens = 0;
-        
-        for (const sentence of sentences) {
-          const sentTokens = this.estimateTokenCount(sentence);
-          
-          if (sentenceTokens + sentTokens > this.maxChunkTokens && sentenceChunk.length > 0) {
-            chunks.push(sentenceChunk.trim());
-            sentenceChunk = sentence;
-            sentenceTokens = sentTokens;
-          } else {
-            sentenceChunk += (sentenceChunk ? ' ' : '') + sentence;
-            sentenceTokens += sentTokens;
-          }
-        }
-        
-        if (sentenceChunk.trim().length > 0) {
-          chunks.push(sentenceChunk.trim());
-        }
-        continue;
-      }
-      
-      // Check if adding this paragraph exceeds max tokens
-      if (currentTokens + paragraphTokens > this.maxChunkTokens && currentChunk.length > 0) {
-        // Save current chunk and start new one
-        chunks.push(currentChunk.trim());
-        currentChunk = paragraph;
-        currentTokens = paragraphTokens;
-      } else {
-        // Add to current chunk
-        currentChunk += (currentChunk ? '\n\n' : '') + paragraph;
-        currentTokens += paragraphTokens;
-      }
-    }
-
-    // Add final chunk
-    if (currentChunk.trim().length > 0) {
-      chunks.push(currentChunk.trim());
-    }
-
+    const chunks = chunkTextByParagraphs(content, {
+      targetTokens: this.targetChunkTokens,
+      maxTokens: this.maxChunkTokens,
+    });
     return chunks.length > 0 ? chunks : [content];
   }
 
@@ -347,4 +284,3 @@ export class T3HeadingBoundedChunking {
     return Math.ceil(text.length / 4);
   }
 }
-
