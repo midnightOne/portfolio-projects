@@ -22,7 +22,7 @@ import { embeddingCache } from './EmbeddingCache';
 import { generateEmbedding as sharedGenerateEmbedding, currentEmbeddingModelId } from '@/lib/ai/embeddings';
 import { estimateCost } from '@/lib/ai/pricing';
 import { recordUsage } from '@/lib/ai/ledger';
-import { getSourceExclusions, isEntityExcluded, getUiLocationBySlug } from './source-registry';
+import { getSourceExclusions, isEntityExcluded, getUiLocationBySlug, type SourceExclusions } from './source-registry';
 
 const prisma = new PrismaClient();
 
@@ -294,6 +294,9 @@ export class ContentSearchService implements ContentProvider {
 
       // Step 2: Perform semantic search with metadata filtering
       const hybridSearchStartTime = Date.now();
+      // Visibility is an authorization boundary. Resolve it before querying so
+      // disabled sources are excluded before each retrieval path applies LIMIT.
+      const exclusions = await getSourceExclusions();
       console.log(`[ContentSearch] Query embedding length: ${queryEmbedding.length}, calling hybridSearch with maxTier: ${maxTier}, k: ${k * 3}`);
       const rawSearchResults = await this._performHybridSearch(
         queryEmbedding,
@@ -302,14 +305,14 @@ export class ContentSearchService implements ContentProvider {
         maxTier,
         filters,
         k * 3, // Get more results for diversification
-        publicOnly
+        publicOnly,
+        exclusions,
       );
       timings.hybridSearchTime = Date.now() - hybridSearchStartTime;
 
       // 7.15: source allowlist — a source unticked in the content-source
       // config is hidden from retrieval without re-ingesting (the index rows
       // stay; only the query path filters them).
-      const exclusions = await getSourceExclusions();
       const searchResults = exclusions.hasAny
         ? rawSearchResults.filter(r => !isEntityExcluded(exclusions, r.entityType, r.entitySlug))
         : rawSearchResults;
@@ -898,7 +901,8 @@ export class ContentSearchService implements ContentProvider {
     maxTier: number,
     filters: ContentSearchParams['filters'] = {},
     limit: number,
-    publicOnly = false
+    publicOnly = false,
+    exclusions: SourceExclusions,
   ): Promise<InternalSearchResult[]> {
 
     const hybridTimings: Record<string, number> = {};
@@ -913,7 +917,8 @@ export class ContentSearchService implements ContentProvider {
           queryEmbedding,
           limit,
           maxTier,
-          publicOnly
+          publicOnly,
+          exclusions,
         );
         hybridTimings.vectorSearchTime = Date.now() - vectorSearchStart;
 
@@ -977,6 +982,8 @@ export class ContentSearchService implements ContentProvider {
     const fullTextRankValue = new Map<string, number>();
     try {
       const ftStart = Date.now();
+      const excludedEntityTypes = Array.from(exclusions.entityTypes);
+      const excludedEntities = Array.from(exclusions.entities);
       // Title matches weigh 3x body matches: the heading is the most important
       // anchor for a section (owner, 2026-07-08) — plain ts_rank let chunks
       // that merely REPEAT common project words ("platform", "e-commerce")
@@ -986,14 +993,15 @@ export class ContentSearchService implements ContentProvider {
                (3 * ts_rank(to_tsvector('english', COALESCE(c.title, '')), websearch_to_tsquery('english', ${query}))
                 + ts_rank(c.search_vector, websearch_to_tsquery('english', ${query})))::float AS rank
         FROM context_chunks c
+        JOIN content_entities e ON e.id = c.entity_id
         WHERE c.search_vector @@ websearch_to_tsquery('english', ${query})
           AND c.tier <= ${maxTier}
-          AND (${publicOnly}::boolean = false OR EXISTS (
-            SELECT 1 FROM content_entities e
-            WHERE e.id = c.entity_id
-              AND (e."entityType" <> 'PROJECT' OR EXISTS (
-                SELECT 1 FROM projects p WHERE p.slug = e.slug AND p.visibility = 'PUBLIC'
-              ))
+          AND (${exclusions.hasAny}::boolean = false OR NOT (
+            e."entityType"::text = ANY(${excludedEntityTypes}::text[])
+            OR (e."entityType"::text || ':' || e.slug) = ANY(${excludedEntities}::text[])
+          ))
+          AND (${publicOnly}::boolean = false OR e."entityType" <> 'PROJECT' OR EXISTS (
+            SELECT 1 FROM projects p WHERE p.slug = e.slug AND p.visibility = 'PUBLIC'
           ))
         ORDER BY rank DESC
         LIMIT ${limit}
@@ -1017,14 +1025,15 @@ export class ContentSearchService implements ContentProvider {
                    (3 * ts_rank(to_tsvector('english', COALESCE(c.title, '')), websearch_to_tsquery('english', ${orQuery}))
                     + ts_rank(c.search_vector, websearch_to_tsquery('english', ${orQuery})))::float AS rank
             FROM context_chunks c
+            JOIN content_entities e ON e.id = c.entity_id
             WHERE c.search_vector @@ websearch_to_tsquery('english', ${orQuery})
               AND c.tier <= ${maxTier}
-              AND (${publicOnly}::boolean = false OR EXISTS (
-                SELECT 1 FROM content_entities e
-                WHERE e.id = c.entity_id
-                  AND (e."entityType" <> 'PROJECT' OR EXISTS (
-                    SELECT 1 FROM projects p WHERE p.slug = e.slug AND p.visibility = 'PUBLIC'
-                  ))
+              AND (${exclusions.hasAny}::boolean = false OR NOT (
+                e."entityType"::text = ANY(${excludedEntityTypes}::text[])
+                OR (e."entityType"::text || ':' || e.slug) = ANY(${excludedEntities}::text[])
+              ))
+              AND (${publicOnly}::boolean = false OR e."entityType" <> 'PROJECT' OR EXISTS (
+                SELECT 1 FROM projects p WHERE p.slug = e.slug AND p.visibility = 'PUBLIC'
               ))
             ORDER BY rank DESC
             LIMIT ${limit}
@@ -1132,7 +1141,8 @@ export class ContentSearchService implements ContentProvider {
           maxTier,
           filters,
           limit,
-          publicOnly
+          publicOnly,
+          exclusions,
         );
         hybridTimings.metadataSearchTime = Date.now() - metadataSearchStart;
         for (const result of metadataResults) {
@@ -1182,7 +1192,8 @@ export class ContentSearchService implements ContentProvider {
     maxTier: number,
     filters: ContentSearchParams['filters'] = {},
     limit: number,
-    publicOnly = false
+    publicOnly = false,
+    exclusions: SourceExclusions,
   ): Promise<InternalSearchResult[]> {
 
     // Build the base SQL query
@@ -1217,6 +1228,15 @@ export class ContentSearchService implements ContentProvider {
 
     const params: any[] = [maxTier];
     let paramIndex = 2;
+
+    if (exclusions.hasAny) {
+      sql += ` AND NOT (
+        e."entityType"::text = ANY($${paramIndex}::text[])
+        OR (e."entityType"::text || ':' || e.slug) = ANY($${paramIndex + 1}::text[])
+      )`;
+      params.push(Array.from(exclusions.entityTypes), Array.from(exclusions.entities));
+      paramIndex += 2;
+    }
 
     // Add scope filtering (slug-generic: an entity slug names ANY source —
     // project, document, article — matching _matchesScope, 7.15)

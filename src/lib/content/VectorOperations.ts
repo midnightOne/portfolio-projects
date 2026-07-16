@@ -7,6 +7,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
+import type { SourceExclusions } from './source-registry';
 
 export interface VectorSearchResult {
   id: string;
@@ -181,7 +182,8 @@ export class VectorOperations {
     embedding: number[],
     limit: number = 10,
     tierFilter?: number,
-    publicOnly = false
+    publicOnly = false,
+    exclusions?: SourceExclusions,
   ): Promise<VectorSearchResult[]> {
     const startTime = Date.now();
     
@@ -217,13 +219,26 @@ export class VectorOperations {
 
     const params: any[] = [embeddingString];
 
+    if (exclusions?.hasAny) {
+      const typeParam = params.length + 1;
+      const entityParam = params.length + 2;
+      query += ` AND NOT (
+        e."entityType"::text = ANY($${typeParam}::text[])
+        OR (e."entityType"::text || ':' || e.slug) = ANY($${entityParam}::text[])
+      )`;
+      params.push(Array.from(exclusions.entityTypes), Array.from(exclusions.entities));
+    }
+
     if (tierFilter !== undefined) {
-      query += ` AND c.tier <= $2`;
+      const tierParam = params.length + 1;
+      query += ` AND c.tier <= $${tierParam}`;
       params.push(tierFilter);
-      query += ` ORDER BY c.embedding_vector <=> $1::vector(1536) LIMIT $3`;
+      const limitParam = params.length + 1;
+      query += ` ORDER BY c.embedding_vector <=> $1::vector(1536) LIMIT $${limitParam}`;
       params.push(limit);
     } else {
-      query += ` ORDER BY c.embedding_vector <=> $1::vector(1536) LIMIT $2`;
+      const limitParam = params.length + 1;
+      query += ` ORDER BY c.embedding_vector <=> $1::vector(1536) LIMIT $${limitParam}`;
       params.push(limit);
     }
     const queryBuildTime = Date.now() - queryBuildStart;

@@ -16,17 +16,23 @@ jest.mock('@/lib/prisma', () => {
   return {
     prisma: {
       __tx: tx,
+      aIContentSourceConfig: { findMany: jest.fn() },
       $transaction: jest.fn(async (fn: (transaction: typeof tx) => unknown) => fn(tx)),
     },
   };
 });
 
 const { prisma: mockPrisma } = jest.requireMock('@/lib/prisma') as {
-  prisma: { __tx: any; $transaction: jest.Mock };
+  prisma: { __tx: any; aIContentSourceConfig: { findMany: jest.Mock }; $transaction: jest.Mock };
 };
 const mockTx = mockPrisma.__tx;
 
-import { deleteDocumentSource, upsertDocumentSource } from '../source-registry';
+import {
+  deleteDocumentSource,
+  getSourceExclusions,
+  invalidateSourceRegistryCache,
+  upsertDocumentSource,
+} from '../source-registry';
 
 const now = new Date('2026-07-16T00:00:00.000Z');
 
@@ -65,6 +71,7 @@ const input = {
 describe('document source ownership persistence', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    invalidateSourceRegistryCache();
   });
 
   it('creates a config and its owned entity in one transaction', async () => {
@@ -133,5 +140,13 @@ describe('document source ownership persistence', () => {
     await expect(deleteDocumentSource('resume')).resolves.toEqual({ deletedEntity: true });
     expect(mockTx.aIContentSourceConfig.delete).toHaveBeenCalledWith({ where: { id: 'config-1' } });
     expect(mockTx.contentEntity.update).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when source visibility cannot be read', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    mockPrisma.aIContentSourceConfig.findMany.mockRejectedValue(new Error('database unavailable'));
+
+    await expect(getSourceExclusions()).rejects.toThrow('retrieval refused to fail open');
+    consoleError.mockRestore();
   });
 });

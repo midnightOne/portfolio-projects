@@ -377,8 +377,8 @@ export async function getSourceExclusions(): Promise<SourceExclusions> {
       // legacy provider rows: ignored
     }
   } catch (error) {
-    // Advisory filter — a config read failure must never break search.
-    console.error('[SourceRegistry] exclusion read failed (search continues unfiltered):', error);
+    console.error('[SourceRegistry] exclusion read failed (retrieval fails closed):', error);
+    throw new Error('Source visibility is unavailable; retrieval refused to fail open', { cause: error });
   }
 
   const value: SourceExclusions = {
