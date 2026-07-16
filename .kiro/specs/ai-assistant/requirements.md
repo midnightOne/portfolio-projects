@@ -2,7 +2,7 @@
 
 **Status:** current — core implemented; supersedes the client-side-ai spec (Gen-2 client-direct architecture only; the Gen-1 server-orchestrated design is dead and archived)
 **Owner domain:** visitor-facing AI: floating pill UI, voice/text conversation via client-direct adapters, unified tool registry, declarative navigation, F-I-D context, conversation persistence, debug/replay
-**Last verified against code:** 2026-07-15 (Req 6 clause 4 added — 7.1d push/pull boundary; verified against the 7.1a/7.1e implementation live)
+**Last verified against code:** 2026-07-16 (post-54ffa09 staff-review fixes; lifecycle, typed-source, and root-layout regressions covered)
 **Registry decisions applied:** D17–D26, D39, D41 (open), D3, D4
 **Contracts:**
 
@@ -38,7 +38,7 @@ Overview: [`../00-overview/README.md`](../00-overview/README.md)
 
 **User story:** As the owner, I want conversations to run client-direct with ephemeral credentials, so that the serverless deployment stays stateless and secrets never reach the browser.
 
-1. WHEN a conversation starts THEN the client SHALL connect **directly** to the provider (WebRTC) using a short-lived token minted by our API (`/api/ai/openai/session`, `/api/ai/elevenlabs/token`, future Google session route), with the system prompt and tool definitions injected **server-side at token mint time**.
+1. WHEN a conversation starts THEN the client SHALL connect **directly** to the provider (WebRTC or the configured/browser-selected WebSocket transport) using a short-lived token minted by our API, with the system prompt and tool definitions injected **server-side at token mint time**.
 2. WHEN text mode is used THEN text messages SHALL flow through the **same adapter session** (`sendMessage`) — there is no separate server-side text pipeline for the pill. (The public no-voice text tier uses the gateway's `/api/ai/chat` with the `default-cheap` alias — owned by `access-and-cost`.)
 3. WHEN switching between text and voice THEN the same session SHALL continue (mode continuity = same adapter session, not a server thread).
 4. WHEN API keys are involved THEN they SHALL exist only server-side in environment variables (D3); the client receives only ephemeral tokens.
@@ -52,6 +52,7 @@ Overview: [`../00-overview/README.md`](../00-overview/README.md)
 2b. **Cascade family (D45, planned):** a second adapter family — streaming STT → reasoning adapter (D39) → streaming TTS (ElevenLabs first) — SHALL implement the same interface, sharing its brain with text chat so answers are identical across modes, with tool calls executing server-side in the classic LLM. When it ships, ElevenLabs' role shifts to TTS engine and its agent-platform adapter retires (D22 amendment). See `design-voice-adapters.md` §2b.
 3. WHEN a provider with weaker tool-calling is active (Google) THEN known limitations SHALL be documented in the adapter and mitigations tracked under the D41 exploration — the adapter interface SHALL NOT fork per provider.
 4. WHEN exactly one `ConversationalAgentProvider` exists (D21) THEN both the production pill and all admin debug surfaces SHALL consume it; parallel provider implementations are forbidden.
+5. WHEN microphone access succeeds during connection setup THEN the adapter SHALL own that stream immediately. Mint, transport, or capture setup failure—and `disconnect()` during partial setup—SHALL stop owned tracks and close local audio resources regardless of `_isConnected`; teardown SHALL remain effective even when provider close/reporting throws.
 
 ## Requirement 4 — Unified tool registry
 
@@ -71,6 +72,7 @@ Overview: [`../00-overview/README.md`](../00-overview/README.md)
 2. WHEN the model needs UI awareness THEN `ui_describe` SHALL return the current registered UI state.
 3. WHEN navigation executes THEN `ui-system` guided-navigation primitives (coordinated ~0.7s sequences, highlight/spotlight with persistent or timed removal) SHALL animate it; user interruptions are honored and reported back to the model.
 4. WHEN navigation-from-search is needed THEN `content_search` results carry `navTarget`s and the model chains `ui_intent` (D19).
+5. The visitor provider chain SHALL mount once above the route outlet and survive client-side navigation. The root layout SHALL NOT perform a session lookup solely to gate debug affordances; the existing client `SessionProvider` supplies role state so public/static routes are not made dynamic by the AI wrapper.
 
 ## Requirement 6 — Passive F-I-D context
 
@@ -87,6 +89,7 @@ Overview: [`../00-overview/README.md`](../00-overview/README.md)
 
 1. WHEN content questions exceed current context THEN the model SHALL use `content_search`, `content_get`, `content_getHierarchy`, `content_searchSection`, `content_getRelated` (backed by `semantic-content`'s `ContentSearchService`; PUBLIC visibility only for public sessions).
 2. WHEN search results return THEN they SHALL include relevance-ranked chunks with `navTarget`s for follow-up navigation.
+3. Search is global and multi-entity by default. Deliberate project narrowing uses `scope.projectId`; deliberate document/article narrowing uses both `scope.entityType` and `scope.entitySlug`. Results and navigation metadata SHALL preserve typed source identity.
 
 ## Requirement 8 — Job-spec analysis (reflink)
 

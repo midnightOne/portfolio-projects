@@ -1,5 +1,5 @@
 ﻿> **Status:** current (supporting reference — semantic-content — chunking design deep-dive). Predates the 2026-07-02 spec rewrite; where this conflicts with code or the owning spec's requirements/design, those win.
-> **Last verified against code:** carried over 2026-07-02 (e2d75b4) without line-by-line reverification.
+> **Last verified against code:** 2026-07-16 (`bounded-text-chunking.ts`, `document-scaffold.ts`, `T3HeadingBoundedChunking.ts`; commit `1cbb1fd`).
 
 # Heading-Bounded Chunking Strategy
 
@@ -160,6 +160,8 @@ H1: Technical Implementation (1200 tokens)
 
 **Rationale**: Maintain manageable chunk sizes while respecting section boundaries
 
+**Oversized-paragraph rule (restored 2026-07-16):** paragraph is the preferred boundary, not an exemption from the size limit. If one paragraph exceeds the effective bound, split it by sentence; if a sentence is still too large, split by words; if one token is indivisible and still too large, use a hard character slice. This fallback is shared by project T3 generation and document scaffolding, and every emitted chunk is asserted within the configured bound.
+
 ### 4. Optional Overlap
 
 **Strategy**: Add small overlap between chunks in same section
@@ -217,6 +219,15 @@ Savings: 80% cost reduction
 ```
 
 ## Implementation Details
+
+The current implementation is centralized in `src/lib/content/bounded-text-chunking.ts`. Both ingestion paths pass the persisted DB settings into it:
+
+- `targetChunkSize` is the preferred T3 size.
+- `maxSectionSize` is the maximum bound used when deciding/splitting oversized sections.
+- `splitStrategy: 'paragraph'` means paragraph-first with bounded sentence/word/hard-slice fallback.
+- Heading boundaries remain absolute: fallback splitting happens only inside the current section.
+
+The older pseudocode below illustrates paragraph accumulation, but the bounded fallback above is required whenever `paragraphTokens > targetChunkSize`; emitting that paragraph whole is invalid.
 
 ### Chunking Algorithm
 

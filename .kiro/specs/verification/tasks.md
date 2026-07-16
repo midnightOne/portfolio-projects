@@ -2,7 +2,7 @@
 
 **Status:** current
 **Owner domain:** agentic e2e verification infrastructure
-**Last verified against code:** 2026-07-08 (Phase 5 session)
+**Last verified against code:** 2026-07-16 (post-54ffa09 staff-review remediation)
 **Sequencing rule (D46): each item lands with or before the phase whose features it verifies — this ledger is deliberately interleaved with the roadmap, not a phase of its own.**
 
 ---
@@ -72,6 +72,9 @@
   - [x] 9.2 `npm run drill:semantic-reliability` (scripts/drill-semantic-reliability.ts): HTTP-level against the dev server, REAL AI (pennies, 4 small projects). Admin login via NextAuth csrf→credentials flow; scope-all ingest; deliberate SSE mid-run disconnect; completion with no subscriber; queue-API/SSE-reconnect snapshot equality; `AIUsageLog.metadata.operationId` ledger correlation; child H3 edit → `scope:'section'` regeneration proving ancestor-chain re-summarize/re-embed with siblings untouched; edit reverted; finish with `npm run check:semantic` (fixture left canonical + fully re-ingested).
   - Gotcha encoded by the first run: dev-server global singletons survive HMR — a drill exercising freshly edited service code needs a freshly started server (`dev-alt` on :3005 + `DRILL_BASE_URL`).
   - _Requirements: 5, 6, 7; semantic-content Requirement 9_
+
+- [x] 10. **Commit 54ffa09 remediation verification — PASSED 2026-07-16.** Atomic fix series: bounded paragraph chunking (`1cbb1fd`), document-source FK ownership (`a968ad9`), pre-limit source visibility (`bc03a60`), transactional scaffold replacement/manual protection (`eb7bb3a`), failed-setup microphone cleanup (`c455e74`), typed scope/navigation identity (`3b9fc98`), fail-closed scope-all manifest (`80c73c0`), static root session boundary (`55015f7`), and build hygiene (`b432772`). Focused failure-injection/regression suites were run before each commit. Final gate: Jest **90 suites / 1,110 tests**, `npm run verify` (type-check, gateway, specs, semantic no-live, graph scenarios), `next build` with all 172 routes generated, `prisma validate`, and `prisma migrate status` (22 migrations, schema current). The build initially exposed two pre-existing unused imports; they were removed atomically and the clean rebuild passed. Non-blocking pre-existing React `act(...)`, accessibility, and lint-warning noise remains recorded in command output.
+  - _Requirements: verification 6; semantic-content 2/3/5/8/9; ai-assistant 2/3/5/7_
 
 ## Backlog
 

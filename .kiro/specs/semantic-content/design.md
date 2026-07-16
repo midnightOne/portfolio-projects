@@ -2,7 +2,7 @@
 
 **Status:** current — describes implemented system (bulk-operation integrity §7 implemented + drilled 2026-07-12)
 **Owner domain:** T0–T3 semantic pipeline, search, budgets, dashboard
-**Last verified against code:** 2026-07-12
+**Last verified against code:** 2026-07-16 (post-54ffa09 staff-review fixes)
 **Deep-dive:** [HEADING_BOUNDED_CHUNKING.md](./HEADING_BOUNDED_CHUNKING.md) · Batch API: [strategy](./BATCH_API_STRATEGY.md), [integration](./BATCH_API_INTEGRATION.md), [UI](./BATCH_MODE_UI_INTEGRATION.md)
 
 ---
@@ -10,7 +10,7 @@
 ## 1. Pipeline
 
 ```
-ArticleContent.jsonContent (Tiptap JSON)
+ArticleContent.jsonContent (Tiptap JSON) OR config-owned document markdown/text
    │  save → ContentChangeDetector (section hashes → none | section | structural)
    ▼
 SmartContentGenerator ── heading-bounded T3 chunking (+ contextual prefixes)
@@ -29,18 +29,20 @@ ContextChunk / ContentEntity  ──▶  ContentSearchService (similarity × imp
 
 ## 2. Data model
 
-See `prisma/schema.prisma` (truth for shapes): `ContentEntity` (indexed entity), `ContextChunk` (tier, content, embedding `vector(1536)`, importance, sectionHash, metadata; HNSW-indexed), `SemanticOperation`/`SemanticBudget` (budget accounting + pre-flight gate), `SemanticProcessingOperation` (the durable stage-processing state machine of §7 — one row per operation, `parentId` links scope:'all' children, `childOutcomes` aggregates per-project results; `ProcessingOperationStore` is the single writer), `ChunkingConfig`, `SummaryGenerationConfig`/`Log`, `BatchEmbeddingJob`. `ProjectAIIndex` and the `ContextChunk.projectIndexId` bridge were dropped with D37.
+See `prisma/schema.prisma` (truth for shapes): `ContentEntity` (indexed entity; optional unique `sourceConfigId` proves one-to-one ownership by `AIContentSourceConfig`), `ContextChunk` (tier, content, embedding `vector(1536)`, importance, sectionHash, metadata; HNSW-indexed), `SemanticOperation`/`SemanticBudget` (budget accounting + pre-flight gate), `SemanticProcessingOperation` (the durable stage-processing state machine of §7 — one row per operation, `parentId` links scope:'all' children, `childOutcomes` aggregates per-source results; `ProcessingOperationStore` is the single writer), `ChunkingConfig`, `SummaryGenerationConfig`/`Log`, `BatchEmbeddingJob`. `ProjectAIIndex` and the `ContextChunk.projectIndexId` bridge were dropped with D37.
 
 ## 3. Retrieval
 
-`ContentSearchService.search(query, {limit, tiers?, projectId?, publicOnly})`:
+`ContentSearchService.search(query, {limit, tiers?, scope?, publicOnly})`:
 1. Embed query (`default-embedding` alias).
 2. pgvector cosine top-K (HNSW) with importance weighting.
 3. MMR diversification.
 4. Fuse with tsvector keyword results (weighted union: semantic spread is retained, full-text-only results receive a rank-derived band, agreement receives a small bonus) before MMR.
 5. Map to results carrying content, tier, project/section linkage, `navTarget`.
 
-Visibility filtering happens in SQL, not post-hoc — public sessions can never retrieve PRIVATE content.
+Visibility and disabled-source filtering happen in SQL before ranking/limit, not post-hoc. Visibility-registry reads fail closed. Scope identity is typed: `projectId` is PROJECT-only; non-project selection is `(entityType, entitySlug)`. Non-project route metadata is keyed by the same typed identity so equal slugs cannot collide.
+
+Chunk generation uses the DB-backed `ChunkingConfig` for both projects and document scaffolds. It is paragraph-first, but an oversized paragraph is recursively bounded by sentence, word, then hard-character boundaries. Scaffold replacement is a single transaction: upsert the new composite `(tier, chunkId)` set first, then delete stale rows; manual rows are retained or protected from overwrite when `preserveManualEdits` is enabled.
 
 ## 4. Budgets & cost (post-D32 shape)
 
@@ -58,7 +60,7 @@ Long operations are chunked into resumable stages precisely because serverless f
 
 ## 7. Bulk-operation integrity (scope-finalization work)
 
-`scope: 'all'` is a coordinator, never a single cross-project content buffer. It enumerates projects and runs a persistence/validation unit per project (as child operations or durable checkpoints on the parent). Each unit carries its own entity id, chunk-id map, stage checkpoints, errors, and final counts. The parent aggregates only immutable per-project outcomes; it never owns a flat array of chunks that can be written against the final project's entity.
+`scope: 'all'` is a coordinator, never a single cross-source content buffer. It enumerates projects plus enabled document-manifest sources and runs a persistence/validation unit per source as a child operation. Each unit carries its own entity id, chunk-id map, stage checkpoints, errors, and final counts. The parent aggregates only immutable per-source outcomes; it never owns a flat array of chunks that can be written against the final entity. Manifest enumeration is correctness-bearing: a read failure fails the parent and is persisted as a coordinator error rather than silently degrading to projects-only ingestion.
 
 The operation row is the state machine. Worker completion/failure writes the durable transition first; queue/history projections and SSE notifications observe that write afterwards. An SSE disconnect can lose an event but cannot leave a job queued, and reconnect uses the persisted stage/progress/status rather than process-local state.
 

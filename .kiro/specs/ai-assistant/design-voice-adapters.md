@@ -2,7 +2,7 @@
 
 **Status:** current
 **Owner domain:** provider adapter layer, session lifecycle, mode continuity
-**Last verified against code:** 2026-07-08 (Phase 4 Block C, tasks 9 + 9b + 6.6 — cascade family, D50 clips, Gemini 3.1 migration)
+**Last verified against code:** 2026-07-16 (tasks 7.3/7.7 lifecycle hardening; commits `c455e74`, `55015f7`)
 
 ---
 
@@ -124,15 +124,19 @@ in the loop or by testing against real UI state (see the homepage fake-mic drill
 
 1. Pill activation → access check (`access-and-cost`: tier/reflink) → token mint request.
 2. Mint route (gateway-wrapped): resolves tier → builds system prompt (server-side, via context provider) + tool schema (registry, filtered to tier allowlist) → provider token API → short-lived token with **duration cap**.
-3. Adapter connects WebRTC; F-I-D begins passive injection; conversation events stream to the log route.
+3. Adapter connects WebRTC or WebSocket; F-I-D begins passive injection; conversation events stream to the log route.
 4. Mode switches (text↔voice) reuse the session (`sendMessage` vs audio); no server thread exists.
 5. Disconnect (user, cap, or error) → final log flush; admin replay available immediately.
+
+**Connection-resource ownership (2026-07-16):** an adapter-acquired microphone becomes adapter-owned as soon as `getUserMedia` resolves, including the interval before token mint and transport connect complete. OpenAI WS setup stores this as a pending owned stream, transfers it to the capture graph only after capture starts, and tears it down on every failure path. `disconnect()` is intentionally idempotent and releases pending/active mic tracks, capture/playback contexts, meters, and UI subscriptions even when `_isConnected` is false or provider close/reporting throws. This prevents a failed WS handshake from leaving the browser microphone active.
 
 ## 3b. Provider mount & SPA persistence (owner ruling 2026-07-15, task 7.7)
 
 The voice connection (WebRTC on OpenAI, WebSocket on Gemini/cascade) lives inside `ConversationalAgentProvider`. If that component unmounts, the connection dies — so **the provider must be mounted ONCE at the root layout**, above the router outlet, never per-page. Correspondingly, **all in-site navigation must be client-side (SPA)**: a hard navigation (full document load) tears down the React tree including the provider and kills any live session. The project-modal navigation already does this within a page; the ruling extends it to the whole site (routes, `/about/ai`, everything) so a visitor can walk the entire portfolio mid-conversation without a reconnect. The pill's VISIBILITY can still be surface-gated; the CONNECTION is not.
 
 **Implemented 2026-07-15 (task 7.7):** `AIInterfaceWrapper` mounts in `src/app/layout.tsx` (server-computed `isAdmin`), gates the pill/panels by route (`PILL_SURFACES` = `/`, `/about/ai`) while the provider survives every non-admin route, renders nothing under `/admin` (voice-debug owns its own provider chain), and registers the ONE global client-side route navigator; UIManager's route-step refusal now applies only to the `location.href` fallback. Two teardown traps this surfaced, load-bearing for anyone touching the chain: `ReflinkSessionProvider`'s init effect must key on the `?ref=` VALUE (the `searchParams` object identity changes every navigation), and the wrapper must gate on FIRST session resolution only — any transient `isLoading` unmount above the provider kills a live session.
+
+**2026-07-16 performance amendment:** the provider remains in the root layout, but the root layout is synchronous and does **not** call `getServerSession`. `SessionProvider` already resolves the session client-side; `AIInterfaceWrapper` reads `useSession()` and gates the admin-only debug affordances there. This preserves the one-mount SPA invariant without forcing every public route into dynamic server rendering. The 2026-07-15 task note saying root `getServerSession` was acceptable is superseded.
 
 **Portability note (owner ask, for a future extraction of this system):** this SPA requirement is a property of the *host*, not of the assistant. If the assistant is ever modularized onto a platform that cannot do SPA navigation (a multi-page CMS, a static-site host with hard page loads), the escape hatch is to **iframe the entire target website inside a persistent, AI-connected shell page**. The shell owns the voice connection and never navigates; the wrapped site navigates *inside* the iframe, so its full-page loads never touch the shell's connection. That keeps the "one persistent connection across all navigation" invariant on any host, at the cost of an iframe boundary (cross-frame messaging for the F-I-D/nav bridge).
 
