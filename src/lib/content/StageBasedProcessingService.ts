@@ -145,6 +145,26 @@ interface ValidationCheckpoint {
   healthMetrics: any;
 }
 
+/** Manifest reads are part of scope:'all' correctness and must fail closed. */
+export async function loadEnabledDocumentSources(
+  load: () => Promise<DocumentSourceSpec[]> = listDocumentSources,
+): Promise<DocumentSourceSpec[]> {
+  const sources = await load();
+  return sources.filter((source) => source.enabled && source.content.trim().length > 0);
+}
+
+export function recordOperationFailure(progress: ProcessingProgress, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  progress.errors.push({
+    stage: progress.currentStage || 'chunking',
+    itemId: 'system',
+    itemTitle: 'Processing coordinator',
+    error: message,
+    retryable: true,
+    timestamp: new Date(),
+  });
+}
+
 interface ExistingScaffoldChunk {
   id: string;
   tier: number;
@@ -493,6 +513,7 @@ export class StageBasedProcessingService extends EventEmitter {
     } catch (error) {
       progress.status = 'failed';
       progress.completedAt = new Date();
+      recordOperationFailure(progress, error);
       await this.operationStore
         .persistProgress(request.operationId, progress, { force: true })
         .catch(persistError => console.error(`[ExecuteProcessing] Terminal persist failed for ${request.operationId}:`, persistError));
@@ -592,8 +613,7 @@ export class StageBasedProcessingService extends EventEmitter {
     // 7.15: the content-source config is the ingestion manifest — scope:'all'
     // also runs one child operation per ENABLED document source with content,
     // so a resume/article added to the config gets ingested with everything else.
-    const docSources = (await listDocumentSources().catch(() => [] as DocumentSourceSpec[]))
-      .filter(d => d.enabled && d.content.trim().length > 0);
+    const docSources = await loadEnabledDocumentSources();
 
     // Uniform unit list: projects keep their exact existing child shape
     const units: Array<{
