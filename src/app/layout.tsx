@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { SessionProvider } from "@/components/providers/session-provider";
 import { UIThemeProvider } from "@/components/providers/ui-theme-provider";
 import { NavigationProvider } from "@/components/providers/navigation-provider";
@@ -24,16 +22,11 @@ export const metadata: Metadata = {
   },
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // Admin gate for the dev voice panel + context-debug panel (server-side, as
-  // the per-page mounts did it before the 7.7 lift).
-  const session = await getServerSession(authOptions);
-  const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'admin';
-
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -62,7 +55,7 @@ export default async function RootLayout({
               <ToastProvider>
                 {children}
                 {/* No defaultProvider prop: the admin-configured site default governs */}
-                <AIInterfaceWrapper isAdmin={isAdmin} />
+                <AIInterfaceWrapper />
               </ToastProvider>
             </NavigationProvider>
           </SessionProvider>

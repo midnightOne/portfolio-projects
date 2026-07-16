@@ -10,6 +10,8 @@ import { HomepageDevVoicePanel } from './HomepageDevVoicePanel';
 import { ContextDebugPanel } from '@/components/admin/ContextDebugPanel';
 import { AIVisualConfigProvider } from '@/lib/ui/ai-visual-config-context';
 import { UIManager } from '@/lib/navigation/UIManager';
+import { useSession } from 'next-auth/react';
+import { hasAdminRole } from '@/lib/auth/session-role';
 
 /**
  * 7.7 (owner ruling 2026-07-15): the AI provider chain mounts ONCE in the ROOT
@@ -37,6 +39,8 @@ export function AIInterfaceWrapper({
 }: AIInterfaceWrapperProps) {
   const pathname = usePathname() ?? '/';
   const router = useRouter();
+  const { data: authSession } = useSession();
+  const adminAccess = isAdmin || hasAdminRole(authSession);
 
   // ONE global client-side route navigator (7.7): route steps ride
   // router.push app-wide, so ui_intent route targets never hard-reload.
@@ -175,7 +179,7 @@ export function AIInterfaceWrapper({
           handleTextSubmit={handleTextSubmit}
           handleSettingsClick={handleSettingsClick}
           className={className}
-          isAdmin={isAdmin}
+          isAdmin={adminAccess}
           showPill={PILL_SURFACES.has(pathname)}
         />
       </AIVisualConfigProvider>
