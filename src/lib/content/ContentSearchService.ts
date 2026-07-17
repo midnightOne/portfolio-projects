@@ -57,6 +57,24 @@ export interface ContentSearchParams {
   publicOnly?: boolean;
 }
 
+/**
+ * Reject underspecified or self-contradictory scopes with an actionable error
+ * BEFORE any query runs (7.19). Without this, such scopes silently match
+ * nothing (matchesContentScope → false, SQL `1 = 0`) — safe against leakage,
+ * but the model reads the empty result as "the portfolio doesn't have it".
+ * The match-nothing behavior below stays as the defense-in-depth fail-safe.
+ */
+export function assertValidContentScope(scope: ContentSearchParams['scope'] = {}): void {
+  if (scope.projectId && (scope.entitySlug || (scope.entityType && scope.entityType !== 'PROJECT'))) {
+    throw new Error(
+      'Invalid scope: projectId cannot combine with entityType/entitySlug — use projectId alone for a project, or entityType + entitySlug for a non-project source',
+    );
+  }
+  if (scope.entitySlug && !scope.entityType) {
+    throw new Error('Invalid scope: entitySlug requires entityType (e.g. entityType: "RESUME", entitySlug: "my-resume")');
+  }
+}
+
 export function matchesContentScope(
   entity: { entityType: string; slug: string },
   scope: ContentSearchParams['scope'] = {},

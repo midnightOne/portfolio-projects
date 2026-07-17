@@ -8,7 +8,7 @@
 
 import { UnifiedToolDefinition, UnifiedToolResult, ServerToolExecutionContext } from './types';
 import { serverToolDefinitions } from './server-tools';
-import ContentSearchService from '@/lib/content/ContentSearchService';
+import ContentSearchService, { assertValidContentScope } from '@/lib/content/ContentSearchService';
 import { OWNER_PROFILE } from '../owner-profile';
 import { assemblePortfolioOverview } from '../start-frame';
 
@@ -1005,6 +1005,11 @@ This analysis was generated automatically and should be reviewed for accuracy.`;
         diversifyBy = 'project',
         filters = {}
       } = parameters;
+
+      // 7.19: malformed scope must ERROR, not silently match nothing — an
+      // empty result reads as "the portfolio doesn't have it" (6.8 honesty).
+      // Same boundary serves the native runtimes AND the MCP server.
+      assertValidContentScope(scope);
 
       console.log('Content search request:', {
         query,
