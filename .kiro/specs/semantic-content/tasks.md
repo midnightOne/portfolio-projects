@@ -1,6 +1,6 @@
 # semantic-content — Tasks
 
-**Status:** current — all open tasks closed 2026-07-12 (bulk-operation reliability gate passed)
+**Status:** current — all open tasks closed (task 12 resolved 2026-07-17 as D60 stale-while-error; prior open tasks closed 2026-07-12, bulk-operation reliability gate passed)
 **Owner domain:** T0–T3 semantic pipeline, search, budgets, dashboard
 **Last verified against code:** 2026-07-16 (commit-54ffa09 staff-review remediation; full suite/build/Prisma green)
 **Ledger regenerated per D36 (the old spec's duplicate "Task 15" is gone by regeneration). The semantic-system-fixes spec is archived; its unresolved items lived here as verification tasks and are now closed.**
@@ -110,6 +110,13 @@ T0–T3 heading-bounded generation with contextual prefixes and section hashes; 
   - [x] 11.3 Cleanup and export quick actions target the implemented Bulk Operations page and select the corresponding tab; nonexistent `/admin/semantic/cleanup` and `/admin/semantic/export` destinations are gone.
   - [x] 11.4 Focused Jest coverage + repository type-check green. Broader disconnected/stale admin inventory and local debug-access alternatives are recorded in `docs/admin-dashboard-connectivity-and-local-debug-access-2026-07-17.md`.
   - _Requirements: 2.6, 7.4_
+
+### Review follow-ups (2026-07-17, review of `1cbb1fd..e9cab44`)
+
+- [x] 12. **RESOLVED as (b) — fail-closed with stale-while-error, recorded as D60 (owner go-ahead "make the fixes", 2026-07-17).** `getSourceExclusions()` now serves the last successfully loaded snapshot when a refresh read fails (error logged per stale serve) and hard-fails ONLY on a cold instance with no snapshot ever loaded; the admin-toggle path invalidates the snapshot first, so a deliberate visibility change is never masked — post-invalidation failure fails closed. Tests updated per the plan below: cold+failing → throws (existing pin, now cold-scoped); warm+failing past TTL → stale snapshot served with `hasAny` intact; invalidate+failing → throws. Original entry follows.
+  **Original entry — Owner ruling needed: fail-closed source visibility vs retrieval availability (`bc03a60`).** The remediation made `getSourceExclusions()` THROW on a config-table read failure ("Source visibility is unavailable; retrieval refused to fail open") — the prior code documented the OPPOSITE policy in place ("a config read failure must never break search") and continued unfiltered. Fail-closed is the right default for the authorization framing (the allowlist gates what disabled sources expose, and MCP `content_get` accepts arbitrary chunk ids from external callers), but the availability trade is real: a transient DB hiccup now 500s ALL search + content_get, including for plain public visitors — the 30s TTL cache only softens warm instances; a cold serverless instance with a flaky DB has no cached value to fall back on. This reversed an explicitly documented policy without a registry entry, so it needs an owner decision recorded in the decision registry: **(a)** affirm strict fail-closed as-is; **(b)** fail-closed with stale-while-error — keep serving the last successfully loaded exclusions snapshot past its TTL when the refresh read fails (still hard-fail when NO snapshot has ever loaded, preserving the boundary on cold instances), which keeps authorization intact while surviving transient flakiness; or **(c)** revert to fail-open (not recommended — it silently un-hides disabled sources under exactly the failure conditions an attacker can sometimes induce).
+  - If (b): add tests — warm cache + failing refresh → filtered results served from the stale snapshot (with a logged warning); cold instance + failing read → throws as today. The existing fail-closed test (`source-registry-persistence.test.ts`) then pins the cold case only.
+  - _Requirements: 5, 8; ai-assistant 7.15 allowlist contract; mcp-server Requirement 3_
 
 ## Backlog
 
