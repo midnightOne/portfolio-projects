@@ -17,7 +17,7 @@
  */
 
 import { HierarchicalContentParser, EnhancedProjectIndex, HierarchicalSection } from './HierarchicalContentParser';
-import { T3HeadingBoundedChunking } from './T3HeadingBoundedChunking';
+import { T3HeadingBoundedChunking, type ChunkingConfig } from './T3HeadingBoundedChunking';
 import ChunkingConfigService from './ChunkingConfigService';
 
 export interface TierContent {
@@ -58,13 +58,11 @@ export interface SmartGenerationResult {
 
 export class SmartContentGenerator {
   private contentParser: HierarchicalContentParser;
-  private t3Chunker: T3HeadingBoundedChunking;
+  private chunkingConfigOverrides?: Partial<ChunkingConfig>;
 
-  constructor(chunkingConfig?: { targetChunkSize?: number; maxSectionSize?: number; minSectionSize?: number; sectionBoundaryOverlap?: number; splitStrategy?: 'paragraph' | 'sentence' | 'token' }) {
+  constructor(chunkingConfig?: Partial<ChunkingConfig>) {
     this.contentParser = HierarchicalContentParser.getInstance();
-
-    // Initialize T3 chunker with config
-    this.t3Chunker = new T3HeadingBoundedChunking(chunkingConfig);
+    this.chunkingConfigOverrides = chunkingConfig;
   }
 
   /**
@@ -79,6 +77,20 @@ export class SmartContentGenerator {
     // Get enhanced project index
     const enhancedIndex = await this.contentParser.indexProjectHierarchical(project.id);
 
+    // Load the persisted admin configuration at processing time. The service is
+    // long-lived, so resolving this in the constructor would leave an existing
+    // instance on stale/factory defaults after an admin changes the settings.
+    const chunkingConfig = await ChunkingConfigService.getInstance().getDefaultConfig();
+    const effectiveChunkingConfig: ChunkingConfig = {
+      targetChunkSize: chunkingConfig.targetChunkSize,
+      maxSectionSize: chunkingConfig.maxSectionSize,
+      minSectionSize: chunkingConfig.minSectionSize,
+      sectionBoundaryOverlap: chunkingConfig.sectionBoundaryOverlap,
+      splitStrategy: chunkingConfig.splitStrategy,
+      ...this.chunkingConfigOverrides,
+    };
+    const t3Chunker = new T3HeadingBoundedChunking(effectiveChunkingConfig);
+
     const tiers: TierContent[] = [];
 
     // T0: System metadata (no AI, no manual edit)
@@ -89,11 +101,9 @@ export class SmartContentGenerator {
 
     // T3: Generate fully populated terminal chunks from actual content FIRST
     // We need these to determine if T2s can use raw content
-    const t3Chunks = this.t3Chunker.generateT3Chunks(project, enhancedIndex);
+    const t3Chunks = t3Chunker.generateT3Chunks(project, enhancedIndex);
 
-    // Get T2 max length from chunking config (in tokens)
-    const chunkingConfigService = ChunkingConfigService.getInstance();
-    const chunkingConfig = await chunkingConfigService.getDefaultConfig();
+    // Get T2 max length from the same persisted configuration (in tokens)
     const t2MaxTokens = chunkingConfig.t2MaxLength; // Already in tokens
 
     console.log(`[SmartContentGenerator] Using T2 max length from config: ${t2MaxTokens} tokens`);
