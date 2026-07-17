@@ -1447,7 +1447,9 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             // Extract usage data from the response event
             if (eventData.response && eventData.response.usage) {
                 const usage = eventData.response.usage;
-                console.log('Response usage metrics:', usage);
+                // JSON so the detail shape is actually readable in console
+                // captures (plain object printing loses it to [object Object]).
+                console.log('Response usage metrics:', JSON.stringify(usage));
 
                 // Realtime usage events carry input_tokens/output_tokens but NO
                 // total_tokens — every consumer gated on it read 0 forever
@@ -1476,8 +1478,25 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
                 // Live counter: flush a per-response delta so the admin header
                 // counts up DURING the session — leg-end persistence never
-                // lands when the tab closes mid-conversation.
+                // lands when the tab closes mid-conversation. The delta also
+                // carries model + text/audio token detail so the route can
+                // LEDGER this response (7.23 — realtime spend previously never
+                // reached ai_usage_logs at all; audio tokens price ~8x text).
                 if (totalTokens > 0) {
+                    // The SDK surfaces usage detail in camelCase; raw wire
+                    // events use snake_case — accept both (live drill
+                    // 2026-07-18: snake-only read produced an empty split and
+                    // audio tokens silently priced at text rates).
+                    const inDetails = usage.input_token_details ?? usage.inputTokensDetails ?? {};
+                    const outDetails = usage.output_token_details ?? usage.outputTokensDetails ?? {};
+                    const tokenDetails = {
+                        inputText: inDetails.text_tokens ?? inDetails.textTokens,
+                        inputAudio: inDetails.audio_tokens ?? inDetails.audioTokens,
+                        inputCached: inDetails.cached_tokens ?? inDetails.cachedTokens,
+                        outputText: outDetails.text_tokens ?? outDetails.textTokens,
+                        outputAudio: outDetails.audio_tokens ?? outDetails.audioTokens,
+                    };
+                    const hasDetail = Object.values(tokenDetails).some((v) => typeof v === 'number');
                     this._postConversationLog({
                         sessionId: this._generateSessionId(),
                         provider: 'openai',
@@ -1487,6 +1506,8 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                             inputTokens,
                             outputTokens,
                             totalTokens,
+                            model: this._mintedModel ?? undefined,
+                            ...(hasDetail ? { tokenDetails } : {}),
                         },
                         timestamp: new Date().toISOString(),
                     });

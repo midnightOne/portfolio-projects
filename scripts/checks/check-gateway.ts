@@ -55,6 +55,7 @@ const HEURISTIC_ALLOWLIST: Record<string, string> = {
   'src/app/api/admin/ai/providers/route.ts': 'provider status listing; no token spend',
   'src/app/api/admin/ai/providers/refresh/route.ts': 'refreshes provider model lists (metadata API); no token spend',
   'src/app/api/admin/ai/test-connection/route.ts': 'connectivity check via provider models endpoint; no token spend',
+  'src/app/api/admin/ai/spend-reconciliation/route.ts': 'OpenAI org Costs API read (7.23) — billing metadata, no token spend',
   'src/app/api/admin/ai/voice-config/test/route.ts': 'config check via /models, /user, /voices metadata endpoints; no token spend',
   'src/app/api/admin/ai/elevenlabs/agents/route.ts': 'agent listing (metadata API); no token spend',
   'src/app/api/admin/ai/elevenlabs/voices/route.ts': 'voice listing (metadata API); no token spend',

@@ -975,7 +975,8 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
         sessionId: this._conversationId,
         provider: 'google',
         reflinkId: this._options?.reflinkId,
-        usageDelta: { responses: 1, inputTokens, outputTokens, totalTokens },
+        // model rides the delta so the route can LEDGER this response (7.23)
+        usageDelta: { responses: 1, inputTokens, outputTokens, totalTokens, model: this._sessionModel ?? undefined },
         timestamp: new Date().toISOString(),
       });
 

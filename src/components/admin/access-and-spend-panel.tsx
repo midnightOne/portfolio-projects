@@ -323,6 +323,146 @@ export function AccessAndSpendPanel() {
           </div>
         </CardContent>
       </Card>
+
+      {/* 7.23: internal ledger vs OpenAI Costs API — provider is ground truth */}
+      <ReconciliationCard />
     </div>
+  );
+}
+
+interface ReconciliationDayRow {
+  date: string;
+  ledgerUsd: number;
+  openaiUsd: number;
+  driftUsd: number;
+}
+interface ReconciliationData {
+  configured: boolean;
+  error?: string;
+  days: ReconciliationDayRow[];
+  totals: { ledgerUsd: number; openaiUsd: number; driftUsd: number };
+  unattributedRows: number;
+  notes: string[];
+}
+
+/**
+ * Spend reconciliation vs OpenAI (7.23). The provider's Costs API is the
+ * ground truth; drift means OUR metering missed something (the audit's
+ * canonical example: realtime voice responses never reached the ledger
+ * before 7.23). Needs OPENAI_ADMIN_API_KEY — the unconfigured state renders
+ * honestly instead of guessing.
+ */
+function ReconciliationCard() {
+  const [days, setDays] = useState(7);
+  const [loading, setLoading] = useState(false);
+  const [report, setReport] = useState<ReconciliationData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/ai/spend-reconciliation?days=${days}`);
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error?.message ?? 'Reconciliation failed');
+      setReport(json.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Reconciliation failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Spend Reconciliation vs OpenAI</CardTitle>
+        <CardDescription>
+          Compares the internal ledger against OpenAI&apos;s Costs API per UTC day — the provider number is ground
+          truth, drift is a defect in our metering. Requires OPENAI_ADMIN_API_KEY (org Admin key).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-center gap-2">
+          <select
+            value={days}
+            onChange={(e) => setDays(Number(e.target.value))}
+            className="rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+            data-testid="reconcile-days"
+          >
+            <option value={7}>Last 7 days</option>
+            <option value={14}>Last 14 days</option>
+            <option value={30}>Last 30 days</option>
+          </select>
+          <button
+            onClick={run}
+            disabled={loading}
+            className="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+            data-testid="reconcile-run"
+          >
+            {loading ? 'Reconciling…' : 'Reconcile'}
+          </button>
+        </div>
+
+        {error && <p className="text-sm text-red-500" data-testid="reconcile-error">{error}</p>}
+
+        {report && !report.configured && (
+          <p className="text-sm text-amber-600 dark:text-amber-400" data-testid="reconcile-unconfigured">
+            {report.error}
+          </p>
+        )}
+        {report && report.configured && report.error && (
+          <p className="text-sm text-red-500">OpenAI Costs API error: {report.error}</p>
+        )}
+
+        {report && report.days.length > 0 && (
+          <div data-testid="reconcile-table">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-muted-foreground text-left">
+                  <th className="py-1">UTC day</th>
+                  <th className="text-right">Ledger</th>
+                  <th className="text-right">OpenAI</th>
+                  <th className="text-right">Drift</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.days.map((d) => (
+                  <tr key={d.date} className="border-t border-border">
+                    <td className="py-1">{d.date}</td>
+                    <td className="text-right">${d.ledgerUsd.toFixed(4)}</td>
+                    <td className="text-right">${d.openaiUsd.toFixed(4)}</td>
+                    <td
+                      className={`text-right ${Math.abs(d.driftUsd) > Math.max(0.01, d.openaiUsd * 0.1) ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}
+                    >
+                      {d.driftUsd >= 0 ? '+' : ''}${d.driftUsd.toFixed(4)}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="border-t-2 border-border font-medium">
+                  <td className="py-1">Total</td>
+                  <td className="text-right">${report.totals.ledgerUsd.toFixed(4)}</td>
+                  <td className="text-right">${report.totals.openaiUsd.toFixed(4)}</td>
+                  <td className={`text-right ${Math.abs(report.totals.driftUsd) > 0.01 ? 'text-red-500' : ''}`}>
+                    {report.totals.driftUsd >= 0 ? '+' : ''}${report.totals.driftUsd.toFixed(4)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            {report.unattributedRows > 0 && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                {report.unattributedRows} ledger row(s) in this window carry spend with NO provider — they are in
+                neither column above.
+              </p>
+            )}
+            <ul className="text-xs text-muted-foreground mt-2 list-disc pl-4 space-y-0.5">
+              {report.notes.map((n, i) => (
+                <li key={i}>{n}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

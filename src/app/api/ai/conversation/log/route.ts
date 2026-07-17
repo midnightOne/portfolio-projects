@@ -484,13 +484,79 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
       // the adapter — keeps the conversation's "N tok" header counting up
       // during the session instead of staying 0 until a clean disconnect.
       if ((body as any).usageDelta) {
-        const delta = (body as any).usageDelta as { totalTokens?: number };
+        const delta = (body as any).usageDelta as {
+          totalTokens?: number;
+          inputTokens?: number;
+          outputTokens?: number;
+          model?: string;
+          tokenDetails?: Record<string, number | undefined>;
+        };
         const conversationId = await conversationHistoryManager.getOrCreateConversationId(
           sessionId,
           reflinkId,
           { conversationMode: 'voice', ...(testTag ? { test: true } : {}) }
         );
         await conversationHistoryManager.addUsageDelta(conversationId, delta.totalTokens ?? 0);
+
+        // 7.23 (spend-tracking audit): realtime responses are the dominant
+        // provider spend and previously NEVER reached the ledger — only
+        // conversation.totalTokens. One AIUsageLog row per response, audio
+        // tokens priced at their own rate when the adapter reported the split
+        // (audio ≈ 8x text on gpt-realtime); recordUsage's test-session join
+        // keeps fake-mic drills off the watchdog counters. Never blocks the
+        // live-counter response.
+        if ((delta.inputTokens ?? 0) + (delta.outputTokens ?? 0) > 0) {
+          void (async () => {
+            const { recordUsage } = await import('@/lib/ai/ledger');
+            const { estimateCost } = await import('@/lib/ai/pricing');
+            const d = delta.tokenDetails ?? {};
+            const modelId = delta.model;
+            let costUsd: number | undefined;
+            let pricingAssumption: string | undefined;
+            const hasSplit =
+              typeof d.inputAudio === 'number' || typeof d.outputAudio === 'number';
+            if (modelId && hasSplit) {
+              const textCost = await estimateCost(modelId, {
+                inputTokens: d.inputText ?? Math.max(0, (delta.inputTokens ?? 0) - (d.inputAudio ?? 0)),
+                outputTokens: d.outputText ?? Math.max(0, (delta.outputTokens ?? 0) - (d.outputAudio ?? 0)),
+              });
+              const audioCost = await estimateCost(`${modelId}-audio`, {
+                inputTokens: d.inputAudio ?? 0,
+                outputTokens: d.outputAudio ?? 0,
+              });
+              costUsd = textCost + audioCost;
+            } else if (modelId && (body as any).provider === 'openai') {
+              // The SDK's usage event carries NO text/audio split (verified
+              // live 2026-07-18: {input_tokens, output_tokens} only). Closest
+              // honest approximation for a VOICE response: input ≈ text
+              // (context rebilling dominates), output ≈ audio (the speech).
+              // The reconciliation panel is the corrective loop for residual
+              // error; the assumption is recorded on the row.
+              const inputCost = await estimateCost(modelId, { inputTokens: delta.inputTokens ?? 0 });
+              const outputCost = await estimateCost(`${modelId}-audio`, { outputTokens: delta.outputTokens ?? 0 });
+              costUsd = inputCost + outputCost;
+              pricingAssumption = 'input=text-rate, output=audio-rate (provider reported no split)';
+            }
+            await recordUsage({
+              feature: 'voice',
+              usageType: 'realtime_response',
+              provider: (body as any).provider,
+              modelId,
+              inputTokens: delta.inputTokens,
+              outputTokens: delta.outputTokens,
+              ...(costUsd !== undefined ? { costUsd } : {}),
+              endpoint: '/api/ai/conversation/log',
+              sessionId,
+              reflinkId,
+              metadata: {
+                conversationId,
+                ...(delta.tokenDetails ? { tokenDetails: delta.tokenDetails as never } : {}),
+                ...(pricingAssumption ? { pricingAssumption } : {}),
+              },
+            });
+          })().catch((err) => console.error('[conversation/log] realtime ledger write failed:', err));
+        }
+
         return NextResponse.json({
           success: true,
           message: `Usage delta recorded for session ${sessionId}`,
