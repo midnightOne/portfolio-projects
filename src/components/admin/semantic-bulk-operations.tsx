@@ -10,7 +10,8 @@
  * - Bulk importance updates
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -51,8 +52,18 @@ interface RegenerationEstimate {
   batchModeDuration?: string;
 }
 
+type BulkOperationTab = 'cleanup' | 'export' | 'import' | 'regenerate';
+
+function isBulkOperationTab(value: string | null): value is BulkOperationTab {
+  return value === 'cleanup' || value === 'export' || value === 'import' || value === 'regenerate';
+}
+
 export function SemanticBulkOperations() {
-  const [activeTab, setActiveTab] = useState<'cleanup' | 'export' | 'import' | 'regenerate'>('cleanup');
+  const searchParams = useSearchParams();
+  const requestedTab = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState<BulkOperationTab>(
+    isBulkOperationTab(requestedTab) ? requestedTab : 'cleanup'
+  );
   const [cleanupPreview, setCleanupPreview] = useState<CleanupPreview | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
@@ -60,6 +71,12 @@ export function SemanticBulkOperations() {
   const [useBatchMode, setUseBatchMode] = useState(true);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [importResult, setImportResult] = useState<any>(null);
+
+  useEffect(() => {
+    if (isBulkOperationTab(requestedTab)) {
+      setActiveTab(requestedTab);
+    }
+  }, [requestedTab]);
 
   // Cleanup Operations
   const loadCleanupPreview = async () => {

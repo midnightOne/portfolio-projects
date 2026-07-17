@@ -674,7 +674,7 @@ export function SemanticDashboard() {
           />
           <Button 
             variant="outline"
-            onClick={() => router.push('/admin/semantic/cleanup')}
+            onClick={() => router.push('/admin/semantic/bulk-operations?tab=cleanup')}
             className="flex items-center gap-2"
           >
             <Trash2 className="h-4 w-4" />
@@ -682,7 +682,7 @@ export function SemanticDashboard() {
           </Button>
           <Button 
             variant="outline"
-            onClick={() => router.push('/admin/semantic/export')}
+            onClick={() => router.push('/admin/semantic/bulk-operations?tab=export')}
             className="flex items-center gap-2"
           >
             <Download className="h-4 w-4" />

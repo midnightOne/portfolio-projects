@@ -108,5 +108,16 @@ describe('Admin AI Integration', () => {
       // AI Assistant group stays collapsed
       expect(screen.queryByRole('link', { name: /AI Settings/ })).not.toBeInTheDocument();
     });
+
+    it('places chunking controls in the Knowledge Base group', () => {
+      require('next/navigation').usePathname.mockReturnValue('/admin/semantic/config');
+      render(<AdminSidebar />);
+
+      expect(screen.getByRole('link', { name: /Semantic Dashboard/ }))
+        .toHaveAttribute('href', '/admin/semantic');
+      expect(screen.getByRole('link', { name: /Chunking Configuration/ }))
+        .toHaveAttribute('href', '/admin/semantic/config');
+      expect(screen.queryByRole('link', { name: /AI Settings/ })).not.toBeInTheDocument();
+    });
   });
 });
