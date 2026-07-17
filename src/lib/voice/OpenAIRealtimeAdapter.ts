@@ -113,6 +113,10 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     private _wsCaptureStreamOwned = false;
     /** Mic acquired for a WS attempt but not yet transferred to the capture graph. */
     private _pendingWsMicStream: MediaStream | null = null;
+    /** True only while THIS adapter's connect registered the global UIManager
+     *  callbacks — disconnect() on a never-connected adapter must not strip a
+     *  live session's UIManager state (7.18). */
+    private _uiTrackingClaimed = false;
     private _wsCapturing = false;
     /** 7.6 clip-feedback gate on the WS capture path (frame drop — no track to mute). */
     private _wsClipMicGated = false;
@@ -2520,6 +2524,7 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             console.error('OpenAIRealtimeAdapter: Connection failed:', error);
             // Failed setup still owns resources acquired before _isConnected.
             this._teardownWsAudio();
+            this._releaseUiTracking();
             try { this._session?.close(); } catch { /* already closed / failed setup */ }
             this._isConnected = false;
             this._audioInputMode = null;
@@ -2547,11 +2552,26 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
 
             // Enable passive context integration for automatic NAV_CONTEXT updates
             uiManager.enablePassiveContext(this);
+            this._uiTrackingClaimed = true;
 
             console.log('OpenAI Realtime: UI state tracking and passive context integration initialized');
         } catch (error) {
             console.error('Failed to initialize UI state tracking:', error);
         }
+    }
+
+    /**
+     * Release the global UIManager registrations, but ONLY if this adapter
+     * instance made them (7.18). Resource teardown (mic, audio contexts) stays
+     * unconditional in disconnect(); this guard is strictly for the shared
+     * singleton state another adapter's live session may own.
+     */
+    private _releaseUiTracking(): void {
+        if (!this._uiTrackingClaimed || typeof window === 'undefined') return;
+        this._uiTrackingClaimed = false;
+        const uiManager = UIManager.getInstance();
+        uiManager.setBackgroundUpdateCallback(null);
+        uiManager.disablePassiveContext();
     }
 
     /**
@@ -2633,12 +2653,8 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 this._outputMeterDetach = null;
                 this._meteredOutputStream = null;
 
-                // Clean up UI state tracking
-                if (typeof window !== 'undefined') {
-                    const uiManager = UIManager.getInstance();
-                    uiManager.setBackgroundUpdateCallback(null);
-                    uiManager.disablePassiveContext();
-                }
+                // Clean up UI state tracking (only what this adapter claimed)
+                this._releaseUiTracking();
 
                 // Clean up NAV_CONTEXT message tracking
                 this.tokenListenerSetup = false;
@@ -2676,11 +2692,9 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             this._outputMeterDetach = null;
             this._meteredOutputStream = null;
 
-            if (typeof window !== 'undefined') {
-                const uiManager = UIManager.getInstance();
-                uiManager.setBackgroundUpdateCallback(null);
-                uiManager.disablePassiveContext();
-            }
+            // UIManager is a global singleton: releasing it from an adapter
+            // that never claimed it would strip a LIVE session's callbacks.
+            this._releaseUiTracking();
 
             this.tokenListenerSetup = false;
             this.pendingTokens.clear();

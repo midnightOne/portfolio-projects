@@ -1,11 +1,13 @@
 import { OpenAIRealtimeAdapter } from '../OpenAIRealtimeAdapter';
 
+const mockUiManager = {
+  setBackgroundUpdateCallback: jest.fn(),
+  disablePassiveContext: jest.fn(),
+};
+
 jest.mock('@/lib/navigation/UIManager', () => ({
   UIManager: {
-    getInstance: () => ({
-      setBackgroundUpdateCallback: jest.fn(),
-      disablePassiveContext: jest.fn(),
-    }),
+    getInstance: () => mockUiManager,
   },
 }));
 
@@ -18,6 +20,11 @@ function microphoneStream() {
 }
 
 describe('OpenAIRealtimeAdapter connection resource lifecycle', () => {
+  beforeEach(() => {
+    mockUiManager.setBackgroundUpdateCallback.mockClear();
+    mockUiManager.disablePassiveContext.mockClear();
+  });
+
   afterEach(() => {
     jest.restoreAllMocks();
   });
@@ -104,5 +111,39 @@ describe('OpenAIRealtimeAdapter connection resource lifecycle', () => {
     expect(stop).toHaveBeenCalledTimes(1);
     expect(adapter._pendingWsMicStream).toBeNull();
     expect(adapter._connectionStatus).toBe('disconnected');
+  });
+
+  it('7.18: disconnect on a never-connected adapter releases audio but leaves the global UIManager untouched', async () => {
+    const { stream, stop } = microphoneStream();
+    const adapter = new OpenAIRealtimeAdapter() as any;
+    adapter._pendingWsMicStream = stream;
+    adapter._session = { close: jest.fn() };
+    adapter._isConnected = false;
+    // Never connected → never claimed the UIManager registrations.
+
+    await adapter.disconnect();
+
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(mockUiManager.setBackgroundUpdateCallback).not.toHaveBeenCalled();
+    expect(mockUiManager.disablePassiveContext).not.toHaveBeenCalled();
+  });
+
+  it('7.18: disconnect on the adapter that claimed UI tracking releases it exactly once', async () => {
+    const adapter = new OpenAIRealtimeAdapter() as any;
+    adapter._session = { close: jest.fn() };
+    adapter._isConnected = false;
+    adapter._uiTrackingClaimed = true;
+
+    await adapter.disconnect();
+
+    expect(mockUiManager.setBackgroundUpdateCallback).toHaveBeenCalledTimes(1);
+    expect(mockUiManager.setBackgroundUpdateCallback).toHaveBeenCalledWith(null);
+    expect(mockUiManager.disablePassiveContext).toHaveBeenCalledTimes(1);
+    expect(adapter._uiTrackingClaimed).toBe(false);
+
+    // A second disconnect must not strip whatever a NEWER session registered since.
+    await adapter.disconnect();
+    expect(mockUiManager.setBackgroundUpdateCallback).toHaveBeenCalledTimes(1);
+    expect(mockUiManager.disablePassiveContext).toHaveBeenCalledTimes(1);
   });
 });
