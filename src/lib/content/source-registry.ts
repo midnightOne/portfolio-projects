@@ -382,7 +382,19 @@ export async function getSourceExclusions(): Promise<SourceExclusions> {
       // legacy provider rows: ignored
     }
   } catch (error) {
-    console.error('[SourceRegistry] exclusion read failed (retrieval fails closed):', error);
+    // Fail-closed with stale-while-error (semantic-content task 12, owner
+    // go-ahead 2026-07-17): visibility is an authorization boundary, so a
+    // read failure must never widen it — but the last successfully loaded
+    // snapshot is still authoritative-enough to keep retrieval alive through
+    // transient DB flakiness. Only a COLD instance (no snapshot ever loaded)
+    // hard-fails; the toggle path clears the snapshot via
+    // invalidateSourceRegistryCache(), so an admin change is never masked
+    // by this fallback.
+    if (exclusionsCache) {
+      console.error('[SourceRegistry] exclusion read failed — serving last-good snapshot (stale-while-error):', error);
+      return exclusionsCache.value;
+    }
+    console.error('[SourceRegistry] exclusion read failed with no prior snapshot (retrieval fails closed):', error);
     throw new Error('Source visibility is unavailable; retrieval refused to fail open', { cause: error });
   }
 

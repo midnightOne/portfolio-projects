@@ -142,11 +142,39 @@ describe('document source ownership persistence', () => {
     expect(mockTx.contentEntity.update).not.toHaveBeenCalled();
   });
 
-  it('fails closed when source visibility cannot be read', async () => {
+  it('fails closed when source visibility cannot be read on a cold instance', async () => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     mockPrisma.aIContentSourceConfig.findMany.mockRejectedValue(new Error('database unavailable'));
 
     await expect(getSourceExclusions()).rejects.toThrow('retrieval refused to fail open');
     consoleError.mockRestore();
+  });
+
+  it('serves the last-good exclusions snapshot when a refresh read fails (stale-while-error, task 12b)', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      // Prime: one disabled doc source loads successfully.
+      mockPrisma.aIContentSourceConfig.findMany.mockResolvedValueOnce([
+        { id: 'config-1', sourceId: 'doc:resume', config: { entityType: 'RESUME', slug: 'resume' } },
+      ]);
+      const primed = await getSourceExclusions();
+      expect(primed.entities.has('RESUME:resume')).toBe(true);
+
+      // Past TTL, the refresh read fails → the stale snapshot is served, not a throw.
+      nowSpy.mockReturnValue(1_000_000 + 60_000);
+      mockPrisma.aIContentSourceConfig.findMany.mockRejectedValue(new Error('database unavailable'));
+      const stale = await getSourceExclusions();
+      expect(stale.entities.has('RESUME:resume')).toBe(true);
+      expect(stale.hasAny).toBe(true);
+
+      // An explicit invalidation (the admin-toggle path) clears the snapshot:
+      // the same failure then fails closed — a visibility change is never masked.
+      invalidateSourceRegistryCache();
+      await expect(getSourceExclusions()).rejects.toThrow('retrieval refused to fail open');
+    } finally {
+      nowSpy.mockRestore();
+      consoleError.mockRestore();
+    }
   });
 });
