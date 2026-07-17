@@ -83,18 +83,22 @@ export async function assembleStartFrame(): Promise<string> {
   const now = Date.now();
   if (cache && now - cache.at < CACHE_TTL_MS) return cache.frame;
 
-  const [projects, t1Chunks, intro, ownerBio] = await Promise.all([
+  const [projects, t1Chunks, intro, ownerBio, generatedSummary] = await Promise.all([
     prisma.project.findMany({
       where: { visibility: 'PUBLIC' },
       select: { slug: true, title: true, tags: { select: { name: true } } },
       orderBy: { workDate: 'desc' },
     }),
     prisma.contextChunk.findMany({
-      where: { tier: 1, chunkId: { not: 'intro' } },
+      where: { tier: 1, chunkId: { not: 'intro' }, entity: { entityType: 'PROJECT' } },
       select: { content: true, entity: { select: { slug: true } } },
     }),
     loadVisitorIntro().catch(() => null),
     loadOwnerBio(),
+    // 7.22: the LLM-generated whole-portfolio overview, regenerated at ingest
+    // (lib/ai/portfolio-summary.ts). Import stays dynamic-free: a lazy require
+    // here would buy nothing — the module is tiny and prisma is shared.
+    import('./portfolio-summary').then((m) => m.loadGeneratedPortfolioSummary()).catch(() => null),
   ]);
 
   const summaryBySlug = new Map<string, string>();
@@ -114,12 +118,20 @@ export async function assembleStartFrame(): Promise<string> {
     lines.push('VISITOR INTRO (owner-authored — use this to introduce the site and what you can do):', intro, '');
   }
   lines.push('PORTFOLIO OVERVIEW (ground yourself in this):');
-  for (const p of projects) {
-    const summary = summaryBySlug.get(p.slug);
-    const line = summary
-      ? `- ${p.title} (${p.slug}): ${summary.replace(/\s+/g, ' ')}`
-      : `- ${p.title} (${p.slug})`;
-    lines.push(line.length > perProjectBudget ? `${line.slice(0, perProjectBudget - 1)}…` : line);
+  if (generatedSummary) {
+    // 7.22 split: the generated summary is the overview prose; a compact index
+    // straight from the DB rides alongside so slugs/titles are ALWAYS current
+    // even if the summary lags a regeneration.
+    lines.push(generatedSummary, '', `PROJECTS: ${projects.map((p) => `${p.title} (${p.slug})`).join('; ')}`);
+  } else {
+    // Fallback (no generated summary yet): the pre-7.22 per-project assembly.
+    for (const p of projects) {
+      const summary = summaryBySlug.get(p.slug);
+      const line = summary
+        ? `- ${p.title} (${p.slug}): ${summary.replace(/\s+/g, ' ')}`
+        : `- ${p.title} (${p.slug})`;
+      lines.push(line.length > perProjectBudget ? `${line.slice(0, perProjectBudget - 1)}…` : line);
+    }
   }
   if (technologies.length > 0) {
     lines.push(`Technologies across the portfolio: ${technologies.join(', ')}.`);
@@ -127,13 +139,15 @@ export async function assembleStartFrame(): Promise<string> {
 
   // Identity + intro extend the budget rather than eating the overview — each
   // section is independently capped (bio ≤ OWNER_BIO_CAP, intro ≤
-  // INTRO_CHAR_CAP, overview ≤ FRAME_CHAR_BUDGET).
+  // INTRO_CHAR_CAP, overview ≤ FRAME_CHAR_BUDGET; the 7.22 always-fresh
+  // project index extends it too, so it can never crowd out the tech line).
   const budget =
     FRAME_CHAR_BUDGET +
     ownerBio.length +
     PORTFOLIO_FRAMING.length +
     120 +
-    (intro ? intro.length + 120 : 0);
+    (intro ? intro.length + 120 : 0) +
+    (generatedSummary ? projects.length * 60 + 40 : 0);
   const frame = lines.join('\n').slice(0, budget);
   cache = { at: now, frame };
   return frame;

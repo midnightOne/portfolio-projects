@@ -510,6 +510,15 @@ export class StageBasedProcessingService extends EventEmitter {
       this.notifyProgress(request.operationId, progress);
       this.scheduleCleanup(request.operationId);
 
+      // 7.22: project data changed → regenerate the generated portfolio
+      // summary the mint start frame reads. Fire-and-forget (never blocks or
+      // fails the operation); a sourceHash guard inside makes it a no-op when
+      // nothing relevant changed, and manual edits are never overwritten.
+      void import('@/lib/ai/portfolio-summary')
+        .then((m) => m.regeneratePortfolioSummary())
+        .then((outcome) => console.log(`[portfolio-summary] post-ingest regeneration: ${outcome.status}`))
+        .catch((err) => console.warn('[portfolio-summary] post-ingest regeneration failed:', err));
+
     } catch (error) {
       progress.status = 'failed';
       progress.completedAt = new Date();

@@ -137,7 +137,12 @@ export type SessionMarkerType =
     | 'lead_captured'
     /** Safety-tripwire investigation verdict (Req 22.2, task L2) — inline in
      *  the admin transcript so the conversation links to its investigation. */
-    | 'safety_investigation';
+    | 'safety_investigation'
+    /** think_harder escalation record (7.17 follow-up, owner ask 2026-07-17):
+     *  WHICH reasoning model ran and the FULL context sent to it. Marker rows
+     *  are admin-only (getTurnsSince filters them), so the grounding text never
+     *  re-enters the realtime model's context window. */
+    | 'think_harder_escalation';
 
 export interface SessionMarker {
     type: SessionMarkerType;
@@ -181,6 +186,16 @@ export interface SessionMarker {
     verdict?: string;
     /** The CONFIGURED action the executor ran (may differ from the agent's recommendation). */
     actedAction?: string;
+    // ---- think_harder_escalation (7.17 follow-up) ----
+    /** Resolved model id that answered (the alias resolution at call time). */
+    modelId?: string;
+    /** The escalated question (model-authored tool arg). */
+    question?: string;
+    /** The EXACT grounding context sent to the reasoning model (capped). */
+    groundingText?: string;
+    groundingStats?: Record<string, unknown>;
+    usage?: { inputTokens?: number; outputTokens?: number };
+    outcome?: string;
 }
 
 export interface ConversationMessageRecord {
@@ -734,6 +749,9 @@ export class ConversationHistoryManager {
             // conversation") — the transcript is admin-only, markers are
             // system rows the model never sees (getTurnsSince filters them).
             : marker.type === 'safety_investigation' ? `[safety_investigation] verdict: ${marker.verdict ?? 'unknown'}${marker.actedAction ? ` → ${marker.actedAction}` : ''}`
+            // 7.17 follow-up: the escalation record — model + grounding size
+            // inline, full context in metadata for the replay's collapsible.
+            : marker.type === 'think_harder_escalation' ? `[think_harder] ${marker.outcome ?? 'ok'} via ${marker.provider ?? '?'}/${marker.modelId ?? '?'} — grounding ${(marker.groundingText ?? '').length.toLocaleString()} chars`
             : `[edge_evaluated] ${marker.evaluated?.length ?? 0} edge(s)${marker.evaluated?.some((r) => r.fired) ? ' — one fired' : ', none fired'}`;
         await prisma.$transaction([
             prisma.aIConversationMessage.create({
@@ -774,7 +792,15 @@ export class ConversationHistoryManager {
                         // safety_investigation fields (L2)
                         investigationId: marker.investigationId,
                         verdict: marker.verdict,
-                        actedAction: marker.actedAction
+                        actedAction: marker.actedAction,
+                        // think_harder_escalation fields (7.17 follow-up) —
+                        // groundingText capped so a runaway assembly can't bloat the row
+                        modelId: marker.modelId,
+                        question: marker.question,
+                        groundingText: marker.groundingText?.slice(0, 30_000),
+                        groundingStats: marker.groundingStats,
+                        usage: marker.usage,
+                        outcome: marker.outcome
                     } as any
                 }
             }),

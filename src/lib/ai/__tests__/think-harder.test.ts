@@ -20,6 +20,7 @@ jest.mock('@/lib/services/ai/conversation-history-manager', () => ({
   conversationHistoryManager: {
     getConversationRefBySessionId: jest.fn(),
     getTurnsSince: jest.fn(),
+    recordSessionMarker: jest.fn(),
   },
 }));
 
@@ -33,6 +34,7 @@ const mockFrame = assembleStartFrame as jest.Mock;
 const mockHistory = conversationHistoryManager as unknown as {
   getConversationRefBySessionId: jest.Mock;
   getTurnsSince: jest.Mock;
+  recordSessionMarker: jest.Mock;
 };
 
 const okOutcome = {
@@ -121,6 +123,45 @@ describe('runThinkHarder — the escalation (Block M path)', () => {
     // observability: grounding stats ride the result (and thus the tool row)
     expect(result.grounding).toMatchObject({ retrievalItems: 1, fullTextItems: 1, conversationTurns: 2 });
     expect(result.grounding!.groundingChars).toBeGreaterThan(100);
+  });
+
+  it('persists the escalation marker: model + FULL grounding text, and reports the model in the result', async () => {
+    const result = await runThinkHarder({
+      question: 'Why PID?',
+      sessionId: 'sess_1',
+      accessLevel: 'premium',
+      search,
+      fetch: fetchContent,
+    });
+    // model visible in the tool result (transcript row)
+    expect(result.model).toBe('fake/fake-reasoning');
+    // marker row: admin-only record of what the reasoning model received
+    const [convId, marker] = mockHistory.recordSessionMarker.mock.calls[0];
+    expect(convId).toBe('conv-1');
+    expect(marker).toMatchObject({
+      type: 'think_harder_escalation',
+      provider: 'fake',
+      modelId: 'fake-reasoning',
+      outcome: 'ok',
+      question: 'Why PID?',
+      usage: { inputTokens: 1000, outputTokens: 200 },
+    });
+    expect(marker.groundingText).toContain('OWNER FRAME');
+    expect(marker.groundingText).toContain('gain scheduling across temperature bands');
+    // the grounding text must NOT ride the model-facing result
+    expect(JSON.stringify(result)).not.toContain('OWNER FRAME');
+  });
+
+  it('a marker-write failure never affects the answer', async () => {
+    mockHistory.recordSessionMarker.mockRejectedValue(new Error('marker down'));
+    const result = await runThinkHarder({
+      question: 'Deep question',
+      sessionId: 'sess_1',
+      accessLevel: 'premium',
+      search,
+    });
+    expect(result.success).toBe(true);
+    expect(result.answer).toBe('A deep, grounded answer.');
   });
 
   it('degrades to one-liner grounding when the full-text fetch fails', async () => {

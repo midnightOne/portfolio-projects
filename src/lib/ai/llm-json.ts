@@ -27,6 +27,46 @@ export function escapeQuoteFrames(text: string): string {
 }
 
 /**
+ * Second-chance repair: escape raw control characters INSIDE string literals.
+ * Gemini-family models routinely emit multi-paragraph answers with literal
+ * newlines inside the JSON string (2026-07-17, think_harder drill), which
+ * strict JSON.parse rejects. Context-aware — whitespace BETWEEN tokens
+ * (pretty-printed JSON) is untouched, and already-escaped sequences pass
+ * through unchanged. Only ever applied after a strict parse has failed.
+ */
+function repairControlCharsInStrings(candidate: string): string {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+  for (const ch of candidate) {
+    if (inString) {
+      if (escaped) {
+        out += ch;
+        escaped = false;
+      } else if (ch === '\\') {
+        out += ch;
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+        out += ch;
+      } else if (ch === '\n') {
+        out += '\\n';
+      } else if (ch === '\r') {
+        out += '\\r';
+      } else if (ch === '\t') {
+        out += '\\t';
+      } else {
+        out += ch;
+      }
+    } else {
+      if (ch === '"') inString = true;
+      out += ch;
+    }
+  }
+  return out;
+}
+
+/**
  * Extract and validate a single JSON object from raw model output.
  * Returns null when there is no parseable object or the schema rejects it.
  */
@@ -39,11 +79,17 @@ export function parseJsonWithSchema<Schema extends z.ZodTypeAny>(
   const start = stripped.indexOf('{');
   const end = stripped.lastIndexOf('}');
   if (start === -1 || end <= start) return null;
+  const candidate = stripped.slice(start, end + 1);
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(stripped.slice(start, end + 1));
-    const result = schema.safeParse(parsed);
-    return result.success ? result.data : null;
+    parsed = JSON.parse(candidate);
   } catch {
-    return null;
+    try {
+      parsed = JSON.parse(repairControlCharsInStrings(candidate));
+    } catch {
+      return null;
+    }
   }
+  const result = schema.safeParse(parsed);
+  return result.success ? result.data : null;
 }

@@ -74,10 +74,15 @@ export interface ThinkHarderResult {
   /** Present on success — the deep answer for the voice model to narrate. */
   answer?: string;
   message: string;
+  /** Which reasoning model actually answered ("provider/modelId"). */
+  model?: string;
   /**
    * Observability (owner ask, 2026-07-17): what grounding the reasoning model
    * actually received — persisted with the tool row so "how much context did
-   * we send?" is answerable from the transcript, not from trust.
+   * we send?" is answerable from the transcript, not from trust. The FULL
+   * grounding text is persisted separately as a `think_harder_escalation`
+   * session marker (admin-only row — it must never re-enter the realtime
+   * model's context through the tool result).
    */
   grounding?: {
     retrievalItems: number;
@@ -196,7 +201,9 @@ export async function runThinkHarder(params: ThinkHarderParams): Promise<ThinkHa
     usageType: 'think_harder',
     feature: 'tools',
     temperature: 0.4,
-    maxOutputTokens: 1200,
+    // Generous: reasoning-enabled models (Gemini 2.5, o-series) spend thinking
+    // tokens INSIDE this budget — 1200 starved the answer after thought.
+    maxOutputTokens: 4000,
     timeoutMs: TIMEOUT_MS,
     ...(params.meter
       ? {
@@ -214,6 +221,32 @@ export async function runThinkHarder(params: ThinkHarderParams): Promise<ThinkHa
     metadata: { sessionId: params.sessionId },
   });
 
+  const model = outcome.provider ? `${outcome.provider}/${outcome.modelId}` : undefined;
+  const outcomeLabel = outcome.timedOut ? 'timed_out' : outcome.result ? 'ok' : 'unparseable';
+
+  // Escalation record (owner ask 2026-07-17): WHICH model ran and the FULL
+  // context it received, persisted as an admin-only session marker — the
+  // replay viewer renders the grounding under a collapsible block. Never
+  // rides the tool result (that would re-inject kilobytes into the realtime
+  // model's context); never fatal.
+  try {
+    const conversation = await conversationHistoryManager.getConversationRefBySessionId(params.sessionId);
+    if (conversation) {
+      await conversationHistoryManager.recordSessionMarker(conversation.id, {
+        type: 'think_harder_escalation',
+        provider: outcome.provider ?? undefined,
+        modelId: outcome.modelId ?? undefined,
+        question,
+        groundingText: grounding,
+        groundingStats,
+        usage: outcome.usage ?? undefined,
+        outcome: outcomeLabel,
+      });
+    }
+  } catch (error) {
+    console.warn('[think-harder] escalation marker write failed (answer unaffected):', error);
+  }
+
   if (outcome.timedOut) {
     return {
       success: false,
@@ -227,6 +260,7 @@ export async function runThinkHarder(params: ThinkHarderParams): Promise<ThinkHa
       success: false,
       message:
         'The deeper reasoning failed to produce a usable answer. Answer as well as you can from what you already know — do not present a guess as the deep answer.',
+      model,
       grounding: groundingStats,
     };
   }
@@ -236,6 +270,7 @@ export async function runThinkHarder(params: ThinkHarderParams): Promise<ThinkHa
     answer: outcome.result.answer,
     message:
       'Deep answer ready. Narrate it in your own voice, naturally — do not read it as a quotation or mention the escalation mechanics.',
+    model,
     grounding: groundingStats,
   };
 }

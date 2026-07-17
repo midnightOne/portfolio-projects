@@ -407,6 +407,11 @@ function markerHeadline(step: ReplayStep, nodeNames?: Record<string, string>): s
     case 'safety_investigation':
       // L2 (Req 22.2): the conversation links to its investigation inline.
       return `🛡️ Safety investigation — ${meta.verdict ?? 'unknown'}${meta.actedAction ? ` → ${meta.actedAction}` : ''}`;
+    case 'think_harder_escalation':
+      // 7.17 follow-up: WHICH reasoning model ran, inline; context collapsible below.
+      return `🧠 Deep dive (${meta.outcome ?? 'ok'}) — ${meta.provider ?? '?'}/${meta.modelId ?? '?'}${
+        meta.usage ? ` · ${(meta.usage as { inputTokens?: number }).inputTokens ?? '?'} in / ${(meta.usage as { outputTokens?: number }).outputTokens ?? '?'} out` : ''
+      }`;
     case 'edge_evaluated':
       return '⚖️ Edges evaluated (debug)';
     default:
@@ -581,6 +586,37 @@ export function ReplayStepCard({
           <summary className="text-xs text-muted-foreground cursor-pointer select-none">Evaluated edges</summary>
           <pre className="text-xs whitespace-pre-wrap mt-1 bg-black/5 dark:bg-white/5 rounded p-2">
             {JSON.stringify(step.message.metadata.evaluated, null, 2)}
+          </pre>
+        </details>
+      )}
+
+      {/* 7.17 follow-up (owner ask): the EXACT context sent to the reasoning
+          model, collapsible — this row is admin-only, the realtime model never
+          receives it. */}
+      {markerType === 'think_harder_escalation' && (
+        <details className="mt-2" data-testid="think-harder-grounding">
+          <summary className="text-xs text-muted-foreground cursor-pointer select-none">
+            Context sent to the reasoning model
+            {typeof step.message.metadata?.groundingText === 'string'
+              ? ` (${step.message.metadata.groundingText.length.toLocaleString()} chars)`
+              : ''}
+          </summary>
+          {step.message.metadata?.groundingStats != null && (
+            <p className="text-xs text-muted-foreground mt-1">
+              {Object.entries(step.message.metadata.groundingStats as Record<string, unknown>)
+                .map(([k, v]) => `${k}: ${String(v)}`)
+                .join(' · ')}
+            </p>
+          )}
+          {typeof step.message.metadata?.question === 'string' && (
+            <p className="text-xs mt-1">
+              <span className="text-muted-foreground">question:</span> {step.message.metadata.question}
+            </p>
+          )}
+          <pre className="text-xs whitespace-pre-wrap mt-1 bg-black/5 dark:bg-white/5 rounded p-2 max-h-96 overflow-auto">
+            {typeof step.message.metadata?.groundingText === 'string'
+              ? step.message.metadata.groundingText
+              : '(grounding text not recorded)'}
           </pre>
         </details>
       )}

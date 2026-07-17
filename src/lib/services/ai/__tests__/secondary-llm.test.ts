@@ -65,6 +65,20 @@ describe('parseJsonWithSchema (shared M1 posture)', () => {
     expect(parseJsonWithSchema('{"answer": 42}', Shape)).toBeNull();
     expect(parseJsonWithSchema(null, Shape)).toBeNull();
   });
+  it('repairs literal control characters INSIDE strings (Gemini multi-paragraph answers, 2026-07-17)', () => {
+    // Raw newline inside the string value — strict JSON.parse rejects this.
+    expect(parseJsonWithSchema('{"answer": "first paragraph.\n\nsecond\tparagraph."}', Shape)).toEqual({
+      answer: 'first paragraph.\n\nsecond\tparagraph.',
+      score: 0,
+    });
+    // Pretty-printed JSON (newlines BETWEEN tokens) still parses strictly — no repair distortion.
+    expect(parseJsonWithSchema('{\n  "answer": "hi"\n}', Shape)).toEqual({ answer: 'hi', score: 0 });
+    // Already-escaped sequences pass through unchanged.
+    expect(parseJsonWithSchema('{"answer": "line\\nbreak \\"quoted\\""}', Shape)).toEqual({
+      answer: 'line\nbreak "quoted"',
+      score: 0,
+    });
+  });
 });
 
 describe('runSecondaryLLMJob (M1)', () => {
