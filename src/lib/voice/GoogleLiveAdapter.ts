@@ -109,6 +109,11 @@ export class GoogleLiveAdapter extends BaseConversationalAgentAdapter {
   private _setupComplete = false;
   private _setupCompleteResolve: (() => void) | null = null;
   private _conversationId: string | null = null;
+
+  /** 7.24: tools must carry the SAME session id the conversation persists under. */
+  protected override _getPersistSessionId(): string {
+    return this._conversationId ?? super._getPersistSessionId();
+  }
   private _resumeSessionId: string | null = null;
   private _sessionModel: string | null = null;
 

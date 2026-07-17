@@ -3116,6 +3116,11 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
         return this._sessionId;
     }
 
+    /** 7.24: tools must carry the SAME session id the conversation persists under. */
+    protected override _getPersistSessionId(): string {
+        return this._generateSessionId();
+    }
+
     /**
      * Get current conversation analytics
      */

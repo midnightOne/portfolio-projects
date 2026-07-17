@@ -54,6 +54,11 @@ const IDLE_SEGMENT_RESET_MS = 45_000;
 export class CascadeVoiceAdapter extends BaseConversationalAgentAdapter {
   private _config: CascadeConfig | null = null;
   private _conversationId: string | null = null;
+
+  /** 7.24: tools must carry the SAME session id the conversation persists under. */
+  protected override _getPersistSessionId(): string {
+    return this._conversationId ?? super._getPersistSessionId();
+  }
   private _resumeSessionId: string | null = null;
 
   // Input side

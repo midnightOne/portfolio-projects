@@ -638,8 +638,19 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
   }
 
   /**
+   * The session id this adapter PERSISTS its conversation under (7.24) —
+   * the identity every tool call, marker, and conversation-anchored write
+   * must share. Adapters override with their real persistence id
+   * (`_generateSessionId()` / `_conversationId`); the contextId fallback
+   * only covers adapters that never persist a conversation.
+   */
+  protected _getPersistSessionId(): string {
+    return this._options?.contextId || 'unknown-session';
+  }
+
+  /**
    * Unified Tool Execution Pipeline
-   * 
+   *
    * Provides single, predictable execution path for all tools regardless of provider.
    * Routes client tools to UINavigationTools and server tools to /api/ai/tools/execute.
    * Includes comprehensive debug event emission with toolCallId correlation.
@@ -656,7 +667,15 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
     }
 
     const toolCallId = uuidv4();
-    const sessionId = this._options?.contextId || 'unknown-session';
+    // 7.24: the session identity tools carry MUST be the one the conversation
+    // persists under. contextId is the reflink id / a public_<ts> string —
+    // sending it meant every server tool on the voice path missed the real
+    // conversation: think_harder lost its conversation-tail grounding and
+    // skipped its escalation marker, lead_capture anchored leads to a
+    // DANGLING conversation, and the node-allowlist + safety-revocation
+    // checks in tools/execute keyed off an id no state lives under
+    // (owner report, conversation cmrojyfi4…, 2026-07-18).
+    const sessionId = this._getPersistSessionId();
     const startTime = Date.now();
     
     // Emit debug event for tool call start with correlation ID
