@@ -271,8 +271,9 @@ function AIInterfaceContent({
             className={className}
           />
           {isAdmin && <HomepageDevVoicePanel />}
-          {/* Task 7.0: owner context-debug panel — admin-gated (server-side check
-              in layout.tsx), NOT dev-only; must work in a production build. */}
+          {/* Task 7.0: owner context-debug panel — visibility follows the
+              client NextAuth session; every sensitive data endpoint remains
+              server-admin-gated. Not dev-only: it must work in production. */}
           {isAdmin && <ContextDebugPanel />}
         </>
       )}

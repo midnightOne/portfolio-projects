@@ -102,6 +102,15 @@ T0–T3 heading-bounded generation with contextual prefixes and section hashes; 
 - [x] 10. Semantic operation reliability gate — **PASSED 2026-07-12**; `scope:'all'` is enabled. `npm run drill:semantic-reliability` (scripts/drill-semantic-reliability.ts, HTTP against the dev server with real AI, blast-radius-contained to the 4 drill projects): scope-all ingest of kiln (nested H2→H3) + 3 drill projects → SSE attach + deliberate mid-run disconnect → completion with NO subscriber → queue API projection completed with 4 completed children + per-project outcomes → SSE reconnect returns the persisted terminal snapshot equal to the queue projection and closes → ledger rows correlated via `AIUsageLog.metadata.operationId` → child H3 edit + `scope:'section'` regeneration re-summarizes/re-embeds the ancestor chain (celadon T2, glaze T2 with child provenance, chrono T2, T1) while the unrelated sibling (thermal) is untouched → edit reverted, fixture canonical → `check:semantic` 22/22 green. Recipe recorded in the verification spec ledger (task 9 there). 21/21 drill assertions.
   - _Requirements: 3, 9; verification Requirements 5–7_
 
+### Admin configuration connectivity (2026-07-17)
+
+- [x] 11. Persisted chunking settings and semantic admin navigation are connected end to end.
+  - [x] 11.1 `SmartContentGenerator.generateScaffoldOnly` resolves the current default `ChunkingConfig` for every run and passes target/max/min/overlap/split strategy into the T3 chunker; explicit call-site overrides remain supported. This removes stale factory defaults from long-lived processing-service instances.
+  - [x] 11.2 Semantic Dashboard and Chunking Configuration are verified under the admin **Knowledge Base** category.
+  - [x] 11.3 Cleanup and export quick actions target the implemented Bulk Operations page and select the corresponding tab; nonexistent `/admin/semantic/cleanup` and `/admin/semantic/export` destinations are gone.
+  - [x] 11.4 Focused Jest coverage + repository type-check green. Broader disconnected/stale admin inventory and local debug-access alternatives are recorded in `docs/admin-dashboard-connectivity-and-local-debug-access-2026-07-17.md`.
+  - _Requirements: 2.6, 7.4_
+
 ## Backlog
 
 Multi-embedding-model A/B (model-comparison endpoint exists; keep frozen); cross-project T0 variants; per-audience summaries (reflink personalization) — needs a registry decision.

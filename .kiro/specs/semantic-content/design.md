@@ -2,7 +2,7 @@
 
 **Status:** current — describes implemented system (bulk-operation integrity §7 implemented + drilled 2026-07-12)
 **Owner domain:** T0–T3 semantic pipeline, search, budgets, dashboard
-**Last verified against code:** 2026-07-16 (post-54ffa09 staff-review fixes)
+**Last verified against code:** 2026-07-17 (runtime config + admin connectivity pass)
 **Deep-dive:** [HEADING_BOUNDED_CHUNKING.md](./HEADING_BOUNDED_CHUNKING.md) · Batch API: [strategy](./BATCH_API_STRATEGY.md), [integration](./BATCH_API_INTEGRATION.md), [UI](./BATCH_MODE_UI_INTEGRATION.md)
 
 ---
@@ -42,7 +42,7 @@ See `prisma/schema.prisma` (truth for shapes): `ContentEntity` (indexed entity; 
 
 Visibility and disabled-source filtering happen in SQL before ranking/limit, not post-hoc. Visibility-registry reads fail closed. Scope identity is typed: `projectId` is PROJECT-only; non-project selection is `(entityType, entitySlug)`. Non-project route metadata is keyed by the same typed identity so equal slugs cannot collide.
 
-Chunk generation uses the DB-backed `ChunkingConfig` for both projects and document scaffolds. It is paragraph-first, but an oversized paragraph is recursively bounded by sentence, word, then hard-character boundaries. Scaffold replacement is a single transaction: upsert the new composite `(tier, chunkId)` set first, then delete stale rows; manual rows are retained or protected from overwrite when `preserveManualEdits` is enabled.
+Chunk generation resolves the DB-backed `ChunkingConfig` at scaffold execution time for both projects and document scaffolds, rather than retaining constructor-time defaults in the long-lived processing service. Project T3 content follows the configured split strategy. Document sources deliberately remain paragraph-first; an oversized paragraph is recursively bounded by sentence, word, then hard-character boundaries. Scaffold replacement is a single transaction: upsert the new composite `(tier, chunkId)` set first, then delete stale rows; manual rows are retained or protected from overwrite when `preserveManualEdits` is enabled.
 
 ## 4. Budgets & cost (post-D32 shape)
 
@@ -50,7 +50,7 @@ Chunk generation uses the DB-backed `ChunkingConfig` for both projects and docum
 
 ## 5. Admin dashboard
 
-`/admin/semantic`: health dashboard, per-project tree (T0→T3), chunk editor with AI-assisted edit + summary regeneration, chunking/summary/change-detection config editors, processing start/queue/operation views (SSE), budget panel, bulk ops (regenerate/importance/cleanup/export/import), model comparison, force reindex. Diagnostics via `SemanticDiagnosticService` + `npm run diagnostics`.
+`/admin/semantic`: health dashboard, per-project tree (T0→T3), chunk editor with AI-assisted edit + summary regeneration, chunking/summary/change-detection config editors, processing start/queue/operation views (SSE), budget panel, bulk ops (regenerate/importance/cleanup/export/import), model comparison, force reindex. The dashboard and `/admin/semantic/config` are top-level items in the admin **Knowledge Base** category. Cleanup/export quick actions deep-link into the implemented tabs on `/admin/semantic/bulk-operations`. Diagnostics via `SemanticDiagnosticService` + `npm run diagnostics`.
 
 One-off diagnostic routes were deleted in Phase 3 (D42): `test-search-newchunks`, `trace-search-flow`, `which-entities-have-embeddings`, `inspect-vector`, `compare-embeddings`, `compare-chunk-structure`, `search-diagnostic`, `fix-missing-timestamps`, `check-new-embeddings`. `SemanticDiagnosticService` and the dashboard remain the sanctioned diagnostics surfaces.
 

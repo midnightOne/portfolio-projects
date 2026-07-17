@@ -84,6 +84,7 @@ Overview: [`../00-overview/README.md`](../00-overview/README.md)
 1. WHEN the dashboard loads THEN it SHALL show per-project index health (chunk counts by tier, embedding coverage, staleness), with tree view, chunk editor (incl. AI-assisted chunk edit and summary regeneration), config editors (chunking, summary, change detection), processing queue, and bulk operations (regenerate, importance, cleanup, export/import).
 2. WHEN importance is manually set THEN it SHALL persist and influence ranking.
 3. Diagnostics: `SemanticDiagnosticService` + `npm run diagnostics` is the sanctioned path; one-off diagnostic API routes are deleted (D42).
+4. The semantic dashboard and chunking configuration SHALL live in the admin **Knowledge Base** category. Every enabled dashboard action SHALL resolve to an implemented page or execute an implemented API action; cleanup and export SHALL enter their corresponding Bulk Operations tabs rather than standalone placeholder routes.
 
 ## Requirement 8 — One semantic index (D37)
 

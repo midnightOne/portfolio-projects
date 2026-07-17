@@ -2,7 +2,7 @@
 
 **Status:** current
 **Owner domain:** admin shell, project editor, homepage composer, admin project APIs
-**Last verified against code:** 2026-07-07 (Phase 3 consolidation session)
+**Last verified against code:** 2026-07-17 (navigation connectivity audit)
 **Ledger regenerated from code truth per D36.**
 
 ---
@@ -29,6 +29,14 @@ Admin shell with sidebar navigation and session gating; projects dashboard with 
   - [ ] 4.1 Access & Spend panel added under the shell (owned by `access-and-cost`)
   - [ ] 4.2 MCP status/config surface if needed (owned by `mcp-server`)
   - _Requirements: 1.3_
+
+- [ ] 5. Close navigation audit follow-ups — findings recorded 2026-07-17
+  - [ ] 5.1 Replace/remove the dead `/admin/ai/project-indexing` AI Settings card and connect or remove stale disabled cards for live Conversations/Security surfaces.
+  - [ ] 5.2 Decide whether `/admin/projects/[id]/media` is retired or owned by a project action; if retained, wrap it in shared admin chrome.
+  - [ ] 5.3 Make `/admin/media` a real category landing page or a compatibility redirect to `/admin/media/upload`.
+  - [ ] 5.4 Wire or remove the inert Overview **View Analytics** button; update first-party project links to canonical editor routes while retaining legacy redirects for bookmarks.
+  - [ ] 5.5 Centralize the admin-subtree role gate in `/admin/layout.tsx` while retaining middleware and sensitive API authorization; keep public-surface debug visibility client-session-gated.
+  - _Requirements: 1.3–1.5, 6.1_
 
 ## Backlog
 

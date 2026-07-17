@@ -2,7 +2,7 @@
 
 **Status:** current — largely implemented
 **Owner domain:** admin shell/navigation, project management UI (`EnhancedProjectEditor`), homepage composer, admin project APIs
-**Last verified against code:** 2026-07-02 (`e2d75b4`)
+**Last verified against code:** 2026-07-17 (admin navigation connectivity audit)
 **Registry decisions applied:** D6 (Tiptap only), D7 (visibility only), D8 (single save path), D10 (one editor), D12 (homepage config endpoints)
 **Contracts:**
 
@@ -28,10 +28,11 @@ Overview: [`../00-overview/README.md`](../00-overview/README.md)
 
 **User story:** As the owner, I want a consistent professional admin interface, so that I can manage everything without context switching.
 
-1. WHEN any admin page loads THEN the system SHALL display the shared left sidebar with collapsible sections (Overview, Homepage, Projects, AI, Media, Semantic, Settings), highlighting the current page with breadcrumbs.
+1. WHEN any standard admin page loads THEN the system SHALL display the shared left sidebar with collapsible task categories (Overview, Site Content, Media, AI Assistant, Knowledge Base, Access & Safety, Insights & Monitoring, Developer Tools), highlighting the current page with breadcrumbs.
 2. WHEN admin pages are viewed on mobile THEN the sidebar SHALL collapse to a hamburger menu; on desktop it SHALL be hideable for workspace.
 3. WHEN new admin pages are added THEN they SHALL follow the established layout, table, and form patterns (shadcn/ui based).
 4. WHEN any admin page or `/api/admin/**` route is accessed THEN the system SHALL require an authenticated session (consumes `portfolio-core` auth).
+5. WHEN an enabled navigation item or dashboard action is rendered THEN it SHALL resolve to an implemented route/action. Contextual dynamic pages SHALL have an owning list/detail workflow and SHALL use the shared admin chrome unless explicitly documented as a full-screen editor.
 
 ## Requirement 2 — Project management
 
