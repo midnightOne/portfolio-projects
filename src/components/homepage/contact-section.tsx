@@ -278,6 +278,7 @@ function ContactForm({ onSubmit, state, setState, className }: ContactFormProps)
             required
             disabled={state.isSubmitting}
             placeholder="Your name"
+            data-semantic-id="contact-name"
           />
         </div>
         <div>
@@ -292,6 +293,7 @@ function ContactForm({ onSubmit, state, setState, className }: ContactFormProps)
             required
             disabled={state.isSubmitting}
             placeholder="your.email@example.com"
+            data-semantic-id="contact-email"
           />
         </div>
       </div>
@@ -308,6 +310,7 @@ function ContactForm({ onSubmit, state, setState, className }: ContactFormProps)
           required
           disabled={state.isSubmitting}
           placeholder="What's this about?"
+          data-semantic-id="contact-subject"
         />
       </div>
 
@@ -323,6 +326,7 @@ function ContactForm({ onSubmit, state, setState, className }: ContactFormProps)
           disabled={state.isSubmitting}
           placeholder="Your message..."
           rows={5}
+          data-semantic-id="contact-message"
         />
       </div>
 
@@ -374,15 +378,25 @@ export function ContactSection({
     error: null
   });
 
+  // 7.16: real submission through the pass-to-owner path (was a demo stub —
+  // simulated success, console.log only). Same route the client-request
+  // intake uses: ConversationLead row first, then the owner notification seam.
   const handleFormSubmit = async (data: ContactFormData) => {
-    // Simulate form submission - replace with actual implementation
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // In a real implementation, you would send the data to your backend
-    console.log('Form submitted:', data);
-    
-    // For demo purposes, we'll just simulate success
-    // throw new Error('This is a demo error'); // Uncomment to test error handling
+    const res = await fetch('/api/ai/client-request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: `${data.subject.trim() ? `${data.subject.trim()}\n\n` : ''}${data.message}`,
+        contact: `${data.name} <${data.email}>`,
+        source: 'contact_form',
+      }),
+    });
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok || !result.success) {
+      throw new Error(
+        typeof result?.error === 'string' ? result.error : 'Failed to send message — please try again.'
+      );
+    }
   };
 
   const hasDirectContact = email || socialLinks.length > 0;

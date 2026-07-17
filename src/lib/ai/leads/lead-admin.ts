@@ -17,6 +17,10 @@ export interface LeadRow {
   graphVersionId: string | null;
   slots: Record<string, string>;
   fitNote: string | null;
+  /** 7.16: free-form visitor message/request (client-request intake). */
+  message: string | null;
+  /** 7.16: pasted project spec/requirements text. */
+  specText: string | null;
   status: string;
   notifiedAt: string | null;
   notifyChannel: string | null;
@@ -32,6 +36,8 @@ function toRow(lead: {
   graphVersionId: string | null;
   slots: unknown;
   fitNote: string | null;
+  message: string | null;
+  specText: string | null;
   status: string;
   notifiedAt: Date | null;
   notifyChannel: string | null;
@@ -46,6 +52,8 @@ function toRow(lead: {
     graphVersionId: lead.graphVersionId,
     slots: (lead.slots && typeof lead.slots === 'object' ? lead.slots : {}) as Record<string, string>,
     fitNote: lead.fitNote,
+    message: lead.message,
+    specText: lead.specText,
     status: lead.status,
     notifiedAt: lead.notifiedAt?.toISOString() ?? null,
     notifyChannel: lead.notifyChannel,

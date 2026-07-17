@@ -58,6 +58,13 @@ export const PUBLIC_TOOL_ALLOWLIST = [
   'ui_describe',
   'ui_details', // 7.1e client pull — the dieted fid's detail channel
   'portfolio_overview', // 7.13 — owner/portfolio depth on every runtime
+  // 7.16: leaving the owner a message is the public tier's most legitimate
+  // conversion. Both tools act only in the visitor's own browser; the intake
+  // SUBMISSION route enforces its own gateway limits, and fill_field's submit
+  // is consent-gated. lead_capture stays deliberately NON-public (H2 ruling);
+  // think_harder stays non-public (cost — reflink/admin only).
+  'client_request_form',
+  'fill_field',
 ] as const;
 
 export interface GatewayDebugState {

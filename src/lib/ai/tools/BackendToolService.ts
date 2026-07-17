@@ -72,6 +72,11 @@ export class BackendToolService {
 
   /**
    * Execute a server-side tool
+   *
+   * `meter` (7.17): the dispatching gateway route's ctx.meter, so model spend
+   * INSIDE a tool (think_harder's reasoning call) lands with request/tier/
+   * reflink attribution. Absent (legacy callers), cost-incurring tools fall
+   * back to the internal ledger path — spend is still recorded (D33).
    */
   async executeTool(
     toolName: string,
@@ -80,7 +85,15 @@ export class BackendToolService {
     accessLevel: 'basic' | 'limited' | 'premium',
     reflinkId?: string,
     userId?: string,
-    uiState?: any
+    uiState?: any,
+    meter?: (entry: {
+      usageType: string;
+      provider: string;
+      modelId: string;
+      inputTokens: number;
+      outputTokens: number;
+      metadata?: Record<string, unknown>;
+    }) => Promise<unknown>
   ): Promise<UnifiedToolResult> {
     const startTime = Date.now();
 
@@ -201,6 +214,31 @@ export class BackendToolService {
               parameters.slots && typeof parameters.slots === 'object'
                 ? (parameters.slots as Record<string, unknown>)
                 : undefined,
+            // 7.16: free-form request/message to pass along (client intent).
+            message: typeof parameters.message === 'string' ? parameters.message : undefined,
+          });
+          break;
+        }
+
+        // 7.17 — D41 voice↔reasoning escalation through the Block M path.
+        // Grounding reuses THIS service's content_search handler (D39: one
+        // server-tool chain); the handler returns an honest failure message
+        // for the model rather than throwing (P1/P10 fail-safe posture).
+        case 'think_harder': {
+          const { runThinkHarder } = await import('@/lib/ai/think-harder');
+          result = await runThinkHarder({
+            question: typeof parameters.question === 'string' ? parameters.question : '',
+            sessionId: context.sessionId,
+            accessLevel: context.accessLevel,
+            uiState,
+            meter,
+            search: async (query, searchUiState) => {
+              const searchResult = await this.handleContentSearch(
+                { query: query.slice(0, 500), uiState: searchUiState, k: 8, maxTier: 2 },
+                context
+              );
+              return Array.isArray(searchResult?.items) ? searchResult.items : [];
+            },
           });
           break;
         }

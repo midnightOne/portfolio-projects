@@ -767,6 +767,10 @@ model ConversationLead {
   /// Captured slot snapshot {type, timeline, company, contact, ...}
   slots          Json      @default("{}")
   fitNote        String?   @map("fit_note")
+  /// 7.16: free-form visitor message/request to pass to the owner (client-request intake).
+  message        String?
+  /// 7.16: pasted project spec/requirements text accompanying a client request.
+  specText       String?   @map("spec_text")
   status         String    @default("new") // new | seen | handled
   notifiedAt     DateTime? @map("notified_at")
   notifyChannel  String?   @map("notify_channel")

@@ -666,7 +666,7 @@ export const relatedContentToolDefinition: UnifiedToolDefinition = {
 export const leadCaptureToolDefinition: UnifiedToolDefinition = {
   name: 'lead_capture',
   description:
-    'Record a qualified visitor lead for the portfolio owner (contact/company/timeline details plus your fit note) and notify him. Call ONLY after the visitor has explicitly agreed in conversation to have their details passed along — ask first ("I\'ll pass this along with your contact — is that okay?"). Never promise availability, price, timeline, or faster contact than "a couple of days".',
+    'Record a qualified visitor lead OR a client project request/message for the portfolio owner (contact/company/timeline details plus your fit note) and notify him. This is the pass-to-owner path for clients wanting work built or quoted — NEVER route those to job_description_form. Call ONLY after the visitor has explicitly agreed in conversation to have their details passed along — ask first ("I\'ll pass this along with your contact — is that okay?"). Never promise availability, price, timeline, or faster contact than "a couple of days".',
   parameters: {
     type: 'object',
     properties: {
@@ -685,6 +685,11 @@ export const leadCaptureToolDefinition: UnifiedToolDefinition = {
         description:
           'Details the visitor stated, as short strings — e.g. {"name": …, "company": …, "contact": …, "type": "contract work", "timeline": "Q3"}. Only include what was actually said.',
         additionalProperties: { type: 'string' },
+      },
+      message: {
+        type: 'string',
+        description:
+          'The visitor\'s own request/question for the owner, close to verbatim — use it when they want something specific passed along (a project ask, a question, a proposal).',
       },
     },
     required: ['consentConfirmed', 'fitNote'],
@@ -739,6 +744,41 @@ export const portfolioOverviewToolDefinition: UnifiedToolDefinition = {
   },
 };
 
+/**
+ * think_harder (ai-assistant 7.17 — the first concrete D41 voice↔reasoning
+ * hand-off): escalate a hard question to the admin-selectable
+ * `default-reasoning` model (D39) via the required secondary-LLM job path
+ * (Block M), grounded in the current view + conversation + retrieval. SLOW by
+ * design (the D50 filler clips + latency guidance cover the wait). Cost-gated:
+ * not on the public allowlist, and the handler refuses basic-tier sessions.
+ * Schema stays tiny (7.2b — every minted schema is standing overhead).
+ */
+export const thinkHarderToolDefinition: UnifiedToolDefinition = {
+  name: 'think_harder',
+  description:
+    'Escalate a question to a stronger reasoning model and get back a deeper synthesized answer to narrate in your own voice. Use it for genuinely deep technical questions you cannot reason about at depth, or when the visitor signals your answers are too shallow ("go deeper", "I don\'t understand", "too surface-level"). It takes several seconds — tell the visitor you\'ll think about it for a moment first. NEVER use it for routine lookups content_search/content_get already answer.',
+  parameters: {
+    type: 'object',
+    properties: {
+      question: {
+        type: 'string',
+        description:
+          'The full question to think hard about, self-contained — include the specifics the visitor gave and what dissatisfied them if this is a go-deeper retry.',
+      },
+    },
+    required: ['question'],
+  },
+  executionContext: 'server',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean' },
+      answer: { type: 'string' },
+      message: { type: 'string' },
+    },
+  },
+};
+
 // Export all server-side tool definitions
 export const serverToolDefinitions: UnifiedToolDefinition[] = [
   loadProjectContextToolDefinition,
@@ -758,6 +798,8 @@ export const serverToolDefinitions: UnifiedToolDefinition[] = [
   leadCaptureToolDefinition,
   // 7.13 owner/portfolio depth
   portfolioOverviewToolDefinition,
+  // 7.17 D41 voice↔reasoning escalation
+  thinkHarderToolDefinition,
 ];
 
 // Note: getServerToolDefinitions function has been removed

@@ -244,7 +244,11 @@ async function handler(req: NextRequest, ctx: GatewayContext): Promise<NextRespo
         parsedArgs,
         persistSessionId,
         accessLevel,
-        ctx.reflink?.id
+        ctx.reflink?.id,
+        undefined, // userId
+        undefined, // uiState
+        // 7.17: in-tool model spend (think_harder) meters with tier/reflink attribution
+        (entry) => ctx.meter({ ...entry, metadata: entry.metadata as never })
       );
       const ms = Date.now() - toolStart;
       ctx.debug.toolCalls.push({ name: call.name, args: parsedArgs, ok: toolResult.success, ms, error: toolResult.error });

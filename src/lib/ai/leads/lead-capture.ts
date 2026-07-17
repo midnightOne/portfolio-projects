@@ -25,6 +25,10 @@ import { renderEmailShell, escapeHtml } from './email-render';
 const SLOT_VALUE_CAP = 200;
 const MAX_SLOTS = 20;
 const FIT_NOTE_CAP = 2000;
+/** 7.16: free-form visitor message/request text (client-request intake). */
+const MESSAGE_CAP = 4000;
+/** 7.16: pasted project spec/requirements — mirrors the JD form's 20k cap. */
+const SPEC_TEXT_CAP = 20_000;
 
 export interface LeadCaptureParams {
   sessionId: string;
@@ -35,6 +39,10 @@ export interface LeadCaptureParams {
   fitNote: string;
   /** Details stated in conversation — merged OVER the engine-captured slots. */
   slots?: Record<string, unknown>;
+  /** 7.16: the visitor's own message/question/request, verbatim, to pass along. */
+  message?: string;
+  /** 7.16: pasted project spec/requirements text (client-request intake form). */
+  specText?: string;
 }
 
 export interface LeadCaptureResult {
@@ -59,17 +67,29 @@ function sanitizeSlots(raw: Record<string, unknown> | undefined): Record<string,
   return out;
 }
 
-function leadEmail(args: { leadId: string; slots: Record<string, string>; fitNote: string; conversationId: string }): {
+function leadEmail(args: {
+  leadId: string;
+  slots: Record<string, string>;
+  fitNote: string;
+  conversationId: string;
+  message?: string;
+  specText?: string;
+}): {
   subject: string;
   text: string;
   html: string;
 } {
   const who = args.slots.company ?? args.slots.name ?? args.slots.contact ?? args.slots.contact_info ?? 'a visitor';
-  const subject = `Portfolio lead: ${who}`.slice(0, 140);
+  const isClientRequest = Boolean(args.message || args.specText);
+  const subject = `${isClientRequest ? 'Portfolio client request' : 'Portfolio lead'}: ${who}`.slice(0, 140);
   const slotLines = Object.entries(args.slots).map(([k, v]) => `- **${k}**: ${v}`);
   const bodyMarkdown = [
-    '## New conversation lead',
+    isClientRequest ? '## New client request' : '## New conversation lead',
     args.fitNote,
+    args.message ? ['### Visitor message', args.message].join('\n\n') : '',
+    args.specText
+      ? ['### Attached spec / requirements', args.specText.length > 4000 ? `${args.specText.slice(0, 4000)}\n\n… (${args.specText.length.toLocaleString()} chars total — full text on the lead row)` : args.specText].join('\n\n')
+      : '',
     slotLines.length ? ['### Details', slotLines.join('\n')].join('\n\n') : '',
     `Review it at /admin/ai/leads (lead ${args.leadId}) — the conversation replay is linked there.`,
   ]
@@ -77,11 +97,15 @@ function leadEmail(args: { leadId: string; slots: Record<string, string>; fitNot
     .join('\n\n');
   return {
     subject,
-    text: `${args.fitNote}\n\n${Object.entries(args.slots)
+    text: `${args.fitNote}\n\n${args.message ? `Visitor message:\n${args.message}\n\n` : ''}${
+      args.specText ? `Spec/requirements (${args.specText.length.toLocaleString()} chars):\n${args.specText.slice(0, 4000)}\n\n` : ''
+    }${Object.entries(args.slots)
       .map(([k, v]) => `${k}: ${v}`)
       .join('\n')}\n\nLead ${args.leadId} · conversation ${args.conversationId}`,
     html: renderEmailShell({
-      intro: 'The portfolio assistant captured a qualified lead.',
+      intro: isClientRequest
+        ? 'The portfolio assistant captured a client request to pass along.'
+        : 'The portfolio assistant captured a qualified lead.',
       bodyMarkdown,
       footer: `Lead ${escapeHtml(args.leadId)} · conversation ${escapeHtml(args.conversationId)} · sent by the lead_capture tool`,
     }),
@@ -108,6 +132,8 @@ export async function captureLead(params: LeadCaptureParams): Promise<LeadCaptur
         message: 'Lead NOT recorded: fitNote is required — a short summary of who the visitor is, what they want, and why it fits.',
       };
     }
+    const message = (params.message ?? '').trim().slice(0, MESSAGE_CAP) || undefined;
+    const specText = (params.specText ?? '').trim().slice(0, SPEC_TEXT_CAP) || undefined;
 
     // The conversation is the anchor (Req 15.1: the lead links to it). Created
     // if this is somehow the very first exchange of a session — a lead must
@@ -135,6 +161,8 @@ export async function captureLead(params: LeadCaptureParams): Promise<LeadCaptur
         graphVersionId: engineState?.graphVersionId ?? null,
         slots: slots as never,
         fitNote,
+        message: message ?? null,
+        specText: specText ?? null,
         status: 'new',
       },
       select: { id: true },
@@ -152,7 +180,7 @@ export async function captureLead(params: LeadCaptureParams): Promise<LeadCaptur
     }
 
     // ---- 3. The push — through the ONE notification seam (Req 15.2) ----
-    const mail = leadEmail({ leadId: lead.id, slots, fitNote, conversationId });
+    const mail = leadEmail({ leadId: lead.id, slots, fitNote, conversationId, message, specText });
     const outcome = await notifyOwner({
       purpose: 'lead_notification',
       subject: mail.subject,

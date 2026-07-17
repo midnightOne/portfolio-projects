@@ -26,6 +26,9 @@ const REQUIRED_WRAPPED = [
   'src/app/api/ai/cascade/tts/route.ts',
   'src/app/api/ai/tools/execute/route.ts',
   'src/app/api/ai/analyze-job/route.ts',
+  // 7.16: no token spend, but it emails the owner — the wrap (kill switch,
+  // blacklist, per-IP windows) is pinned so it can never ship unguarded.
+  'src/app/api/ai/client-request/route.ts',
   'src/app/api/admin/ai/voice-clips/regenerate/route.ts',
   'src/app/api/admin/ai/edit-content/route.ts',
   'src/app/api/admin/ai/improve-content/route.ts',

@@ -190,6 +190,45 @@ describe('captureLead — row first, notify after (P25)', () => {
     expect(row).toMatchObject({ nodeId: null, graphVersionId: null, slots: { name: 'Jane' } });
   });
 
+  it('7.16: persists the visitor message + spec text and carries them into the owner email', async () => {
+    process.env.AI_FAKE_MODE = 'email';
+    process.env.OWNER_NOTIFY_EMAIL = 'owner@example.com';
+    const result = await captureLead({
+      sessionId: 'sess_1',
+      consentConfirmed: true,
+      fitNote: 'Client wants an e-commerce platform built.',
+      slots: { contact: 'client@corp.test', source: 'client_request_form' },
+      message: 'How much would it cost to build a platform like your e-commerce project?',
+      specText: 'Requirements: catalog, checkout, admin panel.',
+    });
+    expect(result.success).toBe(true);
+    const row = mockPrisma.conversationLead.create.mock.calls[0][0].data;
+    expect(row.message).toContain('How much would it cost');
+    expect(row.specText).toContain('catalog, checkout');
+    // the owner email is framed as a client request and carries both payloads
+    expect(fakeSentEmails[0].subject).toContain('client request');
+    expect(fakeSentEmails[0].text).toContain('How much would it cost');
+    expect(fakeSentEmails[0].text).toContain('catalog, checkout');
+  });
+
+  it('7.16: caps message and spec text, and stores null when absent', async () => {
+    await captureLead({
+      sessionId: 'sess_1',
+      consentConfirmed: true,
+      fitNote: 'Caps.',
+      message: 'm'.repeat(10_000),
+      specText: 's'.repeat(50_000),
+    });
+    const row = mockPrisma.conversationLead.create.mock.calls[0][0].data;
+    expect(row.message.length).toBeLessThanOrEqual(4000);
+    expect(row.specText.length).toBeLessThanOrEqual(20_000);
+
+    await captureLead({ sessionId: 'sess_1', consentConfirmed: true, fitNote: 'No extras.' });
+    const bare = mockPrisma.conversationLead.create.mock.calls[1][0].data;
+    expect(bare.message).toBeNull();
+    expect(bare.specText).toBeNull();
+  });
+
   it('sanitizes model-supplied slots: bad keys dropped, values capped, count bounded', async () => {
     const many: Record<string, string> = {};
     for (let i = 0; i < 30; i++) many[`k${i}`] = `v${i}`;

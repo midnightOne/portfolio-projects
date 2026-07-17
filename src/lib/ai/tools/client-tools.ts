@@ -330,15 +330,15 @@ export const setAutoNavigationToolDefinition: UnifiedToolDefinition = {
   },
 };
 
-// Job-description intake form (conversation-engine Req 13.4, Block G3 —
-// scoped D18 exception: exactly ONE purpose-built form tool; the generic
-// form-builder stays backlogged). Opens the paste/drop modal; the submission
-// runs the existing job-analysis pipeline (reflink-gated + enableJobAnalysis
-// server-side — this tool only opens UI, it grants nothing).
+// Job-description intake form (conversation-engine Req 13.4, Block G3).
+// 7.16 split (A): this form is RECRUITER-ONLY — its submission runs the
+// job-analysis-against-owner-background pipeline (reflink-gated +
+// enableJobAnalysis server-side — this tool only opens UI, it grants
+// nothing). Client/project requests go through client_request_form instead.
 export const jobDescriptionFormToolDefinition: UnifiedToolDefinition = {
   name: 'job_description_form',
   description:
-    'Open the job-description intake form (a modal where the visitor pastes or drops the job posting as text) — the reliable channel for job specs; suggest it FIRST when a visitor wants a role analyzed. The analysis result appears to the visitor as a compatibility document; you will be told when it completes so you can offer a spoken summary, a read-aloud, or to let them read in peace.',
+    'Open the job-description intake form — ONLY for recruiters/employers evaluating whether to HIRE the owner for a role: the visitor pastes or drops the job posting, and it is analyzed against his background. NEVER open it for a prospective client who wants a project built or quoted — that is client_request_form. You will be told when the analysis completes so you can offer a spoken summary, a read-aloud, or to let them read in peace.',
   parameters: { type: 'object', properties: {} },
   executionContext: 'client',
   outputSchema: {
@@ -346,6 +346,72 @@ export const jobDescriptionFormToolDefinition: UnifiedToolDefinition = {
     properties: {
       success: { type: 'boolean' },
       message: { type: 'string' },
+    },
+  },
+};
+
+// Client/project-request intake (ai-assistant 7.16, split (A)). Opens the
+// pass-to-owner modal: message + contact + optional pasted spec; the
+// submission writes a ConversationLead row and notifies the owner (H2 seam).
+// The visitor's own submit click is the consent moment — the model never
+// submits this form itself without explicit confirmation (fill_field gate).
+export const clientRequestFormToolDefinition: UnifiedToolDefinition = {
+  name: 'client_request_form',
+  description:
+    'Open the client/project-request intake — for prospective CLIENTS who want project work built, quoted, or discussed, or any visitor who wants to leave the owner a message or question. They can type or dictate a message, leave contact details, and optionally paste a project spec; submitting passes it directly to the owner. This is NOT the recruiter job-analysis form.',
+  parameters: { type: 'object', properties: {} },
+  executionContext: 'client',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean' },
+      message: { type: 'string' },
+    },
+  },
+};
+
+// Generic dictation text-fill (ai-assistant 7.16b — the real use case the
+// D18 "form-filling tools" backlog line waited for). Targets any visible
+// field by SemanticIDRegistry id/alias, element id, name, or label text;
+// works on the client-request intake, the homepage contact form, and any
+// future form. Consent gate mirrors lead_capture: submission requires the
+// model to attest explicit visitor confirmation. HONESTY (6.10): the result
+// reports what actually landed — a failed fill fails, never narrates success.
+export const fillFieldToolDefinition: UnifiedToolDefinition = {
+  name: 'fill_field',
+  description:
+    'Type dictated text into ONE named form field on the current page (semantic id, element id, name, or field label), optionally submitting its form afterwards. The result reports what the field actually contains — repeat it back when accuracy matters. submit requires submitConfirmed: true, which you may set ONLY after the visitor explicitly confirmed submission in this conversation; never submit on your own initiative.',
+  parameters: {
+    type: 'object',
+    properties: {
+      field: {
+        type: 'string',
+        description: 'Which field: semantic id, element id, name attribute, or visible label text',
+      },
+      value: {
+        type: 'string',
+        description: 'Text to put in the field (replaces current content). Omit when only submitting.',
+      },
+      submit: {
+        type: 'boolean',
+        description: 'Also submit the form the field belongs to. Requires submitConfirmed.',
+      },
+      submitConfirmed: {
+        type: 'boolean',
+        description: 'true ONLY if the visitor explicitly confirmed, in this conversation, that the form should be submitted now.',
+      },
+    },
+    required: ['field'],
+  },
+  executionContext: 'client',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      success: { type: 'boolean' },
+      message: { type: 'string' },
+      field: { type: 'string' },
+      currentValue: { type: 'string' },
+      submitted: { type: 'boolean' },
     },
   },
 };
@@ -361,7 +427,9 @@ export const clientToolDefinitions: UnifiedToolDefinition[] = [
   uiDetailsToolDefinition,
   uiIntentToolDefinition,
   setAutoNavigationToolDefinition,
-  jobDescriptionFormToolDefinition
+  jobDescriptionFormToolDefinition,
+  clientRequestFormToolDefinition,
+  fillFieldToolDefinition
 ];
 
 // Individual tools are already exported above with their definitions
@@ -949,6 +1017,228 @@ export class UINavigationTools {
           'Job-description form opened. The visitor can paste the posting or drop a text file; you will be told when the analysis completes. If they close it without submitting, they may prefer to read the posting aloud instead.',
       };
     });
+  }
+
+  /**
+   * Client/project-request form opener (7.16 split (A)). Opening is the whole
+   * job — the submission outcome reaches the model through the context buffer
+   * (`client_request` key), and a dismissal becomes context so the model can
+   * fall back to capturing the request conversationally via lead_capture.
+   */
+  async ['client_request_form'](_args: unknown, _sessionId?: string): Promise<NavigationResult> {
+    return this.executeAndReport('client_request_form', {}, async () => {
+      const { setClientRequestFormOpen } = await import('@/lib/ai/client-request-form');
+      setClientRequestFormOpen(true);
+      return {
+        success: true,
+        message:
+          'Client-request form opened. The visitor can type a message, leave contact details, and optionally paste a project spec — or dictate any field to you (fill_field). You will be told when they submit or close it. Submitting is THEIR action (or yours only after their explicit confirmation).',
+      };
+    });
+  }
+
+  /**
+   * fill_field (7.16b): generic dictation text-fill. Resolution order:
+   * SemanticIDRegistry id → registry alias → [data-semantic-id] → #id →
+   * [name] → [data-testid] → visible label text. React-controlled inputs need
+   * the NATIVE value setter + a bubbling input event (plain `.value=` is
+   * invisible to React — known trap); the result reads the value BACK from the
+   * DOM so the model reports what actually landed (6.10 honesty). Submission
+   * is consent-gated: submit without submitConfirmed performs the fill (if
+   * any) but never the submit.
+   */
+  async ['fill_field'](args: any, sessionId?: string): Promise<NavigationResult> {
+    return this.executeAndReport('fill_field', args, async () => {
+      let params = args as { field?: string; value?: string; submit?: boolean; submitConfirmed?: boolean };
+      if (typeof args === 'string') {
+        try {
+          params = JSON.parse(args);
+        } catch {
+          return { success: false, message: 'Invalid JSON parameters for fill_field', error: 'bad_args' };
+        }
+      }
+      const fieldName = typeof params.field === 'string' ? params.field.trim() : '';
+      if (!fieldName) {
+        return { success: false, message: 'fill_field requires `field` — a semantic id, element id, name, or label', error: 'bad_args' };
+      }
+
+      const el = await this._resolveFillTarget(fieldName);
+      if (!el) {
+        return {
+          success: false,
+          message: `Field "${fieldName}" not found on the current page. ${this._describeFillableFields()}`,
+          error: 'field_not_found',
+        };
+      }
+
+      const hasValue = typeof params.value === 'string';
+      let currentValue = el.value;
+
+      if (hasValue) {
+        try {
+          el.focus();
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } catch {
+          /* focus/scroll are best-effort — the fill below is what matters */
+        }
+        // React trap: assign through the NATIVE prototype setter, then fire a
+        // bubbling input event, or React's controlled state never sees it.
+        const proto =
+          el instanceof HTMLTextAreaElement
+            ? HTMLTextAreaElement.prototype
+            : el instanceof HTMLSelectElement
+              ? HTMLSelectElement.prototype
+              : HTMLInputElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+        if (setter) setter.call(el, params.value);
+        else el.value = params.value as string;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+
+        // HONESTY: read back what the DOM (and thus React state) actually holds.
+        currentValue = el.value;
+        if (currentValue !== params.value) {
+          return {
+            success: false,
+            message: `Fill FAILED for "${fieldName}": the field now contains "${currentValue}" instead of the requested text (the input may be read-only, disabled, or rejecting the value). Do not tell the visitor it was filled.`,
+            error: 'fill_verification_failed',
+            data: { field: fieldName, currentValue },
+          };
+        }
+        UIElementManager.highlightElement(el);
+      }
+
+      if (params.submit === true) {
+        if (params.submitConfirmed !== true) {
+          return {
+            success: hasValue,
+            message: hasValue
+              ? `Filled "${fieldName}" (it now contains: "${currentValue}"). NOT submitted — ask the visitor to explicitly confirm submission first, then call fill_field again with submit and submitConfirmed both true.`
+              : 'NOT submitted: explicit visitor confirmation is required first. Ask the visitor whether to submit the form, then call again with submitConfirmed: true.',
+            data: { field: fieldName, currentValue, submitted: false },
+            ...(hasValue ? {} : { error: 'submit_consent_required' }),
+          };
+        }
+        const form = el.closest('form');
+        if (!form) {
+          return {
+            success: false,
+            message: `Field "${fieldName}" was ${hasValue ? 'filled but' : ''} its form could not be found — no <form> ancestor. Ask the visitor to press the submit button themselves.`,
+            error: 'form_not_found',
+            data: { field: fieldName, currentValue, submitted: false },
+          };
+        }
+        // requestSubmit (not submit()) so the form's own onSubmit handler and
+        // validation run — that IS the submission the visitor confirmed.
+        if (typeof form.requestSubmit === 'function') form.requestSubmit();
+        else form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        return {
+          success: true,
+          message: `${hasValue ? `Filled "${fieldName}" and submitted` : 'Submitted'} the form (submit dispatched — the form's own UI shows the outcome; a context update will tell you if this was the client-request intake).`,
+          data: { field: fieldName, currentValue, submitted: true },
+        };
+      }
+
+      return {
+        success: true,
+        message: `Filled "${fieldName}". The field now contains: "${currentValue}". Not submitted.`,
+        data: { field: fieldName, currentValue, submitted: false },
+      };
+    }, sessionId);
+  }
+
+  /** Resolve a fill_field target to a fillable element. */
+  private async _resolveFillTarget(
+    field: string
+  ): Promise<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null> {
+    const fillable = (el: Element | null): HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null => {
+      if (!el) return null;
+      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) {
+        return el;
+      }
+      // A container handle (e.g. a labeled wrapper): use its single field.
+      const inner = el.querySelectorAll('input, textarea, select');
+      return inner.length === 1 ? (inner[0] as HTMLInputElement) : null;
+    };
+
+    // 1-2: SemanticIDRegistry id, then alias (the registry auto-discovers
+    // [data-semantic-id] elements and carries aliases).
+    try {
+      const { getSemanticIDRegistry } = await import('@/lib/navigation/SemanticIDRegistry');
+      const registry = getSemanticIDRegistry();
+      const direct = fillable(registry.resolveSemanticID(field));
+      if (direct) return direct;
+      const aliasId = registry.findSemanticIDByAlias(field);
+      if (aliasId) {
+        const viaAlias = fillable(registry.resolveSemanticID(aliasId));
+        if (viaAlias) return viaAlias;
+      }
+    } catch {
+      /* registry unavailable — DOM fallbacks below still work */
+    }
+
+    // 3-7: DOM fallbacks, scoped. An OPEN AI overlay (the intake/JD modals
+    // carry data-ai-surface) wins over the page behind it — "the message
+    // field" while the intake modal is open means the MODAL's field, not the
+    // background contact form's #message (live-drill finding, 2026-07-17).
+    const esc = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(field) : field.replace(/["\\]/g, '\\$&');
+    const surfaces = Array.from(document.querySelectorAll('[data-ai-surface]'));
+    const scopes: Array<Element | Document> = [...surfaces.reverse(), document];
+    for (const scope of scopes) {
+      for (const selector of [`[data-semantic-id="${esc}"]`, `#${esc}`, `[name="${esc}"]`, `[data-testid="${esc}"]`]) {
+        try {
+          const hit = fillable(scope.querySelector(selector));
+          if (hit) return hit;
+        } catch {
+          /* invalid selector for this form of the name — try the next */
+        }
+      }
+      // visible label text ("Email", "Your message"...)
+      const wanted = field.toLowerCase();
+      for (const label of Array.from(scope.querySelectorAll('label'))) {
+        const text = (label.textContent ?? '').trim().toLowerCase().replace(/\s*\*$/, '');
+        if (text === wanted || (wanted.length > 2 && text.includes(wanted))) {
+          const forId = label.getAttribute('for');
+          const target = forId
+            ? (scope instanceof Document ? scope : document).getElementById?.(forId) ?? document.getElementById(forId)
+            : label.querySelector('input, textarea, select');
+          const hit = fillable(target);
+          if (hit) return hit;
+        }
+      }
+      // Last pass per scope: a UNIQUE handle-substring match ("contact" →
+      // client-request-contact when it is the only such field in the open
+      // modal). Ambiguity (2+ matches) falls through to the honest not-found
+      // error, whose field listing lets the model pick the exact handle.
+      if (wanted.length > 2) {
+        const partial = Array.from(scope.querySelectorAll('input, textarea, select')).filter((el) => {
+          const input = el as HTMLInputElement;
+          if (input.type === 'hidden' || input.disabled) return false;
+          const handle = `${input.getAttribute('data-semantic-id') ?? ''} ${input.id} ${input.name ?? ''} ${input.getAttribute('data-testid') ?? ''}`.toLowerCase();
+          return handle.includes(wanted);
+        });
+        if (partial.length === 1) {
+          const hit = fillable(partial[0]);
+          if (hit) return hit;
+        }
+      }
+    }
+    return null;
+  }
+
+  /** Honest recovery help: what CAN be filled on this page right now. */
+  private _describeFillableFields(): string {
+    const handles: string[] = [];
+    for (const el of Array.from(document.querySelectorAll('input, textarea, select'))) {
+      const input = el as HTMLInputElement;
+      if (input.type === 'hidden' || input.disabled) continue;
+      const handle = input.getAttribute('data-semantic-id') || input.id || input.name || input.getAttribute('data-testid');
+      if (handle) handles.push(handle);
+      if (handles.length >= 15) break;
+    }
+    return handles.length
+      ? `Fillable fields currently on the page: ${handles.join(', ')}.`
+      : 'No fillable form fields are visible on the current page — open the relevant form first (client_request_form, or navigate to the contact section).';
   }
 
   /**

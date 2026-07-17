@@ -286,16 +286,25 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext): Promise<Ne
       }, { status: 403 });
     }
 
-    // Execute tool via BackendToolService
+    // Execute tool via BackendToolService.
+    // Access level: contextProvider only knows reflinks — an ADMIN session
+    // carries no reflink and read as 'basic', which wrongly tripped tier
+    // gates inside tools (think_harder refused the owner's own fake-mic
+    // session, 7.17 live drill). The gateway tier is the authority.
+    const effectiveAccessLevel =
+      ctx.tier === 'admin' ? 'premium' : (validation.accessLevel as 'basic' | 'limited' | 'premium');
     const backendService = BackendToolService.getInstance();
     const toolResult = await backendService.executeTool(
-      toolName, 
-      parameters, 
-      sessionId, 
-      validation.accessLevel as 'basic' | 'limited' | 'premium', 
+      toolName,
+      parameters,
+      sessionId,
+      effectiveAccessLevel,
       reflinkId,
       undefined, // userId
-      requestUIState // uiState
+      requestUIState, // uiState
+      // 7.17: model spend INSIDE a tool (think_harder) meters through the
+      // gateway context, so it lands with request/tier/reflink attribution.
+      (entry) => ctx.meter({ ...entry, metadata: entry.metadata as never })
     );
 
     const executionTime = Date.now() - startTime;
@@ -312,7 +321,7 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext): Promise<Ne
       toolCallId,
       executionContext: 'server',
       provider: 'unified-tools-api',
-      accessLevel: validation.accessLevel,
+      accessLevel: effectiveAccessLevel,
       timestamp: new Date()
     }, 'unified-tools-api', successCorrelationId, sessionId, toolCallId);
 
@@ -343,7 +352,7 @@ async function handlePOST(request: NextRequest, ctx: GatewayContext): Promise<Ne
         sessionId,
         toolCallId,
         executionTime,
-        accessLevel: validation.accessLevel
+        accessLevel: effectiveAccessLevel
       }
     };
 

@@ -38,6 +38,7 @@ import type { ConnectOptions } from '@/lib/voice/IConversationalAgentAdapter';
 import { Switch } from '@/components/ui/switch';
 import { EngineChipsRow, EngineTopicLabel } from './engine-chips';
 import { JobDescriptionModal } from './job-description-modal';
+import { ClientRequestModal } from './client-request-modal';
 import { getAutoNav, setAutoNav, subscribeAutoNav } from '@/lib/ai/autonav';
 import type { EngineChip, EngineUx } from '@/lib/ai/engine/types';
 import { PillShell } from './pill-shell';
@@ -967,6 +968,15 @@ export function FloatingAIInterface({
           })();
         }}
         onAssistantContext={(text) => publishContext('jd_analysis', text)}
+      />
+
+      {/* Client/project-request intake (7.16 split (A)): opened by the
+          client_request_form client tool; submission = pass-to-owner lead
+          path (H2), never the recruiter job-analysis pipeline. */}
+      <ClientRequestModal
+        reflinkId={session?.reflink?.id}
+        getSessionId={getConversationSessionId}
+        onAssistantContext={(text) => publishContext('client_request', text)}
       />
 
       {/* Access Message Modal (AI overlay layer) */}

@@ -164,7 +164,7 @@ export function LeadsPanel() {
                   </span>
                 </div>
 
-                {(lead.fitNote || Object.keys(lead.slots).length > 0) && (
+                {(lead.fitNote || lead.message || lead.specText || Object.keys(lead.slots).length > 0) && (
                   <p className="mt-2 text-[10px] uppercase tracking-wide text-muted-foreground" data-testid="lead-visitor-content-label">
                     visitor content
                     {lead.handledAt && (
@@ -175,6 +175,26 @@ export function LeadsPanel() {
                   </p>
                 )}
                 {lead.fitNote && <p className="mt-1 text-sm">{lead.fitNote}</p>}
+
+                {/* 7.16: client-request intake payloads — the visitor's own words */}
+                {lead.message && (
+                  <blockquote
+                    className="mt-2 rounded-md border-l-2 border-primary/50 bg-muted/30 px-3 py-2 text-sm whitespace-pre-wrap"
+                    data-testid="lead-message"
+                  >
+                    {lead.message}
+                  </blockquote>
+                )}
+                {lead.specText && (
+                  <details className="mt-2" data-testid="lead-spec">
+                    <summary className="cursor-pointer text-xs text-muted-foreground">
+                      Attached spec / requirements ({lead.specText.length.toLocaleString()} chars)
+                    </summary>
+                    <pre className="mt-1 max-h-64 overflow-y-auto rounded-md bg-muted/30 px-3 py-2 text-xs whitespace-pre-wrap">
+                      {lead.specText}
+                    </pre>
+                  </details>
+                )}
 
                 {Object.keys(lead.slots).length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5" data-testid="lead-slots">
