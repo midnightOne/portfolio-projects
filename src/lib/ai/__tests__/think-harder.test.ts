@@ -45,6 +45,7 @@ const okOutcome = {
 };
 
 const search = jest.fn();
+const fetchContent = jest.fn();
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -56,7 +57,10 @@ beforeEach(() => {
     { id: 'm2', itemId: 'm2', role: 'assistant', content: 'It uses a PID controller.' },
   ]);
   search.mockResolvedValue([
-    { project: 'kiln', source: { label: 'PROJECT' }, title: 'Firmware', oneLiner: 'PID control loop' },
+    { id: 'chunk-1', project: 'kiln', source: { label: 'PROJECT' }, title: 'Firmware', oneLiner: 'PID control loop' },
+  ]);
+  fetchContent.mockResolvedValue([
+    { id: 'chunk-1', title: 'Firmware', content: 'The dual-thermocouple PID loop applies gain scheduling across temperature bands to handle changing thermal mass.' },
   ]);
 });
 
@@ -94,6 +98,7 @@ describe('runThinkHarder — the escalation (Block M path)', () => {
       accessLevel: 'premium',
       uiState: { currentProject: 'kiln' },
       search,
+      fetch: fetchContent,
     });
     expect(result.success).toBe(true);
     expect(result.answer).toBe('A deep, grounded answer.');
@@ -105,10 +110,32 @@ describe('runThinkHarder — the escalation (Block M path)', () => {
     expect(spec.timeoutMs).toBeGreaterThan(0);
     const system = spec.prompt[0].content as string;
     expect(system).toContain('OWNER FRAME');
-    expect(system).toContain('PID control loop'); // retrieval grounding
+    expect(system).toContain('PID control loop'); // retrieval one-liners
+    expect(system).toContain('gain scheduling across temperature bands'); // FULL TEXT of top hits
     expect(system).toContain('Tell me about the kiln PID loop'); // conversation tail
     // search got the caller's UI state (current-project boost)
     expect(search.mock.calls[0][1]).toMatchObject({ currentProject: 'kiln' });
+    // fetch received the top hit ids with a real token budget
+    expect(fetchContent.mock.calls[0][0]).toEqual(['chunk-1']);
+    expect(fetchContent.mock.calls[0][1]).toBeGreaterThanOrEqual(1000);
+    // observability: grounding stats ride the result (and thus the tool row)
+    expect(result.grounding).toMatchObject({ retrievalItems: 1, fullTextItems: 1, conversationTurns: 2 });
+    expect(result.grounding!.groundingChars).toBeGreaterThan(100);
+  });
+
+  it('degrades to one-liner grounding when the full-text fetch fails', async () => {
+    fetchContent.mockRejectedValue(new Error('get down'));
+    const result = await runThinkHarder({
+      question: 'Deep question',
+      sessionId: 'sess_1',
+      accessLevel: 'premium',
+      search,
+      fetch: fetchContent,
+    });
+    expect(result.success).toBe(true);
+    const system = mockJob.mock.calls[0][0].prompt[0].content as string;
+    expect(system).toContain('PID control loop'); // one-liners survive
+    expect(result.grounding).toMatchObject({ fullTextItems: 0 });
   });
 
   it('passes a gateway meter through for tier/reflink spend attribution', async () => {

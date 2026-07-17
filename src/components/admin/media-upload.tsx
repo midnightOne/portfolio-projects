@@ -769,7 +769,7 @@ export function MediaUploadInterface() {
                   <SelectContent>
                     <SelectItem value="none">No specific project</SelectItem>
                     <SelectItem value="portfolio-website">Portfolio Website</SelectItem>
-                    <SelectItem value="task-management-app">Task Management App</SelectItem>
+                    <SelectItem value="llm-systems-research">LLM Systems Research</SelectItem>
                     <SelectItem value="e-commerce-platform">E-commerce Platform</SelectItem>
                   </SelectContent>
                 </Select>

@@ -4175,8 +4175,8 @@ export class UIManager {
           }
           
           // Now switch to a different project with a section
-          const targetProject = currentProjectModal?.id === 'e-commerce-platform' 
-            ? 'task-management-app' 
+          const targetProject = currentProjectModal?.id === 'e-commerce-platform'
+            ? 'llm-systems-research'
             : 'e-commerce-platform';
             
           result = await this.executeIntent({

@@ -239,6 +239,16 @@ export class BackendToolService {
               );
               return Array.isArray(searchResult?.items) ? searchResult.items : [];
             },
+            // Deep answers need the actual prose, not T2 one-liners: fetch the
+            // top hits' full text through the same content_get handler the
+            // model itself uses (D39 — one chain), token-budgeted.
+            fetch: async (ids, maxTokens) => {
+              const getResult = await this.handleContentGet(
+                { ids, maxTokens, includeTiers: [1, 2, 3] },
+                context
+              );
+              return Array.isArray(getResult?.items) ? getResult.items : [];
+            },
           });
           break;
         }
@@ -501,8 +511,9 @@ export class BackendToolService {
             'shop': ['e-commerce-platform'],
             'store': ['e-commerce-platform'],
             'shopping': ['e-commerce-platform'],
-            'task': ['task-management-app'],
-            'todo': ['task-management-app'],
+            'llm': ['llm-systems-research'],
+            'research': ['llm-systems-research'],
+            'language model': ['llm-systems-research'],
             'portfolio': ['portfolio-website'],
             'website': ['portfolio-website'],
             'personal': ['portfolio-website']

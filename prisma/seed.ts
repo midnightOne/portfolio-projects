@@ -3,6 +3,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
+import { PORTFOLIO_ARTICLE, LLM_RESEARCH_ARTICLE, ECOMMERCE_ARTICLE } from './seed-articles';
 // Novel converter removed - using plain text content for now
 
 const prisma = new PrismaClient();
@@ -146,16 +147,44 @@ async function main() {
     },
   });
 
-  // Create sample projects
-  const project1 = await prisma.project.upsert({
-    where: { slug: 'portfolio-website' },
+  const aiEngineeringTag = await prisma.tag.upsert({
+    where: { name: 'AI Engineering' },
     update: {},
     create: {
-      title: 'Portfolio Website',
+      name: 'AI Engineering',
+      color: '#9B59B6',
+    },
+  });
+
+  const mlTag = await prisma.tag.upsert({
+    where: { name: 'Machine Learning' },
+    update: {},
+    create: {
+      name: 'Machine Learning',
+      color: '#1ABC9C',
+    },
+  });
+
+  // Sample projects. `update` deliberately REFRESHES the descriptive fields
+  // and (below) the article content, so `npm run db:seed` against an existing
+  // dev DB brings the articles up to date instead of silently keeping stale
+  // copy — the owner reseeds during testing/debugging and the seed is the
+  // source of truth for this content (2026-07-17 deep-content rewrite).
+  const project1 = await prisma.project.upsert({
+    where: { slug: 'portfolio-website' },
+    update: {
+      title: 'This Portfolio — an AI-Narrated Website',
+      description:
+        'The site you are on right now: a Next.js portfolio that is itself the flagship project — client-direct realtime voice AI, a tiered semantic retrieval index over pgvector, a node-graph conversation engine, and hard cost governance, all documented honestly.',
+      briefOverview: 'The AI-narrated portfolio site itself — voice, retrieval, and cost control',
+    },
+    create: {
+      title: 'This Portfolio — an AI-Narrated Website',
       slug: 'portfolio-website',
-      description: 'A modern portfolio website built with Next.js and TypeScript, featuring a clean design and responsive layout.',
-      briefOverview: 'Modern portfolio showcasing web development projects',
-      workDate: new Date('2024-01-15'),
+      description:
+        'The site you are on right now: a Next.js portfolio that is itself the flagship project — client-direct realtime voice AI, a tiered semantic retrieval index over pgvector, a node-graph conversation engine, and hard cost governance, all documented honestly.',
+      briefOverview: 'The AI-narrated portfolio site itself — voice, retrieval, and cost control',
+      workDate: new Date('2026-06-15'),
       visibility: 'PUBLIC',
       viewCount: 42,
       tags: {
@@ -163,28 +192,43 @@ async function main() {
           { id: reactTag.id },
           { id: typescriptTag.id },
           { id: nextjsTag.id },
-          { id: webdevTag.id },
+          { id: aiEngineeringTag.id },
         ],
       },
     },
   });
 
+  // 2026-07-17: the placeholder Task Management App is retired — replaced by
+  // an LLM-systems research notebook (owner ask: deep, multi-topic content
+  // worth learning from while testing retrieval/escalation). Remove the old
+  // project AND its semantic entity so an in-place reseed leaves no stale
+  // slug in retrieval (chunks cascade off the entity).
+  await prisma.contentEntity.deleteMany({
+    where: { entityType: 'PROJECT', slug: 'task-management-app' },
+  });
+  await prisma.project.deleteMany({ where: { slug: 'task-management-app' } });
+
   const project2 = await prisma.project.upsert({
-    where: { slug: 'task-management-app' },
-    update: {},
+    where: { slug: 'llm-systems-research' },
+    update: {
+      title: 'Modern LLM Systems — Research Notes',
+      description:
+        'A research notebook on how modern large language models actually work: attention and the KV cache, scaling laws, long context, post-training from SFT through reasoning RL, efficient inference, mixture-of-experts, retrieval-augmented generation, and evaluation.',
+      briefOverview: 'Deep research notes on modern LLM internals and engineering',
+    },
     create: {
-      title: 'Task Management App',
-      slug: 'task-management-app',
-      description: 'A full-stack task management application with real-time updates, user authentication, and collaborative features.',
-      briefOverview: 'Collaborative task management with real-time updates',
-      workDate: new Date('2024-03-20'),
+      title: 'Modern LLM Systems — Research Notes',
+      slug: 'llm-systems-research',
+      description:
+        'A research notebook on how modern large language models actually work: attention and the KV cache, scaling laws, long context, post-training from SFT through reasoning RL, efficient inference, mixture-of-experts, retrieval-augmented generation, and evaluation.',
+      briefOverview: 'Deep research notes on modern LLM internals and engineering',
+      workDate: new Date('2025-11-01'),
       visibility: 'PUBLIC',
       viewCount: 28,
       tags: {
         connect: [
-          { id: reactTag.id },
-          { id: typescriptTag.id },
-          { id: nextjsTag.id },
+          { id: aiEngineeringTag.id },
+          { id: mlTag.id },
         ],
       },
     },
@@ -192,12 +236,18 @@ async function main() {
 
   const project3 = await prisma.project.upsert({
     where: { slug: 'e-commerce-platform' },
-    update: {},
+    update: {
+      title: 'E-commerce Platform',
+      description:
+        'A production e-commerce build examined at engineering depth: catalog modeling, inventory concurrency and the oversell problem, payment idempotency and reconciliation, checkout as a distributed transaction, search, caching, and fraud economics.',
+      briefOverview: 'E-commerce engineering: payments, inventory concurrency, checkout sagas',
+    },
     create: {
       title: 'E-commerce Platform',
       slug: 'e-commerce-platform',
-      description: 'A comprehensive e-commerce solution with payment processing, inventory management, and admin dashboard.',
-      briefOverview: 'Full-featured e-commerce platform',
+      description:
+        'A production e-commerce build examined at engineering depth: catalog modeling, inventory concurrency and the oversell problem, payment idempotency and reconciliation, checkout as a distributed transaction, search, caching, and fraud economics.',
+      briefOverview: 'E-commerce engineering: payments, inventory concurrency, checkout sagas',
       workDate: new Date('2024-02-10'),
       visibility: 'PUBLIC',
       viewCount: 67,
@@ -209,6 +259,15 @@ async function main() {
         ],
       },
     },
+  });
+
+  // Media is created (not upserted) — clear the seeded projects' media first
+  // so an in-place reseed doesn't duplicate rows.
+  await prisma.mediaItem.deleteMany({
+    where: { projectId: { in: [project1.id, project2.id, project3.id] } },
+  });
+  await prisma.externalLink.deleteMany({
+    where: { projectId: { in: [project1.id, project2.id, project3.id] } },
   });
 
   // Create diverse media items for testing inline media functionality
@@ -255,15 +314,15 @@ async function main() {
     },
   });
 
-  // Project 2 Media Items (Task Management App)
+  // Project 2 Media Items (LLM Systems Research Notes)
   await prisma.mediaItem.create({
     data: {
       projectId: project2.id,
       type: 'IMAGE',
       url: 'https://images.unsplash.com/photo-1611224923853-80b023f02d71?w=800',
       thumbnailUrl: 'https://images.unsplash.com/photo-1611224923853-80b023f02d71?w=400',
-      altText: 'Task management dashboard',
-      description: 'The main dashboard showing active projects, task progress, and team collaboration features.',
+      altText: 'Attention heatmap visualization',
+      description: 'Visualizing attention weights across a long prompt — the diagonal band is local attention, the vertical stripes are attention sinks.',
       width: 1200,
       height: 800,
       displayOrder: 1,
@@ -273,41 +332,14 @@ async function main() {
   await prisma.mediaItem.create({
     data: {
       projectId: project2.id,
-      type: 'VIDEO',
-      url: 'https://sample-videos.com/zip/10/mp4/SampleVideo_1280x720_1mb.mp4',
-      thumbnailUrl: 'https://images.unsplash.com/photo-1611224923853-80b023f02d71?w=400',
-      altText: 'Task management demo video',
-      description: 'Live demonstration of creating tasks, assigning team members, and tracking progress in real-time.',
-      width: 1280,
-      height: 720,
-      displayOrder: 2,
-    },
-  });
-
-  await prisma.mediaItem.create({
-    data: {
-      projectId: project2.id,
       type: 'IMAGE',
       url: 'https://images.unsplash.com/photo-1553028826-f4804a6dba3b?w=800',
       thumbnailUrl: 'https://images.unsplash.com/photo-1553028826-f4804a6dba3b?w=400',
-      altText: 'Mobile app interface',
-      description: 'Responsive design adapting seamlessly to mobile devices with touch-friendly interactions.',
+      altText: 'Training loss curves',
+      description: 'Loss curves from scaling-law sweeps — model size against data budget at fixed compute.',
       width: 800,
       height: 1200,
-      displayOrder: 3,
-    },
-  });
-
-  await prisma.mediaItem.create({
-    data: {
-      projectId: project2.id,
-      type: 'GIF',
-      url: 'https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExNHI4eWhoa2piN2E4dGZhc2RoOGVkb3cybGQycjZwdnkydm1qbHVvYSZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3oKIPEqDGUULpEU0aQ/giphy.gif',
-      altText: 'Real-time collaboration',
-      description: 'Live updates showing multiple users collaborating on tasks simultaneously.',
-      width: 500,
-      height: 281,
-      displayOrder: 4,
+      displayOrder: 2,
     },
   });
 
@@ -392,93 +424,15 @@ async function main() {
   });
 
   // Create comprehensive article content for all projects showcasing Novel editor features
-  const project1ArticleText = `# Portfolio Website Project
-
-This portfolio website was built to showcase my web development skills and projects. The site features a **modern, responsive design** that works seamlessly across all devices.
-
-## Design Philosophy
-
-The design focuses on *simplicity* and user experience. Clean lines, thoughtful typography, and strategic use of whitespace create an engaging and professional presentation.
-
-> "Good design is not just what it looks like and feels like. Good design is how it works." - Steve Jobs
-
-## Key Features
-
-- **Responsive Design**: Optimized for desktop, tablet, and mobile devices
-- **Fast Performance**: Built with Next.js for optimal loading speeds  
-- **SEO Optimized**: Proper meta tags and structured data
-- **Accessibility**: WCAG compliant design
-- ~~Dark Mode~~: Toggle between light and dark themes
-- **Interactive Animations**: Smooth hover effects and page transitions
-
-## Technical Implementation
-
-The website is built using modern web technologies:
-
-1. **Frontend**: Next.js 14 with TypeScript
-2. **Styling**: Tailwind CSS for utility-first styling
-3. **Database**: PostgreSQL with Prisma ORM
-4. **Deployment**: Vercel for seamless CI/CD
-5. **Analytics**: Real-time visitor tracking and engagement metrics
-
-### Code Example
-
-Here's a sample component from the project:
-
-\`\`\`typescript
-export function ProjectCard({ project }: ProjectCardProps) {
-  return (
-    <div className="group relative overflow-hidden rounded-lg bg-white shadow-md transition-shadow hover:shadow-lg">
-      <div className="aspect-video overflow-hidden">
-        <Image
-          src={project.thumbnailUrl}
-          alt={project.title}
-          className="h-full w-full object-cover transition-transform group-hover:scale-105"
-        />
-      </div>
-      <div className="p-4">
-        <h3 className="font-semibold text-gray-900">{project.title}</h3>
-        <p className="mt-1 text-sm text-gray-600">{project.description}</p>
-      </div>
-    </div>
-  );
-}
-\`\`\`
-
----
-
-## Development Process
-
-The development followed an iterative approach:
-
-1. **Planning & Research**: Understanding user needs and competitive analysis
-2. **Design & Prototyping**: Creating wireframes and visual designs
-3. **Development**: Building features incrementally with testing
-4. **Testing & Refinement**: User feedback and performance optimization
-5. **Deployment & Monitoring**: Production deployment with analytics
-
-## Performance Optimization
-
-Special attention was paid to performance optimization, resulting in excellent Core Web Vitals scores and fast loading times across all devices.
-
-**Performance Metrics:**
-- Lighthouse Score: 98/100
-- First Contentful Paint: < 1.2s
-- Largest Contentful Paint: < 2.5s
-
-## Links & Resources
-
-- [Live Demo](https://portfolio-demo.example.com)
-- [GitHub Repository](https://github.com/example/portfolio)
-- [Design System](https://design.example.com)
-
-## Results and Impact
-
-The portfolio has received positive feedback and has helped me connect with potential clients and collaborators. The site loads quickly and provides an excellent user experience across all devices.`;
+  const project1ArticleText = PORTFOLIO_ARTICLE;
 
   await prisma.articleContent.upsert({
     where: { projectId: project1.id },
-    update: {},
+    update: {
+      content: project1ArticleText,
+      jsonContent: convertToTiptapJSON(project1ArticleText),
+      contentType: 'json',
+    },
     create: {
       projectId: project1.id,
       content: project1ArticleText,
@@ -487,122 +441,15 @@ The portfolio has received positive feedback and has helped me connect with pote
     },
   });
 
-  const project2ArticleText = `# Task Management Application
-
-A **comprehensive task management solution** designed for modern teams who need to collaborate effectively and track project progress in *real-time*.
-
-## Project Overview
-
-The application addresses common pain points in team collaboration by providing an intuitive interface for task creation, assignment, and tracking. Real-time updates ensure team members stay synchronized.
-
-> "The best way to get something done is to begin." - This app makes beginning (and finishing) easier than ever.
-
-## Core Functionality
-
-### Task Management Features
-- **Create, edit, and delete** tasks with rich descriptions
-- Set priorities, due dates, and assign team members
-- Track task progress with *customizable status workflows*
-- Add \`comments\` and attachments to tasks
-- ~~Manual status updates~~ **Automatic progress tracking**
-
-### Real-Time Collaboration
-- Live updates across all connected devices
-- Instant notifications for task changes  
-- Team chat integration for quick discussions
-- Activity feeds showing recent project updates
-
-### Project Organization
-
-The system supports multiple organizational patterns:
-
-1. **Project-based structure**: Group tasks by project
-2. **Team-based organization**: Assign tasks to specific teams
-3. **Priority-based sorting**: Focus on high-impact work
-4. **Timeline management**: Track deadlines and milestones
-
-## Technical Architecture
-
-The application is built with a modern tech stack emphasizing performance and scalability:
-
-### Frontend Technologies
-- **React 18** with TypeScript for type safety
-- **Redux Toolkit** for predictable state management
-- **React Query** for server state synchronization
-- **Tailwind CSS** for responsive styling
-
-### Backend Infrastructure  
-- **Node.js** with Express framework
-- **WebSocket** connections for real-time features
-- **PostgreSQL** with optimized queries for large datasets
-- **Redis** for session management and caching
-
-### Authentication & Security
-\`\`\`typescript
-// JWT token validation middleware
-const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  
-  if (!token) {
-    return res.sendStatus(401);
-  }
-  
-  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, user) => {
-    if (err) return res.sendStatus(403);
-    req.user = user;
-    next();
-  });
-};
-\`\`\`
-
----
-
-## User Experience Design
-
-The interface prioritizes usability with:
-- Drag-and-drop functionality
-- Keyboard shortcuts for power users
-- Responsive design for mobile and desktop
-- Dark mode support
-
-**Accessibility Features:**
-- Screen reader compatibility
-- High contrast mode
-- Keyboard navigation
-- ARIA labels and descriptions
-
-## Deployment Pipeline
-
-The application uses **Docker containers** with automated CI/CD pipelines:
-
-1. **Code commit** triggers automated tests
-2. **Test suite** runs unit and integration tests
-3. **Build process** creates optimized production bundle
-4. **Deployment** to staging environment for QA
-5. **Production release** with zero-downtime deployment
-
-## Performance Metrics
-
-Since launch, the application has achieved impressive results:
-
-| Metric | Before | After | Improvement |
-|--------|--------|-------|-------------|
-| Task completion rate | 65% | 89% | +24% |
-| Team productivity | Baseline | +30% | 30% increase |
-| User satisfaction | 3.2/5 | 4.7/5 | +47% |
-
-## Links & Documentation
-
-- [Live Application](https://taskmanager-demo.example.com)
-- [API Documentation](https://docs.taskmanager.example.com)
-- [GitHub Repository](https://github.com/example/task-manager)
-
-The application continues to evolve based on user feedback, with new features and improvements released monthly.`;
+  const project2ArticleText = LLM_RESEARCH_ARTICLE;
 
   await prisma.articleContent.upsert({
     where: { projectId: project2.id },
-    update: {},
+    update: {
+      content: project2ArticleText,
+      jsonContent: convertToTiptapJSON(project2ArticleText),
+      contentType: 'json',
+    },
     create: {
       projectId: project2.id,
       content: project2ArticleText,
@@ -611,86 +458,15 @@ The application continues to evolve based on user feedback, with new features an
     },
   });
 
-  const project3ArticleText = `# E-commerce Platform
-
-A full-featured e-commerce solution built to handle everything from product catalog management to payment processing and order fulfillment.
-
-## Business Requirements
-
-The platform was designed to serve medium to large-scale businesses with complex product catalogs, multiple payment methods, and international shipping requirements.
-
-## Feature Highlights
-
-### Product Management
-- Advanced product catalog with variants and options
-- Inventory tracking with low-stock alerts
-- Bulk import/export capabilities
-- SEO-optimized product pages
-- Dynamic pricing rules and discounts
-
-### Shopping Experience
-- Intelligent search with filters and sorting
-- Personalized product recommendations
-- Wishlist and comparison features
-- Guest checkout and account registration
-- Mobile-optimized shopping experience
-
-### Payment Processing
-- Multiple payment gateway integrations
-- Secure tokenization for stored payment methods
-- Support for multiple currencies
-- Subscription and recurring payment handling
-- Comprehensive fraud detection
-
-## Administrative Dashboard
-
-The admin interface provides comprehensive tools for managing every aspect of the e-commerce operation:
-
-### Order Management
-- Order processing workflow with status tracking
-- Inventory management with automatic updates
-- Shipping label generation and tracking
-- Return and refund processing
-- Customer service tools
-
-### Analytics and Reporting
-- Sales performance dashboards
-- Customer behavior analytics
-- Inventory turnover reports
-- Revenue forecasting tools
-- Custom report generation
-
-## Technical Infrastructure
-
-### Backend Architecture
-- Microservices architecture for scalability
-- RESTful APIs with comprehensive documentation
-- Database optimization for high-traffic scenarios
-- Redis caching for improved performance
-- Automated backup and disaster recovery
-
-### Security Implementation
-- PCI DSS compliance for payment processing
-- SSL/TLS encryption throughout
-- Regular security audits and penetration testing
-- GDPR compliance for data protection
-- Rate limiting and DDoS protection
-
-## Performance and Scalability
-
-The platform is designed to handle high traffic volumes with auto-scaling infrastructure and optimized database queries. Load testing confirmed the system can handle Black Friday-level traffic spikes.
-
-## Integration Capabilities
-
-The platform integrates with popular business tools including CRM systems, email marketing platforms, accounting software, and shipping providers.
-
-## Results and Business Impact
-
-The platform has processed over $2M in transactions in its first year, with 99.9% uptime and consistently positive user feedback regarding performance and ease of use.`;
+  const project3ArticleText = ECOMMERCE_ARTICLE;
 
   await prisma.articleContent.upsert({
     where: { projectId: project3.id },
-    update: {},
+    update: {
+      content: project3ArticleText,
+      jsonContent: convertToTiptapJSON(project3ArticleText),
+      contentType: 'json',
+    },
     create: {
       projectId: project3.id,
       content: project3ArticleText,

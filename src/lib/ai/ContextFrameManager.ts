@@ -1129,12 +1129,12 @@ export class ContextFrameManager {
       },
       {
         id: 'mock-2',
-        slug: 'task-management-app',
-        title: 'Task Management App',
-        description: 'Full-stack task management application',
-        tags: ['React', 'Node.js', 'MongoDB'],
-        technologies: ['React', 'Node.js', 'MongoDB', 'Express'],
-        tier1Summary: 'A comprehensive task management solution with real-time updates',
+        slug: 'llm-systems-research',
+        title: 'Modern LLM Systems — Research Notes',
+        description: 'Research notebook on modern large language model systems',
+        tags: ['AI Engineering', 'Machine Learning'],
+        technologies: ['Transformers', 'RAG', 'Reinforcement Learning'],
+        tier1Summary: 'Deep research notes on modern LLM internals and engineering',
         importance: 0.8
       }
     ];

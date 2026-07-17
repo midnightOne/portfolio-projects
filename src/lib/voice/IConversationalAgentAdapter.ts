@@ -708,6 +708,19 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
           throw new Error(`Client-side UI tool handler for '${toolName}' not found.`);
         }
       } else if (toolDef.executionContext === 'server') {
+        // Current UI state rides every server-tool call (7.17 follow-up): the
+        // route passes it to handlers that ground server-side (think_harder's
+        // current-project boost) — without it the voice path sent none, so
+        // escalations from inside a project modal lost that signal. Best
+        // effort; a read failure must never block the tool call.
+        let uiState: unknown;
+        try {
+          const { UIManager } = await import('@/lib/navigation/UIManager');
+          uiState = UIManager.getInstance().getUIStateForPassiveFID();
+        } catch {
+          /* no UI state available (SSR/teardown) — the tool runs without it */
+        }
+
         // Execute server-side tools via unified API endpoint
         const response = await fetch('/api/ai/tools/execute', {
           method: 'POST',
@@ -717,7 +730,8 @@ export abstract class BaseConversationalAgentAdapter implements IConversationalA
             parameters: args,
             sessionId: sessionId,
             toolCallId: toolCallId,
-            reflinkId: this._options?.reflinkId
+            reflinkId: this._options?.reflinkId,
+            uiState
           }),
         });
 
