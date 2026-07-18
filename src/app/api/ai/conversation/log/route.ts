@@ -150,7 +150,7 @@ interface ConversationLogResponse {
  * never stored here. Idempotent per adapter item id (retries are safe).
  */
 type PersistableEntry =
-  | { kind: 'transcript'; id?: string; type?: string; content?: string; timestamp?: string | Date; duration?: number; reasoning?: string; firstAudioAt?: string; uiEvidence?: Array<Record<string, unknown>> }
+  | { kind: 'transcript'; id?: string; type?: string; content?: string; timestamp?: string | Date; duration?: number; reasoning?: string; firstAudioAt?: string; latency?: Record<string, unknown>; uiEvidence?: Array<Record<string, unknown>> }
   | { kind: 'tool'; id?: string; toolName?: string; args?: unknown; result?: unknown; success?: boolean; executionTime?: number; timestamp?: string | Date }
   | { kind: 'event'; id?: string; eventType?: 'navigation' | 'error' | 'clip_played' | 'context_flush' | 'engine_directive' | 'window_prune'; label?: string; detail?: unknown; timestamp?: string | Date };
 
@@ -212,6 +212,8 @@ async function persistVoiceEntries(
             // 9b.5 turn onset (assistant rows): first-audio time; the row's own
             // timestamp is turn-END — the difference IS the visible latency story.
             firstAudioAt: entry.firstAudioAt,
+            // 7.25: the full breakdown (VAD end → response.created → audio)
+            latency: entry.latency,
             // Task A4: UI-state deltas riding user turns — the engine's
             // ui_state transition evidence (Block B reads it from here).
             uiEvidence: entry.uiEvidence ? capUiEvidence(entry.uiEvidence) : undefined,
@@ -608,6 +610,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           duration: transcriptItem.metadata?.duration,
           reasoning: transcriptItem.metadata?.reasoning,
           firstAudioAt: transcriptItem.metadata?.firstAudioAt,
+          latency: transcriptItem.metadata?.latency,
           // Task A4: UI-state deltas ride user turns as engine evidence
           uiEvidence: transcriptItem.type === 'user_speech' ? body.uiEvidence : undefined,
         }], testTag);
@@ -846,6 +849,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Conversat
           duration: entry.data.metadata?.duration,
           reasoning: entry.data.metadata?.reasoning,
           firstAudioAt: entry.data.metadata?.firstAudioAt,
+          latency: entry.data.metadata?.latency,
         });
       } else if (entry.type === 'tool_call' && entry.data?.phase === 'complete') {
         persistable.push({

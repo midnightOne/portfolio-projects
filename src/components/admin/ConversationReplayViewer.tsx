@@ -570,6 +570,23 @@ export function ReplayStepCard({
         <p className="whitespace-pre-wrap">{step.message.content}</p>
       )}
 
+      {/* 7.25: per-turn response-latency breakdown (owner report cmrpreigs…) —
+          decomposes the silence before an answer into VAD→response.created
+          (provider queueing) and response→first-audio (generation+transport).
+          The row timestamp is turn-END and says nothing about latency. */}
+      {step.message.metadata?.latency != null && (
+        <p className="text-[11px] text-muted-foreground mt-1" data-testid="turn-latency">
+          ⏱ {(() => {
+            const l = step.message.metadata.latency as Record<string, unknown>;
+            const parts: string[] = [];
+            if (typeof l.vadToResponseMs === 'number') parts.push(`speech-end → response ${(l.vadToResponseMs / 1000).toFixed(2)}s`);
+            if (typeof l.responseToAudioMs === 'number') parts.push(`response → audio ${(l.responseToAudioMs / 1000).toFixed(2)}s`);
+            if (typeof l.endToAudioMs === 'number') parts.push(`total silence ${(l.endToAudioMs / 1000).toFixed(2)}s`);
+            return parts.length ? parts.join(' · ') : 'partial latency data';
+          })()}
+        </p>
+      )}
+
       {step.message.metadata?.reasoning && (
         <details className="mt-2">
           <summary className="text-xs text-muted-foreground cursor-pointer select-none">

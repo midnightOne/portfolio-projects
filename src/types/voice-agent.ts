@@ -79,6 +79,16 @@ export interface TranscriptItem {
      *  audible (9b.5). The item's own timestamp is turn-END (flush time), which
      *  masks the silence window; this is the honest latency signal. */
     firstAudioAt?: string;
+    /** 7.25: per-turn response-latency breakdown (assistant rows) — VAD end →
+     *  response.created → first audio. Decomposes silence into provider
+     *  queueing vs generation/transport. */
+    latency?: {
+      speechStoppedAt?: string;
+      responseCreatedAt?: string;
+      vadToResponseMs?: number;
+      responseToAudioMs?: number;
+      endToAudioMs?: number;
+    };
   };
 }
 

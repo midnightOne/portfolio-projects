@@ -56,6 +56,8 @@ export interface ConversationMessage {
         detail?: string;
         /** 9b.5 turn ONSET (assistant voice rows): when the turn's first audio became audible; the row timestamp is turn-END. */
         firstAudioAt?: string;
+        /** 7.25: per-turn response-latency breakdown (assistant rows) — VAD end → response.created → first audio. */
+        latency?: Record<string, unknown>;
         /** Task A4 (D47): UI-state deltas since the previous user turn — the engine's ui_state transition evidence. */
         uiEvidence?: Array<Record<string, unknown>>;
     };
@@ -250,6 +252,8 @@ export interface MessageMetadata {
     detail?: string;
     /** 9b.5 turn ONSET (assistant voice rows): when the turn's first audio became audible; the row timestamp is turn-END. */
     firstAudioAt?: string;
+    /** 7.25: per-turn response-latency breakdown (assistant rows). */
+    latency?: Record<string, unknown>;
     /** Task A4 (D47): UI-state deltas since the previous user turn — the engine's ui_state transition evidence. */
     uiEvidence?: Array<Record<string, unknown>>;
     voiceData?: {
@@ -452,6 +456,8 @@ export class ConversationHistoryManager {
                             eventType: message.metadata?.eventType,
                             detail: message.metadata?.detail,
                             firstAudioAt: message.metadata?.firstAudioAt,
+                            // 7.25: per-turn response-latency breakdown (assistant rows)
+                            latency: message.metadata?.latency,
                             // Task A4 (D47): ui_state transition evidence riding user turns
                             uiEvidence: message.metadata?.uiEvidence,
                             navigationCommands: message.metadata?.navigationCommands ? JSON.stringify(message.metadata.navigationCommands) : undefined,

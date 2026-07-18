@@ -186,6 +186,10 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
     private _sessionId: string | null = null;
     /** 9b.5: when the current response's FIRST audio reached the speaker (output_audio_buffer.started). */
     private _turnFirstAudioAt: Date | null = null;
+    /** 7.25 latency telemetry: when the user's utterance ENDED (VAD speech_stopped). */
+    private _lastUserSpeechStoppedAt: Date | null = null;
+    /** 7.25 latency telemetry: when the provider CREATED the current response. */
+    private _turnResponseCreatedAt: Date | null = null;
     /** Stall observability (owner report 2026-07-08): armed after every tool
      *  result; cleared by ANY model response signal. If it fires, the silence
      *  gets an honest, replayable error row instead of nothing. */
@@ -1004,6 +1008,9 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
             }
             if (event.type === 'response.created') {
                 this._responseActive = true;
+                // 7.25: first response of the turn — the VAD-to-response gap is
+                // the provider-side queueing/creation delay.
+                if (!this._turnResponseCreatedAt) this._turnResponseCreatedAt = new Date();
             }
 
             // User-speech state (drives the stall watchdog's nudge deferral —
@@ -1014,6 +1021,9 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                 this._lastUserSpeechStartedAt = new Date();
             } else if (event.type === 'input_audio_buffer.speech_stopped') {
                 this._userSpeechActive = false;
+                // 7.25: end of the utterance anchors the turn-latency breakdown.
+                this._lastUserSpeechStoppedAt = new Date();
+                this._turnResponseCreatedAt = null;
             }
 
             // Handle audio interruption events
@@ -1346,17 +1356,35 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                         timestamp = new Date();
                     }
 
+                    // 7.25 (owner latency report, conversation cmrpreigs…): the
+                    // per-turn latency breakdown rides the assistant row so the
+                    // replay can decompose EVERY response delay — VAD end →
+                    // response.created (provider queueing) → first audio
+                    // (generation + transport). Assistant-row timestamps are
+                    // turn-END by design and useless for latency reads.
+                    let aiMetadata: TranscriptItem['metadata'];
+                    if (itemType === 'ai_response' && (this._turnFirstAudioAt || this._lastUserSpeechStoppedAt)) {
+                        const stopped = this._lastUserSpeechStoppedAt;
+                        const created = this._turnResponseCreatedAt;
+                        const audio = this._turnFirstAudioAt;
+                        aiMetadata = {
+                            ...(audio ? { firstAudioAt: audio.toISOString() } : {}),
+                            latency: {
+                                ...(stopped ? { speechStoppedAt: stopped.toISOString() } : {}),
+                                ...(created ? { responseCreatedAt: created.toISOString() } : {}),
+                                ...(stopped && created ? { vadToResponseMs: created.getTime() - stopped.getTime() } : {}),
+                                ...(created && audio ? { responseToAudioMs: audio.getTime() - created.getTime() } : {}),
+                                ...(stopped && audio ? { endToAudioMs: audio.getTime() - stopped.getTime() } : {}),
+                            },
+                        };
+                    }
                     const transcriptItem: TranscriptItem = {
                         id: itemId,
                         type: itemType,
                         content,
                         timestamp,
                         provider: 'openai' as VoiceProvider,
-                        // 9b.5 best-effort onset for assistant turns (WebRTC playback
-                        // start via output_audio_buffer.started; exact on Gemini).
-                        metadata: itemType === 'ai_response' && this._turnFirstAudioAt
-                            ? { firstAudioAt: this._turnFirstAudioAt.toISOString() }
-                            : undefined
+                        metadata: aiMetadata
                     };
                     if (existingIndex >= 0) {
                         this._transcript[existingIndex] = transcriptItem;
@@ -3163,9 +3191,14 @@ export class OpenAIRealtimeAdapter extends BaseConversationalAgentAdapter {
                     content: item.content,
                     timestamp: item.timestamp.toISOString(),
                     provider: item.provider,
+                    // 7.25 driven fix: this used to REPLACE item.metadata with a
+                    // hardcoded stub, silently dropping the 6.16 firstAudioAt
+                    // (and now the latency breakdown) before it ever reached
+                    // the server — replay showed no turn onset for months.
                     metadata: {
                         confidence: 0.95, // Default confidence for OpenAI Realtime
-                        interrupted: false // Could be enhanced to detect interruptions
+                        interrupted: false, // Could be enhanced to detect interruptions
+                        ...(item.metadata ?? {})
                     }
                 }
             };
